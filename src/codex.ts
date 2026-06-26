@@ -1,0 +1,192 @@
+import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import path from "node:path";
+import { once } from "node:events";
+import { CODEX_ARGS } from "./config.js";
+
+export interface CodexRunOptions {
+  prompt: string;
+  runDir: string;
+}
+
+export type CodexRunResult =
+  | {
+      ok: true;
+      finalText: string;
+      runDir: string;
+      stdoutPath: string;
+      stderrPath: string;
+    }
+  | {
+      ok: false;
+      reason: string;
+      runDir: string;
+      stdoutPath: string;
+      stderrPath: string;
+    };
+
+export async function run({ prompt, runDir }: CodexRunOptions): Promise<CodexRunResult> {
+  await fs.mkdir(runDir, { recursive: true });
+  const stdoutPath = path.join(runDir, "stdout.jsonl");
+  const stderrPath = path.join(runDir, "stderr.log");
+  const stdoutFile = createWriteStream(stdoutPath, { flags: "a" });
+  const stderrFile = createWriteStream(stderrPath, { flags: "a" });
+
+  const child = spawn("codex", [...CODEX_ARGS, prompt], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  child.stdout.pipe(stdoutFile, { end: false });
+  child.stderr.pipe(stderrFile, { end: false });
+
+  const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null } | { error: Error }>((resolve) => {
+    child.once("error", (error) => resolve({ error }));
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+
+  await Promise.all([finishWritable(stdoutFile), finishWritable(stderrFile)]);
+
+  if ("error" in exit) {
+    return {
+      ok: false,
+      reason: `spawn-error:${exit.error.message}`,
+      runDir,
+      stdoutPath,
+      stderrPath,
+    };
+  }
+
+  if (exit.code !== 0) {
+    const detail = exit.signal ? `signal-${exit.signal}` : `exit-code-${exit.code}`;
+    return {
+      ok: false,
+      reason: detail,
+      runDir,
+      stdoutPath,
+      stderrPath,
+    };
+  }
+
+  const lines = (await fs.readFile(stdoutPath, "utf8")).split(/\r?\n/);
+  const finalText = extractFinalAssistant(lines);
+
+  if (finalText === null) {
+    return {
+      ok: false,
+      reason: "no-final-message",
+      runDir,
+      stdoutPath,
+      stderrPath,
+    };
+  }
+
+  return {
+    ok: true,
+    finalText,
+    runDir,
+    stdoutPath,
+    stderrPath,
+  };
+}
+
+export function extractFinalAssistant(lines: string[]): string | null {
+  let finalText: string | null = null;
+
+  for (const line of lines) {
+    if (line.trim() === "") {
+      continue;
+    }
+
+    const event = parseJsonLine(line);
+    if (event === null || !isAssistantEvent(event)) {
+      continue;
+    }
+
+    const text = extractText(event);
+    if (text !== null && text.length > 0) {
+      finalText = text;
+    }
+  }
+
+  return finalText;
+}
+
+function parseJsonLine(line: string): unknown | null {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null;
+  }
+}
+
+function isAssistantEvent(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type : undefined;
+  const role = findRole(record);
+
+  if (role !== undefined) {
+    return role === "assistant";
+  }
+
+  return type === "agent_message" || type === "assistant_message" || type === "message";
+}
+
+function findRole(value: Record<string, unknown>): string | undefined {
+  if (typeof value.role === "string") {
+    return value.role;
+  }
+
+  for (const key of ["message", "item", "data"]) {
+    const nested = value[key];
+    if (typeof nested === "object" && nested !== null && "role" in nested) {
+      const role = (nested as Record<string, unknown>).role;
+      if (typeof role === "string") {
+        return role;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function extractText(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value.map(extractText).filter((part): part is string => part !== null);
+    return parts.length > 0 ? parts.join("") : null;
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const key of ["message", "content", "text"]) {
+    const text = extractText(record[key]);
+    if (text !== null) {
+      return text;
+    }
+  }
+
+  for (const key of ["item", "data"]) {
+    const text = extractText(record[key]);
+    if (text !== null) {
+      return text;
+    }
+  }
+
+  return null;
+}
+
+async function finishWritable(stream: NodeJS.WritableStream): Promise<void> {
+  stream.end();
+  await once(stream, "finish");
+}

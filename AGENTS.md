@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目目标是一个 Node.js + TypeScript 常驻脚本：运行后定期扫描指定 GitHub Issue 来源，发现新增 issue 时执行本地脚本，例如把 issue body 交给本地脚本处理。当前仓库还没有 `package.json`、`tsconfig.json` 或运行时代码，只有角色素材与本次初始化生成的协作文档。
+本项目是一个 Node.js + TypeScript 常驻脚本：运行后定期扫描指定 GitHub Issue 来源，发现需要接力的对话轮次时执行本机 `codex`，并把最终 assistant 文本评论回 GitHub Issue。当前首个运行形态固定盯 `tranfu-labs/agent-moebius#1`，把 issue body 与 comments 拼成对话历史。
 
 ## 项目结构
 ```text
@@ -9,32 +9,42 @@
 ├── agents/
 │   ├── hermes-user.md          # Hermes 用户画像素材
 │   └── product-manager.md      # 产品经理 agent 角色素材
+├── src/                        # TypeScript 运行时代码
+│   ├── runner.ts               # 常驻轮询入口
+│   ├── conversation.ts         # 对话计数、触发判断、prompt 拼接
+│   ├── github.ts               # gh CLI 读取 issue / 发表评论
+│   ├── codex.ts                # codex CLI 调用与 jsonl 解析
+│   └── state.ts                # 本地去重状态读写
+├── tests/                      # Vitest 单元测试
 ├── docs/
 │   ├── adr/                    # 架构决策记录
-│   ├── architecture/           # 模块地图
-│   └── wireframes/             # 初始化默认生成的线框图事实源
+│   └── architecture/           # 模块地图
 ├── openspec/
 │   ├── changes/                # 先设计再实现的变更工作区
 │   └── specs/                  # 当前行为事实规格
+├── package.json                # pnpm 脚本与开发依赖
+├── pnpm-lock.yaml              # 依赖锁定文件
+├── tsconfig.json               # TypeScript 严格模式配置
 └── LICENSE
 ```
 
 ## 常用命令
-当前仓库尚未定义可验证命令：没有 `package.json`、Makefile 或 justfile。
-
-- 安装：TODO: 需人工确认（新增 TypeScript 工程后补齐）
-- 运行常驻脚本：TODO: 需人工确认
-- 构建：TODO: 需人工确认
-- 测试：TODO: 需人工确认
-- lint/格式化：TODO: 需人工确认
+- 安装：`pnpm install`
+- 运行常驻脚本：`pnpm start`
+  - 需要本机 `codex` CLI 在 `PATH` 中。
+  - 需要已完成 `gh auth login`。
+  - 会真实读取 `tranfu-labs/agent-moebius#1` 并在触发条件满足时发表评论。
+- 测试：`pnpm test`
+- 类型检查：`pnpm typecheck`
+- lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
 
 ## 编码规范
-当前仓库尚未提供 `.editorconfig`、ESLint、Prettier 或 TypeScript 配置。新增运行时代码时应先补齐：
-
-- TypeScript 编译配置与 Node.js 运行方式。
-- GitHub token、目标仓库/查询条件、轮询间隔、本地脚本路径等配置入口。
-- lint、格式化、测试脚本，且写入 `package.json` scripts 后再更新本节。
-- 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令。
+- TypeScript 使用 `strict`，ESM + `moduleResolution: NodeNext`，相对导入运行时代码时使用 `.js` 后缀。
+- 运行入口使用 `tsx src/runner.ts`；自动化测试使用 Vitest。
+- GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
+- 当前目标仓库、issue 编号、轮询间隔、本地 agent Markdown 路径集中在 `src/config.ts`。
+- 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
+- `.state/` 是本地运行时去重状态目录，不提交。
 
 ## 修改前检查
 - 读 `docs/architecture/module-map.md` 确认依赖边界。
@@ -52,9 +62,3 @@
 - MUST NOT 在没有去重状态的情况下对同一个 issue 重复触发本地脚本。
 - MUST NOT 编造尚未存在的运行命令；新增脚本后同步更新本文件、模块地图和相关 OpenSpec。
 - 当前 `agents/` 是角色素材，不应被运行时代码隐式改写或当作状态存储目录。
-
-## 线框图
-本项目默认生成 `docs/wireframes/`（字符图线框，用于对齐页面信息架构与版式）。它是**版式事实源**，与 `openspec/specs/`（行为事实源）并列，靠 `openspec/changes/` 流转更新——改页面的 change 在 `changes/<id>/wireframes.md` 画字符图，归档时回流到这里。归档约定见 `openspec/changes/AGENTS.md` 的「归档」一节。
-是否保留按下面规则判断：
-- 若本项目确定为**无界面**的工具 / 库 / CLI / SDK 类（如纯 npm 工具包），删除整个 `docs/wireframes/` 目录，并删除本节。
-- 若有界面，按 `docs/wireframes/AGENTS.md` 的约定，为每个真实路由在 `docs/wireframes/pages/` 下补一页。
