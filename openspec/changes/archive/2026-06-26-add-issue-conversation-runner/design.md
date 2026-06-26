@@ -54,8 +54,16 @@ tick():
 - 进程退出（code 0）后读 jsonl，逐行 `JSON.parse`：
   - 坏行（非 JSON）→ 跳过、不抛。
   - 收集所有看起来像「assistant 消息」的事件（兼容 `type` 为 `agent_message` / `assistant_message` / `message`，文本字段为 `message` / `content` / `text`）。
+  - 真实运行确认 `codex-cli 0.130.0` 会输出 `{"type":"item.completed","item":{"type":"agent_message","text":"..."}}`；解析器必须递归检查 `item` / `data` 里的嵌套消息，否则会误判为 `no-final-message`。
   - 取最后一条的文本即为 `finalText`；一条都没找到 → `{ ok: false, reason: 'no-final-message' }`。
 - `extractFinalAssistant(lines: string[]): string | null` 作为纯函数 export 到 `codex.ts`，由 `tests/codex.test.ts` 测。
+
+### 真实运行修复记录
+- 第一次真实运行目录：`/tmp/agent-moebius-2026-06-26T15:35:17.148Z-c1`。
+- 现象：codex 已产出 `item.completed` / `item.type=agent_message` / `item.text`，但旧解析器只看顶层 `type`，runner 记录 `event:codex-failed`、`reason:no-final-message`，未发评论、未推进状态。
+- 修复：`extractFinalAssistant` 递归识别 `item` / `data` 中的 assistant message，并新增 `tests/codex.test.ts` 用例覆盖 `item.completed`。
+- 第二次真实运行目录：`/tmp/agent-moebius-2026-06-26T15:38:06.796Z-c1`。
+- 验证：runner 记录 `event:commented,count:1`；GitHub issue 产生评论 `https://github.com/tranfu-labs/agent-moebius/issues/1#issuecomment-4811069305`；`.state/tranfu-labs-agent-moebius-1.json` 推进到 `{"maxRespondedCount":1}`。
 
 ### 状态持久化
 - 文件：`./.state/tranfu-labs-agent-moebius-1.json`，内容 `{ "maxRespondedCount": number }`。

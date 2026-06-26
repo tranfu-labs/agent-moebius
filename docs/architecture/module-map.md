@@ -17,7 +17,7 @@
 - 禁止依赖：MUST NOT 依赖 `agents/` 作为运行状态；MUST NOT 直接拼接 issue 内容为 shell 命令；MUST NOT 在 codex 失败时发评论或推进去重状态。
 
 ### local-script-executor
-- 职责边界：以受控方式调用本机 `codex`，把完整 prompt 作为 argv 传入；落盘 stdout/stderr 并提取最终 assistant 文本。不负责轮询 GitHub 或判断 issue 是否已处理。
+- 职责边界：以受控方式调用本机 `codex`，把完整 prompt 作为 argv 传入；落盘 stdout/stderr 并提取最终 assistant 文本，包含递归识别 `item.completed` 中嵌套的 `agent_message`。不负责轮询 GitHub 或判断 issue 是否已处理。
 - 入口：`src/codex.ts`
 - 上游：`github-issue-runner`
 - 下游：本机 `codex` CLI、`/tmp/agent-moebius-<ISO>-c<count>/stdout.jsonl`、`/tmp/agent-moebius-<ISO>-c<count>/stderr.log`。

@@ -13,6 +13,7 @@
 - MUST 把对话历史按 `\n\n` 顺序拼接为 prompt：`<agent-md>\n\n<issue.body>\n\n<comment[0].body>\n\n<comment[1].body>...`。
 - MUST NOT 在对话型 prompt 拼接里加入作者、时间、角色、issue 编号、链接或标题等元信息，保持 prompt 文本与 issue 上的人类阅读内容一致。
 - MUST 把本地脚本（codex）的最终 assistant 文本作为新评论发回该 issue。
+- MUST 从 codex JSONL stdout 中提取最终 assistant 文本；当前已知格式包括顶层 `agent_message` / `assistant_message` / `message`，以及 `item.completed` 中嵌套的 `item.type=agent_message` / `item.text`。
 - MUST 把本地脚本每次执行的 stdout / stderr 落到 `<TMP_ROOT>/agent-moebius-<ISO>-c<count>/` 下，并在日志中打印该路径，便于追溯。
 - MUST 把已响应的最大 count 持久化到本地状态文件，进程重启后不重复响应同一 count。
 - MUST 在本地脚本失败（非 0 退出 / 解析不出最终消息）时只记日志、不发评论、不推进状态；下一轮轮询若仍满足触发条件可再次尝试。
@@ -54,19 +55,25 @@ Then 系统在日志中记录 `event:codex-failed`、`runDir`、`reason`
 And 不在 issue 发评论，不推进 `maxRespondedCount`
 And 下一轮若条件仍满足可再次尝试
 
-### 场景 6：对话型 — issue body / comment 含 shell 特殊字符
+### 场景 6：对话型 — 解析 codex item.completed 输出
+Given codex stdout JSONL 包含 `{"type":"item.completed","item":{"type":"agent_message","text":"hello"}}`
+When 系统解析 codex 最终 assistant 文本
+Then 系统识别嵌套的 `item.type=agent_message`
+And 提取 `item.text` 作为待发布评论正文
+
+### 场景 7：对话型 — issue body / comment 含 shell 特殊字符
 Given issue body 或某条 comment 含 `"`、反引号、`$()`、换行
 When 系统构造 prompt 并调用 codex
 Then 这些字符通过 argv 传入 codex 进程，shell 不参与解析
 And prompt 文本与原始 body / comment 内容字节一致
 
-### 场景 7：重复轮询不重复执行
+### 场景 8：重复轮询不重复执行
 Given 某个奇数 count 已经触发过本地脚本并被记录为 `maxRespondedCount`
 When 后续轮询仍然返回相同 count
 Then 系统不再为该 count 调用本地脚本
 
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖对话计数、触发判断、prompt 拼接、codex jsonl 最终消息解析、本地状态读写。
+- `pnpm test` MUST 通过，覆盖对话计数、触发判断、prompt 拼接、codex jsonl 最终消息解析（含 `item.completed` 嵌套 assistant message）、本地状态读写。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实读取 `tranfu-labs/agent-moebius#1`，触发条件满足时会调用 codex 并发表评论；执行前应确认这是期望的外部副作用。
