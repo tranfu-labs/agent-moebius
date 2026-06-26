@@ -40,6 +40,22 @@ describe("extractFinalAssistant", () => {
     expect(extractFinalAssistant(lines)).toBe("hello world");
   });
 
+  it("supports codex item.completed agent message events", () => {
+    const lines = [
+      JSON.stringify({ type: "thread.started", thread_id: "thread" }),
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          id: "item_0",
+          type: "agent_message",
+          text: "final from codex",
+        },
+      }),
+    ];
+
+    expect(extractFinalAssistant(lines)).toBe("final from codex");
+  });
+
   it("returns null when no assistant message is present", () => {
     const lines = [
       JSON.stringify({ type: "message", role: "user", content: "hello" }),

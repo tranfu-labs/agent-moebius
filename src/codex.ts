@@ -133,7 +133,18 @@ function isAssistantEvent(value: unknown): boolean {
     return role === "assistant";
   }
 
-  return type === "agent_message" || type === "assistant_message" || type === "message";
+  if (type === "agent_message" || type === "assistant_message" || type === "message") {
+    return true;
+  }
+
+  for (const key of ["item", "data"]) {
+    const nested = record[key];
+    if (typeof nested === "object" && nested !== null && isAssistantEvent(nested)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function findRole(value: Record<string, unknown>): string | undefined {
