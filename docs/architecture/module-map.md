@@ -4,7 +4,7 @@
 
 ### agents
 - 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。
-- 入口：`agents/product-manager.md`、`agents/hermes-user.md`、`agents/dev.md`
+- 入口：`agents/product-manager.md`、`agents/hermes-user.md`、`agents/dev.md`、`agents/reflector.md`
 - 上游：`src/runner.ts` 扫描 `agents/*.md`；最新 issue body/comment 中的 `@<name>` 命中 `agents/<name>.md` 时读取对应 Markdown 作为 system/persona 素材。
 - 下游：frontmatter 中的 `preScript` 只能指向 `src/agent-prescripts/` 下的受信任脚本。
 - 禁止依赖：MUST NOT 依赖运行时状态文件、GitHub token 或本地脚本输出。

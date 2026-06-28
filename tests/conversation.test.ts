@@ -32,6 +32,10 @@ describe("conversation", () => {
     expect(selectMentionedAgent("@unknown please ask @product-manager", ["product-manager"])).toBe("product-manager");
   });
 
+  it("selects the generic reflector agent through the standard mention mechanism", () => {
+    expect(selectMentionedAgent("@reflector please remind me", ["reflector", "dev"])).toBe("reflector");
+  });
+
   it("does not select an agent from historical messages when the latest message has none", () => {
     const timeline = buildTimeline("@product-manager old request", [{ body: "plain latest reply" }], [
       "product-manager",
