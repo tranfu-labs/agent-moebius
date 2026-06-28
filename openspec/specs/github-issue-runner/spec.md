@@ -17,7 +17,7 @@
 - MUST 将 `preScript` 路径限制在仓库内 `src/agent-prescripts/` 的静态 registry 中；issue body/comment 内容不得成为可执行脚本路径。
 - MUST 把共享时间线中的每条消息归一化为 `index`、`speaker`、`body`、`source`。
 - MUST 把 issue body 归类为 `user` speaker。
-- MUST 优先使用隐藏 metadata `<!-- agent-moebius:role=<role> -->` 识别 runner 生成的 agent comment；没有 metadata 但以 `<known-role>:` 开头的历史 comment SHOULD 按 legacy agent comment 兼容；其他 comment MUST 归类为 `user`。
+- MUST 优先使用隐藏 metadata `<!-- agent-moebius:role=<role> -->` 识别 runner 生成的 agent comment；没有 metadata 但以 `<known-role>:`、`&lt;known-role&gt;:` 或 raw `<known-role>:` 开头的历史 comment SHOULD 按 legacy agent comment 兼容；其他 comment MUST 归类为 `user`。
 - MUST 每轮只检查最新一条归一化消息作为触发源。
 - MUST 仅当触发源包含至少一个已存在 agent mention 时启动本地 `codex`。
 - MUST 在触发源没有有效 agent mention 时跳过，不调用 `codex`，不发表评论。
@@ -40,7 +40,7 @@
 - MUST 从 Codex JSONL stdout 中提取 `thread.started.thread_id` 作为 role thread 句柄。
 - SHOULD 记录 Codex JSONL 中的 `turn.completed.usage.cached_input_tokens`，用于观察 Codex resume 与模型侧 prompt caching 的收益。
 - MUST 在 pre script 返回 Codex 工作目录时，以显式 `cwd` 调用 Codex。
-- MUST 在 runner 写回 agent 评论时使用可见模板 `<role>:\n${LAST_RESPONSE}`，其中 `${LAST_RESPONSE}` 是 Codex 本轮最终 assistant 文本。
+- MUST 在 runner 写回 agent 评论时使用 GitHub 页面可见模板 `<role>:\n${LAST_RESPONSE}`，其中 `${LAST_RESPONSE}` 是 Codex 本轮最终 assistant 文本；落到 comment body 时 MUST 使用 `&lt;role&gt;:\n${LAST_RESPONSE}`，避免 GitHub Markdown 把 raw `<role>` 当作 HTML 标签处理。
 - MUST 在 runner 写回 agent 评论时追加隐藏 metadata `<!-- agent-moebius:role=<role> -->`。
 - MUST 仅在 Codex 成功且 GitHub 评论成功后更新 role thread 状态；失败时 MUST 保持旧状态，允许下一轮重试。
 - MUST 在 resume 失败或 thread id 不可用时允许回退到 full prompt 新建 Codex thread，并在 GitHub 评论成功后更新该 role 的 thread 映射。
@@ -63,7 +63,7 @@ When 一次轮询取回该 issue
 Then 系统选择 `product-manager` agent，调用本机 codex 一次
 And prompt 包含 `agents/product-manager.md` 内容与带 speaker 的共享时间线 `#0 <user>:`
 And Codex 首次执行参数不包含 `--ephemeral`
-And GitHub comment 使用 `product-manager:\n${LAST_RESPONSE}` 加 `<!-- agent-moebius:role=product-manager -->`
+And GitHub comment body 使用 `&lt;product-manager&gt;:\n${LAST_RESPONSE}` 加 `<!-- agent-moebius:role=product-manager -->`，页面可见为 `<product-manager>:\n${LAST_RESPONSE}`
 And 评论成功后保存该 role 的 `threadId` 与 `lastSeenIndex = 0`
 And `<TMP_ROOT>/agent-moebius-<ISO>-c1/` 下保留 codex 的 `stdout.jsonl` 与 `stderr.log`
 

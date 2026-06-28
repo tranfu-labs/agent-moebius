@@ -80,7 +80,7 @@ export function getLatestTimelineMessage(timeline: TimelineMessage[]): TimelineM
 }
 
 export function formatAgentComment(role: string, finalText: string): string {
-  return `${role}:\n${finalText.trimEnd()}\n\n<!-- agent-moebius:role=${role} -->`;
+  return `&lt;${role}&gt;:\n${finalText.trimEnd()}\n\n<!-- agent-moebius:role=${role} -->`;
 }
 
 export function buildRolePromptPlan(input: {
@@ -198,7 +198,7 @@ function normalizeComment(body: string, availableAgentNames: string[]): Pick<Tim
     };
   }
 
-  const legacyRole = parseLegacyRolePrefix(body);
+  const legacyRole = parseRoleEnvelopePrefix(body);
   if (legacyRole !== null && availableAgents.has(legacyRole)) {
     return {
       speaker: legacyRole,
@@ -217,9 +217,12 @@ function parseMetadataRole(body: string): string | null {
   return match?.[1] ?? null;
 }
 
-function parseLegacyRolePrefix(body: string): string | null {
-  const match = body.match(/^([a-z0-9]+(?:-[a-z0-9]+)*):(?:\s|\r?\n|$)/);
-  return match?.[1] ?? null;
+function parseRoleEnvelopePrefix(body: string): string | null {
+  const rolePattern = "([a-z0-9]+(?:-[a-z0-9]+)*)";
+  const match = body.match(
+    new RegExp(`^(?:${rolePattern}|&lt;${rolePattern}&gt;|<${rolePattern}>):(?:\\s|\\r?\\n|$)`),
+  );
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
 }
 
 function stripAgentMetadata(body: string): string {
@@ -227,7 +230,8 @@ function stripAgentMetadata(body: string): string {
 }
 
 function stripRoleEnvelope(body: string, role: string): string {
-  const pattern = new RegExp(`^${escapeRegex(role)}:\\s*`);
+  const escapedRole = escapeRegex(role);
+  const pattern = new RegExp(`^(?:${escapedRole}|&lt;${escapedRole}&gt;|<${escapedRole}>):\\s*`);
   return body.replace(pattern, "").trim();
 }
 
@@ -235,7 +239,7 @@ function buildFullPrompt(agentMarkdown: string, timeline: TimelineMessage[]): st
   return `${agentMarkdown.trimEnd()}
 
 你正在参与一个 GitHub Issue 共享时间线。请基于你的角色设定和公开时间线继续回复。
-消息格式为 #<index> <speaker>: 后接正文。你的最终回复会由 runner 使用你的 role 写回 GitHub。
+消息格式为 #<index> <speaker>: 后接正文。你的最终回复会由 runner 使用 <role>: 可见前缀写回 GitHub。
 
 当前共享时间线：
 ${formatTimelineMessages(timeline)}`;
