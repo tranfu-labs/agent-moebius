@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENTS_DIR, CONFIG_LOG_FIELDS, INTERVAL_MS, ISSUE_KEY, TMP_ROOT } from "./config.js";
+import { AGENT_CONTEXTS_STATE_PATH, AGENTS_DIR, CONFIG_LOG_FIELDS, INTERVAL_MS, ISSUE_KEY, ISSUE_SOURCE, TMP_ROOT, WORKDIR_ROOT } from "./config.js";
+import { parseAgentManifest } from "./agent-manifest.js";
+import { runAgentPreScript } from "./agent-prescripts/index.js";
 import {
   buildFallbackFullPrompt,
   buildRolePromptPlan,
@@ -63,11 +65,12 @@ export async function tick(): Promise<void> {
     log({ event: "trigger", count, runDir, agent: selectedAgent.name, issueKey: ISSUE_KEY });
 
     const agentMarkdown = await fs.readFile(selectedAgent.path, "utf8");
+    const agentManifest = parseAgentManifest(agentMarkdown);
     const stateStore = await loadRoleThreadStateStore();
     const existingState = getRoleThreadState(stateStore, ISSUE_KEY, selectedAgent.name);
     const plan = buildRolePromptPlan({
       role: selectedAgent.name,
-      agentMarkdown,
+      agentMarkdown: agentManifest.body,
       timeline,
       state: existingState,
     });
@@ -77,11 +80,46 @@ export async function tick(): Promise<void> {
       return;
     }
 
+    let codexCwd: string | undefined;
+    if (agentManifest.preScript !== null) {
+      const preScriptResult = await runAgentPreScript({
+        role: selectedAgent.name,
+        preScript: agentManifest.preScript,
+        latestIndex: plan.latestIndex,
+        issueSource: ISSUE_SOURCE,
+        workdirRoot: WORKDIR_ROOT,
+        contextStatePath: AGENT_CONTEXTS_STATE_PATH,
+      });
+
+      if (!preScriptResult.ok) {
+        log({
+          event: "agent-prescript-failed",
+          count,
+          runDir,
+          agent: selectedAgent.name,
+          preScript: agentManifest.preScript,
+          reason: preScriptResult.reason,
+        });
+        return;
+      }
+
+      codexCwd = preScriptResult.codexCwd;
+      log({
+        event: "agent-prescript-completed",
+        count,
+        runDir,
+        agent: selectedAgent.name,
+        preScript: agentManifest.preScript,
+        codexCwd,
+      });
+    }
+
     let currentThreadId = plan.mode === "resume" ? plan.threadId : null;
     let finalRunDir = runDir;
     let result = await runCodex({
       prompt: plan.prompt,
       runDir,
+      cwd: codexCwd,
       mode: plan.mode === "resume" ? { kind: "resume", threadId: plan.threadId } : { kind: "full" },
     });
 
@@ -98,8 +136,9 @@ export async function tick(): Promise<void> {
       currentThreadId = null;
       finalRunDir = `${runDir}-fallback`;
       result = await runCodex({
-        prompt: buildFallbackFullPrompt(agentMarkdown, timeline),
+        prompt: buildFallbackFullPrompt(agentManifest.body, timeline),
         runDir: finalRunDir,
+        cwd: codexCwd,
         mode: { kind: "full" },
       });
     }

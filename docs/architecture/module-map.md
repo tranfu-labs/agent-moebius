@@ -3,17 +3,24 @@
 当前仓库已提供 TypeScript 运行时代码；`agents/` 仍只作为 Markdown 素材模块记录，不承担运行时状态。
 
 ### agents
-- 职责边界：存放 agent/用户画像类 Markdown 素材；不负责 GitHub 轮询、状态记录或本地脚本执行。
-- 入口：`agents/product-manager.md`、`agents/hermes-user.md`
+- 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。
+- 入口：`agents/product-manager.md`、`agents/hermes-user.md`、`agents/dev.md`
 - 上游：`src/runner.ts` 扫描 `agents/*.md`；最新 issue body/comment 中的 `@<name>` 命中 `agents/<name>.md` 时读取对应 Markdown 作为 system/persona 素材。
-- 下游：无运行时依赖。
+- 下游：frontmatter 中的 `preScript` 只能指向 `src/agent-prescripts/` 下的受信任脚本。
 - 禁止依赖：MUST NOT 依赖运行时状态文件、GitHub token 或本地脚本输出。
 
+### agent-prescripts
+- 职责边界：在 Codex 执行前为特定 agent 准备确定性运行上下文；当前 `dev-workspace` 基于 runner 正在处理的 GitHub issue source 创建 / 复用 issue 独占 worktree，并返回 Codex cwd。
+- 入口：`src/agent-manifest.ts` 解析 `agents/*.md` frontmatter；`src/agent-prescripts/index.ts` 通过静态 registry 执行受信任脚本；`src/agent-prescripts/dev-workspace.ts` 实现 `@dev` 工作目录准备。
+- 上游：`src/runner.ts` 在选中 agent 且需要调用 Codex 前执行。
+- 下游：本地 `git` CLI、`src/agent-context-state.ts`、`src/config.ts` 的 workdir root 与 issue source。
+- 禁止依赖：MUST NOT 执行 issue body/comment 中声明的任意脚本路径；MUST NOT 用 shell 拼接外部输入；MUST NOT 把运行状态写入 `agents/`。
+
 ### github-issue-runner
-- 职责边界：常驻运行，轮询 `tranfu-labs/agent-moebius#3`，把 issue body + comments 归一化为带 speaker 的共享时间线；当最新归一化消息艾特了 `agents/*.md` 中存在的 agent 时，进入该 role 独立 Codex thread 并回评 GitHub issue。
+- 职责边界：常驻运行，轮询 `tranfu-labs/agent-moebius#4`，把 issue body + comments 归一化为带 speaker 的共享时间线；当最新归一化消息艾特了 `agents/*.md` 中存在的 agent 时，进入该 role 独立 Codex thread 并回评 GitHub issue。
 - 入口：`pnpm start` → `src/runner.ts`
 - 上游：进程启动命令、本机 `gh auth login`、本机 `codex` CLI。
-- 下游：`src/github.ts`、`src/conversation.ts`、`src/codex.ts`、`src/state.ts`、`agents/*.md`。
+- 下游：`src/github.ts`、`src/conversation.ts`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
 - 禁止依赖：MUST NOT 依赖 `agents/` 作为运行状态；MUST NOT 直接拼接 issue 内容为 shell 命令；MUST NOT 在 codex 失败时发评论。
 
 ### conversation-protocol
@@ -24,7 +31,7 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 把 issue 内容拼成 shell 命令。
 
 ### local-script-executor
-- 职责边界：以受控方式调用本机 `codex`，支持首次 `codex exec` 与后续 `codex exec resume <threadId>`；把 prompt 作为 argv 传入；落盘 stdout/stderr 并提取最终 assistant 文本、`thread.started.thread_id`、`turn.completed.usage.cached_input_tokens`。不负责轮询 GitHub、speaker 归一化或判断 issue 是否已处理。
+- 职责边界：以受控方式调用本机 `codex`，支持首次 `codex exec` 与后续 `codex exec resume <threadId>`；把 prompt 作为 argv 传入；可接收 pre script 返回的 `cwd` 显式设置 Codex 工作目录；落盘 stdout/stderr 并提取最终 assistant 文本、`thread.started.thread_id`、`turn.completed.usage.cached_input_tokens`。不负责轮询 GitHub、speaker 归一化或判断 issue 是否已处理。
 - 入口：`src/codex.ts`
 - 上游：`github-issue-runner`
 - 下游：本机 `codex` CLI、`/tmp/agent-moebius-<ISO>-c<count>/stdout.jsonl`、`/tmp/agent-moebius-<ISO>-c<count>/stderr.log`。
@@ -35,6 +42,13 @@
 - 入口：`src/state.ts`
 - 上游：`github-issue-runner`
 - 下游：本地 `.state/role-threads.json`。
+- 禁止依赖：MUST NOT 存放在 `agents/`；MUST NOT 存 GitHub token、prompt 全文或 codex 执行日志。
+
+### agent-context-state
+- 职责边界：读取与写入本地 `.state/agent-contexts.json`，保存 issue + role 到 agent pre script 上下文的映射；当前用于记录 `@dev` 的 issue 独占 worktree。
+- 入口：`src/agent-context-state.ts`
+- 上游：`agent-prescripts`
+- 下游：本地 `.state/agent-contexts.json`。
 - 禁止依赖：MUST NOT 存放在 `agents/`；MUST NOT 存 GitHub token、prompt 全文或 codex 执行日志。
 
 ### github-client

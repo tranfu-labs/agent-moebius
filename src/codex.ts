@@ -11,6 +11,7 @@ export interface CodexRunOptions {
   prompt: string;
   runDir: string;
   mode?: CodexRunMode;
+  cwd?: string;
 }
 
 export type CodexRunResult =
@@ -31,7 +32,7 @@ export type CodexRunResult =
       stderrPath: string;
     };
 
-export async function run({ prompt, runDir, mode = { kind: "full" } }: CodexRunOptions): Promise<CodexRunResult> {
+export async function run({ prompt, runDir, mode = { kind: "full" }, cwd }: CodexRunOptions): Promise<CodexRunResult> {
   await fs.mkdir(runDir, { recursive: true });
   const stdoutPath = path.join(runDir, "stdout.jsonl");
   const stderrPath = path.join(runDir, "stderr.log");
@@ -39,6 +40,7 @@ export async function run({ prompt, runDir, mode = { kind: "full" } }: CodexRunO
   const stderrFile = createWriteStream(stderrPath, { flags: "a" });
 
   const child = spawn("codex", buildCodexArgs(prompt, mode), {
+    cwd,
     stdio: ["ignore", "pipe", "pipe"],
   });
 

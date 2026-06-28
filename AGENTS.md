@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本：运行后定期扫描指定 GitHub Issue 来源，发现最新消息明确艾特了本地存在的 agent 时执行本机 `codex`，并把最终 assistant 文本评论回 GitHub Issue。当前首个运行形态固定盯 `tranfu-labs/agent-moebius#3`，把 issue body 与 comments 归一化为带 speaker 的共享时间线，并为每个 role 维护独立 Codex thread。
+本项目是一个 Node.js + TypeScript 常驻脚本：运行后定期扫描指定 GitHub Issue 来源，发现最新消息明确艾特了本地存在的 agent 时执行本机 `codex`，并把最终 assistant 文本评论回 GitHub Issue。当前首个运行形态固定盯 `tranfu-labs/agent-moebius#4`，把 issue body 与 comments 归一化为带 speaker 的共享时间线，并为每个 role 维护独立 Codex thread。
 
 ## 项目结构
 ```text
@@ -14,6 +14,8 @@
 │   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
 │   ├── github.ts               # gh CLI 读取 issue / 发表评论
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
+│   ├── agent-prescripts/       # agent 级 Codex 执行前准备脚本
+│   ├── agent-context-state.ts  # .state/agent-contexts.json 状态读写适配
 │   └── state.ts                # .state/role-threads.json 状态读写适配
 ├── tests/                      # Vitest 单元测试
 ├── docs/
@@ -33,7 +35,7 @@
 - 运行常驻脚本：`pnpm start`
   - 需要本机 `codex` CLI 在 `PATH` 中。
   - 需要已完成 `gh auth login`。
-  - 会真实读取 `tranfu-labs/agent-moebius#3`，当最新 issue body/comment 艾特了 `agents/*.md` 中存在的 agent 时会发表评论。
+  - 会真实读取 `tranfu-labs/agent-moebius#4`，当最新 issue body/comment 艾特了 `agents/*.md` 中存在的 agent 时会发表评论。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
@@ -44,8 +46,12 @@
 - GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
 - 当前目标仓库、issue 编号、轮询间隔、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
 - `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源。
+- `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
+- `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。
 - runner 写回 agent 评论时使用 `<role>:\n${LAST_RESPONSE}` 可见前缀，并追加 `<!-- agent-moebius:role=<role> -->` metadata，便于后续归一化 speaker。
 - 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。
+- agent pre script 上下文保存在被忽略的 `.state/agent-contexts.json`；当前 `@dev` 记录 issue、role、preScript、目标仓库、worktreePath 与 preparedFromMessageIndex。
+- 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
 - `conversation.ts` 只做业务数据操作；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts` 适配；`runner.ts` 只做编排。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 
@@ -63,5 +69,6 @@
 - MUST NOT 提交 GitHub token、个人访问令牌、本地绝对路径、执行日志中的敏感内容或 `.env` 文件。
 - MUST NOT 把 issue title/body/author 等外部输入直接拼接到 shell 命令中执行。
 - MUST NOT 把 `agents/` 当作运行时状态目录；它只存放可被 mention 寻址的 Markdown 角色素材。
+- MUST NOT 允许 issue body/comment 或 agent Markdown 正文指定任意可执行脚本；只有 frontmatter 中指向 `src/agent-prescripts/` 的受信任 registry 脚本可执行。
 - MUST NOT 编造尚未存在的运行命令；新增脚本后同步更新本文件、模块地图和相关 OpenSpec。
 - 当前 `agents/` 是角色素材，不应被运行时代码隐式改写或当作状态存储目录。
