@@ -62,7 +62,7 @@
 - GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active，按 1 分钟轮询；连续 5 次 active poll 无变化后降回 idle。
 - `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
-- `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。
+- `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。该 pre script 每次准备前刷新目标仓库远端 `main` tracking ref，新建 worktree 从最新远端 `main` 创建；复用已有 worktree 时若当前 `HEAD` 未包含最新远端 `main`，则 fail closed，不自动 rebase / merge。
 - `agents/dev.md` 可在回复末尾输出 `<!-- agent-moebius:stage=plan-confirmed -->` 或 `<!-- agent-moebius:stage=code-complete -->`，只声明阶段，不直接指定后续 agent。
 - `agents/reflector.md` 是通用反思接力展示身份；普通 `@reflector` 不启动 Codex，reflector 由 `src/triggers/reflector-stage-trigger.ts` 根据 stage metadata 触发，并直接发布 hook 评论。
 - runner 写回 agent 评论时使用 GitHub 页面可见的 `<role>:\n${LAST_RESPONSE}` 前缀；comment body 中落 `&lt;role&gt;:\n${LAST_RESPONSE}`，并追加 `<!-- agent-moebius:role=<role> -->` metadata，便于后续归一化 speaker。

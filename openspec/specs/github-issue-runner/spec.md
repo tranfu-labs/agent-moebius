@@ -63,7 +63,10 @@
 - MUST 支持 `dev` pre script 基于 runner 当前处理的 GitHub issue source（owner、repo、issueNumber）准备 Codex 工作目录，而不是解析 issue body/comment 中的链接。
 - MUST 为每个 source issue 创建并复用一个 `dev` issue 独占 worktree；不同 source issue 即使属于同一个 repo 也 MUST 使用不同 worktree。
 - MUST 允许同一 repository 的多个 issue worktree 复用本地 bare repo cache，但 MUST 保持 worktree 彼此隔离。
-- SHOULD 在复用已有 repository cache 创建新 issue worktree 前刷新该 cache。
+- MUST 在新建或复用 `dev` issue worktree 前刷新目标仓库远端 `main` tracking ref。
+- MUST 从已刷新的远端 `main` tracking ref 创建新的 `dev` issue worktree；MUST NOT 依赖本地 bare repo 的 `HEAD` 作为新 worktree 基线。
+- MUST 在复用已有 `dev` issue worktree 前检查当前 worktree `HEAD` 是否包含最新远端 `main`。
+- MUST 在已有 `dev` issue worktree 落后最新远端 `main` 时 fail closed，不自动 rebase、不自动 merge、不调用 Codex、不发表评论、不推进 role thread 状态。
 - MUST 在已有 `dev` context 指向缺失或不可访问 worktree 时 fail closed，不自动重建。
 - MUST 允许同一个 issue 中多个 role 参与对话，并为每个 role 维护独立 Codex thread。
 - MUST 把 role thread 状态保存在本地忽略目录 `.state/role-threads.json`，状态至少包含 issue 标识、role、threadId、lastSeenIndex。

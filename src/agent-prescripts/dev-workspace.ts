@@ -22,9 +22,13 @@ interface DevWorkspaceDependencies {
   mkdir(path: string, options: { recursive: true }): Promise<void>;
   pathExists(path: string): Promise<boolean>;
   runGit(args: string[]): Promise<void>;
+  isGitAncestor(input: { cwd: string; ancestor: string; descendant: string }): Promise<boolean>;
   loadState(filePath: string): Promise<Record<string, Record<string, AgentContextState>>>;
   saveState(store: Record<string, Record<string, AgentContextState>>, filePath: string): Promise<void>;
 }
+
+const REMOTE_MAIN_REF = "refs/remotes/origin/main";
+const FETCH_REMOTE_MAIN_REFSPEC = `+refs/heads/main:${REMOTE_MAIN_REF}`;
 
 const defaultDependencies: DevWorkspaceDependencies = {
   access: (targetPath) => fs.access(targetPath),
@@ -33,6 +37,7 @@ const defaultDependencies: DevWorkspaceDependencies = {
   },
   pathExists,
   runGit,
+  isGitAncestor,
   loadState: loadAgentContextStateStore,
   saveState: saveAgentContextStateStore,
 };
@@ -67,6 +72,7 @@ async function runDevWorkspacePreScriptUnsafe(
 ): Promise<AgentPreScriptResult> {
   const stateStore = await dependencies.loadState(input.contextStatePath);
   const existingState = getAgentContextState(stateStore, input.issueSource.issueKey, input.role);
+  const paths = buildDevWorkspacePaths(input);
 
   if (existingState !== null) {
     const validationError = validateExistingContext(existingState, input);
@@ -80,10 +86,23 @@ async function runDevWorkspacePreScriptUnsafe(
       return { ok: false, reason: `missing-worktree:${existingState.worktreePath}` };
     }
 
+    if (!(await dependencies.pathExists(paths.repoCachePath))) {
+      return { ok: false, reason: `missing-repo-cache:${paths.repoCachePath}` };
+    }
+
+    await refreshRemoteMain(paths.repoCachePath, dependencies);
+    const containsLatestMain = await dependencies.isGitAncestor({
+      cwd: existingState.worktreePath,
+      ancestor: REMOTE_MAIN_REF,
+      descendant: "HEAD",
+    });
+    if (!containsLatestMain) {
+      return { ok: false, reason: `stale-worktree-base:${existingState.worktreePath}` };
+    }
+
     return { ok: true, codexCwd: existingState.worktreePath };
   }
 
-  const paths = buildDevWorkspacePaths(input);
   if (await dependencies.pathExists(paths.worktreePath)) {
     return { ok: false, reason: `worktree-exists-without-context:${paths.worktreePath}` };
   }
@@ -93,11 +112,10 @@ async function runDevWorkspacePreScriptUnsafe(
 
   if (!(await dependencies.pathExists(paths.repoCachePath))) {
     await dependencies.runGit(["clone", "--bare", input.issueSource.cloneUrl, paths.repoCachePath]);
-  } else {
-    await dependencies.runGit(["--git-dir", paths.repoCachePath, "fetch", "--prune"]);
   }
 
-  await dependencies.runGit(["--git-dir", paths.repoCachePath, "worktree", "add", paths.worktreePath, "HEAD"]);
+  await refreshRemoteMain(paths.repoCachePath, dependencies);
+  await dependencies.runGit(["--git-dir", paths.repoCachePath, "worktree", "add", paths.worktreePath, REMOTE_MAIN_REF]);
   await dependencies.access(paths.worktreePath);
 
   const nextState = withAgentContextState(stateStore, input.issueSource.issueKey, input.role, {
@@ -111,6 +129,17 @@ async function runDevWorkspacePreScriptUnsafe(
   await dependencies.saveState(nextState, input.contextStatePath);
 
   return { ok: true, codexCwd: paths.worktreePath };
+}
+
+async function refreshRemoteMain(repoCachePath: string, dependencies: DevWorkspaceDependencies): Promise<void> {
+  await dependencies.runGit([
+    "--git-dir",
+    repoCachePath,
+    "fetch",
+    "--prune",
+    "origin",
+    FETCH_REMOTE_MAIN_REFSPEC,
+  ]);
 }
 
 function validateExistingContext(state: AgentContextState, input: AgentPreScriptInput): string | null {
@@ -157,6 +186,30 @@ async function runGit(args: string[]): Promise<void> {
 
       const suffix = signal ? `signal-${signal}` : `exit-code-${code}`;
       reject(new Error(`git failed with ${suffix}`));
+    });
+  });
+}
+
+async function isGitAncestor(input: { cwd: string; ancestor: string; descendant: string }): Promise<boolean> {
+  return await new Promise<boolean>((resolve, reject) => {
+    const child = spawn("git", ["-C", input.cwd, "merge-base", "--is-ancestor", input.ancestor, input.descendant], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+
+    child.once("error", reject);
+    child.once("close", (code, signal) => {
+      if (code === 0) {
+        resolve(true);
+        return;
+      }
+
+      if (code === 1) {
+        resolve(false);
+        return;
+      }
+
+      const suffix = signal ? `signal-${signal}` : `exit-code-${code}`;
+      reject(new Error(`git merge-base failed with ${suffix}`));
     });
   });
 }

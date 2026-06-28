@@ -14,6 +14,9 @@ import {
 } from "../src/agent-context-state.js";
 import type { AgentPreScriptInput } from "../src/agent-prescripts/types.js";
 
+const REMOTE_MAIN_REF = "refs/remotes/origin/main";
+const FETCH_REMOTE_MAIN_REFSPEC = `+refs/heads/main:${REMOTE_MAIN_REF}`;
+
 describe("dev workspace pre script", () => {
   it("creates a repo cache and issue-specific worktree on first run", async () => {
     const root = await makeTempDir();
@@ -29,7 +32,9 @@ describe("dev workspace pre script", () => {
           return;
         }
 
-        await fs.mkdir(args[4] as string, { recursive: true });
+        if (args[2] === "worktree") {
+          await fs.mkdir(args[4] as string, { recursive: true });
+        }
       },
     });
 
@@ -37,7 +42,22 @@ describe("dev workspace pre script", () => {
     expect(result).toEqual({ ok: true, codexCwd: expectedWorktreePath });
     expect(commands).toEqual([
       ["clone", "--bare", "https://github.com/tranfu-labs/agent-moebius.git", path.join(root, "repos", "tranfu-labs__agent-moebius.git")],
-      ["--git-dir", path.join(root, "repos", "tranfu-labs__agent-moebius.git"), "worktree", "add", expectedWorktreePath, "HEAD"],
+      [
+        "--git-dir",
+        path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
+        "fetch",
+        "--prune",
+        "origin",
+        FETCH_REMOTE_MAIN_REFSPEC,
+      ],
+      [
+        "--git-dir",
+        path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
+        "worktree",
+        "add",
+        expectedWorktreePath,
+        REMOTE_MAIN_REF,
+      ],
     ]);
 
     await expect(loadAgentContextStateStore(input.contextStatePath)).resolves.toEqual({
@@ -54,11 +74,14 @@ describe("dev workspace pre script", () => {
     });
   });
 
-  it("reuses an existing context without running git", async () => {
+  it("reuses an existing context after confirming it contains latest main", async () => {
     const root = await makeTempDir();
+    const commands: string[][] = [];
     const input = makeInput(root);
     const worktreePath = path.join(root, "worktrees", "existing");
+    const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
     await fs.mkdir(worktreePath, { recursive: true });
+    await fs.mkdir(repoCachePath, { recursive: true });
     await saveAgentContextStateStore(
       {
         "tranfu-labs/agent-moebius#4": {
@@ -77,12 +100,19 @@ describe("dev workspace pre script", () => {
 
     const result = await runDevWorkspacePreScript(input, {
       ...makeFsDependencies(),
-      runGit: async () => {
-        throw new Error("git should not run");
+      runGit: async (args) => {
+        commands.push(args);
+      },
+      isGitAncestor: async (args) => {
+        expect(args).toEqual({ cwd: worktreePath, ancestor: REMOTE_MAIN_REF, descendant: "HEAD" });
+        return true;
       },
     });
 
     expect(result).toEqual({ ok: true, codexCwd: worktreePath });
+    expect(commands).toEqual([
+      ["--git-dir", repoCachePath, "fetch", "--prune", "origin", FETCH_REMOTE_MAIN_REFSPEC],
+    ]);
   });
 
   it("fetches an existing repo cache before creating a new issue worktree", async () => {
@@ -103,16 +133,59 @@ describe("dev workspace pre script", () => {
 
     expect(result.ok).toBe(true);
     expect(commands).toEqual([
-      ["--git-dir", path.join(root, "repos", "tranfu-labs__agent-moebius.git"), "fetch", "--prune"],
+      [
+        "--git-dir",
+        path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
+        "fetch",
+        "--prune",
+        "origin",
+        FETCH_REMOTE_MAIN_REFSPEC,
+      ],
       [
         "--git-dir",
         path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
         "worktree",
         "add",
         path.join(root, "worktrees", "tranfu-labs__agent-moebius__4__dev"),
-        "HEAD",
+        REMOTE_MAIN_REF,
       ],
     ]);
+  });
+
+  it("fails closed when an existing worktree is behind latest main", async () => {
+    const root = await makeTempDir();
+    const input = makeInput(root);
+    const worktreePath = path.join(root, "worktrees", "existing");
+    const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
+    await fs.mkdir(worktreePath, { recursive: true });
+    await fs.mkdir(repoCachePath, { recursive: true });
+    await saveAgentContextStateStore(
+      {
+        "tranfu-labs/agent-moebius#4": {
+          dev: {
+            preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
+            owner: "tranfu-labs",
+            repo: "agent-moebius",
+            issueNumber: 4,
+            worktreePath,
+            preparedFromMessageIndex: 2,
+          },
+        },
+      },
+      input.contextStatePath,
+    );
+
+    const result = await runDevWorkspacePreScript(input, {
+      ...makeFsDependencies(),
+      runGit: async () => {},
+      isGitAncestor: async () => false,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toBe(`stale-worktree-base:${worktreePath}`);
   });
 
   it("fails closed when an existing context points to a missing worktree", async () => {
@@ -174,6 +247,7 @@ function makeFsDependencies(): {
   access(path: string): Promise<void>;
   mkdir(path: string, options: { recursive: true }): Promise<void>;
   pathExists(path: string): Promise<boolean>;
+  isGitAncestor(input: { cwd: string; ancestor: string; descendant: string }): Promise<boolean>;
   loadState(filePath: string): Promise<Record<string, Record<string, AgentContextState>>>;
   saveState(store: Record<string, Record<string, AgentContextState>>, filePath: string): Promise<void>;
 } {
@@ -189,6 +263,9 @@ function makeFsDependencies(): {
       } catch {
         return false;
       }
+    },
+    isGitAncestor: async () => {
+      throw new Error("isGitAncestor should not run");
     },
     loadState: loadAgentContextStateStore,
     saveState: saveAgentContextStateStore,

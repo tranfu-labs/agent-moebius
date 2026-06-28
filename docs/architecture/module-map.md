@@ -17,7 +17,7 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 把 issue 内容拼成 shell 命令；MUST NOT 把 reflector stage 白名单写进 `runner.ts`。
 
 ### agent-prescripts
-- 职责边界：在 Codex 执行前为特定 agent 准备确定性运行上下文；当前 `dev-workspace` 基于 runner 正在处理的 GitHub issue source 创建 / 复用 issue 独占 worktree，并返回 Codex cwd。
+- 职责边界：在 Codex 执行前为特定 agent 准备确定性运行上下文；当前 `dev-workspace` 基于 runner 正在处理的 GitHub issue source 创建 / 复用 issue 独占 worktree，刷新远端 `main` 基线，复用时检测 worktree 是否已包含最新 `main`，并返回 Codex cwd。
 - 入口：`src/agent-manifest.ts` 解析 `agents/*.md` frontmatter；`src/agent-prescripts/index.ts` 通过静态 registry 执行受信任脚本；`src/agent-prescripts/dev-workspace.ts` 实现 `@dev` 工作目录准备。
 - 上游：`src/runner.ts` 在选中 agent 且需要调用 Codex 前执行。
 - 下游：本地 `git` CLI、`src/agent-context-state.ts`、`src/config.ts` 的 workdir root 与 issue source。
