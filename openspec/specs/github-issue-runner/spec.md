@@ -6,8 +6,11 @@
 当前首个运行形态是对话型 issue runner：固定盯 `tranfu-labs/agent-moebius#4`，把 issue body 与 comments 视作一条共享时间线。
 
 ## 业务规则
-- MUST 作为常驻进程运行，并在启动时立即跑一轮，然后按 5 分钟间隔轮询。
+- MUST 作为常驻进程运行，并在启动时立即跑一轮，然后按配置的 `INTERVAL_MS` 间隔轮询。
 - MUST 支持以对话型 issue runner 形态运行：盯单一指定 issue，把 issue body 与 comments 视作 append-only 共享时间线。
+- MUST 在配置的目标 issue 暂不可解析时把本轮视为可恢复 skip，记录 `reason = "issue-not-found"` 与 `issueKey`，并等待后续轮询。
+- MUST 在目标 issue 不存在时不调用 Codex、不发表评论、不更新本地状态。
+- MUST 继续把非 issue-not-found 的 GitHub CLI 失败视作 cycle error。
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息中的 `@<agent-name>`。
 - MUST 支持 agent Markdown frontmatter 声明受信任 `preScript`，用于 runner 在 Codex 执行前准备上下文；Markdown 正文仍作为 persona 文本输入 Codex。
@@ -129,7 +132,15 @@ When 系统构造 prompt 并调用 codex
 Then 这些字符通过 argv 传入 codex 进程，shell 不参与解析
 And 评论正文通过 gh stdin 写入，shell 不参与解析
 
-### 场景 11：Dev agent — 首次触发创建 issue 独占 worktree
+### 场景 11：对话型 — 配置的目标 issue 暂不存在
+Given 配置的目标 issue number 在 GitHub 中暂不可解析
+When 一次轮询读取 issue
+Then 系统记录 `event = "skip"` 与 `reason = "issue-not-found"`
+And 不调用 Codex
+And 不发表评论
+And 不更新本地状态
+
+### 场景 12：Dev agent — 首次触发创建 issue 独占 worktree
 Given 最新消息包含 `@dev`
 And `agents/dev.md` frontmatter 声明 `preScript: src/agent-prescripts/dev-workspace.ts`
 And `.state/agent-contexts.json` 中没有当前 issue + `dev` context
@@ -140,14 +151,14 @@ And 在 `<WORKDIR_ROOT>/worktrees/` 下创建当前 issue 的 `dev` worktree
 And 以该 worktree 作为 Codex cwd 执行本轮
 And 保存 `.state/agent-contexts.json`
 
-### 场景 12：Dev agent — 后续触发复用已有 worktree
+### 场景 13：Dev agent — 后续触发复用已有 worktree
 Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
 And 该 context 的 worktreePath 可访问
 When 最新消息再次包含 `@dev`
 Then 系统不重复 clone，不重复创建 worktree
 And 以已记录 worktreePath 作为 Codex cwd 执行 resume 或 fallback full run
 
-### 场景 13：Dev agent — worktree 缺失时 fail closed
+### 场景 14：Dev agent — worktree 缺失时 fail closed
 Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
 And 该 context 的 worktreePath 不存在或不可访问
 When 最新消息包含 `@dev`
@@ -160,4 +171,4 @@ And 不更新 `.state/role-threads.json`
 - `pnpm test` MUST 通过，覆盖对话计数、最新消息选择、agent mention 解析、agent 选择、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
-- `pnpm start` 会真实读取 `tranfu-labs/agent-moebius#4`，最新消息包含有效 agent mention 时会调用 codex 并发表评论；执行前应确认这是期望的外部副作用。
+- `pnpm start` 会真实读取 `tranfu-labs/agent-moebius#4`；目标 issue 暂不存在时记录 skip，最新消息包含有效 agent mention 时会调用 codex 并发表评论；执行前应确认这是期望的外部副作用。

@@ -35,7 +35,7 @@
 - 运行常驻脚本：`pnpm start`
   - 需要本机 `codex` CLI 在 `PATH` 中。
   - 需要已完成 `gh auth login`。
-  - 会真实读取 `tranfu-labs/agent-moebius#4`，当最新 issue body/comment 艾特了 `agents/*.md` 中存在的 agent 时会发表评论。
+  - 会真实读取 `tranfu-labs/agent-moebius#4`；如果该 issue 暂不存在，本轮会记录 skip 并等待后续轮询。最新 issue body/comment 艾特了 `agents/*.md` 中存在的 agent 时会发表评论。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。

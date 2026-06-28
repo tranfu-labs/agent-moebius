@@ -15,7 +15,7 @@ import {
   selectMentionedAgent,
 } from "./conversation.js";
 import { run as runCodex } from "./codex.js";
-import { fetchIssueWithComments, postComment } from "./github.js";
+import { fetchIssueWithComments, isGitHubIssueNotFoundError, postComment } from "./github.js";
 import { log } from "./log.js";
 import {
   getRoleThreadState,
@@ -170,6 +170,11 @@ export async function tick(): Promise<void> {
       cachedInputTokens: result.cachedInputTokens,
     });
   } catch (error) {
+    if (isGitHubIssueNotFoundError(error)) {
+      log({ event: "skip", reason: "issue-not-found", issueKey: error.issueKey, detail: error.detail.trim() });
+      return;
+    }
+
     log({ event: "cycle-error", error: formatError(error) });
   } finally {
     running = false;

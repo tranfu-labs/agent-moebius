@@ -17,7 +17,7 @@
 - 禁止依赖：MUST NOT 执行 issue body/comment 中声明的任意脚本路径；MUST NOT 用 shell 拼接外部输入；MUST NOT 把运行状态写入 `agents/`。
 
 ### github-issue-runner
-- 职责边界：常驻运行，轮询 `tranfu-labs/agent-moebius#4`，把 issue body + comments 归一化为带 speaker 的共享时间线；当最新归一化消息艾特了 `agents/*.md` 中存在的 agent 时，进入该 role 独立 Codex thread 并回评 GitHub issue。
+- 职责边界：常驻运行，轮询 `tranfu-labs/agent-moebius#4`，把 issue body + comments 归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当最新归一化消息艾特了 `agents/*.md` 中存在的 agent 时，进入该 role 独立 Codex thread 并回评 GitHub issue。
 - 入口：`pnpm start` → `src/runner.ts`
 - 上游：进程启动命令、本机 `gh auth login`、本机 `codex` CLI。
 - 下游：`src/github.ts`、`src/conversation.ts`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
