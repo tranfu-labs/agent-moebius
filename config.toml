@@ -1,0 +1,16 @@
+# agent-moebius default configuration.
+#
+# This checked-in file is an example. It should not enable repository
+# monitoring by default.
+#
+# Put machine-local repository entries in config.local.toml instead.
+#
+# Example:
+#
+# [[watchRepositories]]
+# owner = "tranfu-labs"
+# repo = "tranfu-agents-app"
+#
+# [[watchRepositories]]
+# owner = "tranfu-labs"
+# repo = "agent-moebius"

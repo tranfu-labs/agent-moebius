@@ -87,7 +87,7 @@ export async function tick(now = new Date()): Promise<void> {
       });
     }
 
-    for (const source of getDueActiveIssueSources({ state: intakeState, now })) {
+    for (const source of getDueActiveIssueSources({ repositories: WATCH_REPOSITORIES, state: intakeState, now })) {
       intakeState = await pollActiveIssue({
         state: intakeState,
         source,
@@ -97,6 +97,7 @@ export async function tick(now = new Date()): Promise<void> {
     }
 
     const limited = enforceActiveIssueLimit({
+      repositories: WATCH_REPOSITORIES,
       state: intakeState,
       maxActiveIssues: MAX_ACTIVE_ISSUES,
     });

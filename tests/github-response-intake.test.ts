@@ -176,25 +176,37 @@ describe("github response intake", () => {
     });
   });
 
-  it("returns due active issue sources and enforces the active issue limit", () => {
+  it("returns due active issue sources only for watched repositories and enforces their active issue limit", () => {
     const state: GitHubResponseIntakeState = {
       repositories: {},
       issues: {
         "tranfu-labs/agent-moebius#1": activeIssue(1, "2026-06-28T00:01:00.000Z"),
         "tranfu-labs/agent-moebius#2": activeIssue(2, "2026-06-28T00:02:00.000Z"),
+        "tranfu-labs/other-repo#3": {
+          owner: "tranfu-labs",
+          repo: "other-repo",
+          issueNumber: 3,
+          mode: "active",
+          updatedAt: "2026-06-28T00:03:00.000Z",
+          activeNoChangeCount: 0,
+          nextPollAt: "2026-06-28T00:00:00.000Z",
+        },
       },
     };
 
-    expect(getDueActiveIssueSources({ state, now }).map((source) => source.issueKey)).toEqual([
+    expect(getDueActiveIssueSources({ repositories: [repo], state, now }).map((source) => source.issueKey)).toEqual([
       "tranfu-labs/agent-moebius#1",
       "tranfu-labs/agent-moebius#2",
     ]);
 
-    const limited = enforceActiveIssueLimit({ state, maxActiveIssues: 1 });
+    expect(getDueActiveIssueSources({ repositories: [], state, now })).toEqual([]);
+
+    const limited = enforceActiveIssueLimit({ repositories: [repo], state, maxActiveIssues: 1 });
 
     expect(limited.demotedIssueKeys).toEqual(["tranfu-labs/agent-moebius#1"]);
     expect(limited.state.issues["tranfu-labs/agent-moebius#1"]?.mode).toBe("idle");
     expect(limited.state.issues["tranfu-labs/agent-moebius#2"]?.mode).toBe("active");
+    expect(limited.state.issues["tranfu-labs/other-repo#3"]?.mode).toBe("active");
   });
 });
 

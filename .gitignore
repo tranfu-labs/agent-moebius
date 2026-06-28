@@ -22,4 +22,4 @@ node_modules/
 
 ### Runtime state
 .state/
-config.local
+config.local.toml

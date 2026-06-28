@@ -65,11 +65,17 @@ export function getDueRepositories(input: {
 }
 
 export function getDueActiveIssueSources(input: {
+  repositories: readonly RepositoryRef[];
   state: GitHubResponseIntakeState;
   now: Date;
 }): IssueSource[] {
+  const watchedRepositories = makeRepositorySet(input.repositories);
+
   return Object.entries(input.state.issues)
-    .filter(([, issue]) => issue.mode === "active" && isDue(issue.nextPollAt, input.now))
+    .filter(
+      ([, issue]) =>
+        issue.mode === "active" && watchedRepositories.has(makeRepoKey(issue)) && isDue(issue.nextPollAt, input.now),
+    )
     .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
     .map(([, issue]) => makeIssueSource(issue));
 }
@@ -197,11 +203,13 @@ export function recordActiveIssueUnchanged(input: {
 }
 
 export function enforceActiveIssueLimit(input: {
+  repositories: readonly RepositoryRef[];
   state: GitHubResponseIntakeState;
   maxActiveIssues: number;
 }): ActiveIssueLimitResult {
+  const watchedRepositories = makeRepositorySet(input.repositories);
   const activeIssues = Object.entries(input.state.issues)
-    .filter(([, issue]) => issue.mode === "active")
+    .filter(([, issue]) => issue.mode === "active" && watchedRepositories.has(makeRepoKey(issue)))
     .sort(([leftKey, left], [rightKey, right]) => {
       const timeDiff = Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
       return timeDiff === 0 ? leftKey.localeCompare(rightKey) : timeDiff;
@@ -242,6 +250,10 @@ export function enforceActiveIssueLimit(input: {
 
 function isDue(nextPollAt: string | null, now: Date): boolean {
   return nextPollAt === null || Date.parse(nextPollAt) <= now.getTime();
+}
+
+function makeRepositorySet(repositories: readonly RepositoryRef[]): Set<string> {
+  return new Set(repositories.map(makeRepoKey));
 }
 
 function addMilliseconds(date: Date, milliseconds: number): Date {

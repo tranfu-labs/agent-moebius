@@ -3,7 +3,7 @@
 ## 域定位
 `github-issue-runner` 负责把 GitHub Issue 对话流转成受控的本地脚本执行：常驻进程按本地配置扫描白名单 GitHub repository 的 open issue 更新，通过独立触发器识别最新消息中的 agent mention 或 stage metadata，并以受控输入把 issue 数据交给本地 `codex` 或发布确定性 hook 评论。
 
-当前运行形态是多 repository 轮询的对话型 issue runner：代码默认白名单为空；本机可通过被忽略的 `config.local` 配置 watched repositories。每个被处理的 issue 都把 issue body 与 comments 视作一条共享时间线。
+当前运行形态是多 repository 轮询的对话型 issue runner：提交版 `config.toml` 只作为示例，代码默认白名单为空；本机可通过被忽略的 `config.local.toml` 配置 watched repositories。每个被处理的 issue 都把 issue body 与 comments 视作一条共享时间线。
 
 ## 业务规则
 - MUST 作为常驻进程运行，并在启动时立即跑一轮，然后按配置的 tick 间隔轮询；默认 tick 间隔为 1 分钟，用于承载 active issue 轮询。
@@ -12,10 +12,12 @@
 - MUST 把 GitHub response intake 业务规则与外部 GitHub / 文件系统 adapter 分离。
 - MUST 让 issue source discovery 与轮询节奏位于 conversation、trigger、prompt、Codex 与 role-thread state 模块之外。
 - MUST 默认 watched repository list 为空。
-- MUST 从项目根目录 `config.local` 读取本地 repository 白名单覆盖配置。
-- MUST 把 `config.local` 视为本地专用文件，并通过 git ignore 排除。
-- MUST 使用 TOML 解析 `config.local`。
-- MUST 在 `config.local` 存在但无法解析或 shape 不合法时 fail fast。
+- MUST 提供提交版 `config.toml` 默认示例文件，包含注释化 repository 白名单示例。
+- MUST 从项目根目录 `config.local.toml` 读取本地 repository 白名单覆盖配置。
+- MUST 把 `config.local.toml` 视为本地专用文件，并通过 git ignore 排除。
+- MUST 使用 TOML 解析 `config.toml` 与 `config.local.toml`。
+- MUST 在 `config.toml` 或 `config.local.toml` 存在但无法解析或 shape 不合法时 fail fast。
+- MUST 允许纯注释或缺少 `watchRepositories` 的 TOML 配置解析为空 repository 白名单。
 - MUST 要求每个 configured repository entry 包含非空 `owner` 与 `repo` 字符串。
 - MUST 将本地配置文件读取与本地配置 shape 校验分离，使 shape 校验可单元测试。
 - MUST 默认在 idle mode 下每 5 分钟扫描一次每个白名单 repository。
@@ -25,10 +27,11 @@
 - SHOULD 支持显式配置 seed issue sources，用于需要启动后立即检查的特定 issue。
 - MUST 仅在 issue 出现 runner-relevant 变化并成功处理后把该 issue 提升为 active mode。
 - MUST 默认每 1 分钟轮询 active issues。
+- MUST 仅轮询当前 watched repositories 内的 active issues。
 - MUST 在 active issue 连续 5 次 active poll 未观察到 GitHub `updatedAt` 变化后，将该 issue 降级回 idle。
 - MUST 在 active issue 观察到新 `updatedAt` 且成功处理后重置无变化计数。
 - MUST 在 active issue 观察到 `no-trigger` 变化时保持 active，重置无变化计数，并安排下一次 active poll。
-- MUST 限制 active issues 数量；超出上限时，runner MUST 将多余 issue 降级到 idle 并记录原因。
+- MUST 限制当前 watched repositories 内的 active issues 数量；超出上限时，runner MUST 将多余 issue 降级到 idle 并记录原因。
 - MUST 把 GitHub response intake 状态保存在本地忽略目录 `.state/github-response-intake.json`，状态至少包含 repository idle scan 时间、issue `updatedAt`、mode、active 无变化计数和下次轮询时间。
 - MUST 在 `no-trigger` 后更新 intake state，避免未变化 issue 被重复 fetch。
 - MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进已处理 `updatedAt`。
@@ -84,18 +87,19 @@
 - MUST 把 issue body / comment 内容当作不可信外部输入处理。
 - MUST 让 prompt 构造、speaker 归一化、触发判定、delta 消息选择、评论格式化与状态更新计算保持为可单元测试的业务数据操作，不依赖 GitHub、Codex CLI 或文件系统。
 - MUST NOT 把 GitHub token 或个人访问令牌写入仓库；当前实现复用本机 `gh auth login`。
-- 当前 watched repositories 来自 `config.local`；tick 间隔、idle repo scan 间隔、active issue poll 间隔、issue scan limit、active issue 上限、本地 agent Markdown 目录、临时目录、role thread 状态文件路径、agent context 状态文件路径、GitHub response intake 状态文件路径、默认 workdir root 集中在 `src/config.ts`。
-- MUST 在启动日志中打印 local config path、resolved watched repositories、tick 间隔、idle/active 轮询参数、issue scan limit、active issue 上限与解析后的默认 workdir root。
+- 当前 watched repositories 来自 `config.toml` 与 `config.local.toml`；tick 间隔、idle repo scan 间隔、active issue poll 间隔、issue scan limit、active issue 上限、本地 agent Markdown 目录、临时目录、role thread 状态文件路径、agent context 状态文件路径、GitHub response intake 状态文件路径、默认 workdir root 集中在 `src/config.ts`。
+- MUST 在启动日志中打印 config path、local config path、resolved watched repositories、tick 间隔、idle/active 轮询参数、issue scan limit、active issue 上限与解析后的默认 workdir root。
 
 ## 场景
-### 场景 0：本地配置 — 没有 config.local 时默认不监听 repository
-Given 项目根目录不存在 `config.local`
+### 场景 0：本地配置 — 没有本机覆盖时默认不监听 repository
+Given 项目根目录 `config.toml` 只包含注释示例
+And 项目根目录不存在 `config.local.toml`
 When runner 加载启动配置
 Then watched repositories 为空数组
 And 本轮不会扫描任何 GitHub repository
 
-### 场景 0.1：本地配置 — config.local 配置 repository 白名单
-Given 项目根目录 `config.local` 内容为：
+### 场景 0.1：本地配置 — config.local.toml 配置 repository 白名单
+Given 项目根目录 `config.local.toml` 内容为：
 ```toml
 [[watchRepositories]]
 owner = "tranfu-labs"
@@ -108,7 +112,7 @@ repo = "agent-moebius"
 When runner 加载启动配置
 Then watched repositories 包含 `tranfu-labs/tranfu-agents-app`
 And watched repositories 包含 `tranfu-labs/agent-moebius`
-And `config.local` 不应被 git 跟踪
+And `config.local.toml` 不应被 git 跟踪
 
 ### 场景 1：对话型 — issue body 首次艾特已存在 agent 时触发 full prompt
 Given `tranfu-labs/agent-moebius#4` 当前 `comments.length = 0`（仅 body）
@@ -295,7 +299,7 @@ And 不更新 `.state/role-threads.json`
 And 下一轮仍可重试该变化
 
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 或发布 hook 评论；执行前应确认这是期望的外部副作用。

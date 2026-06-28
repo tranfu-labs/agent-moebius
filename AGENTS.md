@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 trigger 决定运行本机 `codex` 或发布确定性 hook 评论。代码默认白名单为空；本机通过被忽略的 `config.local` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。
+本项目是一个 Node.js + TypeScript 常驻脚本：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 trigger 决定运行本机 `codex` 或发布确定性 hook 评论。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。
 
 ## 项目结构
 ```text
@@ -16,7 +16,7 @@
 │   ├── github-response-intake.ts # GitHub 响应接入的纯业务调度规则
 │   ├── github-intake-state.ts  # .state/github-response-intake.json 状态读写适配
 │   ├── issue-source.ts         # repo / issue source key 与 clone URL 生成
-│   ├── local-config.ts         # config.local TOML 解析与 shape 校验
+│   ├── local-config.ts         # config.toml / config.local.toml 解析与 shape 校验
 │   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
 │   ├── github.ts               # gh CLI 读取 issue / 发表评论
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
@@ -42,7 +42,7 @@
 - 运行常驻脚本：`pnpm start`
   - 需要本机 `codex` CLI 在 `PATH` 中。
   - 需要已完成 `gh auth login`。
-  - 会真实扫描 `config.local` 中配置的白名单 repository 的最近更新 open issues；没有 `config.local` 时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 trigger 时，可能调用 Codex 并发表评论，也可能直接发布 hook 评论。
+  - 会真实扫描 `config.local.toml` 中配置的白名单 repository 的最近更新 open issues；没有本机覆盖时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 trigger 时，可能调用 Codex 并发表评论，也可能直接发布 hook 评论。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
@@ -51,8 +51,8 @@
 - TypeScript 使用 `strict`，ESM + `moduleResolution: NodeNext`，相对导入运行时代码时使用 `.js` 后缀。
 - 运行入口使用 `tsx src/runner.ts`；自动化测试使用 Vitest。
 - GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
-- 当前 repository 白名单从项目根目录 `config.local` 读取；该文件为 TOML、本地专用且被 `.gitignore` 忽略。不存在时白名单为空。
-- `config.local` 示例：
+- 当前 repository 白名单先读取提交版 `config.toml` 示例，再由项目根目录 `config.local.toml` 覆盖；`config.local.toml` 为本地专用且被 `.gitignore` 忽略。默认白名单为空。
+- `config.local.toml` 示例：
   ```toml
   [[watchRepositories]]
   owner = "tranfu-labs"
@@ -85,7 +85,7 @@
 
 ## 禁止事项
 - MUST NOT 提交 GitHub token、个人访问令牌、本地绝对路径、执行日志中的敏感内容或 `.env` 文件。
-- MUST NOT 提交本机 `config.local`；它用于本地 repository 白名单。
+- MUST NOT 提交本机 `config.local.toml`；它用于本地 repository 白名单。
 - MUST NOT 把 issue title/body/author 等外部输入直接拼接到 shell 命令中执行。
 - MUST NOT 把 `agents/` 当作运行时状态目录；它只存放可被 mention 寻址的 Markdown 角色素材。
 - MUST NOT 允许 issue body/comment 或 agent Markdown 正文指定任意可执行脚本；只有 frontmatter 中指向 `src/agent-prescripts/` 的受信任 registry 脚本可执行。

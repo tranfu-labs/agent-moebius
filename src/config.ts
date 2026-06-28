@@ -1,10 +1,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadLocalConfig } from "./local-config.js";
+import { loadMergedLocalConfig } from "./local-config.js";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-export const LOCAL_CONFIG_PATH = path.join(PROJECT_ROOT, "config.local");
-const LOCAL_CONFIG = loadLocalConfig(LOCAL_CONFIG_PATH);
+export const CONFIG_PATH = path.join(PROJECT_ROOT, "config.toml");
+export const LOCAL_CONFIG_PATH = path.join(PROJECT_ROOT, "config.local.toml");
+const LOCAL_CONFIG = loadMergedLocalConfig({ configPath: CONFIG_PATH, localConfigPath: LOCAL_CONFIG_PATH });
 
 export const WATCH_REPOSITORIES = LOCAL_CONFIG.watchRepositories;
 
@@ -37,6 +38,7 @@ export const CODEX_EXEC_OPTIONS = [
 ] as const;
 
 export const CONFIG_LOG_FIELDS = {
+  configPath: CONFIG_PATH,
   localConfigPath: LOCAL_CONFIG_PATH,
   watchedRepositories: WATCH_REPOSITORIES,
   tickIntervalMs: TICK_INTERVAL_MS,

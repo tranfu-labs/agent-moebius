@@ -10,13 +10,24 @@ export const DEFAULT_LOCAL_CONFIG: LocalConfig = {
   watchRepositories: [],
 };
 
+export function loadMergedLocalConfig(input: { configPath: string; localConfigPath: string }): LocalConfig {
+  const defaultConfig = loadLocalConfig(input.configPath);
+  const localConfig = loadOptionalLocalConfig(input.localConfigPath);
+
+  return localConfig ?? defaultConfig;
+}
+
 export function loadLocalConfig(filePath: string): LocalConfig {
+  return loadOptionalLocalConfig(filePath) ?? DEFAULT_LOCAL_CONFIG;
+}
+
+function loadOptionalLocalConfig(filePath: string): LocalConfig | null {
   let raw: string;
   try {
     raw = fs.readFileSync(filePath, "utf8");
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return DEFAULT_LOCAL_CONFIG;
+      return null;
     }
 
     throw error;
@@ -25,7 +36,7 @@ export function loadLocalConfig(filePath: string): LocalConfig {
   return parseLocalConfig(raw, filePath);
 }
 
-export function parseLocalConfig(raw: string, source = "config.local"): LocalConfig {
+export function parseLocalConfig(raw: string, source = "config.toml"): LocalConfig {
   let parsed: unknown;
   try {
     parsed = parseToml(raw);
@@ -39,8 +50,8 @@ export function parseLocalConfig(raw: string, source = "config.local"): LocalCon
 
   return {
     watchRepositories: parsed.watchRepositories.map((repository) => ({
-      owner: repository.owner,
-      repo: repository.repo,
+      owner: repository.owner.trim(),
+      repo: repository.repo.trim(),
     })),
   };
 }
@@ -55,6 +66,10 @@ function isLocalConfigShape(value: unknown): value is {
   const config = value as Partial<{
     watchRepositories: unknown;
   }>;
+
+  if (config.watchRepositories === undefined) {
+    config.watchRepositories = [];
+  }
 
   return Array.isArray(config.watchRepositories) && config.watchRepositories.every(isRepositoryRefShape);
 }
