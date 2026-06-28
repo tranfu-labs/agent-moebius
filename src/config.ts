@@ -1,13 +1,13 @@
 export const OWNER = "tranfu-labs";
 export const REPO = "agent-moebius";
-export const ISSUE_NUMBER = 1;
+export const ISSUE_NUMBER = 3;
 export const INTERVAL_MS = 5 * 60 * 1000;
 export const AGENTS_DIR = "agents";
 export const TMP_ROOT = "/tmp";
+export const ISSUE_KEY = `${OWNER}/${REPO}#${ISSUE_NUMBER}`;
+export const ROLE_THREADS_STATE_PATH = ".state/role-threads.json";
 
-export const CODEX_ARGS = [
-  "exec",
-  "--ephemeral",
+export const CODEX_EXEC_OPTIONS = [
   "--yolo",
   "--json",
   "-m",
@@ -27,4 +27,5 @@ export const CONFIG_LOG_FIELDS = {
   intervalMs: INTERVAL_MS,
   agentsDir: AGENTS_DIR,
   tmpRoot: TMP_ROOT,
+  roleThreadsStatePath: ROLE_THREADS_STATE_PATH,
 };

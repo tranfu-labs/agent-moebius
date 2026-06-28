@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本：运行后定期扫描指定 GitHub Issue 来源，发现最新消息明确艾特了本地存在的 agent 时执行本机 `codex`，并把最终 assistant 文本评论回 GitHub Issue。当前首个运行形态固定盯 `tranfu-labs/agent-moebius#1`，把 issue body 与 comments 拼成对话历史。
+本项目是一个 Node.js + TypeScript 常驻脚本：运行后定期扫描指定 GitHub Issue 来源，发现最新消息明确艾特了本地存在的 agent 时执行本机 `codex`，并把最终 assistant 文本评论回 GitHub Issue。当前首个运行形态固定盯 `tranfu-labs/agent-moebius#3`，把 issue body 与 comments 归一化为带 speaker 的共享时间线，并为每个 role 维护独立 Codex thread。
 
 ## 项目结构
 ```text
@@ -11,9 +11,10 @@
 │   └── product-manager.md      # 产品经理 agent 角色素材
 ├── src/                        # TypeScript 运行时代码
 │   ├── runner.ts               # 常驻轮询入口
-│   ├── conversation.ts         # 对话计数、最新消息、agent mention、prompt 拼接
+│   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
 │   ├── github.ts               # gh CLI 读取 issue / 发表评论
-│   └── codex.ts                # codex CLI 调用与 jsonl 解析
+│   ├── codex.ts                # codex CLI 调用与 jsonl 解析
+│   └── state.ts                # .state/role-threads.json 状态读写适配
 ├── tests/                      # Vitest 单元测试
 ├── docs/
 │   ├── adr/                    # 架构决策记录
@@ -32,7 +33,7 @@
 - 运行常驻脚本：`pnpm start`
   - 需要本机 `codex` CLI 在 `PATH` 中。
   - 需要已完成 `gh auth login`。
-  - 会真实读取 `tranfu-labs/agent-moebius#1`，当最新 issue body/comment 艾特了 `agents/*.md` 中存在的 agent 时会发表评论。
+  - 会真实读取 `tranfu-labs/agent-moebius#3`，当最新 issue body/comment 艾特了 `agents/*.md` 中存在的 agent 时会发表评论。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
@@ -41,9 +42,11 @@
 - TypeScript 使用 `strict`，ESM + `moduleResolution: NodeNext`，相对导入运行时代码时使用 `.js` 后缀。
 - 运行入口使用 `tsx src/runner.ts`；自动化测试使用 Vitest。
 - GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
-- 当前目标仓库、issue 编号、轮询间隔、本地 agent Markdown 目录集中在 `src/config.ts`。
-- `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看最新 comment，若没有 comment 则看 issue body。
-- 当前触发规则不做本地去重；进程重启后，如果最新消息仍艾特了有效 agent，会再次触发。
+- 当前目标仓库、issue 编号、轮询间隔、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
+- `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源。
+- runner 写回 agent 评论时使用 `<role>:\n${LAST_RESPONSE}` 可见前缀，并追加 `<!-- agent-moebius:role=<role> -->` metadata，便于后续归一化 speaker。
+- 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。
+- `conversation.ts` 只做业务数据操作；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts` 适配；`runner.ts` 只做编排。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 
 ## 修改前检查

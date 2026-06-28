@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractFinalAssistant } from "../src/codex.js";
+import { buildCodexArgs, extractCodexOutput, extractFinalAssistant } from "../src/codex.js";
 
 describe("extractFinalAssistant", () => {
   it("returns the final assistant text across supported event shapes", () => {
@@ -54,6 +54,43 @@ describe("extractFinalAssistant", () => {
     ];
 
     expect(extractFinalAssistant(lines)).toBe("final from codex");
+  });
+
+  it("extracts thread id and cached input tokens from codex jsonl", () => {
+    const lines = [
+      JSON.stringify({ type: "thread.started", thread_id: "thread-123" }),
+      JSON.stringify({
+        type: "turn.completed",
+        usage: {
+          cached_input_tokens: 42,
+        },
+      }),
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          type: "agent_message",
+          text: "final",
+        },
+      }),
+    ];
+
+    expect(extractCodexOutput(lines)).toEqual({
+      finalText: "final",
+      threadId: "thread-123",
+      cachedInputTokens: 42,
+    });
+  });
+
+  it("builds full and resume codex args without ephemeral mode", () => {
+    expect(buildCodexArgs("hello")).toEqual(
+      expect.arrayContaining(["exec", "--json", "-m", "gpt-5.5", "hello"]),
+    );
+    expect(buildCodexArgs("hello")).not.toContain("--ephemeral");
+
+    expect(buildCodexArgs("delta", { kind: "resume", threadId: "thread-1" })).toEqual(
+      expect.arrayContaining(["exec", "resume", "--json", "thread-1", "delta"]),
+    );
+    expect(buildCodexArgs("delta", { kind: "resume", threadId: "thread-1" })).not.toContain("--ephemeral");
   });
 
   it("returns null when no assistant message is present", () => {
