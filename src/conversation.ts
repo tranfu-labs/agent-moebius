@@ -52,10 +52,6 @@ export type RolePromptPlan =
       role: string;
     };
 
-export function getLatestMessage(issueBody: string, commentBodies: string[]): string {
-  return commentBodies.length === 0 ? issueBody : commentBodies[commentBodies.length - 1] ?? issueBody;
-}
-
 export function buildTimeline(
   issueBody: string,
   comments: TimelineComment[],
@@ -188,7 +184,14 @@ function normalizeComment(body: string, availableAgentNames: string[]): Pick<Tim
   const availableAgents = new Set(availableAgentNames);
   const metadataRole = parseMetadataRole(body);
 
-  if (metadataRole !== null && availableAgents.has(metadataRole)) {
+  if (metadataRole !== null) {
+    if (!availableAgents.has(metadataRole)) {
+      return {
+        speaker: "user",
+        body,
+      };
+    }
+
     return {
       speaker: metadataRole,
       body: stripRoleEnvelope(stripAgentMetadata(body), metadataRole),
