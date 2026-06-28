@@ -6,8 +6,15 @@
 - 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。
 - 入口：`agents/product-manager.md`、`agents/hermes-user.md`、`agents/dev.md`、`agents/reflector.md`
 - 上游：`src/runner.ts` 扫描 `agents/*.md`；最新 issue body/comment 中的 `@<name>` 命中 `agents/<name>.md` 时读取对应 Markdown 作为 system/persona 素材。
-- 下游：frontmatter 中的 `preScript` 只能指向 `src/agent-prescripts/` 下的受信任脚本。
+- 下游：frontmatter 中的 `preScript` 只能指向 `src/agent-prescripts/` 下的受信任脚本；`agents/dev.md` 可声明 runner 可解析的 stage metadata 枚举。
 - 禁止依赖：MUST NOT 依赖运行时状态文件、GitHub token 或本地脚本输出。
+
+### triggers
+- 职责边界：把最新共享时间线消息解析成触发结果；当前包含普通 mention trigger 与 reflector stage trigger。可返回运行某个 Codex agent、发布确定性 hook 评论或跳过。
+- 入口：`src/triggers/index.ts`；`src/triggers/mention-trigger.ts`；`src/triggers/reflector-stage-trigger.ts`
+- 上游：`src/runner.ts` 在构造 timeline 与 agent 名单后调用。
+- 下游：`src/conversation.ts` 的 timeline / mention 纯函数；hook 评论正文由 trigger 返回给 `runner.ts`，再由 `src/github.ts` 发布。
+- 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 把 issue 内容拼成 shell 命令；MUST NOT 把 reflector stage 白名单写进 `runner.ts`。
 
 ### agent-prescripts
 - 职责边界：在 Codex 执行前为特定 agent 准备确定性运行上下文；当前 `dev-workspace` 基于 runner 正在处理的 GitHub issue source 创建 / 复用 issue 独占 worktree，并返回 Codex cwd。
@@ -17,10 +24,10 @@
 - 禁止依赖：MUST NOT 执行 issue body/comment 中声明的任意脚本路径；MUST NOT 用 shell 拼接外部输入；MUST NOT 把运行状态写入 `agents/`。
 
 ### github-issue-runner
-- 职责边界：常驻运行，轮询 `tranfu-labs/agent-moebius#4`，把 issue body + comments 归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当最新归一化消息艾特了 `agents/*.md` 中存在的 agent 时，进入该 role 独立 Codex thread 并回评 GitHub issue。
+- 职责边界：常驻运行，轮询 `tranfu-labs/agent-moebius#4`，把 issue body + comments 归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 trigger 解析结果要求运行 agent 时，进入该 role 独立 Codex thread 并回评 GitHub issue；当 trigger 解析结果要求发布 hook 评论时，直接通过 GitHub client 评论。
 - 入口：`pnpm start` → `src/runner.ts`
 - 上游：进程启动命令、本机 `gh auth login`、本机 `codex` CLI。
-- 下游：`src/github.ts`、`src/conversation.ts`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
+- 下游：`src/github.ts`、`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
 - 禁止依赖：MUST NOT 依赖 `agents/` 作为运行状态；MUST NOT 直接拼接 issue 内容为 shell 命令；MUST NOT 在 codex 失败时发评论。
 
 ### conversation-protocol

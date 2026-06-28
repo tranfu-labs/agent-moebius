@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本：运行后定期扫描指定 GitHub Issue 来源，发现最新消息明确艾特了本地存在的 agent 时执行本机 `codex`，并把最终 assistant 文本评论回 GitHub Issue。当前首个运行形态固定盯 `tranfu-labs/agent-moebius#4`，把 issue body 与 comments 归一化为带 speaker 的共享时间线，并为每个 role 维护独立 Codex thread。
+本项目是一个 Node.js + TypeScript 常驻脚本：运行后定期扫描指定 GitHub Issue 来源，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 trigger 决定运行本机 `codex` 或发布确定性 hook 评论。当前首个运行形态固定盯 `tranfu-labs/agent-moebius#4`，并为每个 role 维护独立 Codex thread。
 
 ## 项目结构
 ```text
@@ -16,6 +16,7 @@
 │   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
 │   ├── github.ts               # gh CLI 读取 issue / 发表评论
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
+│   ├── triggers/               # mention / stage 等触发方式
 │   ├── agent-prescripts/       # agent 级 Codex 执行前准备脚本
 │   ├── agent-context-state.ts  # .state/agent-contexts.json 状态读写适配
 │   └── state.ts                # .state/role-threads.json 状态读写适配
@@ -37,7 +38,7 @@
 - 运行常驻脚本：`pnpm start`
   - 需要本机 `codex` CLI 在 `PATH` 中。
   - 需要已完成 `gh auth login`。
-  - 会真实读取 `tranfu-labs/agent-moebius#4`；如果该 issue 暂不存在，本轮会记录 skip 并等待后续轮询。最新 issue body/comment 艾特了 `agents/*.md` 中存在的 agent 时会发表评论。
+  - 会真实读取 `tranfu-labs/agent-moebius#4`；如果该 issue 暂不存在，本轮会记录 skip 并等待后续轮询。最新 issue body/comment 命中 trigger 时，可能调用 Codex 并发表评论，也可能直接发布 hook 评论。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
@@ -47,15 +48,16 @@
 - 运行入口使用 `tsx src/runner.ts`；自动化测试使用 Vitest。
 - GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
 - 当前目标仓库、issue 编号、轮询间隔、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
-- `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源。
+- `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
 - `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。
-- `agents/reflector.md` 是通用反思接力角色；谁在最新消息中艾特 `@reflector`，它就艾特回该 agent 并提醒其做短反思，不接管实现、测试或归档。
+- `agents/dev.md` 可在回复末尾输出 `<!-- agent-moebius:stage=plan-confirmed -->` 或 `<!-- agent-moebius:stage=code-complete -->`，只声明阶段，不直接指定后续 agent。
+- `agents/reflector.md` 是通用反思接力展示身份；普通 `@reflector` 不启动 Codex，reflector 由 `src/triggers/reflector-stage-trigger.ts` 根据 stage metadata 触发，并直接发布 hook 评论。
 - runner 写回 agent 评论时使用 GitHub 页面可见的 `<role>:\n${LAST_RESPONSE}` 前缀；comment body 中落 `&lt;role&gt;:\n${LAST_RESPONSE}`，并追加 `<!-- agent-moebius:role=<role> -->` metadata，便于后续归一化 speaker。
 - 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。
 - agent pre script 上下文保存在被忽略的 `.state/agent-contexts.json`；当前 `@dev` 记录 issue、role、preScript、目标仓库、worktreePath 与 preparedFromMessageIndex。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
-- `conversation.ts` 只做业务数据操作；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts` 适配；`runner.ts` 只做编排。
+- `conversation.ts` 只做业务数据操作；`src/triggers/` 封装 mention / stage 等触发规则；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts` 适配；`runner.ts` 只做编排。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 
 ## 修改前检查

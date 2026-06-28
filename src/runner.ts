@@ -10,9 +10,7 @@ import {
   buildTimeline,
   countMessages,
   formatAgentComment,
-  getLatestTimelineMessage,
   resolveNextRoleThreadState,
-  selectMentionedAgent,
 } from "./conversation.js";
 import { run as runCodex } from "./codex.js";
 import { fetchIssueWithComments, isGitHubIssueNotFoundError, postComment } from "./github.js";
@@ -23,6 +21,7 @@ import {
   saveRoleThreadStateStore,
   withRoleThreadState,
 } from "./state.js";
+import { resolveTrigger } from "./triggers/index.js";
 
 let running = false;
 
@@ -44,20 +43,31 @@ export async function tick(): Promise<void> {
     const agentFiles = await listAgentFiles();
     const agentNames = agentFiles.map((agent) => agent.name);
     const timeline = buildTimeline(issue.body, issue.comments, agentNames);
-    const latestMessage = getLatestTimelineMessage(timeline);
-    const selectedAgentName = selectMentionedAgent(
-      latestMessage?.body ?? "",
-      agentNames,
-    );
+    const trigger = resolveTrigger({ timeline, availableAgentNames: agentNames });
 
-    if (selectedAgentName === null) {
-      log({ event: "skip", count, reason: "no-valid-agent-mention" });
+    if (trigger.kind === "skip") {
+      log({ event: "skip", count, reason: trigger.reason });
       return;
     }
 
-    const selectedAgent = agentFiles.find((agent) => agent.name === selectedAgentName);
+    if (trigger.kind === "post-comment") {
+      await postComment(trigger.body);
+      log({
+        event: "hook-commented",
+        count,
+        reason: trigger.reason,
+        agent: trigger.role,
+        sourceRole: trigger.sourceRole,
+        sourceIndex: trigger.sourceIndex,
+        stage: trigger.stage,
+        issueKey: ISSUE_KEY,
+      });
+      return;
+    }
+
+    const selectedAgent = agentFiles.find((agent) => agent.name === trigger.role);
     if (selectedAgent === undefined) {
-      log({ event: "skip", count, reason: "selected-agent-missing", agent: selectedAgentName });
+      log({ event: "skip", count, reason: "selected-agent-missing", agent: trigger.role });
       return;
     }
 

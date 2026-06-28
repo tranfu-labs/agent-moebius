@@ -1,7 +1,7 @@
 # github-issue-runner 规格
 
 ## 域定位
-`github-issue-runner` 负责把 GitHub Issue 对话流转成受控的本地脚本执行：常驻进程按配置扫描目标 GitHub Issue 来源，识别最新消息中被明确艾特的本地 agent，并以受控输入把 issue 数据交给本地 `codex`。
+`github-issue-runner` 负责把 GitHub Issue 对话流转成受控的本地脚本执行：常驻进程按配置扫描目标 GitHub Issue 来源，通过独立触发器识别最新消息中的 agent mention 或 stage metadata，并以受控输入把 issue 数据交给本地 `codex` 或发布确定性 hook 评论。
 
 当前首个运行形态是对话型 issue runner：固定盯 `tranfu-labs/agent-moebius#4`，把 issue body 与 comments 视作一条共享时间线。
 
@@ -12,18 +12,25 @@
 - MUST 在目标 issue 不存在时不调用 Codex、不发表评论、不更新本地状态。
 - MUST 继续把非 issue-not-found 的 GitHub CLI 失败视作 cycle error。
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
-- MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息中的 `@<agent-name>`。
-- MUST 提供 `agents/reflector.md` 作为通用反思接力角色；`@reflector` 通过既有 `agents/*.md` 文件名寻址机制触发。
-- MUST 让 `reflector` 只提醒最新消息中艾特它的 agent 进行反思，不接管需求、方案、实现、测试或归档工作。
-- SHOULD 让 `reflector` 对同一情况最多提醒三次；该约束由角色素材基于共享时间线自查执行，不要求 runner 维护硬状态。
+- MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
+- MUST 将 agent 触发决策封装为独立触发器；runner 只消费触发器结果，不把具体触发方式写死在编排流程中。
+- MUST 保留 mention trigger：最新消息包含已存在 agent mention 时，触发对应 agent。
+- MUST 提供 `agents/reflector.md` 作为通用反思接力展示身份。
+- MUST NOT 通过普通 `@reflector` mention 启动 Codex reflector；reflector 的触发方式是 stage metadata。
+- MUST 支持 reflector stage trigger：最新非 `reflector` agent 消息包含 `<!-- agent-moebius:stage=<stage> -->` 且 stage 在白名单内时，runner 直接发布 reflector 评论。
+- MUST 先支持 `plan-confirmed` 与 `code-complete` 两个 reflector stage。
+- MUST 让 reflector stage trigger 生成的评论包含 `<!-- agent-moebius:role=reflector -->` 与 `<!-- agent-moebius:stage-hook source=<role> stage=<stage> sourceIndex=<index> -->` metadata。
+- MUST 对同一 `source + stage + sourceIndex` 只发布一次 stage hook 评论；重复防护基于共享时间线中的 `stage-hook` metadata。
+- MUST NOT 对 `reflector` 自己的消息触发 reflector stage trigger。
+- MUST 让 `reflector` 只提醒输出 stage 的 agent 进行反思，不接管需求、方案、实现、测试或归档工作。
 - MUST 支持 agent Markdown frontmatter 声明受信任 `preScript`，用于 runner 在 Codex 执行前准备上下文；Markdown 正文仍作为 persona 文本输入 Codex。
 - MUST 将 `preScript` 路径限制在仓库内 `src/agent-prescripts/` 的静态 registry 中；issue body/comment 内容不得成为可执行脚本路径。
 - MUST 把共享时间线中的每条消息归一化为 `index`、`speaker`、`body`、`source`。
 - MUST 把 issue body 归类为 `user` speaker。
 - MUST 优先使用隐藏 metadata `<!-- agent-moebius:role=<role> -->` 识别 runner 生成的 agent comment；没有 metadata 但以 `<known-role>:`、`&lt;known-role&gt;:` 或 raw `<known-role>:` 开头的历史 comment SHOULD 按 legacy agent comment 兼容；其他 comment MUST 归类为 `user`。
-- MUST 每轮只检查最新一条归一化消息作为触发源。
+- MUST 每轮只检查最新一条归一化消息作为触发源，并由触发器决定是运行 agent、发布 hook 评论还是跳过。
 - MUST 仅当触发源包含至少一个已存在 agent mention 时启动本地 `codex`。
-- MUST 在触发源没有有效 agent mention 时跳过，不调用 `codex`，不发表评论。
+- MUST 在触发源没有有效 trigger 时跳过，不调用 `codex`，不发表评论。
 - MUST 在同一条消息包含多个有效 agent mention 时选择文本中最早出现的一个。
 - MUST 在选中 agent 且本轮需要调用 Codex 时先执行该 agent 声明的 pre script；pre script 失败时 MUST 跳过 Codex、跳过 GitHub 评论、保持 role thread 状态不变。
 - MUST 支持 `dev` pre script 基于 runner 当前处理的 GitHub issue source（owner、repo、issueNumber）准备 Codex 工作目录，而不是解析 issue body/comment 中的链接。
@@ -104,16 +111,33 @@ And 两个对应 agent Markdown 都存在
 When 一次轮询取回该 issue
 Then 系统选择文本中最早出现的有效 agent mention
 
-### 场景 7：通用反思者 — agent 艾特 reflector 时触发反思接力
+### 场景 7：通用反思者 — agent 输出 stage 时触发反思接力
 Given 最新消息 speaker 是 `dev`
-And 最新消息 body 包含 `@reflector`
+And 最新消息 body 包含 `<!-- agent-moebius:stage=plan-confirmed -->`
 And `agents/reflector.md` 存在
 When 一次轮询取回该 issue
-Then 系统选择 `reflector` agent
-And prompt 中包含共享时间线里的最新 `dev` 消息
-And `reflector` 的职责是艾特回 `@dev` 并提醒其对当前情况做短反思
+Then reflector stage trigger 直接发布 `reflector` 评论
+And comment body 包含 `@dev 请针对「plan-confirmed」做一次反思。`
+And comment body 包含 `<!-- agent-moebius:role=reflector -->`
+And comment body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=<latest-index> -->`
+And 系统不调用 Codex reflector
 
-### 场景 8：对话型 — resume 失败时回退 full prompt
+### 场景 8：通用反思者 — 普通 @reflector mention 不启动 Codex
+Given 最新消息 body 只包含 `@reflector`
+And `agents/reflector.md` 存在
+When 一次轮询取回该 issue
+Then 系统不调用 Codex reflector
+And 不发布 reflector hook 评论
+
+### 场景 9：通用反思者 — reflector hook 评论继续触发源 agent
+Given 最新消息 speaker 是 `reflector`
+And 最新消息 body 包含 `@dev`
+And 最新消息 body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=1 -->`
+When 一次轮询取回该 issue
+Then mention trigger 选择 `dev`
+And 系统按 `dev` role thread 执行 Codex
+
+### 场景 10：对话型 — resume 失败时回退 full prompt
 Given `.state/role-threads.json` 中已有 `hermes-user.threadId = stale-thread`
 And 最新消息包含 `@hermes-user`
 When `codex exec resume stale-thread` 失败
@@ -121,7 +145,7 @@ Then 系统记录 `event:codex-resume-failed`
 And 使用该 role persona 与完整共享时间线再执行一次 full prompt
 And 只有 fallback Codex 成功且 GitHub 评论成功后才覆盖该 role 的 `threadId` 与 `lastSeenIndex`
 
-### 场景 9：对话型 — 本地脚本失败保留可追溯信息
+### 场景 11：对话型 — 本地脚本失败保留可追溯信息
 Given codex 以非 0 退出码结束，或 stdout 中无可解析的最终 assistant 文本
 When 系统处理本次结果
 Then 系统在日志中记录 `event:codex-failed`、`runDir`、`reason`
@@ -129,7 +153,7 @@ And 不在 issue 发评论
 And 不更新 `.state/role-threads.json`
 And 下一轮若条件仍满足可再次尝试
 
-### 场景 10：对话型 — 解析 codex item.completed / thread / usage 输出
+### 场景 12：对话型 — 解析 codex item.completed / thread / usage 输出
 Given codex stdout JSONL 包含 `{"type":"thread.started","thread_id":"thread-1"}`
 And 包含 `{"type":"item.completed","item":{"type":"agent_message","text":"hello"}}`
 And 包含 `{"type":"turn.completed","usage":{"cached_input_tokens":42}}`
@@ -138,13 +162,13 @@ Then 系统提取 `thread-1` 作为 thread id
 And 提取 `hello` 作为待发布评论正文
 And 记录 `cached_input_tokens = 42`
 
-### 场景 11：对话型 — issue body / comment 含 shell 特殊字符
+### 场景 13：对话型 — issue body / comment 含 shell 特殊字符
 Given issue body 或某条 comment 含 `"`、反引号、`$()`、换行
 When 系统构造 prompt 并调用 codex
 Then 这些字符通过 argv 传入 codex 进程，shell 不参与解析
 And 评论正文通过 gh stdin 写入，shell 不参与解析
 
-### 场景 12：对话型 — 配置的目标 issue 暂不存在
+### 场景 14：对话型 — 配置的目标 issue 暂不存在
 Given 配置的目标 issue number 在 GitHub 中暂不可解析
 When 一次轮询读取 issue
 Then 系统记录 `event = "skip"` 与 `reason = "issue-not-found"`
@@ -152,7 +176,7 @@ And 不调用 Codex
 And 不发表评论
 And 不更新本地状态
 
-### 场景 13：Dev agent — 首次触发创建 issue 独占 worktree
+### 场景 15：Dev agent — 首次触发创建 issue 独占 worktree
 Given 最新消息包含 `@dev`
 And `agents/dev.md` frontmatter 声明 `preScript: src/agent-prescripts/dev-workspace.ts`
 And `.state/agent-contexts.json` 中没有当前 issue + `dev` context
@@ -163,14 +187,14 @@ And 在 `<WORKDIR_ROOT>/worktrees/` 下创建当前 issue 的 `dev` worktree
 And 以该 worktree 作为 Codex cwd 执行本轮
 And 保存 `.state/agent-contexts.json`
 
-### 场景 14：Dev agent — 后续触发复用已有 worktree
+### 场景 16：Dev agent — 后续触发复用已有 worktree
 Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
 And 该 context 的 worktreePath 可访问
 When 最新消息再次包含 `@dev`
 Then 系统不重复 clone，不重复创建 worktree
 And 以已记录 worktreePath 作为 Codex cwd 执行 resume 或 fallback full run
 
-### 场景 15：Dev agent — worktree 缺失时 fail closed
+### 场景 17：Dev agent — worktree 缺失时 fail closed
 Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
 And 该 context 的 worktreePath 不存在或不可访问
 When 最新消息包含 `@dev`
@@ -180,7 +204,7 @@ And 不发表评论
 And 不更新 `.state/role-threads.json`
 
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖对话计数、最新消息选择、agent mention 解析、agent 选择、`@reflector` 标准寻址、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析。
+- `pnpm test` MUST 通过，覆盖对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实读取 `tranfu-labs/agent-moebius#4`；目标 issue 暂不存在时记录 skip，最新消息包含有效 agent mention 时会调用 codex 并发表评论；执行前应确认这是期望的外部副作用。
