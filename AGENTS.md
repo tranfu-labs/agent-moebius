@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 trigger 决定运行本机 `codex` 或发布确定性 hook 评论。当前默认白名单为 `tranfu-labs/tranfu-agents-app` 与 `tranfu-labs/agent-moebius`，并为每个 issue + role 维护独立 Codex thread。
+本项目是一个 Node.js + TypeScript 常驻脚本：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 trigger 决定运行本机 `codex` 或发布确定性 hook 评论。代码默认白名单为空；本机通过被忽略的 `config.local` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。
 
 ## 项目结构
 ```text
@@ -16,6 +16,7 @@
 │   ├── github-response-intake.ts # GitHub 响应接入的纯业务调度规则
 │   ├── github-intake-state.ts  # .state/github-response-intake.json 状态读写适配
 │   ├── issue-source.ts         # repo / issue source key 与 clone URL 生成
+│   ├── local-config.ts         # config.local TOML 解析与 shape 校验
 │   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
 │   ├── github.ts               # gh CLI 读取 issue / 发表评论
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
@@ -41,7 +42,7 @@
 - 运行常驻脚本：`pnpm start`
   - 需要本机 `codex` CLI 在 `PATH` 中。
   - 需要已完成 `gh auth login`。
-  - 会真实扫描白名单 repository 的最近更新 open issues；首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 trigger 时，可能调用 Codex 并发表评论，也可能直接发布 hook 评论。
+  - 会真实扫描 `config.local` 中配置的白名单 repository 的最近更新 open issues；没有 `config.local` 时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 trigger 时，可能调用 Codex 并发表评论，也可能直接发布 hook 评论。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
@@ -50,7 +51,14 @@
 - TypeScript 使用 `strict`，ESM + `moduleResolution: NodeNext`，相对导入运行时代码时使用 `.js` 后缀。
 - 运行入口使用 `tsx src/runner.ts`；自动化测试使用 Vitest。
 - GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
-- 当前 repository 白名单、闲时扫描间隔、忙时 issue 轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
+- 当前 repository 白名单从项目根目录 `config.local` 读取；该文件为 TOML、本地专用且被 `.gitignore` 忽略。不存在时白名单为空。
+- `config.local` 示例：
+  ```toml
+  [[watchRepositories]]
+  owner = "tranfu-labs"
+  repo = "tranfu-agents-app"
+  ```
+- 闲时扫描间隔、忙时 issue 轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
 - GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active，按 1 分钟轮询；连续 5 次 active poll 无变化后降回 idle。
 - `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
@@ -62,7 +70,7 @@
 - agent pre script 上下文保存在被忽略的 `.state/agent-contexts.json`；当前 `@dev` 记录 issue、role、preScript、目标仓库、worktreePath 与 preparedFromMessageIndex。
 - GitHub response intake 状态保存在被忽略的 `.state/github-response-intake.json`，记录 repo 闲时扫描时间、issue `updatedAt`、active/idle 模式、active 无变化次数和下次轮询时间。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
-- `github-response-intake.ts` 与 `conversation.ts` 只做业务数据操作；`src/triggers/` 封装 mention / stage 等触发规则；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做编排。
+- `github-response-intake.ts`、`local-config.ts` 与 `conversation.ts` 只做业务数据操作；`src/triggers/` 封装 mention / stage 等触发规则；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做编排。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 
 ## 修改前检查
@@ -77,6 +85,7 @@
 
 ## 禁止事项
 - MUST NOT 提交 GitHub token、个人访问令牌、本地绝对路径、执行日志中的敏感内容或 `.env` 文件。
+- MUST NOT 提交本机 `config.local`；它用于本地 repository 白名单。
 - MUST NOT 把 issue title/body/author 等外部输入直接拼接到 shell 命令中执行。
 - MUST NOT 把 `agents/` 当作运行时状态目录；它只存放可被 mention 寻址的 Markdown 角色素材。
 - MUST NOT 允许 issue body/comment 或 agent Markdown 正文指定任意可执行脚本；只有 frontmatter 中指向 `src/agent-prescripts/` 的受信任 registry 脚本可执行。

@@ -1,13 +1,12 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RepositoryRef } from "./issue-source.js";
+import { loadLocalConfig } from "./local-config.js";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const LOCAL_CONFIG_PATH = path.join(PROJECT_ROOT, "config.local");
+const LOCAL_CONFIG = loadLocalConfig(LOCAL_CONFIG_PATH);
 
-export const WATCH_REPOSITORIES = [
-  { owner: "tranfu-labs", repo: "tranfu-agents-app" },
-  { owner: "tranfu-labs", repo: "agent-moebius" },
-] as const satisfies readonly RepositoryRef[];
+export const WATCH_REPOSITORIES = LOCAL_CONFIG.watchRepositories;
 
 export const TICK_INTERVAL_MS = 1 * 60 * 1000;
 export const IDLE_REPOSITORY_SCAN_INTERVAL_MS = 5 * 60 * 1000;
@@ -38,6 +37,7 @@ export const CODEX_EXEC_OPTIONS = [
 ] as const;
 
 export const CONFIG_LOG_FIELDS = {
+  localConfigPath: LOCAL_CONFIG_PATH,
   watchedRepositories: WATCH_REPOSITORIES,
   tickIntervalMs: TICK_INTERVAL_MS,
   idleRepositoryScanIntervalMs: IDLE_REPOSITORY_SCAN_INTERVAL_MS,
