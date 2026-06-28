@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { ISSUE_NUMBER, OWNER, REPO } from "./config.js";
+import type { IssueSource, RepositoryRef } from "./issue-source.js";
 
 export interface GitHubComment {
   body: string;
@@ -7,24 +7,38 @@ export interface GitHubComment {
 
 export interface GitHubIssue {
   body: string;
+  updatedAt: string;
   comments: GitHubComment[];
 }
 
-export async function fetchIssueWithComments(): Promise<GitHubIssue> {
+export interface GitHubIssueSummary {
+  issueNumber: number;
+  updatedAt: string;
+}
+
+export async function listOpenIssueSummaries(
+  repository: RepositoryRef,
+  limit: number,
+): Promise<GitHubIssueSummary[]> {
+  const result = await runCommand("gh", buildListOpenIssueSummariesArgs(repository, limit));
+  const parsed: unknown = JSON.parse(result.stdout);
+  if (!isGitHubIssueSummaryList(parsed)) {
+    throw new Error("gh issue list returned an unexpected issue summary shape");
+  }
+
+  return parsed.map((issue) => ({
+    issueNumber: issue.number,
+    updatedAt: issue.updatedAt,
+  }));
+}
+
+export async function fetchIssueWithComments(source: IssueSource): Promise<GitHubIssue> {
   let result: CommandResult;
   try {
-    result = await runCommand("gh", [
-      "issue",
-      "view",
-      String(ISSUE_NUMBER),
-      "--repo",
-      `${OWNER}/${REPO}`,
-      "--json",
-      "body,comments",
-    ]);
+    result = await runCommand("gh", buildFetchIssueWithCommentsArgs(source));
   } catch (error) {
     if (isCommandFailedError(error) && isIssueNotFoundMessage(error.stderr)) {
-      throw new GitHubIssueNotFoundError(`${OWNER}/${REPO}#${ISSUE_NUMBER}`, error.stderr);
+      throw new GitHubIssueNotFoundError(source.issueKey, error.stderr);
     }
 
     throw error;
@@ -38,12 +52,39 @@ export async function fetchIssueWithComments(): Promise<GitHubIssue> {
   return parsed;
 }
 
-export async function postComment(body: string): Promise<void> {
-  await runCommand(
-    "gh",
-    ["issue", "comment", String(ISSUE_NUMBER), "--repo", `${OWNER}/${REPO}`, "--body-file", "-"],
-    body,
-  );
+export async function postComment(source: IssueSource, body: string): Promise<void> {
+  await runCommand("gh", buildPostCommentArgs(source), body);
+}
+
+export function buildListOpenIssueSummariesArgs(repository: RepositoryRef, limit: number): string[] {
+  return [
+    "issue",
+    "list",
+    "--repo",
+    `${repository.owner}/${repository.repo}`,
+    "--state",
+    "open",
+    "--limit",
+    String(limit),
+    "--json",
+    "number,updatedAt",
+  ];
+}
+
+export function buildFetchIssueWithCommentsArgs(source: IssueSource): string[] {
+  return [
+    "issue",
+    "view",
+    String(source.issueNumber),
+    "--repo",
+    `${source.owner}/${source.repo}`,
+    "--json",
+    "body,comments,updatedAt",
+  ];
+}
+
+export function buildPostCommentArgs(source: IssueSource): string[] {
+  return ["issue", "comment", String(source.issueNumber), "--repo", `${source.owner}/${source.repo}`, "--body-file", "-"];
 }
 
 interface CommandResult {
@@ -138,7 +179,22 @@ function isGitHubIssue(value: unknown): value is GitHubIssue {
   const issue = value as Partial<GitHubIssue>;
   return (
     typeof issue.body === "string" &&
+    typeof issue.updatedAt === "string" &&
     Array.isArray(issue.comments) &&
     issue.comments.every((comment) => typeof comment === "object" && comment !== null && typeof comment.body === "string")
+  );
+}
+
+function isGitHubIssueSummaryList(value: unknown): value is Array<{ number: number; updatedAt: string }> {
+  return (
+    Array.isArray(value) &&
+    value.every((issue) => {
+      if (typeof issue !== "object" || issue === null || Array.isArray(issue)) {
+        return false;
+      }
+
+      const summary = issue as Partial<{ number: number; updatedAt: string }>;
+      return Number.isInteger(summary.number) && summary.number !== undefined && summary.number > 0 && typeof summary.updatedAt === "string";
+    })
   );
 }

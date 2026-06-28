@@ -23,11 +23,18 @@
 - 下游：本地 `git` CLI、`src/agent-context-state.ts`、`src/config.ts` 的 workdir root 与 issue source。
 - 禁止依赖：MUST NOT 执行 issue body/comment 中声明的任意脚本路径；MUST NOT 用 shell 拼接外部输入；MUST NOT 把运行状态写入 `agents/`。
 
+### github-response-intake
+- 职责边界：纯业务数据操作，负责 GitHub repository / issue source key 生成、闲时 repo 扫描 due 判断、active issue 轮询 due 判断、`updatedAt` 去重、active/idle 状态转换、active 无变化计数与 active issue 上限裁剪。
+- 入口：`src/github-response-intake.ts`、`src/issue-source.ts`
+- 上游：`src/runner.ts` 在每个 tick 中调用，用于决定哪些 repository / issue source 需要外部读取。
+- 下游：无真实外部操作。
+- 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 读取 agent 文件或构造 prompt；MUST NOT 把 issue 内容拼成 shell 命令。
+
 ### github-issue-runner
-- 职责边界：常驻运行，轮询 `tranfu-labs/agent-moebius#4`，把 issue body + comments 归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 trigger 解析结果要求运行 agent 时，进入该 role 独立 Codex thread 并回评 GitHub issue；当 trigger 解析结果要求发布 hook 评论时，直接通过 GitHub client 评论。
+- 职责边界：常驻运行，按白名单扫描 GitHub repositories，并把 due issue source 交给单 issue 处理流水线；每个 issue 的 body + comments 会归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 trigger 解析结果要求运行 agent 时，进入该 issue + role 独立 Codex thread 并回评 GitHub issue；当 trigger 解析结果要求发布 hook 评论时，直接通过 GitHub client 评论。
 - 入口：`pnpm start` → `src/runner.ts`
 - 上游：进程启动命令、本机 `gh auth login`、本机 `codex` CLI。
-- 下游：`src/github.ts`、`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
+- 下游：`src/github-response-intake.ts`、`src/github-intake-state.ts`、`src/github.ts`、`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
 - 禁止依赖：MUST NOT 依赖 `agents/` 作为运行状态；MUST NOT 直接拼接 issue 内容为 shell 命令；MUST NOT 在 codex 失败时发评论。
 
 ### conversation-protocol
@@ -58,8 +65,15 @@
 - 下游：本地 `.state/agent-contexts.json`。
 - 禁止依赖：MUST NOT 存放在 `agents/`；MUST NOT 存 GitHub token、prompt 全文或 codex 执行日志。
 
+### github-intake-state
+- 职责边界：读取与写入本地 `.state/github-response-intake.json`，保存 repository 闲时扫描时间与 per-issue active/idle 调度状态。不负责 GitHub CLI、trigger 判定或 active/idle 业务规则。
+- 入口：`src/github-intake-state.ts`
+- 上游：`github-issue-runner`
+- 下游：本地 `.state/github-response-intake.json`。
+- 禁止依赖：MUST NOT 存放在 `agents/`；MUST NOT 存 GitHub token、prompt 全文、comment 正文或 codex 执行日志。
+
 ### github-client
-- 职责边界：通过 `gh` CLI 读取 issue body/comments，并通过 stdin 发布评论；不负责对话触发规则。
+- 职责边界：通过 `gh` CLI 拉取 repository open issue summaries、读取指定 issue body/comments/updatedAt，并通过 stdin 向指定 issue 发布评论；不负责对话触发规则或 active/idle 调度规则。
 - 入口：`src/github.ts`
 - 上游：`github-issue-runner`
 - 下游：本机 `gh` CLI。

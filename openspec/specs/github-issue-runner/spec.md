@@ -1,16 +1,34 @@
 # github-issue-runner 规格
 
 ## 域定位
-`github-issue-runner` 负责把 GitHub Issue 对话流转成受控的本地脚本执行：常驻进程按配置扫描目标 GitHub Issue 来源，通过独立触发器识别最新消息中的 agent mention 或 stage metadata，并以受控输入把 issue 数据交给本地 `codex` 或发布确定性 hook 评论。
+`github-issue-runner` 负责把 GitHub Issue 对话流转成受控的本地脚本执行：常驻进程按配置扫描白名单 GitHub repository 的 open issue 更新，通过独立触发器识别最新消息中的 agent mention 或 stage metadata，并以受控输入把 issue 数据交给本地 `codex` 或发布确定性 hook 评论。
 
-当前首个运行形态是对话型 issue runner：固定盯 `tranfu-labs/agent-moebius#4`，把 issue body 与 comments 视作一条共享时间线。
+当前运行形态是多 repository 轮询的对话型 issue runner：默认白名单包含 `tranfu-labs/tranfu-agents-app` 与 `tranfu-labs/agent-moebius`，每个被处理的 issue 都把 issue body 与 comments 视作一条共享时间线。
 
 ## 业务规则
-- MUST 作为常驻进程运行，并在启动时立即跑一轮，然后按配置的 `INTERVAL_MS` 间隔轮询。
-- MUST 支持以对话型 issue runner 形态运行：盯单一指定 issue，把 issue body 与 comments 视作 append-only 共享时间线。
+- MUST 作为常驻进程运行，并在启动时立即跑一轮，然后按配置的 tick 间隔轮询；默认 tick 间隔为 1 分钟，用于承载 active issue 轮询。
+- MUST 支持以对话型 issue runner 形态运行：每个被处理的 issue 都把 issue body 与 comments 视作 append-only 共享时间线。
+- MUST 支持 watch 多个配置的 GitHub repositories，且不要求 webhook endpoint。
+- MUST 把 GitHub response intake 业务规则与外部 GitHub / 文件系统 adapter 分离。
+- MUST 让 issue source discovery 与轮询节奏位于 conversation、trigger、prompt、Codex 与 role-thread state 模块之外。
+- MUST 默认在 idle mode 下每 5 分钟扫描一次每个白名单 repository。
+- MUST 在 idle repository scan 中只扫描有界的最近更新 open issue 窗口；默认每个 repository 20 个 issues。
+- MUST 默认使用 `tranfu-labs/tranfu-agents-app` 与 `tranfu-labs/agent-moebius` 作为 watched repository 白名单。
+- MUST 使用 GitHub issue `updatedAt` 作为 repository summary 与 active issue poll 的主要变更检测依据。
+- MUST 默认在 repository 首次 baseline scan 时只记录历史 open issue 的 `updatedAt`，不批量处理历史 issue，避免对旧 mention 批量回复。
+- SHOULD 支持显式配置 seed issue sources，用于需要启动后立即检查的特定 issue。
+- MUST 仅在 issue 出现 runner-relevant 变化并成功处理后把该 issue 提升为 active mode。
+- MUST 默认每 1 分钟轮询 active issues。
+- MUST 在 active issue 连续 5 次 active poll 未观察到 GitHub `updatedAt` 变化后，将该 issue 降级回 idle。
+- MUST 在 active issue 观察到新 `updatedAt` 且成功处理后重置无变化计数。
+- MUST 在 active issue 观察到 `no-trigger` 变化时保持 active，重置无变化计数，并安排下一次 active poll。
+- MUST 限制 active issues 数量；超出上限时，runner MUST 将多余 issue 降级到 idle 并记录原因。
+- MUST 把 GitHub response intake 状态保存在本地忽略目录 `.state/github-response-intake.json`，状态至少包含 repository idle scan 时间、issue `updatedAt`、mode、active 无变化计数和下次轮询时间。
+- MUST 在 `no-trigger` 后更新 intake state，避免未变化 issue 被重复 fetch。
+- MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进已处理 `updatedAt`。
 - MUST 在配置的目标 issue 暂不可解析时把本轮视为可恢复 skip，记录 `reason = "issue-not-found"` 与 `issueKey`，并等待后续轮询。
-- MUST 在目标 issue 不存在时不调用 Codex、不发表评论、不更新本地状态。
-- MUST 继续把非 issue-not-found 的 GitHub CLI 失败视作 cycle error。
+- MUST 在目标 issue 不存在时不调用 Codex、不发表评论，并从 intake active 状态中移除或降级该 issue。
+- MUST 继续把非 issue-not-found 的 GitHub CLI 失败视作可恢复错误，不得推进对应 issue 的已处理 `updatedAt`。
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
 - MUST 将 agent 触发决策封装为独立触发器；runner 只消费触发器结果，不把具体触发方式写死在编排流程中。
@@ -60,8 +78,8 @@
 - MUST 把 issue body / comment 内容当作不可信外部输入处理。
 - MUST 让 prompt 构造、speaker 归一化、触发判定、delta 消息选择、评论格式化与状态更新计算保持为可单元测试的业务数据操作，不依赖 GitHub、Codex CLI 或文件系统。
 - MUST NOT 把 GitHub token 或个人访问令牌写入仓库；当前实现复用本机 `gh auth login`。
-- 当前目标仓库、issue 编号、轮询间隔、本地 agent Markdown 目录、临时目录、role thread 状态文件路径、agent context 状态文件路径、默认 workdir root 集中在 `src/config.ts`；未来通用 runner 可再扩展为环境变量或外部配置。
-- MUST 在启动日志中打印解析后的默认 workdir root。
+- 当前 watched repositories、tick 间隔、idle repo scan 间隔、active issue poll 间隔、issue scan limit、active issue 上限、本地 agent Markdown 目录、临时目录、role thread 状态文件路径、agent context 状态文件路径、GitHub response intake 状态文件路径、默认 workdir root 集中在 `src/config.ts`；未来通用 runner 可再扩展为环境变量或外部配置。
+- MUST 在启动日志中打印 watched repositories、tick 间隔、idle/active 轮询参数、issue scan limit、active issue 上限与解析后的默认 workdir root。
 
 ## 场景
 ### 场景 1：对话型 — issue body 首次艾特已存在 agent 时触发 full prompt
@@ -203,8 +221,53 @@ And 不调用 Codex
 And 不发表评论
 And 不更新 `.state/role-threads.json`
 
+### 场景 18：GitHub response intake — 首次 repository scan 只建立 baseline
+Given `.state/github-response-intake.json` 中没有 `tranfu-labs/agent-moebius` repository 状态
+When 一次 tick 扫描该 repository 的最近 open issues
+Then 系统记录该 repository 的 `lastIdleScanAt`
+And 为 scan 返回的 issue 记录当前 `updatedAt`
+And 不读取这些历史 issue 的完整 body/comments
+And 不调用 Codex
+And 不发表评论
+
+### 场景 19：GitHub response intake — idle repository scan 发现 issue 更新后处理
+Given `.state/github-response-intake.json` 中已有 `tranfu-labs/agent-moebius#4.updatedAt = T1`
+And idle repository scan 返回 `tranfu-labs/agent-moebius#4.updatedAt = T2`
+When 系统读取该 issue body/comments 且最新消息包含有效 agent mention
+Then 系统按该 issue source 运行单 issue 处理流水线
+And 评论成功后把该 issue 记录为 `mode = active`
+And 把 `activeNoChangeCount` 重置为 0
+And 把 `nextPollAt` 设置为处理时间后 1 分钟
+
+### 场景 20：GitHub response intake — active issue 连续无变化后降级
+Given `.state/github-response-intake.json` 中 `tranfu-labs/agent-moebius#4.mode = active`
+And 该 issue 已连续 4 次 active poll 无 `updatedAt` 变化
+When 下一次 active poll 仍未观察到 `updatedAt` 变化
+Then 系统把该 issue 降级为 `mode = idle`
+And 不调用 trigger
+And 不调用 Codex
+And 不发表评论
+
+### 场景 21：GitHub response intake — active issue 的 no-trigger 变化保持 active
+Given `.state/github-response-intake.json` 中 `tranfu-labs/agent-moebius#4.mode = active`
+And active poll 观察到该 issue 的 `updatedAt` 从 T1 变成 T2
+And 最新共享时间线没有有效 trigger
+When 系统完成 no-trigger 判定
+Then 系统记录该 issue 的 `updatedAt = T2`
+And 保持 `mode = active`
+And 把 `activeNoChangeCount` 重置为 0
+And 把 `nextPollAt` 设置为处理时间后 1 分钟
+
+### 场景 22：GitHub response intake — 失败不推进 updatedAt
+Given `.state/github-response-intake.json` 中 `tranfu-labs/agent-moebius#4.updatedAt = T1`
+And repository scan 或 active poll 观察到该 issue 的 `updatedAt = T2`
+When pre script 执行失败、Codex 执行失败或 GitHub comment 发布失败
+Then 系统不把该 issue 的已处理 `updatedAt` 推进到 T2
+And 不更新 `.state/role-threads.json`
+And 下一轮仍可重试该变化
+
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析。
+- `pnpm test` MUST 通过，覆盖 GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
-- `pnpm start` 会真实读取 `tranfu-labs/agent-moebius#4`；目标 issue 暂不存在时记录 skip，最新消息包含有效 agent mention 时会调用 codex 并发表评论；执行前应确认这是期望的外部副作用。
+- `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 或发布 hook 评论；执行前应确认这是期望的外部副作用。

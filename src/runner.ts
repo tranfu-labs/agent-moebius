@@ -1,7 +1,20 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_CONTEXTS_STATE_PATH, AGENTS_DIR, CONFIG_LOG_FIELDS, INTERVAL_MS, ISSUE_KEY, ISSUE_SOURCE, TMP_ROOT, WORKDIR_ROOT } from "./config.js";
+import {
+  ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+  ACTIVE_ISSUE_POLL_INTERVAL_MS,
+  AGENT_CONTEXTS_STATE_PATH,
+  AGENTS_DIR,
+  CONFIG_LOG_FIELDS,
+  IDLE_REPOSITORY_SCAN_INTERVAL_MS,
+  ISSUE_DISCOVERY_LIMIT,
+  MAX_ACTIVE_ISSUES,
+  TICK_INTERVAL_MS,
+  TMP_ROOT,
+  WATCH_REPOSITORIES,
+  WORKDIR_ROOT,
+} from "./config.js";
 import { parseAgentManifest } from "./agent-manifest.js";
 import { runAgentPreScript } from "./agent-prescripts/index.js";
 import {
@@ -13,7 +26,26 @@ import {
   resolveNextRoleThreadState,
 } from "./conversation.js";
 import { run as runCodex } from "./codex.js";
-import { fetchIssueWithComments, isGitHubIssueNotFoundError, postComment } from "./github.js";
+import {
+  fetchIssueWithComments,
+  isGitHubIssueNotFoundError,
+  listOpenIssueSummaries,
+  postComment,
+  type GitHubIssue,
+} from "./github.js";
+import {
+  enforceActiveIssueLimit,
+  getDueActiveIssueSources,
+  getDueRepositories,
+  recordActiveIssueUnchanged,
+  recordIssueProcessingOutcome,
+  resolveRepositoryScan,
+  type GitHubResponseIntakeState,
+  type IssueProcessingOutcome,
+  type IssueSummary,
+} from "./github-response-intake.js";
+import { loadGitHubResponseIntakeState, saveGitHubResponseIntakeState } from "./github-intake-state.js";
+import { makeIssueSource, makeRepoKey, type IssueSource, type RepositoryRef } from "./issue-source.js";
 import { log } from "./log.js";
 import {
   getRoleThreadState,
@@ -30,7 +62,7 @@ interface AgentFile {
   path: string;
 }
 
-export async function tick(): Promise<void> {
+export async function tick(now = new Date()): Promise<void> {
   if (running) {
     log({ event: "skip-overlap" });
     return;
@@ -38,20 +70,218 @@ export async function tick(): Promise<void> {
 
   running = true;
   try {
-    const issue = await fetchIssueWithComments();
-    const count = countMessages(issue.comments.length);
     const agentFiles = await listAgentFiles();
+    let intakeState = await loadGitHubResponseIntakeState();
+
+    for (const repository of getDueRepositories({
+      repositories: WATCH_REPOSITORIES,
+      state: intakeState,
+      now,
+      idleRepositoryScanIntervalMs: IDLE_REPOSITORY_SCAN_INTERVAL_MS,
+    })) {
+      intakeState = await scanRepository({
+        state: intakeState,
+        repository,
+        agentFiles,
+        now,
+      });
+    }
+
+    for (const source of getDueActiveIssueSources({ state: intakeState, now })) {
+      intakeState = await pollActiveIssue({
+        state: intakeState,
+        source,
+        agentFiles,
+        now,
+      });
+    }
+
+    const limited = enforceActiveIssueLimit({
+      state: intakeState,
+      maxActiveIssues: MAX_ACTIVE_ISSUES,
+    });
+    intakeState = limited.state;
+    for (const issueKey of limited.demotedIssueKeys) {
+      log({ event: "active-issue-demoted", reason: "active-limit", issueKey, maxActiveIssues: MAX_ACTIVE_ISSUES });
+    }
+
+    await saveGitHubResponseIntakeState(intakeState);
+  } catch (error) {
+    log({ event: "cycle-error", error: formatError(error) });
+  } finally {
+    running = false;
+  }
+}
+
+async function scanRepository(input: {
+  state: GitHubResponseIntakeState;
+  repository: RepositoryRef;
+  agentFiles: AgentFile[];
+  now: Date;
+}): Promise<GitHubResponseIntakeState> {
+  const repoKey = makeRepoKey(input.repository);
+
+  try {
+    const summaries = (await listOpenIssueSummaries(input.repository, ISSUE_DISCOVERY_LIMIT)).map((summary) => ({
+      owner: input.repository.owner,
+      repo: input.repository.repo,
+      issueNumber: summary.issueNumber,
+      updatedAt: summary.updatedAt,
+    }));
+    const scan = resolveRepositoryScan({
+      state: input.state,
+      repository: input.repository,
+      summaries,
+      scannedAt: input.now,
+    });
+
+    log({
+      event: "repo-scanned",
+      repoKey,
+      baselineIssueCount: scan.baselineIssueCount,
+      changedIssueCount: scan.changedIssues.length,
+      issueDiscoveryLimit: ISSUE_DISCOVERY_LIMIT,
+    });
+
+    let nextState = scan.state;
+    for (const summary of scan.changedIssues) {
+      nextState = await fetchAndProcessChangedIssue({
+        state: nextState,
+        summary,
+        agentFiles: input.agentFiles,
+        now: input.now,
+      });
+    }
+
+    return nextState;
+  } catch (error) {
+    log({ event: "repo-scan-failed", repoKey, error: formatError(error) });
+    return input.state;
+  }
+}
+
+async function pollActiveIssue(input: {
+  state: GitHubResponseIntakeState;
+  source: IssueSource;
+  agentFiles: AgentFile[];
+  now: Date;
+}): Promise<GitHubResponseIntakeState> {
+  const issueState = input.state.issues[input.source.issueKey];
+  if (issueState === undefined || issueState.mode !== "active") {
+    return input.state;
+  }
+
+  try {
+    const issue = await fetchIssueWithComments(input.source);
+    if (issue.updatedAt === issueState.updatedAt) {
+      log({
+        event: "active-issue-unchanged",
+        issueKey: input.source.issueKey,
+        activeNoChangeCount: issueState.activeNoChangeCount + 1,
+      });
+      return recordActiveIssueUnchanged({
+        state: input.state,
+        source: input.source,
+        checkedAt: input.now,
+        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+      });
+    }
+
+    const outcome = await processIssueSource({
+      source: input.source,
+      issue,
+      agentFiles: input.agentFiles,
+    });
+    return recordIssueProcessingOutcome({
+      state: input.state,
+      summary: issueSummaryFromSource(input.source, issue.updatedAt),
+      outcome,
+      processedAt: input.now,
+      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+    });
+  } catch (error) {
+    if (isGitHubIssueNotFoundError(error)) {
+      log({ event: "skip", reason: "issue-not-found", issueKey: error.issueKey, detail: error.detail.trim() });
+      return recordIssueProcessingOutcome({
+        state: input.state,
+        summary: issueSummaryFromSource(input.source, issueState.updatedAt),
+        outcome: "issue-not-found",
+        processedAt: input.now,
+        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      });
+    }
+
+    log({ event: "active-issue-fetch-failed", issueKey: input.source.issueKey, error: formatError(error) });
+    return input.state;
+  }
+}
+
+async function fetchAndProcessChangedIssue(input: {
+  state: GitHubResponseIntakeState;
+  summary: IssueSummary;
+  agentFiles: AgentFile[];
+  now: Date;
+}): Promise<GitHubResponseIntakeState> {
+  const source = makeIssueSource(input.summary);
+
+  try {
+    const issue = await fetchIssueWithComments(source);
+    const outcome = await processIssueSource({
+      source,
+      issue,
+      agentFiles: input.agentFiles,
+    });
+
+    return recordIssueProcessingOutcome({
+      state: input.state,
+      summary: issueSummaryFromSource(source, issue.updatedAt),
+      outcome,
+      processedAt: input.now,
+      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+    });
+  } catch (error) {
+    if (isGitHubIssueNotFoundError(error)) {
+      log({ event: "skip", reason: "issue-not-found", issueKey: error.issueKey, detail: error.detail.trim() });
+      return recordIssueProcessingOutcome({
+        state: input.state,
+        summary: input.summary,
+        outcome: "issue-not-found",
+        processedAt: input.now,
+        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      });
+    }
+
+    log({ event: "issue-fetch-failed", issueKey: source.issueKey, error: formatError(error) });
+    return recordIssueProcessingOutcome({
+      state: input.state,
+      summary: input.summary,
+      outcome: "failed",
+      processedAt: input.now,
+      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+    });
+  }
+}
+
+async function processIssueSource(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  agentFiles: AgentFile[];
+}): Promise<IssueProcessingOutcome> {
+  try {
+    const count = countMessages(input.issue.comments.length);
+    const agentFiles = input.agentFiles;
     const agentNames = agentFiles.map((agent) => agent.name);
-    const timeline = buildTimeline(issue.body, issue.comments, agentNames);
+    const timeline = buildTimeline(input.issue.body, input.issue.comments, agentNames);
     const trigger = resolveTrigger({ timeline, availableAgentNames: agentNames });
 
     if (trigger.kind === "skip") {
-      log({ event: "skip", count, reason: trigger.reason });
-      return;
+      log({ event: "skip", count, reason: trigger.reason, issueKey: input.source.issueKey });
+      return "no-trigger";
     }
 
     if (trigger.kind === "post-comment") {
-      await postComment(trigger.body);
+      await postComment(input.source, trigger.body);
       log({
         event: "hook-commented",
         count,
@@ -60,24 +290,24 @@ export async function tick(): Promise<void> {
         sourceRole: trigger.sourceRole,
         sourceIndex: trigger.sourceIndex,
         stage: trigger.stage,
-        issueKey: ISSUE_KEY,
+        issueKey: input.source.issueKey,
       });
-      return;
+      return "triggered-success";
     }
 
     const selectedAgent = agentFiles.find((agent) => agent.name === trigger.role);
     if (selectedAgent === undefined) {
       log({ event: "skip", count, reason: "selected-agent-missing", agent: trigger.role });
-      return;
+      return "no-trigger";
     }
 
     const runDir = makeRunDir(count);
-    log({ event: "trigger", count, runDir, agent: selectedAgent.name, issueKey: ISSUE_KEY });
+    log({ event: "trigger", count, runDir, agent: selectedAgent.name, issueKey: input.source.issueKey });
 
     const agentMarkdown = await fs.readFile(selectedAgent.path, "utf8");
     const agentManifest = parseAgentManifest(agentMarkdown);
     const stateStore = await loadRoleThreadStateStore();
-    const existingState = getRoleThreadState(stateStore, ISSUE_KEY, selectedAgent.name);
+    const existingState = getRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name);
     const plan = buildRolePromptPlan({
       role: selectedAgent.name,
       agentMarkdown: agentManifest.body,
@@ -86,8 +316,8 @@ export async function tick(): Promise<void> {
     });
 
     if (plan.kind === "skip") {
-      log({ event: "skip", count, reason: plan.reason, agent: selectedAgent.name, issueKey: ISSUE_KEY });
-      return;
+      log({ event: "skip", count, reason: plan.reason, agent: selectedAgent.name, issueKey: input.source.issueKey });
+      return "no-trigger";
     }
 
     let codexCwd: string | undefined;
@@ -96,7 +326,7 @@ export async function tick(): Promise<void> {
         role: selectedAgent.name,
         preScript: agentManifest.preScript,
         latestIndex: plan.latestIndex,
-        issueSource: ISSUE_SOURCE,
+        issueSource: input.source,
         workdirRoot: WORKDIR_ROOT,
         contextStatePath: AGENT_CONTEXTS_STATE_PATH,
       });
@@ -109,8 +339,9 @@ export async function tick(): Promise<void> {
           agent: selectedAgent.name,
           preScript: agentManifest.preScript,
           reason: preScriptResult.reason,
+          issueKey: input.source.issueKey,
         });
-        return;
+        return "failed";
       }
 
       codexCwd = preScriptResult.codexCwd;
@@ -121,6 +352,7 @@ export async function tick(): Promise<void> {
         agent: selectedAgent.name,
         preScript: agentManifest.preScript,
         codexCwd,
+        issueKey: input.source.issueKey,
       });
     }
 
@@ -155,7 +387,7 @@ export async function tick(): Promise<void> {
 
     if (!result.ok) {
       log({ event: "codex-failed", count, runDir: result.runDir, reason: result.reason, agent: selectedAgent.name });
-      return;
+      return "failed";
     }
 
     const nextState = resolveNextRoleThreadState({
@@ -166,11 +398,11 @@ export async function tick(): Promise<void> {
 
     if (nextState === null) {
       log({ event: "codex-failed", count, runDir: result.runDir, reason: "no-thread-id", agent: selectedAgent.name });
-      return;
+      return "failed";
     }
 
-    await postComment(formatAgentComment(selectedAgent.name, result.finalText));
-    await saveRoleThreadStateStore(withRoleThreadState(stateStore, ISSUE_KEY, selectedAgent.name, nextState));
+    await postComment(input.source, formatAgentComment(selectedAgent.name, result.finalText));
+    await saveRoleThreadStateStore(withRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name, nextState));
     log({
       event: "commented",
       count,
@@ -178,16 +410,12 @@ export async function tick(): Promise<void> {
       agent: selectedAgent.name,
       threadId: nextState.threadId,
       cachedInputTokens: result.cachedInputTokens,
+      issueKey: input.source.issueKey,
     });
+    return "triggered-success";
   } catch (error) {
-    if (isGitHubIssueNotFoundError(error)) {
-      log({ event: "skip", reason: "issue-not-found", issueKey: error.issueKey, detail: error.detail.trim() });
-      return;
-    }
-
-    log({ event: "cycle-error", error: formatError(error) });
-  } finally {
-    running = false;
+    log({ event: "process-issue-error", issueKey: input.source.issueKey, error: formatError(error) });
+    return "failed";
   }
 }
 
@@ -196,7 +424,7 @@ export function start(): NodeJS.Timeout {
   void tick();
   return setInterval(() => {
     void tick();
-  }, INTERVAL_MS);
+  }, TICK_INTERVAL_MS);
 }
 
 export function makeRunDir(count: number, now = new Date()): string {
@@ -212,6 +440,15 @@ async function listAgentFiles(dir = AGENTS_DIR): Promise<AgentFile[]> {
       path: path.join(dir, entry.name),
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function issueSummaryFromSource(source: IssueSource, updatedAt: string): IssueSummary {
+  return {
+    owner: source.owner,
+    repo: source.repo,
+    issueNumber: source.issueNumber,
+    updatedAt,
+  };
 }
 
 function formatError(error: unknown): string {

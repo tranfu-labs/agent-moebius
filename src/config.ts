@@ -1,27 +1,28 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { RepositoryRef } from "./issue-source.js";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-export const OWNER = "tranfu-labs";
-export const REPO = "agent-moebius";
-export const ISSUE_NUMBER = 4;
-export const INTERVAL_MS = 5 * 60 * 1000;
+export const WATCH_REPOSITORIES = [
+  { owner: "tranfu-labs", repo: "tranfu-agents-app" },
+  { owner: "tranfu-labs", repo: "agent-moebius" },
+] as const satisfies readonly RepositoryRef[];
+
+export const TICK_INTERVAL_MS = 1 * 60 * 1000;
+export const IDLE_REPOSITORY_SCAN_INTERVAL_MS = 5 * 60 * 1000;
+export const ACTIVE_ISSUE_POLL_INTERVAL_MS = 1 * 60 * 1000;
+export const ACTIVE_ISSUE_NO_CHANGE_LIMIT = 5;
+export const ISSUE_DISCOVERY_LIMIT = 20;
+export const MAX_ACTIVE_ISSUES = 20;
 export const AGENTS_DIR = "agents";
 export const TMP_ROOT = "/tmp";
-export const ISSUE_KEY = `${OWNER}/${REPO}#${ISSUE_NUMBER}`;
 export const ROLE_THREADS_STATE_PATH = ".state/role-threads.json";
 export const AGENT_CONTEXTS_STATE_PATH = ".state/agent-contexts.json";
+export const GITHUB_RESPONSE_INTAKE_STATE_PATH = ".state/github-response-intake.json";
 export const WORKDIR_ROOT = path.resolve(
   process.env.AGENT_MOEBIUS_WORKDIR_ROOT ?? path.join(PROJECT_ROOT, "..", "agent-moebius-workdir"),
 );
-export const ISSUE_SOURCE = {
-  owner: OWNER,
-  repo: REPO,
-  issueNumber: ISSUE_NUMBER,
-  issueKey: ISSUE_KEY,
-  cloneUrl: `https://github.com/${OWNER}/${REPO}.git`,
-} as const;
 
 export const CODEX_EXEC_OPTIONS = [
   "--yolo",
@@ -37,13 +38,17 @@ export const CODEX_EXEC_OPTIONS = [
 ] as const;
 
 export const CONFIG_LOG_FIELDS = {
-  owner: OWNER,
-  repo: REPO,
-  issueNumber: ISSUE_NUMBER,
-  intervalMs: INTERVAL_MS,
+  watchedRepositories: WATCH_REPOSITORIES,
+  tickIntervalMs: TICK_INTERVAL_MS,
+  idleRepositoryScanIntervalMs: IDLE_REPOSITORY_SCAN_INTERVAL_MS,
+  activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+  activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+  issueDiscoveryLimit: ISSUE_DISCOVERY_LIMIT,
+  maxActiveIssues: MAX_ACTIVE_ISSUES,
   agentsDir: AGENTS_DIR,
   tmpRoot: TMP_ROOT,
   roleThreadsStatePath: ROLE_THREADS_STATE_PATH,
   agentContextsStatePath: AGENT_CONTEXTS_STATE_PATH,
+  githubResponseIntakeStatePath: GITHUB_RESPONSE_INTAKE_STATE_PATH,
   workdirRoot: WORKDIR_ROOT,
 };

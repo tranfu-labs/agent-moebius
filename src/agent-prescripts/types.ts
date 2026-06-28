@@ -1,10 +1,6 @@
-export interface IssueSource {
-  owner: string;
-  repo: string;
-  issueNumber: number;
-  issueKey: string;
-  cloneUrl: string;
-}
+import type { IssueSource } from "../issue-source.js";
+
+export type { IssueSource } from "../issue-source.js";
 
 export interface AgentPreScriptInput {
   role: string;
