@@ -20,7 +20,7 @@
 │   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
 │   ├── github.ts               # gh CLI 读取 issue / 发表评论
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
-│   ├── triggers/               # mention / stage 等触发方式
+│   ├── triggers/               # mention / stage 等触发方式；含 self-reflect.ts 同轮自反纯函数
 │   ├── agent-prescripts/       # agent 级 Codex 执行前准备脚本
 │   ├── agent-context-state.ts  # .state/agent-contexts.json 状态读写适配
 │   └── state.ts                # .state/role-threads.json 状态读写适配
@@ -65,6 +65,7 @@
 - `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。该 pre script 每次准备前刷新目标仓库远端 `main` tracking ref，新建 worktree 从最新远端 `main` 创建；复用已有 worktree 时若当前 `HEAD` 未包含最新远端 `main`，则 fail closed，不自动 rebase / merge。
 - `agents/dev.md` 可在回复末尾输出 `<!-- agent-moebius:stage=plan-written -->` 或 `<!-- agent-moebius:stage=code-verified -->`，只声明阶段，不直接指定后续 agent。
 - `agents/reflector.md` 是通用反思接力展示身份；普通 `@reflector` 不启动 Codex，reflector 由 `src/triggers/reflector-stage-trigger.ts` 根据 stage metadata 触发，并直接发布 hook 评论。
+- runner 在 mention-codex 分支 `postComment` 完成后会把刚发的评论拼回本地 timeline 并在本轮内再调一次 `resolveTrigger`（同轮自反），命中 reflector stage hook 时立刻发出 hook 评论，不等下一轮 active poll；命中 mention（要再跑 codex）或返回 skip 即停止；最多自反 `MAX_SELF_REFLECT = 3` 次；每分钟 active poll 仍作为兜底。
 - runner 写回 agent 评论时使用 GitHub 页面可见的 `<role>:\n${LAST_RESPONSE}` 前缀；comment body 中落 `&lt;role&gt;:\n${LAST_RESPONSE}`，并追加 `<!-- agent-moebius:role=<role> -->` metadata，便于后续归一化 speaker。
 - 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。
 - agent pre script 上下文保存在被忽略的 `.state/agent-contexts.json`；当前 `@dev` 记录 issue、role、preScript、目标仓库、worktreePath 与 preparedFromMessageIndex。

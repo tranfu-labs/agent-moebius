@@ -51,6 +51,14 @@
 - MUST 对同一 `source + stage + sourceIndex` 只发布一次 stage hook 评论；重复防护基于共享时间线中的 `stage-hook` metadata。
 - MUST NOT 对 `reflector` 自己的消息触发 reflector stage trigger。
 - MUST 让 `reflector` 只提醒输出 stage 的 agent 进行反思，不接管需求、方案、实现、测试或归档工作。
+- MUST 在每个 issue 处理周期内，agent 通过 mention trigger 完成 codex 评论 post 后立即把该评论拼回本地 timeline，并再次调用 trigger 解析；NEVER 仅依赖跨轮 active poll 触发 reflector stage hook。
+- MUST 仅在自反时再次解析命中 reflector stage hook（`kind === "post-comment"`）时继续自反并直接发布 hook 评论；若再次解析命中 mention（`kind === "run-agent"`），MUST 停止自反、将该 mention 留给下一轮 active poll 处理。
+- MUST 限制同轮自反次数为 `MAX_SELF_REFLECT = 3`；达到上限即停止本轮自反、留给下一轮 active poll。
+- MUST 在自反循环中复用 `resolveReflectorStageTrigger` 既有的 stage-hook 去重逻辑（`source + stage + sourceIndex`），NEVER 为同一 hook 重复发布评论。
+- MUST 保留每分钟 active poll 与 5 次无变化降级 idle 的现有节奏；自反失败或外部 actor 写带 stage marker 评论时，下一轮 active poll 仍负责兜底。
+- MUST 在自反每一步发布 hook 评论时记录 `event = "self-reflect-hook-commented"`、`iteration`、`stage`、`sourceRole`、`sourceIndex` 与 `issueKey`；自反停止时记录 `event = "self-reflect-stopped"`、`iteration`、`reason`、`issueKey`。
+- MUST 在自反循环中拼接本地 timeline 时使用 `formatAgentComment` 包过的 agent 评论 body（与 GitHub 实际写回的 comment body 一致），保证 `normalizeComment` 与 stage marker 解析在自反时与跨轮 poll 时行为一致。
+- MUST 把 `MAX_SELF_REFLECT` 与现有 tick / poll 参数一同写入启动日志的 `CONFIG_LOG_FIELDS`。
 - MUST 支持 agent Markdown frontmatter 声明受信任 `preScript`，用于 runner 在 Codex 执行前准备上下文；Markdown 正文仍作为 persona 文本输入 Codex。
 - MUST 将 `preScript` 路径限制在仓库内 `src/agent-prescripts/` 的静态 registry 中；issue body/comment 内容不得成为可执行脚本路径。
 - MUST 把共享时间线中的每条消息归一化为 `index`、`speaker`、`body`、`source`。
@@ -302,8 +310,36 @@ Then 系统不把该 issue 的已处理 `updatedAt` 推进到 T2
 And 不更新 `.state/role-threads.json`
 And 下一轮仍可重试该变化
 
+### 场景 23：trigger 自反 — dev 写出 plan-written 后同轮触发 reflector stage hook
+Given 最新消息包含 `@dev`
+And `agents/dev.md` 与 `agents/reflector.md` 都存在
+And dev codex 本轮返回的 `${LAST_RESPONSE}` 含 `<!-- agent-moebius:stage=plan-written -->`
+When 一次轮询取回该 issue
+Then 系统先按 mention trigger 发布 dev 评论
+And 在本轮内把刚发布的 dev 评论拼回本地 timeline 再调用 `resolveTrigger`
+And 命中 reflector stage trigger 并立即发布 reflector hook 评论
+And 不等下一轮 active poll
+And 日志包含 `event:self-reflect-hook-commented` 与 `iteration:1`
+
+### 场景 24：trigger 自反 — 命中 mention 时停止自反
+Given dev codex 本轮返回的 `${LAST_RESPONSE}` 不含 stage marker 但包含 `@product-manager`
+And `agents/product-manager.md` 存在
+When 一次轮询取回该 issue
+Then 系统按 mention trigger 发布 dev 评论
+And 自反时再次解析命中 product-manager mention（`kind === "run-agent"`）
+And 系统停止本轮自反，不在本轮调用 product-manager 的 codex
+And 日志包含 `event:self-reflect-stopped` 与 `reason:"mention-not-self-reflected"`
+And 下一轮 active poll 仍按 mention trigger 处理 product-manager
+
+### 场景 25：trigger 自反 — 达到 MAX_SELF_REFLECT 上限退出
+Given 自反循环中连续 3 次 `resolveTrigger` 都返回新的 stage hook 结果（理论极端场景）
+When 第 `MAX_SELF_REFLECT + 1` 次循环开始
+Then 系统停止本轮自反
+And 日志包含 `event:self-reflect-stopped` 与 `reason:"max-iterations"`
+And 未发布的 hook 评论留给下一轮 active poll 兜底
+
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）以及拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 或发布 hook 评论；执行前应确认这是期望的外部副作用。

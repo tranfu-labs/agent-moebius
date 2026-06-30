@@ -10,11 +10,13 @@
 - 禁止依赖：MUST NOT 依赖运行时状态文件、GitHub token 或本地脚本输出。
 
 ### triggers
-- 职责边界：把最新共享时间线消息解析成触发结果；当前包含普通 mention trigger 与 reflector stage trigger。可返回运行某个 Codex agent、发布确定性 hook 评论或跳过。
-- 入口：`src/triggers/index.ts`；`src/triggers/mention-trigger.ts`；`src/triggers/reflector-stage-trigger.ts`
-- 上游：`src/runner.ts` 在构造 timeline 与 agent 名单后调用。
+- 职责边界：把最新共享时间线消息解析成触发结果；当前包含普通 mention trigger 与 reflector stage trigger。可返回运行某个 Codex agent、发布确定性 hook 评论或跳过。同模块下 `self-reflect.ts` 提供本地 timeline 拼接与自反步骤决策两个纯函数，供 `runner.ts` 在单轮内完成「post → 拼回 timeline → 再次 `resolveTrigger`」自反闭环，使 dev 输出 stage marker 后无需等下一轮 active poll 即可触发 reflector hook。
+- 入口：`src/triggers/index.ts`；`src/triggers/mention-trigger.ts`；`src/triggers/reflector-stage-trigger.ts`；`src/triggers/self-reflect.ts`
+- 上游：`src/runner.ts` 在构造 timeline 与 agent 名单后调用；mention-codex 分支 `postComment` 后调用 `self-reflect.ts` 完成同轮自反。
 - 下游：`src/conversation.ts` 的 timeline / mention 纯函数；hook 评论正文由 trigger 返回给 `runner.ts`，再由 `src/github.ts` 发布。
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 把 issue 内容拼成 shell 命令；MUST NOT 把 reflector stage 白名单写进 `runner.ts`。
+
+![trigger-self-reflection](trigger-self-reflection.svg)
 
 ### agent-prescripts
 - 职责边界：在 Codex 执行前为特定 agent 准备确定性运行上下文；当前 `dev-workspace` 基于 runner 正在处理的 GitHub issue source 创建 / 复用 issue 独占 worktree，刷新远端 `main` 基线，复用时检测 worktree 是否已包含最新 `main`，并返回 Codex cwd。

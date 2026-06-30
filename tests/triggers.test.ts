@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildTimeline } from "../src/conversation.js";
+import { buildTimeline, formatAgentComment } from "../src/conversation.js";
 import { resolveTrigger } from "../src/triggers/index.js";
 import { resolveReflectorStageTrigger } from "../src/triggers/reflector-stage-trigger.js";
+import { appendPostedComment } from "../src/triggers/self-reflect.js";
 
 const agents = ["dev", "product-manager", "reflector"];
 
@@ -116,5 +117,22 @@ describe("triggers", () => {
     ];
 
     expect(resolveReflectorStageTrigger({ timeline, availableAgentNames: agents })).toBeNull();
+  });
+
+  it("resolves a reflector stage trigger after locally appending dev's posted comment", () => {
+    const timeline = buildTimeline("@dev 请按要求推进", [], agents);
+    const postedBody = formatAgentComment(
+      "dev",
+      "已到 plan-written，按要求停下。\n\n<!-- agent-moebius:stage=plan-written -->",
+    );
+    const reflected = appendPostedComment(timeline, "dev", postedBody);
+
+    expect(resolveTrigger({ timeline: reflected, availableAgentNames: agents })).toMatchObject({
+      kind: "post-comment",
+      role: "reflector",
+      reason: "reflector-stage",
+      sourceRole: "dev",
+      stage: "plan-written",
+    });
   });
 });

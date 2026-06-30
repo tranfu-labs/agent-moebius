@@ -10,6 +10,7 @@ import {
   IDLE_REPOSITORY_SCAN_INTERVAL_MS,
   ISSUE_DISCOVERY_LIMIT,
   MAX_ACTIVE_ISSUES,
+  MAX_SELF_REFLECT,
   TICK_INTERVAL_MS,
   TMP_ROOT,
   WATCH_REPOSITORIES,
@@ -54,6 +55,7 @@ import {
   withRoleThreadState,
 } from "./state.js";
 import { resolveTrigger } from "./triggers/index.js";
+import { appendPostedComment, decideNextSelfReflectStep } from "./triggers/self-reflect.js";
 
 let running = false;
 
@@ -402,7 +404,8 @@ async function processIssueSource(input: {
       return "failed";
     }
 
-    await postComment(input.source, formatAgentComment(selectedAgent.name, result.finalText));
+    const postedBody = formatAgentComment(selectedAgent.name, result.finalText);
+    await postComment(input.source, postedBody);
     await saveRoleThreadStateStore(withRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name, nextState));
     log({
       event: "commented",
@@ -413,6 +416,39 @@ async function processIssueSource(input: {
       cachedInputTokens: result.cachedInputTokens,
       issueKey: input.source.issueKey,
     });
+
+    let workingTimeline = appendPostedComment(timeline, selectedAgent.name, postedBody);
+    for (let iteration = 1; iteration <= MAX_SELF_REFLECT; iteration++) {
+      const nextTrigger = resolveTrigger({ timeline: workingTimeline, availableAgentNames: agentNames });
+      const step = decideNextSelfReflectStep(nextTrigger, iteration, MAX_SELF_REFLECT);
+
+      if (step.kind === "stop") {
+        log({
+          event: "self-reflect-stopped",
+          iteration,
+          reason: step.reason,
+          issueKey: input.source.issueKey,
+        });
+        break;
+      }
+
+      // step.kind === "continue-hook" 保证 nextTrigger.kind === "post-comment"
+      if (nextTrigger.kind !== "post-comment") {
+        break;
+      }
+
+      await postComment(input.source, nextTrigger.body);
+      log({
+        event: "self-reflect-hook-commented",
+        iteration,
+        stage: nextTrigger.stage,
+        sourceRole: nextTrigger.sourceRole,
+        sourceIndex: nextTrigger.sourceIndex,
+        issueKey: input.source.issueKey,
+      });
+      workingTimeline = appendPostedComment(workingTimeline, nextTrigger.role, nextTrigger.body);
+    }
+
     return "triggered-success";
   } catch (error) {
     log({ event: "process-issue-error", issueKey: input.source.issueKey, error: formatError(error) });
