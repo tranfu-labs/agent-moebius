@@ -3,7 +3,7 @@ import type { TimelineMessage } from "../conversation.js";
 import type { TriggerInput, TriggerResult } from "./types.js";
 
 export const REFLECTOR_ROLE = "reflector";
-export const REFLECTOR_STAGES = ["plan-confirmed", "code-complete"] as const;
+export const REFLECTOR_STAGES = ["plan-written", "code-verified"] as const;
 
 const REFLECTOR_STAGE_SET = new Set<string>(REFLECTOR_STAGES);
 const METADATA_NAME = "[a-z0-9]+(?:-[a-z0-9]+)*";

@@ -45,7 +45,8 @@
 - MUST 提供 `agents/reflector.md` 作为通用反思接力展示身份。
 - MUST NOT 通过普通 `@reflector` mention 启动 Codex reflector；reflector 的触发方式是 stage metadata。
 - MUST 支持 reflector stage trigger：最新非 `reflector` agent 消息包含 `<!-- agent-moebius:stage=<stage> -->` 且 stage 在白名单内时，runner 直接发布 reflector 评论。
-- MUST 先支持 `plan-confirmed` 与 `code-complete` 两个 reflector stage。
+- MUST 支持 `plan-written` 与 `code-verified` 两个 reflector stage。
+- MUST NOT 将 `plan-confirmed` 与 `code-complete` 视为受支持的 reflector stage。
 - MUST 让 reflector stage trigger 生成的评论包含 `<!-- agent-moebius:role=reflector -->` 与 `<!-- agent-moebius:stage-hook source=<role> stage=<stage> sourceIndex=<index> -->` metadata。
 - MUST 对同一 `source + stage + sourceIndex` 只发布一次 stage hook 评论；重复防护基于共享时间线中的 `stage-hook` metadata。
 - MUST NOT 对 `reflector` 自己的消息触发 reflector stage trigger。
@@ -166,13 +167,13 @@ Then 系统选择文本中最早出现的有效 agent mention
 
 ### 场景 7：通用反思者 — agent 输出 stage 时触发反思接力
 Given 最新消息 speaker 是 `dev`
-And 最新消息 body 包含 `<!-- agent-moebius:stage=plan-confirmed -->`
+And 最新消息 body 包含 `<!-- agent-moebius:stage=plan-written -->`
 And `agents/reflector.md` 存在
 When 一次轮询取回该 issue
 Then reflector stage trigger 直接发布 `reflector` 评论
-And comment body 包含 `@dev 请针对「plan-confirmed」做一次反思。`
+And comment body 包含 `@dev 请针对「plan-written」做一次反思。`
 And comment body 包含 `<!-- agent-moebius:role=reflector -->`
-And comment body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=<latest-index> -->`
+And comment body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=<latest-index> -->`
 And 系统不调用 Codex reflector
 
 ### 场景 8：通用反思者 — 普通 @reflector mention 不启动 Codex
@@ -185,7 +186,7 @@ And 不发布 reflector hook 评论
 ### 场景 9：通用反思者 — reflector hook 评论继续触发源 agent
 Given 最新消息 speaker 是 `reflector`
 And 最新消息 body 包含 `@dev`
-And 最新消息 body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=1 -->`
+And 最新消息 body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->`
 When 一次轮询取回该 issue
 Then mention trigger 选择 `dev`
 And 系统按 `dev` role thread 执行 Codex
