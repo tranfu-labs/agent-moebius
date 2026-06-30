@@ -35,6 +35,7 @@
 - MUST 把 GitHub response intake 状态保存在本地忽略目录 `.state/github-response-intake.json`，状态至少包含 repository idle scan 时间、issue `updatedAt`、mode、active 无变化计数和下次轮询时间。
 - MUST 在 `no-trigger` 后更新 intake state，避免未变化 issue 被重复 fetch。
 - MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进已处理 `updatedAt`。
+- MUST keep an interrupted issue active and schedule a follow-up poll without advancing processing to the newly arrived message's `updatedAt`.
 - MUST 在配置的目标 issue 暂不可解析时把本轮视为可恢复 skip，记录 `reason = "issue-not-found"` 与 `issueKey`，并等待后续轮询。
 - MUST 在目标 issue 不存在时不调用 Codex、不发表评论，并从 intake active 状态中移除或降级该 issue。
 - MUST 继续把非 issue-not-found 的 GitHub CLI 失败视作可恢复错误，不得推进对应 issue 的已处理 `updatedAt`。
@@ -68,6 +69,9 @@
 - MUST 在复用已有 `dev` issue worktree 前检查当前 worktree `HEAD` 是否包含最新远端 `main`。
 - MUST 在已有 `dev` issue worktree 落后最新远端 `main` 时 fail closed，不自动 rebase、不自动 merge、不调用 Codex、不发表评论、不推进 role thread 状态。
 - MUST 在已有 `dev` context 指向缺失或不可访问 worktree 时 fail closed，不自动重建。
+- MUST support interrupting an in-flight `dev` Codex run when the source conversation receives a new message before Codex completes.
+- MUST model agent-run interruption through a driver-agnostic conversation snapshot abstraction, so drivers provide current conversation state instead of embedding GitHub-specific logic in the local script executor.
+- MUST use GitHub issue body + comments count as the GitHub conversation snapshot message count for new-comment interruption.
 - MUST 允许同一个 issue 中多个 role 参与对话，并为每个 role 维护独立 Codex thread。
 - MUST 把 role thread 状态保存在本地忽略目录 `.state/role-threads.json`，状态至少包含 issue 标识、role、threadId、lastSeenIndex。
 - MUST 把 agent pre script 上下文保存在本地忽略目录 `.state/agent-contexts.json`，状态至少包含 issue、role、preScript、目标仓库、worktreePath、preparedFromMessageIndex。
@@ -83,6 +87,8 @@
 - MUST 在 runner 写回 agent 评论时使用 GitHub 页面可见模板 `<role>:\n${LAST_RESPONSE}`，其中 `${LAST_RESPONSE}` 是 Codex 本轮最终 assistant 文本；落到 comment body 时 MUST 使用 `&lt;role&gt;:\n${LAST_RESPONSE}`，避免 GitHub Markdown 把 raw `<role>` 当作 HTML 标签处理。
 - MUST 在 runner 写回 agent 评论时追加隐藏 metadata `<!-- agent-moebius:role=<role> -->`。
 - MUST 仅在 Codex 成功且 GitHub 评论成功后更新 role thread 状态；失败时 MUST 保持旧状态，允许下一轮重试。
+- MUST terminate the Codex child process when an agent-run interrupt fires, and MUST treat the interrupted run as unsuccessful even if the process exits cleanly afterward.
+- MUST NOT post a GitHub comment or update `.state/role-threads.json` after an interrupted Codex run.
 - MUST 在 resume 失败或 thread id 不可用时允许回退到 full prompt 新建 Codex thread，并在 GitHub 评论成功后更新该 role 的 thread 映射。
 - MUST 把本地脚本每次执行的 stdout / stderr 落到 `<TMP_ROOT>/agent-moebius-<ISO>-c<count>/` 下，并在日志中打印该路径，便于追溯；resume fallback 可使用独立 fallback 目录。
 - MUST 在本地脚本失败（非 0 退出 / 解析不出最终消息 / 无法取得必要 thread id）时只记日志、不发评论；下一轮若条件仍满足可再次尝试。
@@ -301,8 +307,23 @@ Then 系统不把该 issue 的已处理 `updatedAt` 推进到 T2
 And 不更新 `.state/role-threads.json`
 And 下一轮仍可重试该变化
 
+### 场景 23：Dev agent — 新 comment 打断正在运行的 Codex
+Given 最新消息触发 `@dev`
+And runner 已基于当前 timeline 启动 Codex
+When Codex 尚未完成时该 issue 新增一条 comment
+Then runner 中断该 Codex 子进程
+And 不发布该次 Codex 的 GitHub comment
+And 不更新该 issue + `dev` 的 role thread state
+And intake state 保持该 issue active，等待下一轮用包含新 comment 的 timeline 重新处理
+
+### 场景 24：中断检测 — driver 只提供 conversation snapshot
+Given 一个 driver 可以读取当前 conversation message count
+When 当前 message count 大于 Codex 启动时的 baseline message count
+Then 通用中断 monitor 产生 `new-message` interrupt
+And monitor 不需要知道该 driver 是否来自 GitHub
+
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、运行中断 outcome、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 或发布 hook 评论；执行前应确认这是期望的外部副作用。

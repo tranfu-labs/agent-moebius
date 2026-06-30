@@ -10,11 +10,19 @@ import {
   IDLE_REPOSITORY_SCAN_INTERVAL_MS,
   ISSUE_DISCOVERY_LIMIT,
   MAX_ACTIVE_ISSUES,
+  RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS,
   TICK_INTERVAL_MS,
   TMP_ROOT,
   WATCH_REPOSITORIES,
   WORKDIR_ROOT,
 } from "./config.js";
+import {
+  formatConversationInterrupt,
+  resolveConversationInterrupt,
+  startPollingConversationInterruptMonitor,
+  type ConversationInterrupt,
+  type PollingConversationInterruptMonitor,
+} from "./conversation-interrupt.js";
 import { parseAgentManifest } from "./agent-manifest.js";
 import { runAgentPreScript } from "./agent-prescripts/index.js";
 import {
@@ -25,7 +33,7 @@ import {
   formatAgentComment,
   resolveNextRoleThreadState,
 } from "./conversation.js";
-import { run as runCodex } from "./codex.js";
+import { isInterruptedCodexRunResult, run as runCodex } from "./codex.js";
 import {
   fetchIssueWithComments,
   isGitHubIssueNotFoundError,
@@ -357,38 +365,103 @@ async function processIssueSource(input: {
       });
     }
 
-    let currentThreadId = plan.mode === "resume" ? plan.threadId : null;
-    let finalRunDir = runDir;
-    let result = await runCodex({
-      prompt: plan.prompt,
-      runDir,
-      cwd: codexCwd,
-      mode: plan.mode === "resume" ? { kind: "resume", threadId: plan.threadId } : { kind: "full" },
+    const interruptController = new AbortController();
+    const interruptMonitor = startAgentRunInterruptMonitor({
+      source: input.source,
+      agent: selectedAgent.name,
+      baselineMessageCount: count,
+      controller: interruptController,
     });
 
-    if (!result.ok && plan.mode === "resume") {
+    let currentThreadId = plan.mode === "resume" ? plan.threadId : null;
+    let finalRunDir = runDir;
+    let result: Awaited<ReturnType<typeof runCodex>>;
+    try {
+      result = await runCodex({
+        prompt: plan.prompt,
+        runDir,
+        cwd: codexCwd,
+        signal: interruptController.signal,
+        mode: plan.mode === "resume" ? { kind: "resume", threadId: plan.threadId } : { kind: "full" },
+      });
+
+      if (isInterruptedCodexRunResult(result)) {
+        log({
+          event: "codex-interrupted",
+          count,
+          runDir: result.runDir,
+          reason: result.reason,
+          agent: selectedAgent.name,
+          issueKey: input.source.issueKey,
+        });
+        return "interrupted";
+      }
+
+      if (!result.ok && plan.mode === "resume") {
+        log({
+          event: "codex-resume-failed",
+          count,
+          runDir: result.runDir,
+          reason: result.reason,
+          agent: selectedAgent.name,
+          threadId: plan.threadId,
+        });
+
+        currentThreadId = null;
+        finalRunDir = `${runDir}-fallback`;
+        result = await runCodex({
+          prompt: buildFallbackFullPrompt(agentManifest.body, timeline),
+          runDir: finalRunDir,
+          cwd: codexCwd,
+          signal: interruptController.signal,
+          mode: { kind: "full" },
+        });
+      }
+    } finally {
+      interruptMonitor?.stop();
+    }
+
+    if (isInterruptedCodexRunResult(result)) {
       log({
-        event: "codex-resume-failed",
+        event: "codex-interrupted",
         count,
         runDir: result.runDir,
         reason: result.reason,
         agent: selectedAgent.name,
-        threadId: plan.threadId,
+        issueKey: input.source.issueKey,
       });
-
-      currentThreadId = null;
-      finalRunDir = `${runDir}-fallback`;
-      result = await runCodex({
-        prompt: buildFallbackFullPrompt(agentManifest.body, timeline),
-        runDir: finalRunDir,
-        cwd: codexCwd,
-        mode: { kind: "full" },
-      });
+      return "interrupted";
     }
 
     if (!result.ok) {
       log({ event: "codex-failed", count, runDir: result.runDir, reason: result.reason, agent: selectedAgent.name });
       return "failed";
+    }
+
+    let finalInterrupt: ConversationInterrupt | null;
+    try {
+      finalInterrupt = await checkAgentRunInterrupt({
+        source: input.source,
+        agent: selectedAgent.name,
+        baselineMessageCount: count,
+      });
+    } catch (error) {
+      log({
+        event: "agent-run-interrupt-check-failed",
+        agent: selectedAgent.name,
+        issueKey: input.source.issueKey,
+        error: formatError(error),
+      });
+      return "failed";
+    }
+
+    if (finalInterrupt !== null) {
+      logAgentRunInterrupt({
+        source: input.source,
+        agent: selectedAgent.name,
+        interrupt: finalInterrupt,
+      });
+      return "interrupted";
     }
 
     const nextState = resolveNextRoleThreadState({
@@ -450,6 +523,69 @@ function issueSummaryFromSource(source: IssueSource, updatedAt: string): IssueSu
     issueNumber: source.issueNumber,
     updatedAt,
   };
+}
+
+function startAgentRunInterruptMonitor(input: {
+  source: IssueSource;
+  agent: string;
+  baselineMessageCount: number;
+  controller: AbortController;
+}): PollingConversationInterruptMonitor | null {
+  if (input.agent !== "dev") {
+    return null;
+  }
+
+  return startPollingConversationInterruptMonitor({
+    baselineSnapshot: { messageCount: input.baselineMessageCount },
+    intervalMs: RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS,
+    fetchSnapshot: async () => {
+      const issue = await fetchIssueWithComments(input.source);
+      return { messageCount: countMessages(issue.comments.length) };
+    },
+    onInterrupt: (interrupt) => {
+      logAgentRunInterrupt({
+        agent: input.agent,
+        source: input.source,
+        interrupt,
+      });
+      input.controller.abort(formatConversationInterrupt(interrupt));
+    },
+    onError: (error) => {
+      log({
+        event: "agent-run-interrupt-check-failed",
+        agent: input.agent,
+        issueKey: input.source.issueKey,
+        error: formatError(error),
+      });
+    },
+  });
+}
+
+async function checkAgentRunInterrupt(input: {
+  source: IssueSource;
+  agent: string;
+  baselineMessageCount: number;
+}): Promise<ConversationInterrupt | null> {
+  if (input.agent !== "dev") {
+    return null;
+  }
+
+  const issue = await fetchIssueWithComments(input.source);
+  return resolveConversationInterrupt({
+    baselineSnapshot: { messageCount: input.baselineMessageCount },
+    currentSnapshot: { messageCount: countMessages(issue.comments.length) },
+  });
+}
+
+function logAgentRunInterrupt(input: { source: IssueSource; agent: string; interrupt: ConversationInterrupt }): void {
+  log({
+    event: "agent-run-interrupt",
+    reason: input.interrupt.reason,
+    baselineMessageCount: input.interrupt.baselineMessageCount,
+    currentMessageCount: input.interrupt.currentMessageCount,
+    agent: input.agent,
+    issueKey: input.source.issueKey,
+  });
 }
 
 function formatError(error: unknown): string {

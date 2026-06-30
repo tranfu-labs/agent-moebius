@@ -130,6 +130,29 @@ describe("github response intake", () => {
     expect(result).toBe(state);
   });
 
+  it("keeps interrupted issues active without advancing past the interrupted baseline", () => {
+    const state = stateWithActiveIssue({
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 3,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+
+    const result = recordIssueProcessingOutcome({
+      state,
+      summary: makeSummary(4, "2026-06-28T00:02:00.000Z"),
+      outcome: "interrupted",
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+    });
+
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+      mode: "active",
+      updatedAt: "2026-06-28T00:02:00.000Z",
+      activeNoChangeCount: 0,
+      nextPollAt: "2026-06-28T00:00:00.000Z",
+    });
+  });
+
   it("keeps already active issues active after no-trigger changes", () => {
     const state = stateWithActiveIssue({
       updatedAt: "2026-06-28T00:00:00.000Z",
