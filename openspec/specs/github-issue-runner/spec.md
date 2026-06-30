@@ -48,13 +48,13 @@
 - MUST 支持 `plan-written` 与 `code-verified` 两个 reflector stage。
 - MUST NOT 将 `plan-confirmed` 与 `code-complete` 视为受支持的 reflector stage。
 - MUST 让 reflector stage trigger 生成的评论包含 `<!-- agent-moebius:role=reflector -->` 与 `<!-- agent-moebius:stage-hook source=<role> stage=<stage> sourceIndex=<index> -->` metadata。
-- MUST 对同一 `source + stage + sourceIndex` 只发布一次 stage hook 评论；重复防护基于共享时间线中的 `stage-hook` metadata。
+- MUST 对同一 issue timeline 中同一 `(source, stage)` 累计发布的 stage hook 评论数限制为 `MAX_SELF_REFLECT` 次；重复防护基于共享时间线中的 `stage-hook` metadata 中的 `source` 与 `stage` 字段（`sourceIndex` 仅用于人 / 日志追溯，不参与去重）。
 - MUST NOT 对 `reflector` 自己的消息触发 reflector stage trigger。
 - MUST 让 `reflector` 只提醒输出 stage 的 agent 进行反思，不接管需求、方案、实现、测试或归档工作。
 - MUST 在每个 issue 处理周期内，agent 通过 mention trigger 完成 codex 评论 post 后立即把该评论拼回本地 timeline，并再次调用 trigger 解析；NEVER 仅依赖跨轮 active poll 触发 reflector stage hook。
 - MUST 仅在自反时再次解析命中 reflector stage hook（`kind === "post-comment"`）时继续自反并直接发布 hook 评论；若再次解析命中 mention（`kind === "run-agent"`），MUST 停止自反、将该 mention 留给下一轮 active poll 处理。
 - MUST 限制同轮自反次数为 `MAX_SELF_REFLECT = 3`；达到上限即停止本轮自反、留给下一轮 active poll。
-- MUST 在自反循环中复用 `resolveReflectorStageTrigger` 既有的 stage-hook 去重逻辑（`source + stage + sourceIndex`），NEVER 为同一 hook 重复发布评论。
+- MUST 在自反循环中复用 `resolveReflectorStageTrigger` 既有的 stage-hook 去重逻辑（同 `(source, stage)` 累计 < `MAX_SELF_REFLECT`），NEVER 为已达上限的 (source, stage) 再次发布 hook 评论。
 - MUST 保留每分钟 active poll 与 5 次无变化降级 idle 的现有节奏；自反失败或外部 actor 写带 stage marker 评论时，下一轮 active poll 仍负责兜底。
 - MUST 在自反每一步发布 hook 评论时记录 `event = "self-reflect-hook-commented"`、`iteration`、`stage`、`sourceRole`、`sourceIndex` 与 `issueKey`；自反停止时记录 `event = "self-reflect-stopped"`、`iteration`、`reason`、`issueKey`。
 - MUST 在自反循环中拼接本地 timeline 时使用 `formatAgentComment` 包过的 agent 评论 body（与 GitHub 实际写回的 comment body 一致），保证 `normalizeComment` 与 stage marker 解析在自反时与跨轮 poll 时行为一致。
@@ -177,6 +177,7 @@ Then 系统选择文本中最早出现的有效 agent mention
 Given 最新消息 speaker 是 `dev`
 And 最新消息 body 包含 `<!-- agent-moebius:stage=plan-written -->`
 And `agents/reflector.md` 存在
+And 同一 issue timeline 中同 `(source=dev, stage=plan-written)` 累计 hook 数小于 `MAX_SELF_REFLECT`
 When 一次轮询取回该 issue
 Then reflector stage trigger 直接发布 `reflector` 评论
 And comment body 包含 `@dev 请针对「plan-written」做一次反思。`
@@ -337,6 +338,14 @@ When 第 `MAX_SELF_REFLECT + 1` 次循环开始
 Then 系统停止本轮自反
 And 日志包含 `event:self-reflect-stopped` 与 `reason:"max-iterations"`
 And 未发布的 hook 评论留给下一轮 active poll 兜底
+
+### 场景 26：trigger 自反 — 跨 tick 同 (source, stage) 达上限后停止
+Given 同一 issue 的 timeline 中已存在 `MAX_SELF_REFLECT` 条 `stage-hook source=dev stage=plan-written` metadata（无论 `sourceIndex` 是否相同）
+And dev 在最新一轮再次发出包含 `<!-- agent-moebius:stage=plan-written -->` 的评论
+When 一次轮询取回该 issue
+Then `resolveReflectorStageTrigger` 返回 null
+And 系统不再发布 reflector hook 评论
+And 跨 tick 循环触发的发散被闭环
 
 ## 可验证行为
 - `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）以及拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger。

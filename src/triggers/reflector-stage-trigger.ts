@@ -1,3 +1,4 @@
+import { MAX_SELF_REFLECT } from "../config.js";
 import { getLatestTimelineMessage } from "../conversation.js";
 import type { TimelineMessage } from "../conversation.js";
 import type { TriggerInput, TriggerResult } from "./types.js";
@@ -19,7 +20,7 @@ export function resolveReflectorStageTrigger(input: TriggerInput): TriggerResult
   }
 
   const stage = parseFirstReflectorStage(latestMessage.body);
-  if (stage === null || hasExistingStageHook(input.timeline, latestMessage.speaker, stage, latestMessage.index)) {
+  if (stage === null || countExistingStageHooks(input.timeline, latestMessage.speaker, stage) >= MAX_SELF_REFLECT) {
     return null;
   }
 
@@ -93,17 +94,16 @@ function parseFirstReflectorStage(text: string): string | null {
   return parseReflectorStages(text)[0] ?? null;
 }
 
-function hasExistingStageHook(
-  timeline: TimelineMessage[],
-  sourceRole: string,
-  stage: string,
-  sourceIndex: number,
-): boolean {
-  return timeline.some((message) =>
-    parseStageHookMetadata(message.body).some(
-      (hook) => hook.sourceRole === sourceRole && hook.stage === stage && hook.sourceIndex === sourceIndex,
-    ),
-  );
+function countExistingStageHooks(timeline: TimelineMessage[], sourceRole: string, stage: string): number {
+  let count = 0;
+  for (const message of timeline) {
+    for (const hook of parseStageHookMetadata(message.body)) {
+      if (hook.sourceRole === sourceRole && hook.stage === stage) {
+        count += 1;
+      }
+    }
+  }
+  return count;
 }
 
 function formatReflectorStageComment(input: { sourceRole: string; sourceIndex: number; stage: string }): string {
