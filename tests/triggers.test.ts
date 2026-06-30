@@ -28,7 +28,7 @@ describe("triggers", () => {
   it("posts a reflector comment when an agent emits a supported stage", () => {
     const timeline = buildTimeline(
       "initial",
-      [{ body: "&lt;dev&gt;:\n方案已确认\n<!-- agent-moebius:stage=plan-confirmed -->\n\n<!-- agent-moebius:role=dev -->" }],
+      [{ body: "&lt;dev&gt;:\n方案已写完\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=dev -->" }],
       agents,
     );
 
@@ -40,12 +40,12 @@ describe("triggers", () => {
       reason: "reflector-stage",
       sourceRole: "dev",
       sourceIndex: 1,
-      stage: "plan-confirmed",
+      stage: "plan-written",
     });
-    expect(trigger.kind === "post-comment" ? trigger.body : "").toContain("@dev 请针对「plan-confirmed」做一次反思。");
+    expect(trigger.kind === "post-comment" ? trigger.body : "").toContain("@dev 请针对「plan-written」做一次反思。");
     expect(trigger.kind === "post-comment" ? trigger.body : "").toContain("<!-- agent-moebius:role=reflector -->");
     expect(trigger.kind === "post-comment" ? trigger.body : "").toContain(
-      "<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=1 -->",
+      "<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->",
     );
   });
 
@@ -54,7 +54,7 @@ describe("triggers", () => {
       "initial",
       [
         {
-          body: "&lt;dev&gt;:\n@product-manager FYI\n<!-- agent-moebius:stage=code-complete -->\n\n<!-- agent-moebius:role=dev -->",
+          body: "&lt;dev&gt;:\n@product-manager FYI\n<!-- agent-moebius:stage=code-verified -->\n\n<!-- agent-moebius:role=dev -->",
         },
       ],
       agents,
@@ -63,14 +63,14 @@ describe("triggers", () => {
     expect(resolveTrigger({ timeline, availableAgentNames: agents })).toMatchObject({
       kind: "post-comment",
       role: "reflector",
-      stage: "code-complete",
+      stage: "code-verified",
     });
   });
 
-  it("ignores unsupported stages", () => {
+  it("ignores old unsupported stages", () => {
     const timeline = buildTimeline(
       "initial",
-      [{ body: "&lt;dev&gt;:\n准备中\n<!-- agent-moebius:stage=proposal-draft -->\n\n<!-- agent-moebius:role=dev -->" }],
+      [{ body: "&lt;dev&gt;:\n旧阶段\n<!-- agent-moebius:stage=plan-confirmed -->\n\n<!-- agent-moebius:role=dev -->" }],
       agents,
     );
 
@@ -85,7 +85,7 @@ describe("triggers", () => {
       "initial",
       [
         {
-          body: "&lt;reflector&gt;:\n@dev 请反思\n<!-- agent-moebius:stage=plan-confirmed -->\n\n<!-- agent-moebius:role=reflector -->",
+          body: "&lt;reflector&gt;:\n@dev 请反思\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=reflector -->",
         },
       ],
       agents,
@@ -104,13 +104,13 @@ describe("triggers", () => {
       {
         index: 2,
         speaker: "reflector",
-        body: "@dev 请反思\n<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=1 -->",
+        body: "@dev 请反思\n<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->",
         source: "comment" as const,
       },
       {
         index: 1,
         speaker: "dev",
-        body: "方案已确认\n<!-- agent-moebius:stage=plan-confirmed -->",
+        body: "方案已写完\n<!-- agent-moebius:stage=plan-written -->",
         source: "comment" as const,
       },
     ];

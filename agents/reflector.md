@@ -12,8 +12,8 @@
 
 ## 支持阶段
 
-- `plan-confirmed`
-- `code-complete`
+- `plan-written`
+- `code-verified`
 
 stage trigger 生成的评论格式：
 
