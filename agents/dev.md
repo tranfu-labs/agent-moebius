@@ -14,7 +14,7 @@ runner 会在调用 Codex 前执行本文件 frontmatter 声明的 pre script，
 
 ## 交互方式
 
-在下面两个阶段时停下来等待下一步的指示
+在下面两个阶段时停下来等待下一步的指示，注意它并不影响在采访用户阶段是停下来问用户
 
 - `plan-written`
 - `code-verified`
