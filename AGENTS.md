@@ -59,7 +59,7 @@
   repo = "tranfu-agents-app"
   ```
 - 闲时扫描间隔、忙时 issue 轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
-- GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active，按 1 分钟轮询；连续 5 次 active poll 无变化或处理失败后降回 idle；active poll / idle changed-issue 拉到 `state = CLOSED` 时从本地 intake state 移除，不触发 Codex / 评论。
+- GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active，处理失败时也会进入 / 保持 active backoff 窗口并按 1 分钟轮询；连续 5 次 active poll 无变化或处理失败后降回 idle；active poll / idle changed-issue 拉到 `state = CLOSED` 时从本地 intake state 移除，不触发 Codex / 评论。
 - `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
 - `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。该 pre script 每次准备前刷新目标仓库远端 `main` tracking ref，新建 worktree 从最新远端 `main` 创建；复用已有 worktree 时若当前 `HEAD` 未包含最新远端 `main`，会强制删除旧 worktree（失败时 fallback 到 `rm -rf` + `git worktree prune`）并从最新远端 `main` 重建；重建失败才 fail closed，不调用 Codex / 评论 / 推进 role thread。

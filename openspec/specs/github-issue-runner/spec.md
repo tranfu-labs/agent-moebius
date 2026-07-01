@@ -26,7 +26,7 @@
 - MUST 在拉取 issue body/comments 时同时读取 GitHub `state` 字段（`OPEN` / `CLOSED`），并作为 `GitHubIssue` shape 的必填字段。
 - MUST 默认在 repository 首次 baseline scan 时只记录历史 open issue 的 `updatedAt`，不批量处理历史 issue，避免对旧 mention 批量回复。
 - SHOULD 支持显式配置 seed issue sources，用于需要启动后立即检查的特定 issue。
-- MUST 仅在 issue 出现 runner-relevant 变化并成功处理后把该 issue 提升为 active mode。
+- MUST 在 issue 出现 runner-relevant 变化并成功处理后把该 issue 提升为 active mode；若处理返回 `failed`，MUST 同样把该 issue 纳入或保持在 active backoff 窗口，直到后续成功处理、无变化降级或 failed 到达上限降级。
 - MUST 默认每 1 分钟轮询 active issues。
 - MUST 仅轮询当前 watched repositories 内的 active issues。
 - MUST 在 active issue 连续 5 次 active poll 未观察到 GitHub `updatedAt` 变化后，将该 issue 降级回 idle。
