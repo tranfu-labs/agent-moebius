@@ -49,6 +49,7 @@
 - MUST NOT 将 `plan-confirmed` 与 `code-complete` 视为受支持的 reflector stage。
 - MUST 让 reflector stage trigger 生成的评论包含 `<!-- agent-moebius:role=reflector -->` 与 `<!-- agent-moebius:stage-hook source=<role> stage=<stage> sourceIndex=<index> -->` metadata。
 - MUST 对同一 issue timeline 中同一 `(source, stage)` 累计发布的 stage hook 评论数限制为 `MAX_SELF_REFLECT` 次；重复防护基于共享时间线中的 `stage-hook` metadata 中的 `source` 与 `stage` 字段（`sourceIndex` 仅用于人 / 日志追溯，不参与去重）。
+- MUST 在发布同一 `(source, stage)` 的最后一次自动反思 hook 时追加收敛指令：若没有发现新问题，源 agent 不应继续输出同一个 stage marker，而应直接按推进计划进入后续步骤；若发现新问题，源 agent 应说明问题与建议处理方式，然后停下等待人类检查，不自动推进。
 - MUST NOT 对 `reflector` 自己的消息触发 reflector stage trigger。
 - MUST 让 `reflector` 只提醒输出 stage 的 agent 进行反思，不接管需求、方案、实现、测试或归档工作。
 - MUST 在每个 issue 处理周期内，agent 通过 mention trigger 完成 codex 评论 post 后立即把该评论拼回本地 timeline，并再次调用 trigger 解析；NEVER 仅依赖跨轮 active poll 触发 reflector stage hook。
@@ -183,6 +184,9 @@ Then reflector stage trigger 直接发布 `reflector` 评论
 And comment body 包含 `@dev 请针对「plan-written」做一次反思。`
 And comment body 包含 `<!-- agent-moebius:role=reflector -->`
 And comment body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=<latest-index> -->`
+And 若这是同一 `(source=dev, stage=plan-written)` 的最后一次自动反思 hook，comment body 包含“这是该阶段最后一次自动反思”
+And 最后一次自动反思 hook 要求没有新问题时直接按推进计划进入后续步骤
+And 最后一次自动反思 hook 要求发现新问题时说明问题并停下等待人类检查
 And 系统不调用 Codex reflector
 
 ### 场景 8：通用反思者 — 普通 @reflector mention 不启动 Codex
@@ -341,6 +345,7 @@ And 未发布的 hook 评论留给下一轮 active poll 兜底
 
 ### 场景 26：trigger 自反 — 跨 tick 同 (source, stage) 达上限后停止
 Given 同一 issue 的 timeline 中已存在 `MAX_SELF_REFLECT` 条 `stage-hook source=dev stage=plan-written` metadata（无论 `sourceIndex` 是否相同）
+And 第 `MAX_SELF_REFLECT` 条同 `(source=dev, stage=plan-written)` hook 评论已经包含最后一次自动反思收敛指令
 And dev 在最新一轮再次发出包含 `<!-- agent-moebius:stage=plan-written -->` 的评论
 When 一次轮询取回该 issue
 Then `resolveReflectorStageTrigger` 返回 null
@@ -348,7 +353,7 @@ And 系统不再发布 reflector hook 评论
 And 跨 tick 循环触发的发散被闭环
 
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）以及拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、最后一次自动反思 hook 收敛模板、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）以及拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 或发布 hook 评论；执行前应确认这是期望的外部副作用。
