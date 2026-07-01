@@ -2,9 +2,17 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { CODEX_DRIVER_POOL_MAX_CONCURRENT } from "../src/config.js";
 import type { DriverPool } from "../src/driver-pool.js";
 import { CEO_CORRECTED_METADATA, type FormatCeoResult } from "../src/format-ceo.js";
-import { makeRunDir, pollActiveIssue, processIssueSource, tick, type ProcessIssueSourceDependencies } from "../src/runner.js";
+import {
+  createDefaultCodexDriverPool,
+  makeRunDir,
+  pollActiveIssue,
+  processIssueSource,
+  tick,
+  type ProcessIssueSourceDependencies,
+} from "../src/runner.js";
 import type { GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import type { GitHubIssue } from "../src/github.js";
 import { makeIssueSource } from "../src/issue-source.js";
@@ -119,6 +127,83 @@ describe("tick driver pool orchestration", () => {
     );
 
     expect(processIssueSourceMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("codex driver pool default limit", () => {
+  it("pins the default concurrent limit at 5 to guard against silent bumps", () => {
+    expect(CODEX_DRIVER_POOL_MAX_CONCURRENT).toBe(5);
+  });
+
+  it("caps the default codex driver pool at 5 concurrent jobs", async () => {
+    const pool = createDefaultCodexDriverPool();
+    const release = deferred<void>();
+    let running = 0;
+    let maxRunning = 0;
+
+    const jobs = Array.from({ length: 7 }, (_, index) =>
+      pool.run(async () => {
+        running += 1;
+        maxRunning = Math.max(maxRunning, running);
+        await release.promise;
+        running -= 1;
+        return index;
+      }),
+    );
+
+    await delay(0);
+    expect(maxRunning).toBe(CODEX_DRIVER_POOL_MAX_CONCURRENT);
+    expect(running).toBe(CODEX_DRIVER_POOL_MAX_CONCURRENT);
+
+    release.resolve();
+    await expect(Promise.all(jobs)).resolves.toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it("isolates a hanging job so other slots stay usable", async () => {
+    const pool = createDefaultCodexDriverPool();
+    const hang = deferred<void>();
+    const releaseCompletable = deferred<void>();
+    let running = 0;
+    let maxRunning = 0;
+    const completed: number[] = [];
+
+    const hangingJob = pool.run(async () => {
+      running += 1;
+      maxRunning = Math.max(maxRunning, running);
+      await hang.promise;
+      running -= 1;
+      return -1;
+    });
+
+    const completableJobs = Array.from({ length: 4 }, (_, index) =>
+      pool.run(async () => {
+        running += 1;
+        maxRunning = Math.max(maxRunning, running);
+        await releaseCompletable.promise;
+        running -= 1;
+        completed.push(index);
+        return index;
+      }),
+    );
+
+    await delay(0);
+    expect(maxRunning).toBe(CODEX_DRIVER_POOL_MAX_CONCURRENT);
+    expect(running).toBe(CODEX_DRIVER_POOL_MAX_CONCURRENT);
+
+    releaseCompletable.resolve();
+    await expect(Promise.all(completableJobs)).resolves.toEqual([0, 1, 2, 3]);
+    expect(completed).toEqual([0, 1, 2, 3]);
+
+    let laterJobStarted = false;
+    const laterJob = pool.run(async () => {
+      laterJobStarted = true;
+      return "later";
+    });
+    await expect(laterJob).resolves.toBe("later");
+    expect(laterJobStarted).toBe(true);
+
+    hang.resolve();
+    await expect(hangingJob).resolves.toBe(-1);
   });
 });
 

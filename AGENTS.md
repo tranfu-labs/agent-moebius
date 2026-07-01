@@ -22,7 +22,7 @@
 │   ├── conversation-interrupt.ts # driver-agnostic conversation message count 中断检测
 │   ├── github.ts               # gh CLI 读取 issue / 发表评论
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
-│   ├── driver-pool.ts          # driver job 并发策略，默认不限制并发
+│   ├── driver-pool.ts          # codex driver job 并发策略抽象，默认由 runner 注入 5 并发上限
 │   ├── stages.ts               # stage 枚举与 marker 宽容解析
 │   ├── format-ceo.ts           # CEO guardrail 短上下文校正与 fail-open 处理
 │   ├── triggers/               # mention / stage 等触发方式；含 self-reflect.ts 同轮自反纯函数
@@ -65,7 +65,7 @@
   ```
 - 闲时扫描间隔、忙时 issue 轮询间隔、运行中 agent 中断检测轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
 - GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active，处理失败时也会进入 / 保持 active backoff 窗口并按 1 分钟轮询；连续 5 次 active poll 无变化或处理失败后降回 idle；active poll / idle changed-issue 拉到 `state = CLOSED` 时从本地 intake state 移除，不触发 Codex / 评论。
-- runner 会把同一 processing phase 内的 due issue 转成 issue processing jobs 交给 `src/driver-pool.ts`；driver pool 默认不设置额外并发上限，显式传入正整数 `maxConcurrent` 时才限流。调度业务逻辑仍集中在 `github-response-intake.ts`，不得引入 Codex / GitHub adapter 或 driver pool 依赖。
+- runner 会把同一 processing phase 内的 due issue 转成 issue processing jobs 交给 `src/driver-pool.ts`；`DEFAULT_TICK_DEPENDENCIES` 通过 `createDefaultCodexDriverPool()` 注入默认并发上限 `CODEX_DRIVER_POOL_MAX_CONCURRENT = 5`，超额 job 排队等前面空槽；`src/driver-pool.ts` 抽象本身仍允许 `undefined` / `null` 表示不限，便于测试注入 fake pool。调度业务逻辑仍集中在 `github-response-intake.ts`，不得引入 Codex / GitHub adapter 或 driver pool 依赖。
 - runner 在同一 processing phase 内按 `issueKey` 去重 issue jobs；driver jobs 完成后再按确定顺序折叠回 GitHub response intake state，避免并发 job 直接覆盖完整 intake state snapshot。
 - `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。`agents/ceo.md` 是发布前 guardrail persona，不作为普通 mention Codex agent 运行。
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。

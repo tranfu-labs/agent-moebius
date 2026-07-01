@@ -6,6 +6,7 @@ import {
   ACTIVE_ISSUE_POLL_INTERVAL_MS,
   AGENT_CONTEXTS_STATE_PATH,
   AGENTS_DIR,
+  CODEX_DRIVER_POOL_MAX_CONCURRENT,
   CONFIG_LOG_FIELDS,
   IDLE_REPOSITORY_SCAN_INTERVAL_MS,
   ISSUE_DISCOVERY_LIMIT,
@@ -110,9 +111,13 @@ interface TickDependencies {
   saveGitHubResponseIntakeState: typeof saveGitHubResponseIntakeState;
 }
 
+export function createDefaultCodexDriverPool(): DriverPool {
+  return createDriverPool({ maxConcurrent: CODEX_DRIVER_POOL_MAX_CONCURRENT });
+}
+
 const DEFAULT_TICK_DEPENDENCIES: TickDependencies = {
   watchRepositories: WATCH_REPOSITORIES,
-  driverPool: createDriverPool(),
+  driverPool: createDefaultCodexDriverPool(),
   listAgentFiles,
   listOpenIssueSummaries,
   fetchIssueWithComments,

@@ -40,9 +40,11 @@
 - MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进 role-thread 状态或发布 GitHub 评论；失败时仅推进 intake `updatedAt` / `activeNoChangeCount` / `nextPollAt`，确保轮询能收敛降级。
 - MUST keep an interrupted issue active and schedule a follow-up poll without advancing processing to the newly arrived message's `updatedAt`.
 - MUST 通过独立 driver pool 抽象执行可能调用本地 Codex driver 的 issue processing jobs；driver pool MUST NOT 依赖 GitHub issue domain types、trigger 规则、prompt 或 intake state。
-- MUST NOT 在调度业务逻辑内设置默认 Codex driver 并发限制；未显式配置 pool `maxConcurrent` 时，driver jobs MAY 在本轮 due work set 和既有窗口边界内无额外 pool 限制地启动。
+- MUST 在调度业务逻辑注入 Codex driver pool 时使用默认并发上限 `CODEX_DRIVER_POOL_MAX_CONCURRENT = 5`；`src/driver-pool.ts` 抽象本身仍允许 `undefined` 或 `null` 表示无限制，以便测试注入 fake pool。
+- MUST 通过编排层导出函数 `createDefaultCodexDriverPool()` 装配默认 driver pool；`DEFAULT_TICK_DEPENDENCIES.driverPool` 由该函数初始化，便于测试直接对默认 pool 断言并发行为。
 - MUST 允许 driver pool 使用正整数 `maxConcurrent` 显式限流；配置后同一时刻 running jobs 数量 MUST 不超过该值，queued jobs MUST 在 running job 完成后继续启动。
 - MUST 允许 runner 测试注入 fake 或 instrumented driver pool，使 runner 编排可在不调用本地 Codex driver 的情况下测试。
+- MUST 把 `CODEX_DRIVER_POOL_MAX_CONCURRENT` 写入启动日志 `CONFIG_LOG_FIELDS`（字段名 `codexDriverPoolMaxConcurrent`）。
 - MUST 保持 tick 级防重入：上一轮 tick 仍在等待 driver pool jobs 时，同一 runner 进程 MUST NOT 启动新 tick。
 - MUST 在同一 processing phase 内按 `issueKey` 去重 issue processing jobs，避免同一 GitHub issue 在一个 tick 的同一阶段被处理两次。
 - MUST 在 driver jobs 完成后按确定顺序把 job result 折叠回 `.state/github-response-intake.json`，而不是让并发 jobs 各自覆盖完整 intake state snapshot。
