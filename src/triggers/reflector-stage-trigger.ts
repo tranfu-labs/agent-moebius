@@ -1,12 +1,11 @@
 import { MAX_SELF_REFLECT } from "../config.js";
 import { getLatestTimelineMessage } from "../conversation.js";
 import type { TimelineMessage } from "../conversation.js";
+import { REFLECTOR_STAGES, parseStageMarkers } from "../stages.js";
 import type { TriggerInput, TriggerResult } from "./types.js";
 
 export const REFLECTOR_ROLE = "reflector";
-export const REFLECTOR_STAGES = ["plan-written", "code-verified"] as const;
 
-const REFLECTOR_STAGE_SET = new Set<string>(REFLECTOR_STAGES);
 const METADATA_NAME = "[a-z0-9]+(?:-[a-z0-9]+)*";
 
 export function resolveReflectorStageTrigger(input: TriggerInput): TriggerResult | null {
@@ -46,17 +45,7 @@ export function resolveReflectorStageTrigger(input: TriggerInput): TriggerResult
 }
 
 export function parseReflectorStages(text: string): string[] {
-  const stages: string[] = [];
-  const pattern = new RegExp(`<!--\\s*agent-moebius:stage=(${METADATA_NAME})\\s*-->`, "g");
-
-  for (const match of text.matchAll(pattern)) {
-    const stage = match[1];
-    if (stage !== undefined && REFLECTOR_STAGE_SET.has(stage)) {
-      stages.push(stage);
-    }
-  }
-
-  return stages;
+  return parseStageMarkers(text, REFLECTOR_STAGES);
 }
 
 export function parseStageHookMetadata(text: string): Array<{

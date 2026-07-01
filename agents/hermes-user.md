@@ -1,5 +1,13 @@
 # Hermes 用户画像
 
+## 输出契约
+
+每条响应末尾必须以如下 stage marker 结尾。Hermes 用户画像没有 `plan-written` / `code-verified` 的开发终态语义，默认始终使用 `in-progress`。
+
+```text
+<!-- agent-moebius:stage=in-progress -->
+```
+
 ## 一句话切开
 
 Hermes 用户不是来找“更会聊天的 AI”。他们已经用过 ChatGPT、Claude、Copilot、Cursor、Notion AI，也写过脚本。真正让他们崩溃的不是模型不聪明，而是多数 AI 都像一次性外包脑：能写一段，不能接一条长期战线；能总结材料，不能继承旧上下文；能给建议，不能对执行后果负责。

@@ -8,6 +8,7 @@
 .
 ├── agents/
 │   ├── dev.md                  # 开发者 agent 角色素材，带 dev worktree pre script
+│   ├── ceo.md                  # 评论发布前 CEO guardrail persona
 │   ├── hermes-user.md          # Hermes 用户画像素材
 │   ├── product-manager.md      # 产品经理 agent 角色素材
 │   └── reflector.md            # 通用反思接力 agent 角色素材
@@ -21,6 +22,8 @@
 │   ├── conversation-interrupt.ts # driver-agnostic conversation message count 中断检测
 │   ├── github.ts               # gh CLI 读取 issue / 发表评论
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
+│   ├── stages.ts               # stage 枚举与 marker 宽容解析
+│   ├── format-ceo.ts           # CEO guardrail 短上下文校正与 fail-open 处理
 │   ├── triggers/               # mention / stage 等触发方式；含 self-reflect.ts 同轮自反纯函数
 │   ├── agent-prescripts/       # agent 级 Codex 执行前准备脚本
 │   ├── agent-context-state.ts  # .state/agent-contexts.json 状态读写适配
@@ -61,13 +64,15 @@
   ```
 - 闲时扫描间隔、忙时 issue 轮询间隔、运行中 agent 中断检测轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
 - GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active，处理失败时也会进入 / 保持 active backoff 窗口并按 1 分钟轮询；连续 5 次 active poll 无变化或处理失败后降回 idle；active poll / idle changed-issue 拉到 `state = CLOSED` 时从本地 intake state 移除，不触发 Codex / 评论。
-- `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。
+- `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。`agents/ceo.md` 是发布前 guardrail persona，不作为普通 mention Codex agent 运行。
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
 - `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。该 pre script 每次准备前刷新目标仓库远端 `main` tracking ref，新建 worktree 从最新远端 `main` 创建；复用已有 context 时会先校验记录的 `worktreePath` 等于当前配置计算出的 issue 独占 worktree 路径，不一致则 fail closed；复用已有 worktree 时若当前 `HEAD` 未包含最新远端 `main`，会强制删除旧 worktree（失败时 fallback 到 `rm -rf` + `git worktree prune`）并从最新远端 `main` 重建；重建失败才 fail closed，不调用 Codex / 评论 / 推进 role thread。
 - `@dev` Codex 运行期间会按 conversation message count 做运行中断检测；如果 GitHub issue 在本轮 Codex 完成前新增 comment，runner 会中断当前 Codex 子进程，不发表评论、不更新 role thread，并保持 issue active 以便下一轮基于最新 timeline 重跑。
 - runner 只在 mention trigger 进入真实 Codex driver 路径、prompt plan 需要执行且 preScript 成功后，为当前 GitHub issue 添加一次 `eyes` reaction；no-trigger、stage hook、preScript 失败、prompt plan skip 或 resume fallback 不重复添加 reaction。reaction 添加失败只记录日志，不阻断 Codex 执行。
-- `agents/dev.md` 可在回复末尾输出 `<!-- agent-moebius:stage=plan-written -->` 或 `<!-- agent-moebius:stage=code-verified -->`，只声明阶段，不直接指定后续 agent。
+- 所有 Codex agent 的每条响应末尾都必须显式声明 stage marker；stage 枚举集中在 `src/stages.ts`，当前为 `plan-written`、`code-verified`、`in-progress`。`agents/dev.md` 可用 `plan-written` / `code-verified` 声明开发阶段，普通进度、采访、澄清或其他 agent 默认使用 `in-progress`；stage 只声明阶段，不直接指定后续 agent。
 - `agents/reflector.md` 是通用反思接力展示身份；普通 `@reflector` 不启动 Codex，reflector 由 `src/triggers/reflector-stage-trigger.ts` 根据 stage metadata 触发，并直接发布 hook 评论。
+- `src/triggers/reflector-stage-trigger.ts` 对 stage marker 的 metadata 名称与空白做宽容匹配，但只接受 `src/stages.ts` 中 `ReflectorStages` 白名单的 `plan-written` / `code-verified`；`in-progress` 不触发 reflector。
+- runner 在 Codex agent 生成 `LAST_RESPONSE` 后、发布 GitHub 评论前调用 `src/format-ceo.ts`，用 `agents/ceo.md` 和短上下文（原始请求、最新响应、agent 名、allowedStages、最近 reflector hook）做一次无状态 CEO guardrail 校正。CEO 返回 `NO_CHANGE` 时发原文；返回修正版且后置 stage marker 验证通过时，runner 追加 `<!-- agent-moebius:ceo-corrected -->` metadata 后发布；CEO 超时、失败、返回非法输出或后置验证不通过时 fail-open 发布原文。reflector 确定性 hook 评论不走 CEO，含 `<!-- agent-moebius:ceo-corrected -->` 的响应不会再次校正以避免循环。
 - runner 在 mention-codex 分支 `postComment` 完成后会把刚发的评论拼回本地 timeline 并在本轮内再调一次 `resolveTrigger`（同轮自反），命中 reflector stage hook 时立刻发出 hook 评论，不等下一轮 active poll；命中 mention（要再跑 codex）或返回 skip 即停止；同一 issue timeline 中同一 `(source, stage)` 累计触发上限为 `MAX_SELF_REFLECT = 3`（in-tick 与跨 tick 共享同一上限，由 trigger 层按 `stage-hook` metadata 中的 `source`/`stage` 计数实现，`sourceIndex` 仅用于人 / 日志追溯）；最后一次自动反思 hook 会追加收敛指令：无新问题则不要继续输出同一 stage marker、直接按推进计划进入后续步骤；有新问题则说明问题并停下等待人类检查；每分钟 active poll 仍作为兜底。
 - runner 写回 agent 评论时使用 GitHub 页面可见的 `<role>:\n${LAST_RESPONSE}` 前缀；comment body 中落 `&lt;role&gt;:\n${LAST_RESPONSE}`，并追加 `<!-- agent-moebius:role=<role> -->` metadata，便于后续归一化 speaker。
 - 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。
