@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { IssueSource, RepositoryRef } from "./issue-source.js";
 
 export interface GitHubComment {
+  id: string;
   body: string;
 }
 
@@ -18,6 +19,20 @@ export interface GitHubIssueSummary {
 }
 
 export type IssueReactionContent = "eyes";
+
+export type ReactionTarget =
+  | {
+      kind: "issue";
+      source: IssueSource;
+    }
+  | {
+      kind: "issue-comment";
+      source: IssueSource;
+      commentId: string;
+    };
+
+const ADD_REACTION_MUTATION =
+  "mutation($subjectId: ID!, $content: ReactionContent!) { addReaction(input: {subjectId: $subjectId, content: $content}) { reaction { content } } }";
 
 export async function listOpenIssueSummaries(
   repository: RepositoryRef,
@@ -59,8 +74,12 @@ export async function postComment(source: IssueSource, body: string): Promise<vo
   await runCommand("gh", buildPostCommentArgs(source), body);
 }
 
+export async function addReaction(target: ReactionTarget, content: IssueReactionContent): Promise<void> {
+  await runCommand("gh", buildAddReactionArgs(target, content));
+}
+
 export async function addIssueReaction(source: IssueSource, content: IssueReactionContent): Promise<void> {
-  await runCommand("gh", buildAddIssueReactionArgs(source, content));
+  await addReaction({ kind: "issue", source }, content);
 }
 
 export function buildListOpenIssueSummariesArgs(repository: RepositoryRef, limit: number): string[] {
@@ -95,11 +114,28 @@ export function buildPostCommentArgs(source: IssueSource): string[] {
 }
 
 export function buildAddIssueReactionArgs(source: IssueSource, content: IssueReactionContent): string[] {
+  return buildAddReactionArgs({ kind: "issue", source }, content);
+}
+
+export function buildAddReactionArgs(target: ReactionTarget, content: IssueReactionContent): string[] {
+  if (target.kind === "issue-comment") {
+    return [
+      "api",
+      "graphql",
+      "-f",
+      `query=${ADD_REACTION_MUTATION}`,
+      "-f",
+      `subjectId=${target.commentId}`,
+      "-f",
+      `content=${toGraphqlReactionContent(content)}`,
+    ];
+  }
+
   return [
     "api",
     "--method",
     "POST",
-    `repos/${source.owner}/${source.repo}/issues/${source.issueNumber}/reactions`,
+    `repos/${target.source.owner}/${target.source.repo}/issues/${target.source.issueNumber}/reactions`,
     "-f",
     `content=${content}`,
   ];
@@ -200,8 +236,23 @@ export function isGitHubIssue(value: unknown): value is GitHubIssue {
     typeof issue.updatedAt === "string" &&
     (issue.state === "OPEN" || issue.state === "CLOSED") &&
     Array.isArray(issue.comments) &&
-    issue.comments.every((comment) => typeof comment === "object" && comment !== null && typeof comment.body === "string")
+    issue.comments.every(
+      (comment) =>
+        typeof comment === "object" &&
+        comment !== null &&
+        typeof comment.id === "string" &&
+        typeof comment.body === "string",
+    )
   );
+}
+
+function toGraphqlReactionContent(content: IssueReactionContent): string {
+  if (content === "eyes") {
+    return "EYES";
+  }
+
+  const exhaustive: never = content;
+  return exhaustive;
 }
 
 function isGitHubIssueSummaryList(value: unknown): value is Array<{ number: number; updatedAt: string }> {

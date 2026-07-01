@@ -88,11 +88,15 @@
 - MUST 在触发源没有有效 trigger 时跳过，不调用 `codex`，不发表评论。
 - MUST 在同一条消息包含多个有效 agent mention 时选择文本中最早出现的一个。
 - MUST 在选中 agent 且本轮需要调用 Codex 时先执行该 agent 声明的 pre script；pre script 失败时 MUST 跳过 Codex、跳过 GitHub 评论、保持 role thread 状态不变。
-- MUST 在 mention trigger 选中可运行 agent、prompt plan 需要执行、且该 agent 的 preScript 已成功完成后，在首次调用 Codex driver 前为当前 GitHub issue 添加 `eyes` reaction。
+- MUST 在 mention trigger 选中可运行 agent、prompt plan 需要执行、且该 agent 的 preScript 已成功完成后，在首次调用 Codex driver 前，为本轮触发 Codex 的最新消息添加 `eyes` reaction。
+- MUST 当触发源是 issue body 时，为当前 GitHub issue 添加 `eyes` reaction。
+- MUST 当触发源是 issue comment 时，为该 GitHub issue comment 添加 `eyes` reaction，而不是 fallback 到 issue body。
+- MUST 通过 GitHub adapter 使用受控 target 与 argv 参数数组添加 reaction：issue body reaction MAY 使用 REST issue reactions endpoint；issue comment reaction MUST 使用 GitHub comment node id 调用 GraphQL `addReaction`。
+- MUST 在拉取 issue body/comments 时保留每条 comment 的 GitHub node `id`，用于 comment reaction target。
 - MUST 仅在真实 Codex driver 执行路径添加该 reaction；no-trigger、deterministic stage hook、preScript 失败、prompt plan skip、Codex 不会启动的路径 MUST NOT 添加该 reaction。
 - MUST 在同一个 issue 处理周期中最多添加一次 Codex execution reaction；resume 失败后 fallback full run MUST NOT 再添加第二次 reaction。
-- MUST 在 Codex execution reaction 添加成功时记录结构化日志，至少包含 `event = "codex-execution-reaction-added"`、`issueKey` 与 `agent`。
-- MUST 在 Codex execution reaction 添加失败时记录结构化日志，至少包含 `event = "codex-execution-reaction-failed"`、`issueKey`、`agent` 与错误原因，并继续执行 Codex；reaction 失败本身 MUST NOT 推进或阻断 role thread 状态。
+- MUST 在 Codex execution reaction 添加成功时记录结构化日志，至少包含 `event = "codex-execution-reaction-added"`、`issueKey`、`agent`、`targetSource` 与 `targetIndex`。
+- MUST 在 Codex execution reaction 添加失败时记录结构化日志，至少包含 `event = "codex-execution-reaction-failed"`、`issueKey`、`agent`、`targetSource`、`targetIndex` 与错误原因，并继续执行 Codex；reaction 失败本身 MUST NOT 推进或阻断 role thread 状态。
 - MUST 支持 `dev` pre script 基于 runner 当前处理的 GitHub issue source（owner、repo、issueNumber）准备 Codex 工作目录，而不是解析 issue body/comment 中的链接。
 - MUST 为每个 source issue 创建并复用一个 `dev` issue 独占 worktree；不同 source issue 即使属于同一个 repo 也 MUST 使用不同 worktree。
 - MUST 允许同一 repository 的多个 issue worktree 复用本地 bare repo cache，但 MUST 保持 worktree 彼此隔离。
@@ -450,14 +454,26 @@ Then `resolveReflectorStageTrigger` 返回 null
 And 系统不再发布 reflector hook 评论
 And 跨 tick 循环触发的发散被闭环
 
-### 场景 27：Codex 执行反馈 — 真正调用 Codex 前添加 eyes reaction
-Given 最新消息包含 `@dev`
+### 场景 27：Codex 执行反馈 — issue body 触发时 reaction 到 issue
+Given issue body 包含 `@dev`
+And 当前 issue 没有 comments
 And `agents/dev.md` 存在
-And dev preScript 成功
 And prompt plan 需要执行 Codex
 When runner 即将调用 `runCodex`
 Then 系统先为当前 GitHub issue 添加 `eyes` reaction
-And 日志包含 `event = "codex-execution-reaction-added"`、`issueKey` 与 `agent = "dev"`
+And 日志中的 `targetSource = "issue-body"`、`targetIndex = 0`
+And 随后调用 Codex driver
+
+### 场景 27.1：Codex 执行反馈 — 最新 comment 触发时 reaction 到该 comment
+Given issue body 不包含有效 trigger
+And 最新 comment body 包含 `@dev`
+And 该 comment 带有 GitHub node `id`
+And `agents/dev.md` 存在
+And prompt plan 需要执行 Codex
+When runner 即将调用 `runCodex`
+Then 系统先为最新 comment 添加 `eyes` reaction
+And 不为 issue body 添加本轮 Codex execution reaction
+And 日志中的 `targetSource = "comment"`、`targetIndex` 等于该 comment 在共享时间线中的 index
 And 随后调用 Codex driver
 
 ### 场景 28：Codex 执行反馈 — 非 Codex 执行路径不添加 reaction
@@ -472,9 +488,9 @@ And `codex exec resume <threadId>` 失败
 When runner fallback 到 full prompt 再调用 Codex
 Then 系统不再添加第二次 `eyes` reaction
 
-### 场景 30：Codex 执行反馈 — reaction 失败不阻断 Codex
-Given runner 即将调用 Codex
-And GitHub issue reaction API 调用失败
+### 场景 30：Codex 执行反馈 — comment reaction 失败不阻断 Codex
+Given runner 即将为最新 comment 添加 `eyes` reaction
+And GitHub comment reaction API 调用失败
 When runner 处理该失败
 Then 系统记录 `event = "codex-execution-reaction-failed"` 与错误原因
 And 继续调用 Codex driver

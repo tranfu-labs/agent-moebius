@@ -39,13 +39,14 @@ import { isInterruptedCodexRunResult, run as runCodex } from "./codex.js";
 import { createDriverPool, type DriverPool } from "./driver-pool.js";
 import { CEO_CORRECTED_METADATA, formatCeoComment } from "./format-ceo.js";
 import {
-  addIssueReaction,
+  addReaction,
   fetchIssueWithComments,
   isGitHubIssueNotFoundError,
   listOpenIssueSummaries,
   postComment,
   type GitHubIssue,
   type IssueReactionContent,
+  type ReactionTarget,
 } from "./github.js";
 import {
   enforceActiveIssueLimit,
@@ -81,7 +82,7 @@ export interface AgentFile {
 export interface ProcessIssueSourceDependencies {
   runAgentPreScript: typeof runAgentPreScript;
   runCodex: typeof runCodex;
-  addIssueReaction: typeof addIssueReaction;
+  addReaction: typeof addReaction;
   fetchIssueWithComments: typeof fetchIssueWithComments;
   postComment: typeof postComment;
   loadRoleThreadStateStore: typeof loadRoleThreadStateStore;
@@ -92,7 +93,7 @@ export interface ProcessIssueSourceDependencies {
 const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies = {
   runAgentPreScript,
   runCodex,
-  addIssueReaction,
+  addReaction,
   fetchIssueWithComments,
   postComment,
   loadRoleThreadStateStore,
@@ -616,10 +617,14 @@ export async function processIssueSource(
     let currentThreadId = plan.mode === "resume" ? plan.threadId : null;
     let finalRunDir = runDir;
     await addCodexExecutionReaction({
-      source: input.source,
+      reaction: resolveCodexExecutionReactionTarget({
+        source: input.source,
+        issue: input.issue,
+        latestIndex: plan.latestIndex,
+      }),
       agent: selectedAgent.name,
       count,
-      addIssueReaction: dependencies.addIssueReaction,
+      addReaction: dependencies.addReaction,
     });
 
     const interruptMonitor = startAgentRunInterruptMonitor({
@@ -880,28 +885,88 @@ function formatGuardedAgentComment(role: string, finalText: string): string {
 }
 
 async function addCodexExecutionReaction(input: {
-  source: IssueSource;
+  reaction: CodexExecutionReactionTarget;
   agent: string;
   count: number;
-  addIssueReaction: (source: IssueSource, content: IssueReactionContent) => Promise<void>;
+  addReaction: (target: ReactionTarget, content: IssueReactionContent) => Promise<void>;
 }): Promise<void> {
   try {
-    await input.addIssueReaction(input.source, "eyes");
+    if (input.reaction.target === null) {
+      throw new Error(input.reaction.unavailableReason);
+    }
+
+    await input.addReaction(input.reaction.target, "eyes");
     log({
       event: "codex-execution-reaction-added",
       count: input.count,
       agent: input.agent,
-      issueKey: input.source.issueKey,
+      issueKey: input.reaction.source.issueKey,
+      targetSource: input.reaction.targetSource,
+      targetIndex: input.reaction.targetIndex,
     });
   } catch (error) {
     log({
       event: "codex-execution-reaction-failed",
       count: input.count,
       agent: input.agent,
-      issueKey: input.source.issueKey,
+      issueKey: input.reaction.source.issueKey,
+      targetSource: input.reaction.targetSource,
+      targetIndex: input.reaction.targetIndex,
       error: formatError(error),
     });
   }
+}
+
+type CodexExecutionReactionTarget = {
+  source: IssueSource;
+  targetSource: "issue-body" | "comment";
+  targetIndex: number;
+} & (
+  | {
+      target: ReactionTarget;
+      unavailableReason?: never;
+    }
+  | {
+      target: null;
+      unavailableReason: string;
+    }
+);
+
+function resolveCodexExecutionReactionTarget(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  latestIndex: number;
+}): CodexExecutionReactionTarget {
+  if (input.latestIndex === 0) {
+    return {
+      source: input.source,
+      targetSource: "issue-body",
+      targetIndex: input.latestIndex,
+      target: { kind: "issue", source: input.source },
+    };
+  }
+
+  const comment = input.issue.comments[input.latestIndex - 1];
+  if (comment === undefined) {
+    return {
+      source: input.source,
+      targetSource: "comment",
+      targetIndex: input.latestIndex,
+      target: null,
+      unavailableReason: `missing comment for timeline index ${String(input.latestIndex)}`,
+    };
+  }
+
+  return {
+    source: input.source,
+    targetSource: "comment",
+    targetIndex: input.latestIndex,
+    target: {
+      kind: "issue-comment",
+      source: input.source,
+      commentId: comment.id,
+    },
+  };
 }
 
 export function start(): NodeJS.Timeout {

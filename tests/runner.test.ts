@@ -221,10 +221,10 @@ describe("makeRunDir", () => {
 });
 
 describe("processIssueSource Codex execution reaction", () => {
-  it("adds an eyes reaction before running Codex on the real Codex driver path", async () => {
+  it("adds an eyes reaction to the issue before running Codex when issue body triggers", async () => {
     const calls: string[] = [];
     const agent = await makeAgentFile("dev", "Dev persona");
-    const addIssueReaction = vi.fn(async () => {
+    const addReaction = vi.fn(async () => {
       calls.push("reaction");
     });
     const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) => {
@@ -241,19 +241,48 @@ describe("processIssueSource Codex execution reaction", () => {
         issue: makeIssue("@dev please run"),
         agentFiles: [agent],
       },
-      makeDependencies({ addIssueReaction, runCodex, postComment }),
+      makeDependencies({ addReaction, runCodex, postComment }),
     );
 
     expect(outcome).toBe("triggered-success");
     expect(calls.slice(0, 2)).toEqual(["reaction", "codex"]);
-    expect(addIssueReaction).toHaveBeenCalledWith(source, "eyes");
+    expect(addReaction).toHaveBeenCalledWith({ kind: "issue", source }, "eyes");
     expect(runCodex).toHaveBeenCalledTimes(1);
     expect(postComment).toHaveBeenCalledTimes(1);
   });
 
+  it("adds an eyes reaction to the latest comment before running Codex when comment triggers", async () => {
+    const calls: string[] = [];
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const addReaction = vi.fn(async () => {
+      calls.push("reaction");
+    });
+    const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) => {
+      calls.push("codex");
+      return successfulCodexRun(options.runDir);
+    });
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("initial", [{ id: "comment-node-1", body: "@dev please run" }]),
+        agentFiles: [agent],
+      },
+      makeDependencies({ addReaction, runCodex }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(calls.slice(0, 2)).toEqual(["reaction", "codex"]);
+    expect(addReaction).toHaveBeenCalledWith(
+      { kind: "issue-comment", source, commentId: "comment-node-1" },
+      "eyes",
+    );
+    expect(runCodex).toHaveBeenCalledTimes(1);
+  });
+
   it("continues running Codex when adding the reaction fails", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
-    const addIssueReaction = vi.fn(async () => {
+    const addReaction = vi.fn(async () => {
       throw new Error("reaction failed");
     });
     const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) =>
@@ -263,15 +292,54 @@ describe("processIssueSource Codex execution reaction", () => {
     const outcome = await processIssueSource(
       {
         source,
-        issue: makeIssue("@dev please run"),
+        issue: makeIssue("initial", [{ id: "comment-node-1", body: "@dev please run" }]),
         agentFiles: [agent],
       },
-      makeDependencies({ addIssueReaction, runCodex }),
+      makeDependencies({ addReaction, runCodex }),
     );
 
     expect(outcome).toBe("triggered-success");
-    expect(addIssueReaction).toHaveBeenCalledWith(source, "eyes");
+    expect(addReaction).toHaveBeenCalledWith({ kind: "issue-comment", source, commentId: "comment-node-1" }, "eyes");
     expect(runCodex).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not add a second reaction when resume falls back to a full Codex run", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const addReaction = vi.fn(async () => {});
+    const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) => {
+      if (options.mode?.kind === "resume") {
+        return failedCodexRun(options.runDir, "resume failed");
+      }
+
+      return successfulCodexRun(options.runDir);
+    });
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("initial", [{ id: "comment-node-1", body: "@dev please run again" }]),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        addReaction,
+        runCodex,
+        loadRoleThreadStateStore: async () => ({
+          [source.issueKey]: {
+            dev: {
+              threadId: "thread-1",
+              lastSeenIndex: 0,
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(addReaction).toHaveBeenCalledTimes(1);
+    expect(addReaction).toHaveBeenCalledWith({ kind: "issue-comment", source, commentId: "comment-node-1" }, "eyes");
+    expect(runCodex).toHaveBeenCalledTimes(2);
+    expect(runCodex.mock.calls[0]?.[0].mode).toEqual({ kind: "resume", threadId: "thread-1" });
+    expect(runCodex.mock.calls[1]?.[0].mode).toEqual({ kind: "full" });
   });
 
   it("does not post a stale Codex result when a new comment arrives before posting", async () => {
@@ -548,13 +616,13 @@ async function expectNoReaction(input: {
   dependencies?: ProcessIssueSourceDependencies;
   expectedOutcome: "failed" | "no-trigger" | "triggered-success";
 }): Promise<void> {
-  const addIssueReaction = vi.fn(async () => {});
+  const addReaction = vi.fn(async () => {});
   const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) =>
     successfulCodexRun(options.runDir),
   );
   const dependencies = {
     ...(input.dependencies ?? makeDependencies()),
-    addIssueReaction,
+    addReaction,
     runCodex,
   };
 
@@ -568,7 +636,7 @@ async function expectNoReaction(input: {
       dependencies,
     ),
   ).resolves.toBe(input.expectedOutcome);
-  expect(addIssueReaction).not.toHaveBeenCalled();
+  expect(addReaction).not.toHaveBeenCalled();
   expect(runCodex).not.toHaveBeenCalled();
 }
 
@@ -576,7 +644,7 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
   return {
     runAgentPreScript: async () => ({ ok: true }),
     runCodex: async (options) => successfulCodexRun(options.runDir),
-    addIssueReaction: async () => {},
+    addReaction: async () => {},
     fetchIssueWithComments: async () => makeIssue("@dev please run"),
     postComment: async () => {},
     loadRoleThreadStateStore: async () => ({}),
@@ -667,13 +735,16 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void; reject(e
 
 function makeIssue(
   body: string,
-  comments: GitHubIssue["comments"] = [],
+  comments: Array<{ body: string; id?: string }> = [],
   state: GitHubIssue["state"] = "OPEN",
   updatedAt = "2026-07-01T00:00:00Z",
 ): GitHubIssue {
   return {
     body,
-    comments,
+    comments: comments.map((comment, index) => ({
+      id: comment.id ?? `comment-${index + 1}`,
+      body: comment.body,
+    })),
     updatedAt,
     state,
   };
@@ -692,6 +763,16 @@ function successfulCodexRun(runDir: string) {
     finalText: "done",
     threadId: "thread-1",
     cachedInputTokens: null,
+    runDir,
+    stdoutPath: path.join(runDir, "stdout.jsonl"),
+    stderrPath: path.join(runDir, "stderr.log"),
+  };
+}
+
+function failedCodexRun(runDir: string, reason: string) {
+  return {
+    ok: false as const,
+    reason,
     runDir,
     stdoutPath: path.join(runDir, "stdout.jsonl"),
     stderrPath: path.join(runDir, "stderr.log"),
