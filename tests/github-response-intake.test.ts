@@ -161,6 +161,38 @@ describe("github response intake", () => {
     });
   });
 
+  it("starts failed backoff from one when a previously demoted idle issue changes again", () => {
+    const state: GitHubResponseIntakeState = {
+      repositories: {},
+      issues: {
+        "tranfu-labs/agent-moebius#4": {
+          ...repo,
+          issueNumber: 4,
+          mode: "idle",
+          updatedAt: "2026-06-28T00:00:00.000Z",
+          activeNoChangeCount: 5,
+          nextPollAt: null,
+        },
+      },
+    };
+
+    const result = recordIssueProcessingOutcome({
+      state,
+      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
+      outcome: "failed",
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
+    });
+
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+      mode: "active",
+      updatedAt: "2026-06-28T00:03:00.000Z",
+      activeNoChangeCount: 1,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+  });
+
   it("removes issue state after issue-closed outcomes", () => {
     const state = stateWithActiveIssue({
       updatedAt: "2026-06-28T00:00:00.000Z",

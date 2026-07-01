@@ -148,7 +148,8 @@ export function recordIssueProcessingOutcome(input: {
   const source = makeIssueSource(input.summary);
   if (input.outcome === "failed") {
     const previousIssue = input.state.issues[source.issueKey];
-    const activeNoChangeCount = (previousIssue?.activeNoChangeCount ?? 0) + 1;
+    const previousActiveNoChangeCount = previousIssue?.mode === "active" ? previousIssue.activeNoChangeCount : 0;
+    const activeNoChangeCount = previousActiveNoChangeCount + 1;
     const shouldDemote = activeNoChangeCount >= input.activeIssueNoChangeLimit;
 
     return {
