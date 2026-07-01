@@ -24,7 +24,12 @@ export interface GitHubResponseIntakeState {
   issues: Record<string, IntakeIssueState>;
 }
 
-export type IssueProcessingOutcome = "triggered-success" | "no-trigger" | "failed" | "issue-not-found";
+export type IssueProcessingOutcome =
+  | "triggered-success"
+  | "no-trigger"
+  | "failed"
+  | "issue-not-found"
+  | "issue-closed";
 
 export interface IntakeTimingOptions {
   idleRepositoryScanIntervalMs: number;
@@ -138,13 +143,35 @@ export function recordIssueProcessingOutcome(input: {
   outcome: IssueProcessingOutcome;
   processedAt: Date;
   activeIssuePollIntervalMs: number;
+  activeIssueNoChangeLimit: number;
 }): GitHubResponseIntakeState {
   const source = makeIssueSource(input.summary);
   if (input.outcome === "failed") {
-    return input.state;
+    const previousIssue = input.state.issues[source.issueKey];
+    const previousActiveNoChangeCount = previousIssue?.mode === "active" ? previousIssue.activeNoChangeCount : 0;
+    const activeNoChangeCount = previousActiveNoChangeCount + 1;
+    const shouldDemote = activeNoChangeCount >= input.activeIssueNoChangeLimit;
+
+    return {
+      ...input.state,
+      issues: {
+        ...input.state.issues,
+        [source.issueKey]: {
+          owner: input.summary.owner,
+          repo: input.summary.repo,
+          issueNumber: input.summary.issueNumber,
+          updatedAt: input.summary.updatedAt,
+          mode: shouldDemote ? "idle" : "active",
+          activeNoChangeCount,
+          nextPollAt: shouldDemote
+            ? null
+            : addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString(),
+        },
+      },
+    };
   }
 
-  if (input.outcome === "issue-not-found") {
+  if (input.outcome === "issue-not-found" || input.outcome === "issue-closed") {
     const { [source.issueKey]: _removed, ...issues } = input.state.issues;
     return {
       ...input.state,

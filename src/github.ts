@@ -8,6 +8,7 @@ export interface GitHubComment {
 export interface GitHubIssue {
   body: string;
   updatedAt: string;
+  state: "OPEN" | "CLOSED";
   comments: GitHubComment[];
 }
 
@@ -85,7 +86,7 @@ export function buildFetchIssueWithCommentsArgs(source: IssueSource): string[] {
     "--repo",
     `${source.owner}/${source.repo}`,
     "--json",
-    "body,comments,updatedAt",
+    "body,comments,updatedAt,state",
   ];
 }
 
@@ -188,7 +189,7 @@ function isCommandFailedError(error: unknown): error is CommandFailedError {
   return error instanceof CommandFailedError;
 }
 
-function isGitHubIssue(value: unknown): value is GitHubIssue {
+export function isGitHubIssue(value: unknown): value is GitHubIssue {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -197,6 +198,7 @@ function isGitHubIssue(value: unknown): value is GitHubIssue {
   return (
     typeof issue.body === "string" &&
     typeof issue.updatedAt === "string" &&
+    (issue.state === "OPEN" || issue.state === "CLOSED") &&
     Array.isArray(issue.comments) &&
     issue.comments.every((comment) => typeof comment === "object" && comment !== null && typeof comment.body === "string")
   );

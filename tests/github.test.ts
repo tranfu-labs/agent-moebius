@@ -5,6 +5,7 @@ import {
   buildListOpenIssueSummariesArgs,
   buildPostCommentArgs,
   GitHubIssueNotFoundError,
+  isGitHubIssue,
   isGitHubIssueNotFoundError,
   isIssueNotFoundMessage,
 } from "../src/github.js";
@@ -55,7 +56,7 @@ describe("github issue errors", () => {
       "--repo",
       "tranfu-labs/agent-moebius",
       "--json",
-      "body,comments,updatedAt",
+      "body,comments,updatedAt,state",
     ]);
     expect(buildPostCommentArgs(source)).toEqual([
       "issue",
@@ -74,5 +75,18 @@ describe("github issue errors", () => {
       "-f",
       "content=eyes",
     ]);
+  });
+
+  it("accepts GitHub issue shapes with OPEN or CLOSED state and rejects unknown states", () => {
+    const baseIssue = {
+      body: "@dev",
+      updatedAt: "2026-07-01T00:00:00Z",
+      comments: [{ body: "hello" }],
+    };
+
+    expect(isGitHubIssue({ ...baseIssue, state: "OPEN" })).toBe(true);
+    expect(isGitHubIssue({ ...baseIssue, state: "CLOSED" })).toBe(true);
+    expect(isGitHubIssue({ ...baseIssue, state: "MERGED" })).toBe(false);
+    expect(isGitHubIssue(baseIssue)).toBe(false);
   });
 });

@@ -61,7 +61,7 @@ import { appendPostedComment, decideNextSelfReflectStep } from "./triggers/self-
 
 let running = false;
 
-interface AgentFile {
+export interface AgentFile {
   name: string;
   path: string;
 }
@@ -183,11 +183,17 @@ async function scanRepository(input: {
   }
 }
 
-async function pollActiveIssue(input: {
+export async function pollActiveIssue(input: {
   state: GitHubResponseIntakeState;
   source: IssueSource;
   agentFiles: AgentFile[];
   now: Date;
+}, dependencies: {
+  fetchIssueWithComments: typeof fetchIssueWithComments;
+  processIssueSource: typeof processIssueSource;
+} = {
+  fetchIssueWithComments,
+  processIssueSource,
 }): Promise<GitHubResponseIntakeState> {
   const issueState = input.state.issues[input.source.issueKey];
   if (issueState === undefined || issueState.mode !== "active") {
@@ -195,7 +201,19 @@ async function pollActiveIssue(input: {
   }
 
   try {
-    const issue = await fetchIssueWithComments(input.source);
+    const issue = await dependencies.fetchIssueWithComments(input.source);
+    if (issue.state === "CLOSED") {
+      log({ event: "skip", reason: "issue-closed", issueKey: input.source.issueKey });
+      return recordIssueProcessingOutcome({
+        state: input.state,
+        summary: issueSummaryFromSource(input.source, issue.updatedAt),
+        outcome: "issue-closed",
+        processedAt: input.now,
+        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+      });
+    }
+
     if (issue.updatedAt === issueState.updatedAt) {
       log({
         event: "active-issue-unchanged",
@@ -211,7 +229,7 @@ async function pollActiveIssue(input: {
       });
     }
 
-    const outcome = await processIssueSource({
+    const outcome = await dependencies.processIssueSource({
       source: input.source,
       issue,
       agentFiles: input.agentFiles,
@@ -222,6 +240,7 @@ async function pollActiveIssue(input: {
       outcome,
       processedAt: input.now,
       activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
     });
   } catch (error) {
     if (isGitHubIssueNotFoundError(error)) {
@@ -232,11 +251,19 @@ async function pollActiveIssue(input: {
         outcome: "issue-not-found",
         processedAt: input.now,
         activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
       });
     }
 
     log({ event: "active-issue-fetch-failed", issueKey: input.source.issueKey, error: formatError(error) });
-    return input.state;
+    return recordIssueProcessingOutcome({
+      state: input.state,
+      summary: issueSummaryFromSource(input.source, issueState.updatedAt),
+      outcome: "failed",
+      processedAt: input.now,
+      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+    });
   }
 }
 
@@ -250,6 +277,18 @@ async function fetchAndProcessChangedIssue(input: {
 
   try {
     const issue = await fetchIssueWithComments(source);
+    if (issue.state === "CLOSED") {
+      log({ event: "skip", reason: "issue-closed", issueKey: source.issueKey });
+      return recordIssueProcessingOutcome({
+        state: input.state,
+        summary: issueSummaryFromSource(source, issue.updatedAt),
+        outcome: "issue-closed",
+        processedAt: input.now,
+        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+      });
+    }
+
     const outcome = await processIssueSource({
       source,
       issue,
@@ -262,6 +301,7 @@ async function fetchAndProcessChangedIssue(input: {
       outcome,
       processedAt: input.now,
       activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
     });
   } catch (error) {
     if (isGitHubIssueNotFoundError(error)) {
@@ -272,6 +312,7 @@ async function fetchAndProcessChangedIssue(input: {
         outcome: "issue-not-found",
         processedAt: input.now,
         activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
       });
     }
 
@@ -282,6 +323,7 @@ async function fetchAndProcessChangedIssue(input: {
       outcome: "failed",
       processedAt: input.now,
       activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
     });
   }
 }
