@@ -83,6 +83,7 @@
 - MUST 允许同一 repository 的多个 issue worktree 复用本地 bare repo cache，但 MUST 保持 worktree 彼此隔离。
 - MUST 在新建或复用 `dev` issue worktree 前刷新目标仓库远端 `main` tracking ref。
 - MUST 从已刷新的远端 `main` tracking ref 创建新的 `dev` issue worktree；MUST NOT 依赖本地 bare repo 的 `HEAD` 作为新 worktree 基线。
+- MUST 在复用已有 `dev` context 时验证记录的 `worktreePath` 与当前 owner / repo / issue / role / workdir root 计算出的 issue 独占 worktree 路径完全一致；不一致时 MUST fail closed，且不得访问、删除或重建该路径。
 - MUST 在复用已有 `dev` issue worktree 前检查当前 worktree `HEAD` 是否包含最新远端 `main`。
 - MUST 在已有 `dev` issue worktree 落后最新远端 `main` 时先强制删除该 worktree（`git worktree remove --force`；失败时 fallback 到 `rm -rf` + `git worktree prune`），再从 `refs/remotes/origin/main` 重建；重建成功后继续以同一路径作为 Codex cwd，并保持原 agent context state。
 - MUST 在 stale worktree 重建过程任一步失败时 fail closed，不调用 Codex、不发表评论、不推进 role thread 状态，并返回 `stale-worktree-rebuild-failed:<detail>`。

@@ -79,7 +79,7 @@ describe("dev workspace pre script", () => {
     const root = await makeTempDir();
     const commands: string[][] = [];
     const input = makeInput(root);
-    const worktreePath = path.join(root, "worktrees", "existing");
+    const worktreePath = expectedWorktreePath(root);
     const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
     await fs.mkdir(worktreePath, { recursive: true });
     await fs.mkdir(repoCachePath, { recursive: true });
@@ -157,7 +157,7 @@ describe("dev workspace pre script", () => {
     const root = await makeTempDir();
     const events: string[] = [];
     const input = makeInput(root);
-    const worktreePath = path.join(root, "worktrees", "existing");
+    const worktreePath = expectedWorktreePath(root);
     const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
     await fs.mkdir(worktreePath, { recursive: true });
     await fs.mkdir(repoCachePath, { recursive: true });
@@ -214,7 +214,7 @@ describe("dev workspace pre script", () => {
   it("fails closed when rebuilding a stale worktree cannot re-add the worktree", async () => {
     const root = await makeTempDir();
     const input = makeInput(root);
-    const worktreePath = path.join(root, "worktrees", "existing");
+    const worktreePath = expectedWorktreePath(root);
     const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
     await fs.mkdir(worktreePath, { recursive: true });
     await fs.mkdir(repoCachePath, { recursive: true });
@@ -282,6 +282,46 @@ describe("dev workspace pre script", () => {
     ]);
   });
 
+  it("fails closed before deleting when an existing context points at an unexpected worktree path", async () => {
+    const root = await makeTempDir();
+    const input = makeInput(root);
+    const mismatchedWorktreePath = path.join(root, "worktrees", "unexpected");
+    await saveAgentContextStateStore(
+      {
+        "tranfu-labs/agent-moebius#4": {
+          dev: {
+            preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
+            owner: "tranfu-labs",
+            repo: "agent-moebius",
+            issueNumber: 4,
+            worktreePath: mismatchedWorktreePath,
+            preparedFromMessageIndex: 2,
+          },
+        },
+      },
+      input.contextStatePath,
+    );
+
+    const result = await runDevWorkspacePreScript(input, {
+      ...makeFsDependencies(),
+      access: async () => {
+        throw new Error("access should not run");
+      },
+      removeWorktree: async () => {
+        throw new Error("removeWorktree should not run");
+      },
+      runGit: async () => {
+        throw new Error("runGit should not run");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toBe(`context-worktree-mismatch:${mismatchedWorktreePath}`);
+  });
+
   it("fails closed when an existing context points to a missing worktree", async () => {
     const root = await makeTempDir();
     const input = makeInput(root);
@@ -293,7 +333,7 @@ describe("dev workspace pre script", () => {
             owner: "tranfu-labs",
             repo: "agent-moebius",
             issueNumber: 4,
-            worktreePath: path.join(root, "missing"),
+            worktreePath: expectedWorktreePath(root),
             preparedFromMessageIndex: 2,
           },
         },
@@ -335,6 +375,10 @@ function makeInput(root: string): AgentPreScriptInput {
     workdirRoot: root,
     contextStatePath: path.join(root, ".state", "agent-contexts.json"),
   };
+}
+
+function expectedWorktreePath(root: string): string {
+  return path.join(root, "worktrees", "tranfu-labs__agent-moebius__4__dev");
 }
 
 function makeFsDependencies(): {

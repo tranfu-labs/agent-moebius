@@ -77,7 +77,7 @@ async function runDevWorkspacePreScriptUnsafe(
   const paths = buildDevWorkspacePaths(input);
 
   if (existingState !== null) {
-    const validationError = validateExistingContext(existingState, input);
+    const validationError = validateExistingContext(existingState, input, paths.worktreePath);
     if (validationError !== null) {
       return { ok: false, reason: validationError };
     }
@@ -189,7 +189,7 @@ export async function removeWorktreeWithFallback(
   }
 }
 
-function validateExistingContext(state: AgentContextState, input: AgentPreScriptInput): string | null {
+function validateExistingContext(state: AgentContextState, input: AgentPreScriptInput, expectedWorktreePath: string): string | null {
   if (state.preScript !== input.preScript) {
     return `context-prescript-mismatch:${state.preScript}`;
   }
@@ -200,6 +200,10 @@ function validateExistingContext(state: AgentContextState, input: AgentPreScript
     state.issueNumber !== input.issueSource.issueNumber
   ) {
     return `context-issue-mismatch:${state.owner}/${state.repo}#${state.issueNumber}`;
+  }
+
+  if (state.worktreePath !== expectedWorktreePath) {
+    return `context-worktree-mismatch:${state.worktreePath}`;
   }
 
   return null;
