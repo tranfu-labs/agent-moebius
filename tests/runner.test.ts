@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { CEO_CORRECTED_METADATA, type FormatCeoResult } from "../src/format-ceo.js";
 import { pollActiveIssue, processIssueSource, type ProcessIssueSourceDependencies } from "../src/runner.js";
 import type { GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import type { GitHubIssue } from "../src/github.js";
@@ -173,6 +174,116 @@ Dev persona`,
   });
 });
 
+describe("processIssueSource CEO guardrail", () => {
+  it("runs CEO guardrail for every Codex agent response", async () => {
+    for (const role of ["dev", "product-manager", "hermes-user"]) {
+      const agent = await makeAgentFile(role, `${role} persona`);
+      const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
+        noChangeCeoResult(input.latestResponse),
+      );
+
+      await expect(
+        processIssueSource(
+          {
+            source,
+            issue: makeIssue(`@${role} please run`),
+            agentFiles: [agent],
+          },
+          makeDependencies({ formatCeoComment }),
+        ),
+      ).resolves.toBe("triggered-success");
+
+      expect(formatCeoComment).toHaveBeenCalledTimes(1);
+      expect(formatCeoComment.mock.calls[0]?.[0]).toMatchObject({
+        agent: role,
+        originalRequest: `@${role} please run`,
+        lastReflectorHook: null,
+      });
+    }
+  });
+
+  it("posts CEO repaired text with correction metadata after role metadata", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const repaired = `done
+<!-- agent-moebius:stage=in-progress -->
+
+${CEO_CORRECTED_METADATA}`;
+    const postComment = vi.fn(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        postComment,
+        formatCeoComment: async () => ({ action: "REPLACE", body: repaired, reason: "repaired" }),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment).toHaveBeenCalledWith(
+      source,
+      `&lt;dev&gt;:
+done
+<!-- agent-moebius:stage=in-progress -->
+
+<!-- agent-moebius:role=dev -->
+
+${CEO_CORRECTED_METADATA}`,
+    );
+  });
+
+  it("passes the latest reflector hook body to CEO", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const reflector = await makeAgentFile("reflector", "Reflector persona");
+    const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
+      noChangeCeoResult(input.latestResponse),
+    );
+    const hook = `&lt;reflector&gt;:
+@dev 请针对「plan-written」做一次反思。
+
+<!-- agent-moebius:role=reflector -->
+<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->`;
+
+    await processIssueSource(
+      {
+        source,
+        issue: makeIssue("initial", [{ body: hook }, { body: "@dev continue" }]),
+        agentFiles: [dev, reflector],
+      },
+      makeDependencies({ formatCeoComment }),
+    );
+
+    expect(formatCeoComment.mock.calls[0]?.[0].lastReflectorHook).toContain("stage-hook source=dev");
+  });
+
+  it("does not run CEO for deterministic reflector hook comments", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const reflector = await makeAgentFile("reflector", "Reflector persona");
+    const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
+      noChangeCeoResult(input.latestResponse),
+    );
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("initial", [
+          {
+            body: "&lt;dev&gt;:\nplan\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=dev -->",
+          },
+        ]),
+        agentFiles: [dev, reflector],
+      },
+      makeDependencies({ formatCeoComment }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(formatCeoComment).not.toHaveBeenCalled();
+  });
+});
+
 async function expectNoReaction(input: {
   issue: GitHubIssue;
   agentFiles: Array<{ name: string; path: string }>;
@@ -212,7 +323,16 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
     postComment: async () => {},
     loadRoleThreadStateStore: async () => ({}),
     saveRoleThreadStateStore: async () => {},
+    formatCeoComment: async (input) => noChangeCeoResult(input.latestResponse),
     ...overrides,
+  };
+}
+
+function noChangeCeoResult(body: string): FormatCeoResult {
+  return {
+    action: "NO_CHANGE",
+    body,
+    reason: "ceo-no-change",
   };
 }
 

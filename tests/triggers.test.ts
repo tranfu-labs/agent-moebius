@@ -28,6 +28,15 @@ describe("triggers", () => {
     });
   });
 
+  it("does not run CEO through an ordinary mention", () => {
+    const timeline = buildTimeline("@ceo please review", [], ["ceo", ...agents]);
+
+    expect(resolveTrigger({ timeline, availableAgentNames: ["ceo", ...agents] })).toEqual({
+      kind: "skip",
+      reason: "no-trigger",
+    });
+  });
+
   it("posts a reflector comment when an agent emits a supported stage", () => {
     const timeline = buildTimeline(
       "initial",
@@ -74,6 +83,41 @@ describe("triggers", () => {
     const timeline = buildTimeline(
       "initial",
       [{ body: "&lt;dev&gt;:\n旧阶段\n<!-- agent-moebius:stage=plan-confirmed -->\n\n<!-- agent-moebius:role=dev -->" }],
+      agents,
+    );
+
+    expect(resolveTrigger({ timeline, availableAgentNames: agents })).toEqual({
+      kind: "skip",
+      reason: "no-trigger",
+    });
+  });
+
+  it("tolerantly parses supported stage marker whitespace and marker casing", () => {
+    const timeline = buildTimeline(
+      "initial",
+      [
+        {
+          body: "&lt;dev&gt;:\n验证完成\n<!--  Agent-Moebius : stage = code-verified  -->\n\n<!-- agent-moebius:role=dev -->",
+        },
+      ],
+      agents,
+    );
+
+    expect(resolveTrigger({ timeline, availableAgentNames: agents })).toMatchObject({
+      kind: "post-comment",
+      role: "reflector",
+      stage: "code-verified",
+    });
+  });
+
+  it("does not trigger reflector for in-progress stage", () => {
+    const timeline = buildTimeline(
+      "initial",
+      [
+        {
+          body: "&lt;dev&gt;:\n还在处理\n<!-- agent-moebius:stage=in-progress -->\n\n<!-- agent-moebius:role=dev -->",
+        },
+      ],
       agents,
     );
 

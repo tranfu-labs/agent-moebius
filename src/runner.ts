@@ -35,6 +35,7 @@ import {
   resolveNextRoleThreadState,
 } from "./conversation.js";
 import { isInterruptedCodexRunResult, run as runCodex } from "./codex.js";
+import { CEO_CORRECTED_METADATA, formatCeoComment } from "./format-ceo.js";
 import {
   addIssueReaction,
   fetchIssueWithComments,
@@ -82,6 +83,7 @@ export interface ProcessIssueSourceDependencies {
   postComment: typeof postComment;
   loadRoleThreadStateStore: typeof loadRoleThreadStateStore;
   saveRoleThreadStateStore: typeof saveRoleThreadStateStore;
+  formatCeoComment: typeof formatCeoComment;
 }
 
 const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies = {
@@ -92,6 +94,7 @@ const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies 
   postComment,
   loadRoleThreadStateStore,
   saveRoleThreadStateStore,
+  formatCeoComment,
 };
 
 export async function tick(now = new Date()): Promise<void> {
@@ -552,7 +555,22 @@ export async function processIssueSource(
       return "failed";
     }
 
-    const postedBody = formatAgentComment(selectedAgent.name, result.finalText);
+    const ceoResult = await dependencies.formatCeoComment({
+      agent: selectedAgent.name,
+      originalRequest: input.issue.body,
+      latestResponse: result.finalText,
+      lastReflectorHook: findLatestReflectorHookBody(timeline),
+      runDir: finalRunDir,
+      runCodex: dependencies.runCodex,
+    });
+    logCeoGuardrailResult({
+      result: ceoResult,
+      count,
+      agent: selectedAgent.name,
+      issueKey: input.source.issueKey,
+    });
+
+    const postedBody = formatGuardedAgentComment(selectedAgent.name, ceoResult.body);
     await dependencies.postComment(input.source, postedBody);
     await dependencies.saveRoleThreadStateStore(
       withRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name, nextState),
@@ -604,6 +622,64 @@ export async function processIssueSource(
     log({ event: "process-issue-error", issueKey: input.source.issueKey, error: formatError(error) });
     return "failed";
   }
+}
+
+function findLatestReflectorHookBody(timeline: ReturnType<typeof buildTimeline>): string | null {
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    const message = timeline[index];
+    if (message?.speaker === "reflector" && message.body.includes("agent-moebius:stage-hook")) {
+      return message.body;
+    }
+  }
+
+  return null;
+}
+
+function logCeoGuardrailResult(input: {
+  result: Awaited<ReturnType<typeof formatCeoComment>>;
+  count: number;
+  agent: string;
+  issueKey: string;
+}): void {
+  if (input.result.action === "REPLACE") {
+    log({
+      event: "ceo-guardrail-repaired",
+      count: input.count,
+      agent: input.agent,
+      reason: input.result.reason,
+      issueKey: input.issueKey,
+    });
+    return;
+  }
+
+  if (input.result.action === "NO_CHANGE") {
+    log({
+      event: "ceo-guardrail-noop",
+      count: input.count,
+      agent: input.agent,
+      reason: input.result.reason,
+      issueKey: input.issueKey,
+    });
+    return;
+  }
+
+  log({
+    event: "ceo-guardrail-failopen",
+    count: input.count,
+    agent: input.agent,
+    reason: input.result.reason,
+    detail: input.result.detail,
+    issueKey: input.issueKey,
+  });
+}
+
+function formatGuardedAgentComment(role: string, finalText: string): string {
+  if (!finalText.includes(CEO_CORRECTED_METADATA)) {
+    return formatAgentComment(role, finalText);
+  }
+
+  const withoutCeoMetadata = finalText.replaceAll(CEO_CORRECTED_METADATA, "").trimEnd();
+  return `${formatAgentComment(role, withoutCeoMetadata)}\n\n${CEO_CORRECTED_METADATA}`;
 }
 
 async function addCodexExecutionReaction(input: {
