@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { DriverPool } from "../src/driver-pool.js";
 import { CEO_CORRECTED_METADATA, type FormatCeoResult } from "../src/format-ceo.js";
-import { pollActiveIssue, processIssueSource, type ProcessIssueSourceDependencies } from "../src/runner.js";
+import { makeRunDir, pollActiveIssue, processIssueSource, tick, type ProcessIssueSourceDependencies } from "../src/runner.js";
 import type { GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import type { GitHubIssue } from "../src/github.js";
 import { makeIssueSource } from "../src/issue-source.js";
@@ -43,6 +44,94 @@ describe("pollActiveIssue", () => {
 
     expect(result.issues).not.toHaveProperty(source.issueKey);
     expect(process).not.toHaveBeenCalled();
+  });
+});
+
+describe("tick driver pool orchestration", () => {
+  it("runs changed issue jobs through the injected driver pool without serializing them", async () => {
+    const first = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 1 });
+    const second = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 2 });
+    const bothStarted = deferred<void>();
+    const releaseJobs = deferred<void>();
+    const startedIssueNumbers: number[] = [];
+    let runningJobs = 0;
+    let maxRunningJobs = 0;
+    const savedStates: GitHubResponseIntakeState[] = [];
+    const processIssueSourceMock = vi.fn(async (input: { source: ReturnType<typeof makeIssueSource> }) => {
+      startedIssueNumbers.push(input.source.issueNumber);
+      runningJobs += 1;
+      maxRunningJobs = Math.max(maxRunningJobs, runningJobs);
+      if (startedIssueNumbers.length === 2) {
+        bothStarted.resolve();
+      }
+
+      await releaseJobs.promise;
+      runningJobs -= 1;
+      return "triggered-success" as const;
+    });
+
+    const tickPromise = tick(
+      new Date("2026-07-01T00:10:00Z"),
+      makeTickDependencies({
+        initialState: stateWithIdleScanDueIssues([first, second]),
+        summaries: [
+          { issueNumber: 1, updatedAt: "2026-07-01T00:05:00Z" },
+          { issueNumber: 2, updatedAt: "2026-07-01T00:06:00Z" },
+        ],
+        processIssueSource: processIssueSourceMock,
+        saveGitHubResponseIntakeState: async (state) => {
+          savedStates.push(state);
+        },
+      }),
+    );
+
+    await Promise.race([
+      bothStarted.promise,
+      delay(100).then(() => {
+        throw new Error("expected both jobs to start");
+      }),
+    ]);
+    expect(maxRunningJobs).toBe(2);
+    expect(startedIssueNumbers.sort()).toEqual([1, 2]);
+
+    releaseJobs.resolve();
+    await tickPromise;
+
+    expect(processIssueSourceMock).toHaveBeenCalledTimes(2);
+    expect(savedStates[0]?.issues[first.issueKey]?.mode).toBe("active");
+    expect(savedStates[0]?.issues[second.issueKey]?.mode).toBe("active");
+  });
+
+  it("dedupes duplicate issue jobs within a processing phase", async () => {
+    const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 1 });
+    const processIssueSourceMock = vi.fn(async () => "triggered-success" as const);
+
+    await tick(
+      new Date("2026-07-01T00:10:00Z"),
+      makeTickDependencies({
+        initialState: stateWithIdleScanDueIssues([issue]),
+        summaries: [
+          { issueNumber: 1, updatedAt: "2026-07-01T00:05:00Z" },
+          { issueNumber: 1, updatedAt: "2026-07-01T00:05:00Z" },
+        ],
+        processIssueSource: processIssueSourceMock,
+      }),
+    );
+
+    expect(processIssueSourceMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("makeRunDir", () => {
+  it("generates unique run directories for the same timestamp and message count", () => {
+    const now = new Date("2026-07-01T00:00:00.000Z");
+
+    const first = makeRunDir(1, now);
+    const second = makeRunDir(1, now);
+
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/-c1-r\d+$/);
+    expect(second).toMatch(/-c1-r\d+$/);
   });
 });
 
@@ -103,7 +192,7 @@ describe("processIssueSource Codex execution reaction", () => {
   it("does not post a stale Codex result when a new comment arrives before posting", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
     const postComment = vi.fn(async () => {});
-    const saveRoleThreadStateStore = vi.fn(async () => {});
+    const saveRoleThreadStateEntry = vi.fn(async () => {});
 
     const outcome = await processIssueSource(
       {
@@ -114,13 +203,13 @@ describe("processIssueSource Codex execution reaction", () => {
       makeDependencies({
         fetchIssueWithComments: async () => makeIssue("@dev please run", [{ body: "new comment" }]),
         postComment,
-        saveRoleThreadStateStore,
+        saveRoleThreadStateEntry,
       }),
     );
 
     expect(outcome).toBe("interrupted");
     expect(postComment).not.toHaveBeenCalled();
-    expect(saveRoleThreadStateStore).not.toHaveBeenCalled();
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
   });
 
   it("does not add a reaction when no Codex driver will run", async () => {
@@ -322,7 +411,7 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
     fetchIssueWithComments: async () => makeIssue("@dev please run"),
     postComment: async () => {},
     loadRoleThreadStateStore: async () => ({}),
-    saveRoleThreadStateStore: async () => {},
+    saveRoleThreadStateEntry: async () => {},
     formatCeoComment: async (input) => noChangeCeoResult(input.latestResponse),
     ...overrides,
   };
@@ -336,11 +425,87 @@ function noChangeCeoResult(body: string): FormatCeoResult {
   };
 }
 
-function makeIssue(body: string, comments: GitHubIssue["comments"] = [], state: GitHubIssue["state"] = "OPEN"): GitHubIssue {
+function makeTickDependencies(
+  input: Partial<NonNullable<Parameters<typeof tick>[1]>> & {
+    initialState?: GitHubResponseIntakeState;
+    summaries?: Array<{ issueNumber: number; updatedAt: string }>;
+  } = {},
+): NonNullable<Parameters<typeof tick>[1]> {
+  const driverPool: DriverPool = {
+    run: (job) => job(),
+  };
+
+  return {
+    watchRepositories: [{ owner: source.owner, repo: source.repo }],
+    driverPool,
+    listAgentFiles: async () => [],
+    listOpenIssueSummaries: async () => input.summaries ?? [],
+    fetchIssueWithComments: async (issueSource) =>
+      makeIssue(
+        "@dev please run",
+        [],
+        "OPEN",
+        input.summaries?.find((summary) => summary.issueNumber === issueSource.issueNumber)?.updatedAt ??
+          "2026-07-01T00:00:00Z",
+      ),
+    processIssueSource: async () => "triggered-success",
+    loadGitHubResponseIntakeState: async () => input.initialState ?? { repositories: {}, issues: {} },
+    saveGitHubResponseIntakeState: async () => {},
+    ...input,
+  };
+}
+
+function stateWithIdleScanDueIssues(sources: ReturnType<typeof makeIssueSource>[]): GitHubResponseIntakeState {
+  return {
+    repositories: {
+      [`${source.owner}/${source.repo}`]: {
+        lastIdleScanAt: "2026-07-01T00:00:00.000Z",
+      },
+    },
+    issues: Object.fromEntries(
+      sources.map((issueSource) => [
+        issueSource.issueKey,
+        {
+          owner: issueSource.owner,
+          repo: issueSource.repo,
+          issueNumber: issueSource.issueNumber,
+          updatedAt: "2026-07-01T00:00:00Z",
+          mode: "idle" as const,
+          activeNoChangeCount: 0,
+          nextPollAt: null,
+        },
+      ]),
+    ),
+  };
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void; reject(error: unknown): void } {
+  let resolve: (value: T) => void = () => {};
+  let reject: (error: unknown) => void = () => {};
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
+function makeIssue(
+  body: string,
+  comments: GitHubIssue["comments"] = [],
+  state: GitHubIssue["state"] = "OPEN",
+  updatedAt = "2026-07-01T00:00:00Z",
+): GitHubIssue {
   return {
     body,
     comments,
-    updatedAt: "2026-07-01T00:00:00Z",
+    updatedAt,
     state,
   };
 }

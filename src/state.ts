@@ -35,6 +35,18 @@ export async function saveRoleThreadStateStore(
   await fs.rename(tempPath, filePath);
 }
 
+export async function saveRoleThreadStateEntry(
+  issueKey: string,
+  role: string,
+  state: RoleThreadState,
+  filePath = ROLE_THREADS_STATE_PATH,
+): Promise<void> {
+  await withStateFileLock(filePath, async () => {
+    const store = await loadRoleThreadStateStore(filePath);
+    await saveRoleThreadStateStore(withRoleThreadState(store, issueKey, role, state), filePath);
+  });
+}
+
 export function getRoleThreadState(
   store: RoleThreadStateStore,
   issueKey: string,
@@ -90,4 +102,26 @@ function isRoleThreadState(value: unknown): value is RoleThreadState {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+const stateFileLocks = new Map<string, Promise<void>>();
+
+async function withStateFileLock(filePath: string, operation: () => Promise<void>): Promise<void> {
+  const previous = stateFileLocks.get(filePath) ?? Promise.resolve();
+  let release: () => void = () => {};
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const next = previous.catch(() => {}).then(() => current);
+  stateFileLocks.set(filePath, next);
+  await previous.catch(() => {});
+
+  try {
+    await operation();
+  } finally {
+    release();
+    if (stateFileLocks.get(filePath) === next) {
+      stateFileLocks.delete(filePath);
+    }
+  }
 }

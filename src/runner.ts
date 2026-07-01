@@ -35,6 +35,7 @@ import {
   resolveNextRoleThreadState,
 } from "./conversation.js";
 import { isInterruptedCodexRunResult, run as runCodex } from "./codex.js";
+import { createDriverPool, type DriverPool } from "./driver-pool.js";
 import { CEO_CORRECTED_METADATA, formatCeoComment } from "./format-ceo.js";
 import {
   addIssueReaction,
@@ -55,6 +56,7 @@ import {
   type GitHubResponseIntakeState,
   type IssueProcessingOutcome,
   type IssueSummary,
+  type RepositoryScanResult,
 } from "./github-response-intake.js";
 import { loadGitHubResponseIntakeState, saveGitHubResponseIntakeState } from "./github-intake-state.js";
 import { makeIssueSource, makeRepoKey, type IssueSource, type RepositoryRef } from "./issue-source.js";
@@ -62,13 +64,13 @@ import { log } from "./log.js";
 import {
   getRoleThreadState,
   loadRoleThreadStateStore,
-  saveRoleThreadStateStore,
-  withRoleThreadState,
+  saveRoleThreadStateEntry,
 } from "./state.js";
 import { resolveTrigger } from "./triggers/index.js";
 import { appendPostedComment, decideNextSelfReflectStep } from "./triggers/self-reflect.js";
 
 let running = false;
+let runDirSequence = 0;
 
 export interface AgentFile {
   name: string;
@@ -82,7 +84,7 @@ export interface ProcessIssueSourceDependencies {
   fetchIssueWithComments: typeof fetchIssueWithComments;
   postComment: typeof postComment;
   loadRoleThreadStateStore: typeof loadRoleThreadStateStore;
-  saveRoleThreadStateStore: typeof saveRoleThreadStateStore;
+  saveRoleThreadStateEntry: typeof saveRoleThreadStateEntry;
   formatCeoComment: typeof formatCeoComment;
 }
 
@@ -93,11 +95,33 @@ const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies 
   fetchIssueWithComments,
   postComment,
   loadRoleThreadStateStore,
-  saveRoleThreadStateStore,
+  saveRoleThreadStateEntry,
   formatCeoComment,
 };
 
-export async function tick(now = new Date()): Promise<void> {
+interface TickDependencies {
+  watchRepositories: readonly RepositoryRef[];
+  driverPool: DriverPool;
+  listAgentFiles: typeof listAgentFiles;
+  listOpenIssueSummaries: typeof listOpenIssueSummaries;
+  fetchIssueWithComments: typeof fetchIssueWithComments;
+  processIssueSource: typeof processIssueSource;
+  loadGitHubResponseIntakeState: typeof loadGitHubResponseIntakeState;
+  saveGitHubResponseIntakeState: typeof saveGitHubResponseIntakeState;
+}
+
+const DEFAULT_TICK_DEPENDENCIES: TickDependencies = {
+  watchRepositories: WATCH_REPOSITORIES,
+  driverPool: createDriverPool(),
+  listAgentFiles,
+  listOpenIssueSummaries,
+  fetchIssueWithComments,
+  processIssueSource,
+  loadGitHubResponseIntakeState,
+  saveGitHubResponseIntakeState,
+};
+
+export async function tick(now = new Date(), dependencies: TickDependencies = DEFAULT_TICK_DEPENDENCIES): Promise<void> {
   if (running) {
     log({ event: "skip-overlap" });
     return;
@@ -105,34 +129,57 @@ export async function tick(now = new Date()): Promise<void> {
 
   running = true;
   try {
-    const agentFiles = await listAgentFiles();
-    let intakeState = await loadGitHubResponseIntakeState();
+    const agentFiles = await dependencies.listAgentFiles();
+    let intakeState = await dependencies.loadGitHubResponseIntakeState();
+    const changedIssueJobs: IssueProcessingJob[] = [];
 
     for (const repository of getDueRepositories({
-      repositories: WATCH_REPOSITORIES,
+      repositories: dependencies.watchRepositories,
       state: intakeState,
       now,
       idleRepositoryScanIntervalMs: IDLE_REPOSITORY_SCAN_INTERVAL_MS,
     })) {
-      intakeState = await scanRepository({
+      const scan = await scanRepository({
         state: intakeState,
         repository,
-        agentFiles,
         now,
+        listOpenIssueSummaries: dependencies.listOpenIssueSummaries,
       });
+      intakeState = scan.state;
+      changedIssueJobs.push(...scan.changedIssues.map((summary) => ({ kind: "changed" as const, summary })));
     }
 
-    for (const source of getDueActiveIssueSources({ repositories: WATCH_REPOSITORIES, state: intakeState, now })) {
-      intakeState = await pollActiveIssue({
-        state: intakeState,
+    intakeState = await processIssueJobs({
+      state: intakeState,
+      jobs: changedIssueJobs,
+      agentFiles,
+      now,
+      dependencies,
+    });
+
+    const activeIssueJobs: IssueProcessingJob[] = getDueActiveIssueSources({
+      repositories: dependencies.watchRepositories,
+      state: intakeState,
+      now,
+    }).map((source) => {
+      const issueState = intakeState.issues[source.issueKey];
+      return {
+        kind: "active",
         source,
-        agentFiles,
-        now,
-      });
-    }
+        previousUpdatedAt: issueState?.updatedAt ?? new Date(0).toISOString(),
+        previousActiveNoChangeCount: issueState?.activeNoChangeCount ?? 0,
+      };
+    });
+    intakeState = await processIssueJobs({
+      state: intakeState,
+      jobs: activeIssueJobs,
+      agentFiles,
+      now,
+      dependencies,
+    });
 
     const limited = enforceActiveIssueLimit({
-      repositories: WATCH_REPOSITORIES,
+      repositories: dependencies.watchRepositories,
       state: intakeState,
       maxActiveIssues: MAX_ACTIVE_ISSUES,
     });
@@ -141,7 +188,7 @@ export async function tick(now = new Date()): Promise<void> {
       log({ event: "active-issue-demoted", reason: "active-limit", issueKey, maxActiveIssues: MAX_ACTIVE_ISSUES });
     }
 
-    await saveGitHubResponseIntakeState(intakeState);
+    await dependencies.saveGitHubResponseIntakeState(intakeState);
   } catch (error) {
     log({ event: "cycle-error", error: formatError(error) });
   } finally {
@@ -149,21 +196,151 @@ export async function tick(now = new Date()): Promise<void> {
   }
 }
 
+type IssueProcessingJob =
+  | {
+      kind: "changed";
+      summary: IssueSummary;
+    }
+  | {
+      kind: "active";
+      source: IssueSource;
+      previousUpdatedAt: string;
+      previousActiveNoChangeCount: number;
+    };
+
+type IssueProcessingJobResult =
+  | {
+      kind: "processed";
+      summary: IssueSummary;
+      outcome: IssueProcessingOutcome;
+    }
+  | {
+      kind: "active-unchanged";
+      source: IssueSource;
+    };
+
+async function processIssueJobs(input: {
+  state: GitHubResponseIntakeState;
+  jobs: IssueProcessingJob[];
+  agentFiles: AgentFile[];
+  now: Date;
+  dependencies: Pick<TickDependencies, "driverPool" | "fetchIssueWithComments" | "processIssueSource">;
+}): Promise<GitHubResponseIntakeState> {
+  const jobs = dedupeIssueProcessingJobs(input.jobs);
+  if (jobs.length === 0) {
+    return input.state;
+  }
+
+  const results = await Promise.all(
+    jobs.map((job) =>
+      input.dependencies.driverPool.run(() =>
+        processIssueJob({
+          job,
+          agentFiles: input.agentFiles,
+          fetchIssueWithComments: input.dependencies.fetchIssueWithComments,
+          processIssueSource: input.dependencies.processIssueSource,
+        }),
+      ),
+    ),
+  );
+
+  return results.reduce(
+    (state, result) =>
+      foldIssueProcessingJobResult({
+        state,
+        result,
+        now: input.now,
+      }),
+    input.state,
+  );
+}
+
+function foldIssueProcessingJobResult(input: {
+  state: GitHubResponseIntakeState;
+  result: IssueProcessingJobResult;
+  now: Date;
+}): GitHubResponseIntakeState {
+  if (input.result.kind === "active-unchanged") {
+    return recordActiveIssueUnchanged({
+      state: input.state,
+      source: input.result.source,
+      checkedAt: input.now,
+      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+    });
+  }
+
+  return recordIssueProcessingOutcome({
+    state: input.state,
+    summary: input.result.summary,
+    outcome: input.result.outcome,
+    processedAt: input.now,
+    activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+    activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+  });
+}
+
+async function processIssueJob(input: {
+  job: IssueProcessingJob;
+  agentFiles: AgentFile[];
+  fetchIssueWithComments: typeof fetchIssueWithComments;
+  processIssueSource: typeof processIssueSource;
+}): Promise<IssueProcessingJobResult> {
+  if (input.job.kind === "active") {
+    return processActiveIssueJob({
+      job: input.job,
+      agentFiles: input.agentFiles,
+      fetchIssueWithComments: input.fetchIssueWithComments,
+      processIssueSource: input.processIssueSource,
+    });
+  }
+
+  return processChangedIssueJob({
+    job: input.job,
+    agentFiles: input.agentFiles,
+    fetchIssueWithComments: input.fetchIssueWithComments,
+    processIssueSource: input.processIssueSource,
+  });
+}
+
+function dedupeIssueProcessingJobs(jobs: IssueProcessingJob[]): IssueProcessingJob[] {
+  const seen = new Set<string>();
+  const result: IssueProcessingJob[] = [];
+  for (const job of jobs) {
+    const issueKey = issueKeyForJob(job);
+    if (seen.has(issueKey)) {
+      log({ event: "issue-job-deduped", issueKey });
+      continue;
+    }
+
+    seen.add(issueKey);
+    result.push(job);
+  }
+
+  return result;
+}
+
+function issueKeyForJob(job: IssueProcessingJob): string {
+  return job.kind === "active" ? job.source.issueKey : makeIssueSource(job.summary).issueKey;
+}
+
 async function scanRepository(input: {
   state: GitHubResponseIntakeState;
   repository: RepositoryRef;
-  agentFiles: AgentFile[];
   now: Date;
-}): Promise<GitHubResponseIntakeState> {
+  listOpenIssueSummaries: typeof listOpenIssueSummaries;
+}): Promise<RepositoryScanResult> {
   const repoKey = makeRepoKey(input.repository);
 
   try {
-    const summaries = (await listOpenIssueSummaries(input.repository, ISSUE_DISCOVERY_LIMIT)).map((summary) => ({
-      owner: input.repository.owner,
-      repo: input.repository.repo,
-      issueNumber: summary.issueNumber,
-      updatedAt: summary.updatedAt,
-    }));
+    const summaries = (await input.listOpenIssueSummaries(input.repository, ISSUE_DISCOVERY_LIMIT)).map(
+      (summary) => ({
+        owner: input.repository.owner,
+        repo: input.repository.repo,
+        issueNumber: summary.issueNumber,
+        updatedAt: summary.updatedAt,
+      }),
+    );
     const scan = resolveRepositoryScan({
       state: input.state,
       repository: input.repository,
@@ -179,20 +356,122 @@ async function scanRepository(input: {
       issueDiscoveryLimit: ISSUE_DISCOVERY_LIMIT,
     });
 
-    let nextState = scan.state;
-    for (const summary of scan.changedIssues) {
-      nextState = await fetchAndProcessChangedIssue({
-        state: nextState,
-        summary,
-        agentFiles: input.agentFiles,
-        now: input.now,
-      });
-    }
-
-    return nextState;
+    return scan;
   } catch (error) {
     log({ event: "repo-scan-failed", repoKey, error: formatError(error) });
-    return input.state;
+    return {
+      state: input.state,
+      changedIssues: [],
+      baselineIssueCount: 0,
+    };
+  }
+}
+
+async function processActiveIssueJob(input: {
+  job: Extract<IssueProcessingJob, { kind: "active" }>;
+  agentFiles: AgentFile[];
+  fetchIssueWithComments: typeof fetchIssueWithComments;
+  processIssueSource: typeof processIssueSource;
+}): Promise<IssueProcessingJobResult> {
+  try {
+    const issue = await input.fetchIssueWithComments(input.job.source);
+    if (issue.state === "CLOSED") {
+      log({ event: "skip", reason: "issue-closed", issueKey: input.job.source.issueKey });
+      return {
+        kind: "processed",
+        summary: issueSummaryFromSource(input.job.source, issue.updatedAt),
+        outcome: "issue-closed",
+      };
+    }
+
+    if (issue.updatedAt === input.job.previousUpdatedAt) {
+      log({
+        event: "active-issue-unchanged",
+        issueKey: input.job.source.issueKey,
+        activeNoChangeCount: input.job.previousActiveNoChangeCount + 1,
+      });
+      return {
+        kind: "active-unchanged",
+        source: input.job.source,
+      };
+    }
+
+    const outcome = await input.processIssueSource({
+      source: input.job.source,
+      issue,
+      agentFiles: input.agentFiles,
+    });
+
+    return {
+      kind: "processed",
+      summary: issueSummaryFromSource(input.job.source, issue.updatedAt),
+      outcome,
+    };
+  } catch (error) {
+    if (isGitHubIssueNotFoundError(error)) {
+      log({ event: "skip", reason: "issue-not-found", issueKey: error.issueKey, detail: error.detail.trim() });
+      return {
+        kind: "processed",
+        summary: issueSummaryFromSource(input.job.source, input.job.previousUpdatedAt),
+        outcome: "issue-not-found",
+      };
+    }
+
+    log({ event: "active-issue-fetch-failed", issueKey: input.job.source.issueKey, error: formatError(error) });
+    return {
+      kind: "processed",
+      summary: issueSummaryFromSource(input.job.source, input.job.previousUpdatedAt),
+      outcome: "failed",
+    };
+  }
+}
+
+async function processChangedIssueJob(input: {
+  job: Extract<IssueProcessingJob, { kind: "changed" }>;
+  agentFiles: AgentFile[];
+  fetchIssueWithComments: typeof fetchIssueWithComments;
+  processIssueSource: typeof processIssueSource;
+}): Promise<IssueProcessingJobResult> {
+  const source = makeIssueSource(input.job.summary);
+
+  try {
+    const issue = await input.fetchIssueWithComments(source);
+    if (issue.state === "CLOSED") {
+      log({ event: "skip", reason: "issue-closed", issueKey: source.issueKey });
+      return {
+        kind: "processed",
+        summary: issueSummaryFromSource(source, issue.updatedAt),
+        outcome: "issue-closed",
+      };
+    }
+
+    const outcome = await input.processIssueSource({
+      source,
+      issue,
+      agentFiles: input.agentFiles,
+    });
+
+    return {
+      kind: "processed",
+      summary: issueSummaryFromSource(source, issue.updatedAt),
+      outcome,
+    };
+  } catch (error) {
+    if (isGitHubIssueNotFoundError(error)) {
+      log({ event: "skip", reason: "issue-not-found", issueKey: error.issueKey, detail: error.detail.trim() });
+      return {
+        kind: "processed",
+        summary: input.job.summary,
+        outcome: "issue-not-found",
+      };
+    }
+
+    log({ event: "issue-fetch-failed", issueKey: source.issueKey, error: formatError(error) });
+    return {
+      kind: "processed",
+      summary: input.job.summary,
+      outcome: "failed",
+    };
   }
 }
 
@@ -213,132 +492,23 @@ export async function pollActiveIssue(input: {
     return input.state;
   }
 
-  try {
-    const issue = await dependencies.fetchIssueWithComments(input.source);
-    if (issue.state === "CLOSED") {
-      log({ event: "skip", reason: "issue-closed", issueKey: input.source.issueKey });
-      return recordIssueProcessingOutcome({
-        state: input.state,
-        summary: issueSummaryFromSource(input.source, issue.updatedAt),
-        outcome: "issue-closed",
-        processedAt: input.now,
-        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
-        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
-      });
-    }
-
-    if (issue.updatedAt === issueState.updatedAt) {
-      log({
-        event: "active-issue-unchanged",
-        issueKey: input.source.issueKey,
-        activeNoChangeCount: issueState.activeNoChangeCount + 1,
-      });
-      return recordActiveIssueUnchanged({
-        state: input.state,
-        source: input.source,
-        checkedAt: input.now,
-        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
-        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
-      });
-    }
-
-    const outcome = await dependencies.processIssueSource({
+  const result = await processActiveIssueJob({
+    job: {
+      kind: "active",
       source: input.source,
-      issue,
-      agentFiles: input.agentFiles,
-    });
-    return recordIssueProcessingOutcome({
-      state: input.state,
-      summary: issueSummaryFromSource(input.source, issue.updatedAt),
-      outcome,
-      processedAt: input.now,
-      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
-      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
-    });
-  } catch (error) {
-    if (isGitHubIssueNotFoundError(error)) {
-      log({ event: "skip", reason: "issue-not-found", issueKey: error.issueKey, detail: error.detail.trim() });
-      return recordIssueProcessingOutcome({
-        state: input.state,
-        summary: issueSummaryFromSource(input.source, issueState.updatedAt),
-        outcome: "issue-not-found",
-        processedAt: input.now,
-        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
-        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
-      });
-    }
+      previousUpdatedAt: issueState.updatedAt,
+      previousActiveNoChangeCount: issueState.activeNoChangeCount,
+    },
+    agentFiles: input.agentFiles,
+    fetchIssueWithComments: dependencies.fetchIssueWithComments,
+    processIssueSource: dependencies.processIssueSource,
+  });
 
-    log({ event: "active-issue-fetch-failed", issueKey: input.source.issueKey, error: formatError(error) });
-    return recordIssueProcessingOutcome({
-      state: input.state,
-      summary: issueSummaryFromSource(input.source, issueState.updatedAt),
-      outcome: "failed",
-      processedAt: input.now,
-      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
-      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
-    });
-  }
-}
-
-async function fetchAndProcessChangedIssue(input: {
-  state: GitHubResponseIntakeState;
-  summary: IssueSummary;
-  agentFiles: AgentFile[];
-  now: Date;
-}): Promise<GitHubResponseIntakeState> {
-  const source = makeIssueSource(input.summary);
-
-  try {
-    const issue = await fetchIssueWithComments(source);
-    if (issue.state === "CLOSED") {
-      log({ event: "skip", reason: "issue-closed", issueKey: source.issueKey });
-      return recordIssueProcessingOutcome({
-        state: input.state,
-        summary: issueSummaryFromSource(source, issue.updatedAt),
-        outcome: "issue-closed",
-        processedAt: input.now,
-        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
-        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
-      });
-    }
-
-    const outcome = await processIssueSource({
-      source,
-      issue,
-      agentFiles: input.agentFiles,
-    });
-
-    return recordIssueProcessingOutcome({
-      state: input.state,
-      summary: issueSummaryFromSource(source, issue.updatedAt),
-      outcome,
-      processedAt: input.now,
-      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
-      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
-    });
-  } catch (error) {
-    if (isGitHubIssueNotFoundError(error)) {
-      log({ event: "skip", reason: "issue-not-found", issueKey: error.issueKey, detail: error.detail.trim() });
-      return recordIssueProcessingOutcome({
-        state: input.state,
-        summary: input.summary,
-        outcome: "issue-not-found",
-        processedAt: input.now,
-        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
-        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
-      });
-    }
-
-    log({ event: "issue-fetch-failed", issueKey: source.issueKey, error: formatError(error) });
-    return recordIssueProcessingOutcome({
-      state: input.state,
-      summary: input.summary,
-      outcome: "failed",
-      processedAt: input.now,
-      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
-      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
-    });
-  }
+  return foldIssueProcessingJobResult({
+    state: input.state,
+    result,
+    now: input.now,
+  });
 }
 
 export async function processIssueSource(
@@ -572,9 +742,7 @@ export async function processIssueSource(
 
     const postedBody = formatGuardedAgentComment(selectedAgent.name, ceoResult.body);
     await dependencies.postComment(input.source, postedBody);
-    await dependencies.saveRoleThreadStateStore(
-      withRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name, nextState),
-    );
+    await dependencies.saveRoleThreadStateEntry(input.source.issueKey, selectedAgent.name, nextState);
     log({
       event: "commented",
       count,
@@ -716,7 +884,8 @@ export function start(): NodeJS.Timeout {
 }
 
 export function makeRunDir(count: number, now = new Date()): string {
-  return path.join(TMP_ROOT, `agent-moebius-${now.toISOString()}-c${count}`);
+  runDirSequence += 1;
+  return path.join(TMP_ROOT, `agent-moebius-${now.toISOString()}-c${count}-r${runDirSequence}`);
 }
 
 async function listAgentFiles(dir = AGENTS_DIR): Promise<AgentFile[]> {

@@ -10,6 +10,7 @@ import {
 } from "../src/agent-prescripts/dev-workspace.js";
 import {
   loadAgentContextStateStore,
+  saveAgentContextStateEntry,
   saveAgentContextStateStore,
   type AgentContextState,
 } from "../src/agent-context-state.js";
@@ -388,7 +389,7 @@ function makeFsDependencies(): {
   removeWorktree(input: { repoCachePath: string; worktreePath: string }): Promise<void>;
   isGitAncestor(input: { cwd: string; ancestor: string; descendant: string }): Promise<boolean>;
   loadState(filePath: string): Promise<Record<string, Record<string, AgentContextState>>>;
-  saveState(store: Record<string, Record<string, AgentContextState>>, filePath: string): Promise<void>;
+  saveStateEntry(issueKey: string, role: string, state: AgentContextState, filePath: string): Promise<void>;
 } {
   return {
     access: (targetPath) => fs.access(targetPath),
@@ -410,7 +411,7 @@ function makeFsDependencies(): {
       throw new Error("isGitAncestor should not run");
     },
     loadState: loadAgentContextStateStore,
-    saveState: saveAgentContextStateStore,
+    saveStateEntry: saveAgentContextStateEntry,
   };
 }
 
