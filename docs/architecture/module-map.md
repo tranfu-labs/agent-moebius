@@ -46,6 +46,8 @@
 - 下游：`src/github-response-intake.ts`、`src/github-intake-state.ts`、`src/github.ts`、`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
 - 禁止依赖：MUST NOT 依赖 `agents/` 作为运行状态；MUST NOT 直接拼接 issue 内容为 shell 命令；MUST NOT 在 codex 失败时发评论。
 
+![runner-issue-processing](runner-issue-processing.svg)
+
 ### conversation-protocol
 - 职责边界：纯业务数据操作，负责共享时间线归一化、speaker 判定、agent mention 选择、full/resume prompt 构造、delta 消息选择、agent 评论格式化、role thread 状态更新计算。不负责 GitHub、Codex CLI 或文件系统。
 - 入口：`src/conversation.ts`

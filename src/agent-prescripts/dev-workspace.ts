@@ -21,6 +21,7 @@ interface DevWorkspaceDependencies {
   access(path: string): Promise<void>;
   mkdir(path: string, options: { recursive: true }): Promise<void>;
   pathExists(path: string): Promise<boolean>;
+  removeWorktree(input: { repoCachePath: string; worktreePath: string }): Promise<void>;
   runGit(args: string[]): Promise<void>;
   isGitAncestor(input: { cwd: string; ancestor: string; descendant: string }): Promise<boolean>;
   loadState(filePath: string): Promise<Record<string, Record<string, AgentContextState>>>;
@@ -36,6 +37,7 @@ const defaultDependencies: DevWorkspaceDependencies = {
     await fs.mkdir(targetPath, options);
   },
   pathExists,
+  removeWorktree: removeWorktreeWithFallback,
   runGit,
   isGitAncestor,
   loadState: loadAgentContextStateStore,
@@ -97,7 +99,25 @@ async function runDevWorkspacePreScriptUnsafe(
       descendant: "HEAD",
     });
     if (!containsLatestMain) {
-      return { ok: false, reason: `stale-worktree-base:${existingState.worktreePath}` };
+      try {
+        await dependencies.removeWorktree({
+          repoCachePath: paths.repoCachePath,
+          worktreePath: existingState.worktreePath,
+        });
+        await dependencies.runGit([
+          "--git-dir",
+          paths.repoCachePath,
+          "worktree",
+          "add",
+          existingState.worktreePath,
+          REMOTE_MAIN_REF,
+        ]);
+        await dependencies.access(existingState.worktreePath);
+      } catch (error) {
+        return { ok: false, reason: `stale-worktree-rebuild-failed:${formatError(error)}` };
+      }
+
+      return { ok: true, codexCwd: existingState.worktreePath };
     }
 
     return { ok: true, codexCwd: existingState.worktreePath };
@@ -140,6 +160,33 @@ async function refreshRemoteMain(repoCachePath: string, dependencies: DevWorkspa
     "origin",
     FETCH_REMOTE_MAIN_REFSPEC,
   ]);
+}
+
+export async function removeWorktreeWithFallback(
+  input: { repoCachePath: string; worktreePath: string },
+  dependencies: {
+    runGit(args: string[]): Promise<void>;
+    rm(path: string, options: { recursive: true; force: true }): Promise<void>;
+  } = {
+    runGit,
+    rm: async (targetPath, options) => {
+      await fs.rm(targetPath, options);
+    },
+  },
+): Promise<void> {
+  try {
+    await dependencies.runGit(["--git-dir", input.repoCachePath, "worktree", "remove", "--force", input.worktreePath]);
+    return;
+  } catch (primaryError) {
+    try {
+      await dependencies.rm(input.worktreePath, { recursive: true, force: true });
+      await dependencies.runGit(["--git-dir", input.repoCachePath, "worktree", "prune"]);
+    } catch (fallbackError) {
+      throw new Error(
+        `remove-worktree-failed:${formatError(primaryError)}; fallback-failed:${formatError(fallbackError)}`,
+      );
+    }
+  }
 }
 
 function validateExistingContext(state: AgentContextState, input: AgentPreScriptInput): string | null {

@@ -2,11 +2,48 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { processIssueSource, type ProcessIssueSourceDependencies } from "../src/runner.js";
+import { pollActiveIssue, processIssueSource, type ProcessIssueSourceDependencies } from "../src/runner.js";
+import type { GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import type { GitHubIssue } from "../src/github.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
 const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
+
+describe("pollActiveIssue", () => {
+  it("removes closed active issues without processing triggers or comments", async () => {
+    const state: GitHubResponseIntakeState = {
+      repositories: {},
+      issues: {
+        [source.issueKey]: {
+          owner: source.owner,
+          repo: source.repo,
+          issueNumber: source.issueNumber,
+          updatedAt: "2026-07-01T00:00:00Z",
+          mode: "active",
+          activeNoChangeCount: 0,
+          nextPollAt: "2026-07-01T00:01:00Z",
+        },
+      },
+    };
+    const process = vi.fn(async () => "triggered-success" as const);
+
+    const result = await pollActiveIssue(
+      {
+        state,
+        source,
+        agentFiles: [],
+        now: new Date("2026-07-01T00:02:00Z"),
+      },
+      {
+        fetchIssueWithComments: async () => makeIssue("@dev please run", [], "CLOSED"),
+        processIssueSource: process,
+      },
+    );
+
+    expect(result.issues).not.toHaveProperty(source.issueKey);
+    expect(process).not.toHaveBeenCalled();
+  });
+});
 
 describe("processIssueSource Codex execution reaction", () => {
   it("adds an eyes reaction before running Codex on the real Codex driver path", async () => {
@@ -155,11 +192,12 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
   };
 }
 
-function makeIssue(body: string, comments: GitHubIssue["comments"] = []): GitHubIssue {
+function makeIssue(body: string, comments: GitHubIssue["comments"] = [], state: GitHubIssue["state"] = "OPEN"): GitHubIssue {
   return {
     body,
     comments,
     updatedAt: "2026-07-01T00:00:00Z",
+    state,
   };
 }
 

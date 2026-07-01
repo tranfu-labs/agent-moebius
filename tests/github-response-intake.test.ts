@@ -90,6 +90,7 @@ describe("github response intake", () => {
       outcome: "no-trigger",
       processedAt: now,
       activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
     });
 
     expect(idle.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
@@ -104,6 +105,7 @@ describe("github response intake", () => {
       outcome: "triggered-success",
       processedAt: now,
       activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
     });
 
     expect(active.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
@@ -113,7 +115,7 @@ describe("github response intake", () => {
     });
   });
 
-  it("does not advance timestamps after failed processing", () => {
+  it("backs off failed processing by advancing the latest timestamp and next active poll", () => {
     const state = stateWithActiveIssue({
       updatedAt: "2026-06-28T00:00:00.000Z",
       activeNoChangeCount: 0,
@@ -125,9 +127,56 @@ describe("github response intake", () => {
       outcome: "failed",
       processedAt: now,
       activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
     });
 
-    expect(result).toBe(state);
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+      mode: "active",
+      updatedAt: "2026-06-28T00:03:00.000Z",
+      activeNoChangeCount: 1,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+  });
+
+  it("demotes failed processing to idle when the active no-change limit is reached", () => {
+    const state = stateWithActiveIssue({
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 4,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+    const result = recordIssueProcessingOutcome({
+      state,
+      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
+      outcome: "failed",
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
+    });
+
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+      mode: "idle",
+      updatedAt: "2026-06-28T00:03:00.000Z",
+      activeNoChangeCount: 5,
+      nextPollAt: null,
+    });
+  });
+
+  it("removes issue state after issue-closed outcomes", () => {
+    const state = stateWithActiveIssue({
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 0,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+    const result = recordIssueProcessingOutcome({
+      state,
+      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
+      outcome: "issue-closed",
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
+    });
+
+    expect(result.issues).not.toHaveProperty("tranfu-labs/agent-moebius#4");
   });
 
   it("keeps already active issues active after no-trigger changes", () => {
@@ -143,6 +192,7 @@ describe("github response intake", () => {
       outcome: "no-trigger",
       processedAt: now,
       activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
     });
 
     expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({

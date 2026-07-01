@@ -23,6 +23,7 @@
 - MUST 默认在 idle mode 下每 5 分钟扫描一次每个白名单 repository。
 - MUST 在 idle repository scan 中只扫描有界的最近更新 open issue 窗口；默认每个 repository 20 个 issues。
 - MUST 使用 GitHub issue `updatedAt` 作为 repository summary 与 active issue poll 的主要变更检测依据。
+- MUST 在拉取 issue body/comments 时同时读取 GitHub `state` 字段（`OPEN` / `CLOSED`），并作为 `GitHubIssue` shape 的必填字段。
 - MUST 默认在 repository 首次 baseline scan 时只记录历史 open issue 的 `updatedAt`，不批量处理历史 issue，避免对旧 mention 批量回复。
 - SHOULD 支持显式配置 seed issue sources，用于需要启动后立即检查的特定 issue。
 - MUST 仅在 issue 出现 runner-relevant 变化并成功处理后把该 issue 提升为 active mode。
@@ -31,13 +32,15 @@
 - MUST 在 active issue 连续 5 次 active poll 未观察到 GitHub `updatedAt` 变化后，将该 issue 降级回 idle。
 - MUST 在 active issue 观察到新 `updatedAt` 且成功处理后重置无变化计数。
 - MUST 在 active issue 观察到 `no-trigger` 变化时保持 active，重置无变化计数，并安排下一次 active poll。
+- MUST 在 active poll 或 idle-scan changed-issue 处理路径中发现 issue `state = CLOSED` 时，把该 issue 从 `.state/github-response-intake.json` 移除（与 `issue-not-found` 语义一致），不调用 trigger、不调用 Codex、不发评论；MUST 记录 `event = "skip"`、`reason = "issue-closed"` 与 `issueKey`。
 - MUST 限制当前 watched repositories 内的 active issues 数量；超出上限时，runner MUST 将多余 issue 降级到 idle 并记录原因。
 - MUST 把 GitHub response intake 状态保存在本地忽略目录 `.state/github-response-intake.json`，状态至少包含 repository idle scan 时间、issue `updatedAt`、mode、active 无变化计数和下次轮询时间。
-- MUST 在 `no-trigger` 后更新 intake state，避免未变化 issue 被重复 fetch。
-- MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进已处理 `updatedAt`。
+- MUST 在 `no-trigger` 与 `failed` 后更新 intake state，避免未变化或持续失败的 issue 被每 tick 重复 fetch / process。
+- MUST 在单 issue 处理返回 `failed` 时把该 issue 的 `updatedAt` 同步为刚拉取的最新值、`activeNoChangeCount` 累加 1、`nextPollAt` 设为处理时间后 `activeIssuePollIntervalMs`；一旦累加到 `activeIssueNoChangeLimit`，MUST 立即把 `mode` 降为 `idle` 并把 `nextPollAt` 设为 `null`。
+- MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进 role-thread 状态或发布 GitHub 评论；失败时仅推进 intake `updatedAt` / `activeNoChangeCount` / `nextPollAt`，确保轮询能收敛降级。
 - MUST 在配置的目标 issue 暂不可解析时把本轮视为可恢复 skip，记录 `reason = "issue-not-found"` 与 `issueKey`，并等待后续轮询。
-- MUST 在目标 issue 不存在时不调用 Codex、不发表评论，并从 intake active 状态中移除或降级该 issue。
-- MUST 继续把非 issue-not-found 的 GitHub CLI 失败视作可恢复错误，不得推进对应 issue 的已处理 `updatedAt`。
+- MUST 在目标 issue 不存在或已关闭时不调用 Codex、不发表评论，并从 intake active 状态中移除或降级该 issue。
+- MUST 继续把非 issue-not-found 的 GitHub CLI 失败视作可恢复错误；若本轮没有成功取得 latest `updatedAt`，MUST 保留原 `updatedAt`，但仍按 `failed` 规则推进 `activeNoChangeCount` 与 `nextPollAt`，确保 fetch 失败也不会每 tick 刷屏。
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
 - MUST 将 agent 触发决策封装为独立触发器；runner 只消费触发器结果，不把具体触发方式写死在编排流程中。
@@ -81,7 +84,9 @@
 - MUST 在新建或复用 `dev` issue worktree 前刷新目标仓库远端 `main` tracking ref。
 - MUST 从已刷新的远端 `main` tracking ref 创建新的 `dev` issue worktree；MUST NOT 依赖本地 bare repo 的 `HEAD` 作为新 worktree 基线。
 - MUST 在复用已有 `dev` issue worktree 前检查当前 worktree `HEAD` 是否包含最新远端 `main`。
-- MUST 在已有 `dev` issue worktree 落后最新远端 `main` 时 fail closed，不自动 rebase、不自动 merge、不调用 Codex、不发表评论、不推进 role thread 状态。
+- MUST 在已有 `dev` issue worktree 落后最新远端 `main` 时先强制删除该 worktree（`git worktree remove --force`；失败时 fallback 到 `rm -rf` + `git worktree prune`），再从 `refs/remotes/origin/main` 重建；重建成功后继续以同一路径作为 Codex cwd，并保持原 agent context state。
+- MUST 在 stale worktree 重建过程任一步失败时 fail closed，不调用 Codex、不发表评论、不推进 role thread 状态，并返回 `stale-worktree-rebuild-failed:<detail>`。
+- MUST 在 stale worktree 自动重建过程中丢弃 worktree 内未推送的本地 commit；agent 产出的落地口径是 commit + push，未 push 的改动不属于要保护的运行时状态。
 - MUST 在已有 `dev` context 指向缺失或不可访问 worktree 时 fail closed，不自动重建。
 - MUST 允许同一个 issue 中多个 role 参与对话，并为每个 role 维护独立 Codex thread。
 - MUST 把 role thread 状态保存在本地忽略目录 `.state/role-threads.json`，状态至少包含 issue 标识、role、threadId、lastSeenIndex。
@@ -266,6 +271,27 @@ When 最新消息再次包含 `@dev`
 Then 系统不重复 clone，不重复创建 worktree
 And 以已记录 worktreePath 作为 Codex cwd 执行 resume 或 fallback full run
 
+### 场景 16.1：Dev agent — 已有 worktree 落后最新 main 时自动重建
+Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
+And 该 context 的 worktreePath 可访问
+And 该 worktree 的 `HEAD` 不包含最新 `refs/remotes/origin/main`
+When 最新消息再次包含 `@dev`
+Then 系统先 `git worktree remove --force` 旧 worktree
+And 若 remove 失败则 fallback 到 `rm -rf` 旧路径并执行 `git worktree prune`
+And 系统从 `refs/remotes/origin/main` 重建同一路径 worktree
+And 返回 `{ ok: true, codexCwd: <worktreePath> }`
+And 保留原 agent context state
+
+### 场景 16.2：Dev agent — stale worktree 重建失败时 fail closed
+Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
+And 该 context 的 worktreePath 可访问但落后最新 `refs/remotes/origin/main`
+And 删除旧 worktree、prune、重新 add worktree 或 access 断言任一步失败
+When 最新消息再次包含 `@dev`
+Then 系统返回 `{ ok: false, reason = "stale-worktree-rebuild-failed:<detail>" }`
+And 不调用 Codex
+And 不发表评论
+And 不更新 `.state/role-threads.json`
+
 ### 场景 17：Dev agent — worktree 缺失时 fail closed
 Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
 And 该 context 的 worktreePath 不存在或不可访问
@@ -312,13 +338,30 @@ And 保持 `mode = active`
 And 把 `activeNoChangeCount` 重置为 0
 And 把 `nextPollAt` 设置为处理时间后 1 分钟
 
-### 场景 22：GitHub response intake — 失败不推进 updatedAt
+### 场景 22：GitHub response intake — active poll 见 CLOSED 时从 state 移除
+Given `.state/github-response-intake.json` 中 `tranfu-labs/agent-moebius#4.mode = active`
+And 用户在 GitHub 上关闭了 issue #4
+When 一次 active poll 拉取该 issue
+Then `gh issue view` 返回 `state = "CLOSED"`
+And 系统记录 `event = "skip"`、`reason = "issue-closed"`、`issueKey = "tranfu-labs/agent-moebius#4"`
+And 不调用 trigger
+And 不调用 Codex
+And 不发表评论
+And `.state/github-response-intake.json` 中该 issue 记录被移除
+And 下一 tick `getDueActiveIssueSources` 不再返回该 issue
+
+### 场景 22.1：GitHub response intake — failed 后推进 backoff 并到上限降级
 Given `.state/github-response-intake.json` 中 `tranfu-labs/agent-moebius#4.updatedAt = T1`
 And repository scan 或 active poll 观察到该 issue 的 `updatedAt = T2`
 When pre script 执行失败、Codex 执行失败或 GitHub comment 发布失败
-Then 系统不把该 issue 的已处理 `updatedAt` 推进到 T2
+Then 系统把该 issue 的已处理 `updatedAt` 更新为 T2
+And 保持或设置 `mode = active`
+And 把 `activeNoChangeCount` 累加 1
+And 把 `nextPollAt` 设为处理时间后 1 分钟
+And 当 `activeNoChangeCount` 达到 5 时把 `mode` 降为 `idle`
+And 把 `nextPollAt` 设为 `null`
 And 不更新 `.state/role-threads.json`
-And 下一轮仍可重试该变化
+And 不发表评论
 
 ### 场景 23：trigger 自反 — dev 写出 plan-written 后同轮触发 reflector stage hook
 Given 最新消息包含 `@dev`
@@ -388,7 +431,7 @@ And 继续调用 Codex driver
 And role thread 状态仍只在 Codex 成功且最终 GitHub 评论成功后更新
 
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、最后一次自动反思 hook 收敛模板、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）、拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、以及 reaction 添加失败时仍继续调用 Codex。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed backoff 推进 `updatedAt` / `activeNoChangeCount` / `nextPollAt` 并到上限降级、closed issue 从 active state 移除、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、最后一次自动反思 hook 收敛模板、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、codex jsonl 最终消息解析、thread id 解析与 cached token 解析、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）、拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、以及 reaction 添加失败时仍继续调用 Codex。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 或发布 hook 评论；执行前应确认这是期望的外部副作用。
