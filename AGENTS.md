@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 trigger 决定运行本机 `codex` 或发布确定性 hook 评论。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。
+本项目是一个 Node.js + TypeScript 常驻脚本：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 trigger 决定运行本机 `codex` 或发布确定性 hook 评论；真正进入 Codex driver 前会给对应 issue 添加 `eyes` reaction 作为即时反馈。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。
 
 ## 项目结构
 ```text
@@ -42,7 +42,7 @@
 - 运行常驻脚本：`pnpm start`
   - 需要本机 `codex` CLI 在 `PATH` 中。
   - 需要已完成 `gh auth login`。
-  - 会真实扫描 `config.local.toml` 中配置的白名单 repository 的最近更新 open issues；没有本机覆盖时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 trigger 时，可能调用 Codex 并发表评论，也可能直接发布 hook 评论。
+  - 会真实扫描 `config.local.toml` 中配置的白名单 repository 的最近更新 open issues；没有本机覆盖时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 trigger 时，可能调用 Codex 并发表评论，也可能直接发布 hook 评论；只有真正调用 Codex driver 前会先添加 `eyes` reaction。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
@@ -63,6 +63,7 @@
 - `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
 - `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。该 pre script 每次准备前刷新目标仓库远端 `main` tracking ref，新建 worktree 从最新远端 `main` 创建；复用已有 worktree 时若当前 `HEAD` 未包含最新远端 `main`，则 fail closed，不自动 rebase / merge。
+- runner 只在 mention trigger 进入真实 Codex driver 路径、prompt plan 需要执行且 preScript 成功后，为当前 GitHub issue 添加一次 `eyes` reaction；no-trigger、stage hook、preScript 失败、prompt plan skip 或 resume fallback 不重复添加 reaction。reaction 添加失败只记录日志，不阻断 Codex 执行。
 - `agents/dev.md` 可在回复末尾输出 `<!-- agent-moebius:stage=plan-written -->` 或 `<!-- agent-moebius:stage=code-verified -->`，只声明阶段，不直接指定后续 agent。
 - `agents/reflector.md` 是通用反思接力展示身份；普通 `@reflector` 不启动 Codex，reflector 由 `src/triggers/reflector-stage-trigger.ts` 根据 stage metadata 触发，并直接发布 hook 评论。
 - runner 在 mention-codex 分支 `postComment` 完成后会把刚发的评论拼回本地 timeline 并在本轮内再调一次 `resolveTrigger`（同轮自反），命中 reflector stage hook 时立刻发出 hook 评论，不等下一轮 active poll；命中 mention（要再跑 codex）或返回 skip 即停止；同一 issue timeline 中同一 `(source, stage)` 累计触发上限为 `MAX_SELF_REFLECT = 3`（in-tick 与跨 tick 共享同一上限，由 trigger 层按 `stage-hook` metadata 中的 `source`/`stage` 计数实现，`sourceIndex` 仅用于人 / 日志追溯）；最后一次自动反思 hook 会追加收敛指令：无新问题则不要继续输出同一 stage marker、直接按推进计划进入后续步骤；有新问题则说明问题并停下等待人类检查；每分钟 active poll 仍作为兜底。

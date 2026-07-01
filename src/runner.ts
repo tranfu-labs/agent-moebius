@@ -28,11 +28,13 @@ import {
 } from "./conversation.js";
 import { run as runCodex } from "./codex.js";
 import {
+  addIssueReaction,
   fetchIssueWithComments,
   isGitHubIssueNotFoundError,
   listOpenIssueSummaries,
   postComment,
   type GitHubIssue,
+  type IssueReactionContent,
 } from "./github.js";
 import {
   enforceActiveIssueLimit,
@@ -63,6 +65,24 @@ interface AgentFile {
   name: string;
   path: string;
 }
+
+export interface ProcessIssueSourceDependencies {
+  runAgentPreScript: typeof runAgentPreScript;
+  runCodex: typeof runCodex;
+  addIssueReaction: typeof addIssueReaction;
+  postComment: typeof postComment;
+  loadRoleThreadStateStore: typeof loadRoleThreadStateStore;
+  saveRoleThreadStateStore: typeof saveRoleThreadStateStore;
+}
+
+const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies = {
+  runAgentPreScript,
+  runCodex,
+  addIssueReaction,
+  postComment,
+  loadRoleThreadStateStore,
+  saveRoleThreadStateStore,
+};
 
 export async function tick(now = new Date()): Promise<void> {
   if (running) {
@@ -266,11 +286,14 @@ async function fetchAndProcessChangedIssue(input: {
   }
 }
 
-async function processIssueSource(input: {
-  source: IssueSource;
-  issue: GitHubIssue;
-  agentFiles: AgentFile[];
-}): Promise<IssueProcessingOutcome> {
+export async function processIssueSource(
+  input: {
+    source: IssueSource;
+    issue: GitHubIssue;
+    agentFiles: AgentFile[];
+  },
+  dependencies = DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES,
+): Promise<IssueProcessingOutcome> {
   try {
     const count = countMessages(input.issue.comments.length);
     const agentFiles = input.agentFiles;
@@ -284,7 +307,7 @@ async function processIssueSource(input: {
     }
 
     if (trigger.kind === "post-comment") {
-      await postComment(input.source, trigger.body);
+      await dependencies.postComment(input.source, trigger.body);
       log({
         event: "hook-commented",
         count,
@@ -309,7 +332,7 @@ async function processIssueSource(input: {
 
     const agentMarkdown = await fs.readFile(selectedAgent.path, "utf8");
     const agentManifest = parseAgentManifest(agentMarkdown);
-    const stateStore = await loadRoleThreadStateStore();
+    const stateStore = await dependencies.loadRoleThreadStateStore();
     const existingState = getRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name);
     const plan = buildRolePromptPlan({
       role: selectedAgent.name,
@@ -325,7 +348,7 @@ async function processIssueSource(input: {
 
     let codexCwd: string | undefined;
     if (agentManifest.preScript !== null) {
-      const preScriptResult = await runAgentPreScript({
+      const preScriptResult = await dependencies.runAgentPreScript({
         role: selectedAgent.name,
         preScript: agentManifest.preScript,
         latestIndex: plan.latestIndex,
@@ -361,7 +384,14 @@ async function processIssueSource(input: {
 
     let currentThreadId = plan.mode === "resume" ? plan.threadId : null;
     let finalRunDir = runDir;
-    let result = await runCodex({
+    await addCodexExecutionReaction({
+      source: input.source,
+      agent: selectedAgent.name,
+      count,
+      addIssueReaction: dependencies.addIssueReaction,
+    });
+
+    let result = await dependencies.runCodex({
       prompt: plan.prompt,
       runDir,
       cwd: codexCwd,
@@ -380,7 +410,7 @@ async function processIssueSource(input: {
 
       currentThreadId = null;
       finalRunDir = `${runDir}-fallback`;
-      result = await runCodex({
+      result = await dependencies.runCodex({
         prompt: buildFallbackFullPrompt(agentManifest.body, timeline),
         runDir: finalRunDir,
         cwd: codexCwd,
@@ -405,8 +435,10 @@ async function processIssueSource(input: {
     }
 
     const postedBody = formatAgentComment(selectedAgent.name, result.finalText);
-    await postComment(input.source, postedBody);
-    await saveRoleThreadStateStore(withRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name, nextState));
+    await dependencies.postComment(input.source, postedBody);
+    await dependencies.saveRoleThreadStateStore(
+      withRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name, nextState),
+    );
     log({
       event: "commented",
       count,
@@ -437,7 +469,7 @@ async function processIssueSource(input: {
         break;
       }
 
-      await postComment(input.source, nextTrigger.body);
+      await dependencies.postComment(input.source, nextTrigger.body);
       log({
         event: "self-reflect-hook-commented",
         iteration,
@@ -453,6 +485,31 @@ async function processIssueSource(input: {
   } catch (error) {
     log({ event: "process-issue-error", issueKey: input.source.issueKey, error: formatError(error) });
     return "failed";
+  }
+}
+
+async function addCodexExecutionReaction(input: {
+  source: IssueSource;
+  agent: string;
+  count: number;
+  addIssueReaction: (source: IssueSource, content: IssueReactionContent) => Promise<void>;
+}): Promise<void> {
+  try {
+    await input.addIssueReaction(input.source, "eyes");
+    log({
+      event: "codex-execution-reaction-added",
+      count: input.count,
+      agent: input.agent,
+      issueKey: input.source.issueKey,
+    });
+  } catch (error) {
+    log({
+      event: "codex-execution-reaction-failed",
+      count: input.count,
+      agent: input.agent,
+      issueKey: input.source.issueKey,
+      error: formatError(error),
+    });
   }
 }
 

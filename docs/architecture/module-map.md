@@ -40,7 +40,7 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex`；MUST NOT 读取 GitHub issue 内容；MUST NOT 保存 token 或运行状态。
 
 ### github-issue-runner
-- 职责边界：常驻运行，按 `config.toml` / `config.local.toml` 解析出的白名单扫描 GitHub repositories，并把 due issue source 交给单 issue 处理流水线；每个 issue 的 body + comments 会归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 trigger 解析结果要求运行 agent 时，进入该 issue + role 独立 Codex thread 并回评 GitHub issue；当 trigger 解析结果要求发布 hook 评论时，直接通过 GitHub client 评论。
+- 职责边界：常驻运行，按 `config.toml` / `config.local.toml` 解析出的白名单扫描 GitHub repositories，并把 due issue source 交给单 issue 处理流水线；每个 issue 的 body + comments 会归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 trigger 解析结果要求运行 agent 时，进入该 issue + role 独立 Codex thread，在真正调用 Codex driver 前通过 GitHub client 添加 `eyes` reaction，并在 Codex 完成后回评 GitHub issue；当 trigger 解析结果要求发布 hook 评论时，直接通过 GitHub client 评论。
 - 入口：`pnpm start` → `src/runner.ts`
 - 上游：进程启动命令、本机 `gh auth login`、本机 `codex` CLI。
 - 下游：`src/github-response-intake.ts`、`src/github-intake-state.ts`、`src/github.ts`、`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
@@ -82,8 +82,8 @@
 - 禁止依赖：MUST NOT 存放在 `agents/`；MUST NOT 存 GitHub token、prompt 全文、comment 正文或 codex 执行日志。
 
 ### github-client
-- 职责边界：通过 `gh` CLI 拉取 repository open issue summaries、读取指定 issue body/comments/updatedAt，并通过 stdin 向指定 issue 发布评论；不负责对话触发规则或 active/idle 调度规则。
+- 职责边界：通过 `gh` CLI 拉取 repository open issue summaries、读取指定 issue body/comments/updatedAt，通过 stdin 向指定 issue 发布评论，并通过 `gh api` argv 参数数组为指定 issue 添加受控 reaction；不负责对话触发规则或 active/idle 调度规则。
 - 入口：`src/github.ts`
 - 上游：`github-issue-runner`
 - 下游：本机 `gh` CLI。
-- 禁止依赖：MUST NOT 在命令参数中拼接 shell 字符串；评论正文 MUST 通过 `--body-file -` 从 stdin 传入。
+- 禁止依赖：MUST NOT 在命令参数中拼接 shell 字符串；评论正文 MUST 通过 `--body-file -` 从 stdin 传入；reaction content MUST 来自受控枚举。

@@ -16,6 +16,8 @@ export interface GitHubIssueSummary {
   updatedAt: string;
 }
 
+export type IssueReactionContent = "eyes";
+
 export async function listOpenIssueSummaries(
   repository: RepositoryRef,
   limit: number,
@@ -56,6 +58,10 @@ export async function postComment(source: IssueSource, body: string): Promise<vo
   await runCommand("gh", buildPostCommentArgs(source), body);
 }
 
+export async function addIssueReaction(source: IssueSource, content: IssueReactionContent): Promise<void> {
+  await runCommand("gh", buildAddIssueReactionArgs(source, content));
+}
+
 export function buildListOpenIssueSummariesArgs(repository: RepositoryRef, limit: number): string[] {
   return [
     "issue",
@@ -85,6 +91,17 @@ export function buildFetchIssueWithCommentsArgs(source: IssueSource): string[] {
 
 export function buildPostCommentArgs(source: IssueSource): string[] {
   return ["issue", "comment", String(source.issueNumber), "--repo", `${source.owner}/${source.repo}`, "--body-file", "-"];
+}
+
+export function buildAddIssueReactionArgs(source: IssueSource, content: IssueReactionContent): string[] {
+  return [
+    "api",
+    "--method",
+    "POST",
+    `repos/${source.owner}/${source.repo}/issues/${source.issueNumber}/reactions`,
+    "-f",
+    `content=${content}`,
+  ];
 }
 
 interface CommandResult {
