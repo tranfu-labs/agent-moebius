@@ -70,6 +70,11 @@
 - MUST 在触发源没有有效 trigger 时跳过，不调用 `codex`，不发表评论。
 - MUST 在同一条消息包含多个有效 agent mention 时选择文本中最早出现的一个。
 - MUST 在选中 agent 且本轮需要调用 Codex 时先执行该 agent 声明的 pre script；pre script 失败时 MUST 跳过 Codex、跳过 GitHub 评论、保持 role thread 状态不变。
+- MUST 在 mention trigger 选中可运行 agent、prompt plan 需要执行、且该 agent 的 preScript 已成功完成后，在首次调用 Codex driver 前为当前 GitHub issue 添加 `eyes` reaction。
+- MUST 仅在真实 Codex driver 执行路径添加该 reaction；no-trigger、deterministic stage hook、preScript 失败、prompt plan skip、Codex 不会启动的路径 MUST NOT 添加该 reaction。
+- MUST 在同一个 issue 处理周期中最多添加一次 Codex execution reaction；resume 失败后 fallback full run MUST NOT 再添加第二次 reaction。
+- MUST 在 Codex execution reaction 添加成功时记录结构化日志，至少包含 `event = "codex-execution-reaction-added"`、`issueKey` 与 `agent`。
+- MUST 在 Codex execution reaction 添加失败时记录结构化日志，至少包含 `event = "codex-execution-reaction-failed"`、`issueKey`、`agent` 与错误原因，并继续执行 Codex；reaction 失败本身 MUST NOT 推进或阻断 role thread 状态。
 - MUST 支持 `dev` pre script 基于 runner 当前处理的 GitHub issue source（owner、repo、issueNumber）准备 Codex 工作目录，而不是解析 issue body/comment 中的链接。
 - MUST 为每个 source issue 创建并复用一个 `dev` issue 独占 worktree；不同 source issue 即使属于同一个 repo 也 MUST 使用不同 worktree。
 - MUST 允许同一 repository 的多个 issue worktree 复用本地 bare repo cache，但 MUST 保持 worktree 彼此隔离。
@@ -96,7 +101,7 @@
 - MUST 在 resume 失败或 thread id 不可用时允许回退到 full prompt 新建 Codex thread，并在 GitHub 评论成功后更新该 role 的 thread 映射。
 - MUST 把本地脚本每次执行的 stdout / stderr 落到 `<TMP_ROOT>/agent-moebius-<ISO>-c<count>/` 下，并在日志中打印该路径，便于追溯；resume fallback 可使用独立 fallback 目录。
 - MUST 在本地脚本失败（非 0 退出 / 解析不出最终消息 / 无法取得必要 thread id）时只记日志、不发评论；下一轮若条件仍满足可再次尝试。
-- MUST 通过 `child_process.spawn(cmd, args[])` 调用 codex 与 gh，prompt 作为 argv 项、评论 body 通过 stdin（`gh ... --body-file -`）注入；MUST NOT 通过 shell 拼接。
+- MUST 通过 `child_process.spawn(cmd, args[])` 调用 codex 与 gh，prompt 作为 argv 项、评论 body 通过 stdin（`gh ... --body-file -`）注入，issue reaction 通过 `gh api` argv 参数数组添加；MUST NOT 通过 shell 拼接。
 - MUST 把 issue body / comment 内容当作不可信外部输入处理。
 - MUST 让 prompt 构造、speaker 归一化、触发判定、delta 消息选择、评论格式化与状态更新计算保持为可单元测试的业务数据操作，不依赖 GitHub、Codex CLI 或文件系统。
 - MUST NOT 把 GitHub token 或个人访问令牌写入仓库；当前实现复用本机 `gh auth login`。
@@ -352,8 +357,38 @@ Then `resolveReflectorStageTrigger` 返回 null
 And 系统不再发布 reflector hook 评论
 And 跨 tick 循环触发的发散被闭环
 
+### 场景 27：Codex 执行反馈 — 真正调用 Codex 前添加 eyes reaction
+Given 最新消息包含 `@dev`
+And `agents/dev.md` 存在
+And dev preScript 成功
+And prompt plan 需要执行 Codex
+When runner 即将调用 `runCodex`
+Then 系统先为当前 GitHub issue 添加 `eyes` reaction
+And 日志包含 `event = "codex-execution-reaction-added"`、`issueKey` 与 `agent = "dev"`
+And 随后调用 Codex driver
+
+### 场景 28：Codex 执行反馈 — 非 Codex 执行路径不添加 reaction
+Given 最新消息没有有效 mention，或最新消息触发 deterministic stage hook，或选中 agent 的 preScript 失败，或 resume prompt plan 因无新增外部消息跳过
+When runner 处理该 issue
+Then 系统不添加 `eyes` reaction
+And 不把该 reaction 当作处理成功条件
+
+### 场景 29：Codex 执行反馈 — resume fallback 不重复 reaction
+Given runner 已在本轮 resume Codex 前添加过 `eyes` reaction
+And `codex exec resume <threadId>` 失败
+When runner fallback 到 full prompt 再调用 Codex
+Then 系统不再添加第二次 `eyes` reaction
+
+### 场景 30：Codex 执行反馈 — reaction 失败不阻断 Codex
+Given runner 即将调用 Codex
+And GitHub issue reaction API 调用失败
+When runner 处理该失败
+Then 系统记录 `event = "codex-execution-reaction-failed"` 与错误原因
+And 继续调用 Codex driver
+And role thread 状态仍只在 Codex 成功且最终 GitHub 评论成功后更新
+
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、最后一次自动反思 hook 收敛模板、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）以及拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、对话计数、最新消息选择、agent mention 解析、agent 选择、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、最后一次自动反思 hook 收敛模板、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析与 cached token 解析、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）、拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、以及 reaction 添加失败时仍继续调用 Codex。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 或发布 hook 评论；执行前应确认这是期望的外部副作用。

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAddIssueReactionArgs,
   buildFetchIssueWithCommentsArgs,
   buildListOpenIssueSummariesArgs,
   buildPostCommentArgs,
@@ -64,6 +65,14 @@ describe("github issue errors", () => {
       "tranfu-labs/agent-moebius",
       "--body-file",
       "-",
+    ]);
+    expect(buildAddIssueReactionArgs(source, "eyes")).toEqual([
+      "api",
+      "--method",
+      "POST",
+      "repos/tranfu-labs/agent-moebius/issues/4/reactions",
+      "-f",
+      "content=eyes",
     ]);
   });
 });
