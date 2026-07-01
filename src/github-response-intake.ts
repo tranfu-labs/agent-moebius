@@ -28,6 +28,7 @@ export type IssueProcessingOutcome =
   | "triggered-success"
   | "no-trigger"
   | "failed"
+  | "interrupted"
   | "issue-not-found"
   | "issue-closed";
 
@@ -176,6 +177,24 @@ export function recordIssueProcessingOutcome(input: {
     return {
       ...input.state,
       issues,
+    };
+  }
+
+  if (input.outcome === "interrupted") {
+    return {
+      ...input.state,
+      issues: {
+        ...input.state.issues,
+        [source.issueKey]: {
+          owner: input.summary.owner,
+          repo: input.summary.repo,
+          issueNumber: input.summary.issueNumber,
+          updatedAt: input.summary.updatedAt,
+          mode: "active",
+          activeNoChangeCount: 0,
+          nextPollAt: input.processedAt.toISOString(),
+        },
+      },
     };
   }
 

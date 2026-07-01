@@ -12,6 +12,7 @@ export interface CodexRunOptions {
   runDir: string;
   mode?: CodexRunMode;
   cwd?: string;
+  signal?: AbortSignal;
 }
 
 export type CodexRunResult =
@@ -32,10 +33,23 @@ export type CodexRunResult =
       stderrPath: string;
     };
 
-export async function run({ prompt, runDir, mode = { kind: "full" }, cwd }: CodexRunOptions): Promise<CodexRunResult> {
+const INTERRUPT_TERMINATION_DELAY_MS = 5_000;
+
+export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
+  const { prompt, runDir, mode = { kind: "full" }, cwd, signal } = options;
   await fs.mkdir(runDir, { recursive: true });
   const stdoutPath = path.join(runDir, "stdout.jsonl");
   const stderrPath = path.join(runDir, "stderr.log");
+  if (signal?.aborted === true) {
+    return {
+      ok: false,
+      reason: interruptedReason(signal.reason),
+      runDir,
+      stdoutPath,
+      stderrPath,
+    };
+  }
+
   const stdoutFile = createWriteStream(stdoutPath, { flags: "a" });
   const stderrFile = createWriteStream(stderrPath, { flags: "a" });
 
@@ -43,6 +57,18 @@ export async function run({ prompt, runDir, mode = { kind: "full" }, cwd }: Code
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  let abortReason: string | null = null;
+  let terminationTimer: NodeJS.Timeout | null = null;
+  const handleAbort = () => {
+    abortReason = interruptedReason(signal?.reason);
+    child.kill("SIGINT");
+    terminationTimer = setTimeout(() => {
+      child.kill("SIGTERM");
+    }, INTERRUPT_TERMINATION_DELAY_MS);
+    terminationTimer.unref();
+  };
+
+  signal?.addEventListener("abort", handleAbort, { once: true });
 
   child.stdout.pipe(stdoutFile, { end: false });
   child.stderr.pipe(stderrFile, { end: false });
@@ -52,7 +78,22 @@ export async function run({ prompt, runDir, mode = { kind: "full" }, cwd }: Code
     child.once("close", (code, signal) => resolve({ code, signal }));
   });
 
+  signal?.removeEventListener("abort", handleAbort);
+  if (terminationTimer !== null) {
+    clearTimeout(terminationTimer);
+  }
+
   await Promise.all([finishWritable(stdoutFile), finishWritable(stderrFile)]);
+
+  if (abortReason !== null) {
+    return {
+      ok: false,
+      reason: abortReason,
+      runDir,
+      stdoutPath,
+      stderrPath,
+    };
+  }
 
   if ("error" in exit) {
     return {
@@ -155,6 +196,12 @@ export function buildCodexArgs(prompt: string, mode: CodexRunMode = { kind: "ful
   }
 
   return ["exec", ...CODEX_EXEC_OPTIONS, prompt];
+}
+
+export function isInterruptedCodexRunResult(
+  result: CodexRunResult,
+): result is Extract<CodexRunResult, { ok: false }> & { reason: `interrupted:${string}` } {
+  return !result.ok && result.reason.startsWith("interrupted:");
 }
 
 function parseJsonLine(line: string): unknown | null {
@@ -272,6 +319,22 @@ function extractCachedInputTokens(value: unknown): number | null {
 
   const cachedInputTokens = (usage as Record<string, unknown>).cached_input_tokens;
   return typeof cachedInputTokens === "number" && Number.isFinite(cachedInputTokens) ? cachedInputTokens : null;
+}
+
+function interruptedReason(reason: unknown): string {
+  if (typeof reason === "string" && reason.length > 0) {
+    return `interrupted:${reason}`;
+  }
+
+  if (reason instanceof Error) {
+    return `interrupted:${reason.message}`;
+  }
+
+  if (reason === undefined || reason === null) {
+    return "interrupted:abort-signal";
+  }
+
+  return `interrupted:${String(reason)}`;
 }
 
 async function finishWritable(stream: NodeJS.WritableStream): Promise<void> {

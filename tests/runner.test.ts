@@ -99,6 +99,29 @@ describe("processIssueSource Codex execution reaction", () => {
     expect(runCodex).toHaveBeenCalledTimes(1);
   });
 
+  it("does not post a stale Codex result when a new comment arrives before posting", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn(async () => {});
+    const saveRoleThreadStateStore = vi.fn(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        fetchIssueWithComments: async () => makeIssue("@dev please run", [{ body: "new comment" }]),
+        postComment,
+        saveRoleThreadStateStore,
+      }),
+    );
+
+    expect(outcome).toBe("interrupted");
+    expect(postComment).not.toHaveBeenCalled();
+    expect(saveRoleThreadStateStore).not.toHaveBeenCalled();
+  });
+
   it("does not add a reaction when no Codex driver will run", async () => {
     const dev = await makeAgentFile("dev", "Dev persona");
     const devWithPreScript = await makeAgentFile(
@@ -185,6 +208,7 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
     runAgentPreScript: async () => ({ ok: true }),
     runCodex: async (options) => successfulCodexRun(options.runDir),
     addIssueReaction: async () => {},
+    fetchIssueWithComments: async () => makeIssue("@dev please run"),
     postComment: async () => {},
     loadRoleThreadStateStore: async () => ({}),
     saveRoleThreadStateStore: async () => {},

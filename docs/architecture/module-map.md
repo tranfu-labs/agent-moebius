@@ -26,7 +26,7 @@
 - 禁止依赖：MUST NOT 执行 issue body/comment 中声明的任意脚本路径；MUST NOT 用 shell 拼接外部输入；MUST NOT 把运行状态写入 `agents/`。
 
 ### github-response-intake
-- 职责边界：纯业务数据操作，负责 GitHub repository / issue source key 生成、闲时 repo 扫描 due 判断、active issue 轮询 due 判断、`updatedAt` 去重、active/idle 状态转换、active 无变化计数与 active issue 上限裁剪。
+- 职责边界：纯业务数据操作，负责 GitHub repository / issue source key 生成、闲时 repo 扫描 due 判断、active issue 轮询 due 判断、`updatedAt` 去重、active/idle 状态转换、运行中断 outcome 调度、active 无变化计数与 active issue 上限裁剪。
 - 入口：`src/github-response-intake.ts`、`src/issue-source.ts`
 - 上游：`src/runner.ts` 在每个 tick 中调用，用于决定哪些 repository / issue source 需要外部读取。
 - 下游：无真实外部操作。
@@ -40,10 +40,10 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex`；MUST NOT 读取 GitHub issue 内容；MUST NOT 保存 token 或运行状态。
 
 ### github-issue-runner
-- 职责边界：常驻运行，按 `config.toml` / `config.local.toml` 解析出的白名单扫描 GitHub repositories，并把 due issue source 交给单 issue 处理流水线；每个 issue 的 body + comments 会归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 trigger 解析结果要求运行 agent 时，进入该 issue + role 独立 Codex thread，在真正调用 Codex driver 前通过 GitHub client 添加 `eyes` reaction，并在 Codex 完成后回评 GitHub issue；当 trigger 解析结果要求发布 hook 评论时，直接通过 GitHub client 评论。
+- 职责边界：常驻运行，按 `config.toml` / `config.local.toml` 解析出的白名单扫描 GitHub repositories，并把 due issue source 交给单 issue 处理流水线；每个 issue 的 body + comments 会归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 trigger 解析结果要求运行 agent 时，进入该 issue + role 独立 Codex thread，在真正调用 Codex driver 前通过 GitHub client 添加 `eyes` reaction，并在 Codex 完成后回评 GitHub issue；当 `@dev` 运行期间检测到新 comment 时中断本轮 Codex 并保持 issue active；当 trigger 解析结果要求发布 hook 评论时，直接通过 GitHub client 评论。
 - 入口：`pnpm start` → `src/runner.ts`
 - 上游：进程启动命令、本机 `gh auth login`、本机 `codex` CLI。
-- 下游：`src/github-response-intake.ts`、`src/github-intake-state.ts`、`src/github.ts`、`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
+- 下游：`src/github-response-intake.ts`、`src/github-intake-state.ts`、`src/github.ts`、`src/conversation.ts`、`src/conversation-interrupt.ts`、`src/triggers/*`、`src/codex.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
 - 禁止依赖：MUST NOT 依赖 `agents/` 作为运行状态；MUST NOT 直接拼接 issue 内容为 shell 命令；MUST NOT 在 codex 失败时发评论。
 
 ![runner-issue-processing](runner-issue-processing.svg)
@@ -55,8 +55,15 @@
 - 下游：无真实外部操作。
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 把 issue 内容拼成 shell 命令。
 
+### conversation-interrupt
+- 职责边界：纯业务数据操作，负责基于 driver 提供的 conversation snapshot（当前仅 message count）判断是否出现新消息，并提供可复用的轮询 monitor 将新消息转换为中断回调。
+- 入口：`src/conversation-interrupt.ts`
+- 上游：`github-issue-runner` 在运行 `@dev` Codex 时把 GitHub issue 当前消息数适配为 conversation snapshot。
+- 下游：无真实外部操作；driver 通过回调提供 snapshot 读取函数。
+- 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 知道具体 driver 类型；MUST NOT 解析 issue 内容或构造 prompt。
+
 ### local-script-executor
-- 职责边界：以受控方式调用本机 `codex`，支持首次 `codex exec` 与后续 `codex exec resume <threadId>`；把 prompt 作为 argv 传入；可接收 pre script 返回的 `cwd` 显式设置 Codex 工作目录；落盘 stdout/stderr 并提取最终 assistant 文本、`thread.started.thread_id`、`turn.completed.usage.cached_input_tokens`。不负责轮询 GitHub、speaker 归一化或判断 issue 是否已处理。
+- 职责边界：以受控方式调用本机 `codex`，支持首次 `codex exec` 与后续 `codex exec resume <threadId>`；把 prompt 作为 argv 传入；可接收 pre script 返回的 `cwd` 显式设置 Codex 工作目录；可接收 AbortSignal 中断正在运行的 Codex 子进程；落盘 stdout/stderr 并提取最终 assistant 文本、`thread.started.thread_id`、`turn.completed.usage.cached_input_tokens`。不负责轮询 GitHub、speaker 归一化或判断 issue 是否已处理。
 - 入口：`src/codex.ts`
 - 上游：`github-issue-runner`
 - 下游：本机 `codex` CLI、`/tmp/agent-moebius-<ISO>-c<count>/stdout.jsonl`、`/tmp/agent-moebius-<ISO>-c<count>/stderr.log`。

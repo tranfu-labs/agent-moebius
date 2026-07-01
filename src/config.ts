@@ -12,6 +12,7 @@ export const WATCH_REPOSITORIES = LOCAL_CONFIG.watchRepositories;
 export const TICK_INTERVAL_MS = 1 * 60 * 1000;
 export const IDLE_REPOSITORY_SCAN_INTERVAL_MS = 5 * 60 * 1000;
 export const ACTIVE_ISSUE_POLL_INTERVAL_MS = 1 * 60 * 1000;
+export const RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS = 15 * 1000;
 export const ACTIVE_ISSUE_NO_CHANGE_LIMIT = 5;
 export const ISSUE_DISCOVERY_LIMIT = 20;
 export const MAX_ACTIVE_ISSUES = 20;
@@ -45,6 +46,7 @@ export const CONFIG_LOG_FIELDS = {
   tickIntervalMs: TICK_INTERVAL_MS,
   idleRepositoryScanIntervalMs: IDLE_REPOSITORY_SCAN_INTERVAL_MS,
   activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+  runningAgentInterruptPollIntervalMs: RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS,
   activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
   issueDiscoveryLimit: ISSUE_DISCOVERY_LIMIT,
   maxActiveIssues: MAX_ACTIVE_ISSUES,

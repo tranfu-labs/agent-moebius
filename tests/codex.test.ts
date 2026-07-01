@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildCodexArgs, extractCodexOutput, extractFinalAssistant } from "../src/codex.js";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { buildCodexArgs, extractCodexOutput, extractFinalAssistant, isInterruptedCodexRunResult, run } from "../src/codex.js";
 
 describe("extractFinalAssistant", () => {
   it("returns the final assistant text across supported event shapes", () => {
@@ -100,5 +103,40 @@ describe("extractFinalAssistant", () => {
     ];
 
     expect(extractFinalAssistant(lines)).toBeNull();
+  });
+
+  it("returns interrupted without parsing partial output when aborted", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const binDir = path.join(tempDir, "bin");
+    const runDir = path.join(tempDir, "run");
+    await fs.mkdir(binDir);
+    const codexPath = path.join(binDir, "codex");
+    await fs.writeFile(
+      codexPath,
+      `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "agent_message", message: "stale" }) + "\\n");
+setInterval(() => {}, 1000);
+`,
+      "utf8",
+    );
+    await fs.chmod(codexPath, 0o755);
+
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    const controller = new AbortController();
+    try {
+      const pending = run({ prompt: "hello", runDir, signal: controller.signal });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      controller.abort("new-message");
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      expect(isInterruptedCodexRunResult(result)).toBe(true);
+      if (!result.ok) {
+        expect(result.reason).toBe("interrupted:new-message");
+      }
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 });
