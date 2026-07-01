@@ -22,6 +22,7 @@
 │   ├── conversation-interrupt.ts # driver-agnostic conversation message count 中断检测
 │   ├── github.ts               # gh CLI 读取 issue / 发表评论
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
+│   ├── driver-pool.ts          # driver job 并发策略，默认不限制并发
 │   ├── stages.ts               # stage 枚举与 marker 宽容解析
 │   ├── format-ceo.ts           # CEO guardrail 短上下文校正与 fail-open 处理
 │   ├── triggers/               # mention / stage 等触发方式；含 self-reflect.ts 同轮自反纯函数
@@ -64,6 +65,8 @@
   ```
 - 闲时扫描间隔、忙时 issue 轮询间隔、运行中 agent 中断检测轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
 - GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active，处理失败时也会进入 / 保持 active backoff 窗口并按 1 分钟轮询；连续 5 次 active poll 无变化或处理失败后降回 idle；active poll / idle changed-issue 拉到 `state = CLOSED` 时从本地 intake state 移除，不触发 Codex / 评论。
+- runner 会把同一 processing phase 内的 due issue 转成 issue processing jobs 交给 `src/driver-pool.ts`；driver pool 默认不设置额外并发上限，显式传入正整数 `maxConcurrent` 时才限流。调度业务逻辑仍集中在 `github-response-intake.ts`，不得引入 Codex / GitHub adapter 或 driver pool 依赖。
+- runner 在同一 processing phase 内按 `issueKey` 去重 issue jobs；driver jobs 完成后再按确定顺序折叠回 GitHub response intake state，避免并发 job 直接覆盖完整 intake state snapshot。
 - `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。`agents/ceo.md` 是发布前 guardrail persona，不作为普通 mention Codex agent 运行。
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
 - `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。该 pre script 每次准备前刷新目标仓库远端 `main` tracking ref，新建 worktree 从最新远端 `main` 创建；复用已有 context 时会先校验记录的 `worktreePath` 等于当前配置计算出的 issue 独占 worktree 路径，不一致则 fail closed；复用已有 worktree 时若当前 `HEAD` 未包含最新远端 `main`，会强制删除旧 worktree（失败时 fallback 到 `rm -rf` + `git worktree prune`）并从最新远端 `main` 重建；重建失败才 fail closed，不调用 Codex / 评论 / 推进 role thread。
@@ -75,11 +78,12 @@
 - runner 在 Codex agent 生成 `LAST_RESPONSE` 后、发布 GitHub 评论前调用 `src/format-ceo.ts`，用 `agents/ceo.md` 和短上下文（原始请求、最新响应、agent 名、allowedStages、最近 reflector hook）做一次无状态 CEO guardrail 校正。CEO 返回 `NO_CHANGE` 时发原文；返回修正版且后置 stage marker 验证通过时，runner 追加 `<!-- agent-moebius:ceo-corrected -->` metadata 后发布；CEO 超时、失败、返回非法输出或后置验证不通过时 fail-open 发布原文。reflector 确定性 hook 评论不走 CEO，含 `<!-- agent-moebius:ceo-corrected -->` 的响应不会再次校正以避免循环。
 - runner 在 mention-codex 分支 `postComment` 完成后会把刚发的评论拼回本地 timeline 并在本轮内再调一次 `resolveTrigger`（同轮自反），命中 reflector stage hook 时立刻发出 hook 评论，不等下一轮 active poll；命中 mention（要再跑 codex）或返回 skip 即停止；同一 issue timeline 中同一 `(source, stage)` 累计触发上限为 `MAX_SELF_REFLECT = 3`（in-tick 与跨 tick 共享同一上限，由 trigger 层按 `stage-hook` metadata 中的 `source`/`stage` 计数实现，`sourceIndex` 仅用于人 / 日志追溯）；最后一次自动反思 hook 会追加收敛指令：无新问题则不要继续输出同一 stage marker、直接按推进计划进入后续步骤；有新问题则说明问题并停下等待人类检查；每分钟 active poll 仍作为兜底。
 - runner 写回 agent 评论时使用 GitHub 页面可见的 `<role>:\n${LAST_RESPONSE}` 前缀；comment body 中落 `&lt;role&gt;:\n${LAST_RESPONSE}`，并追加 `<!-- agent-moebius:role=<role> -->` metadata，便于后续归一化 speaker。
-- 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。
-- agent pre script 上下文保存在被忽略的 `.state/agent-contexts.json`；当前 `@dev` 记录 issue、role、preScript、目标仓库、worktreePath 与 preparedFromMessageIndex。
+- 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。并发 Codex 成功写回时必须使用 issue + role entry 级别的串行 merge helper，不能用旧 state snapshot 覆盖整文件。
+- agent pre script 上下文保存在被忽略的 `.state/agent-contexts.json`；当前 `@dev` 记录 issue、role、preScript、目标仓库、worktreePath 与 preparedFromMessageIndex。并发 pre script context 写回时必须使用 issue + role entry 级别的串行 merge helper。
 - GitHub response intake 状态保存在被忽略的 `.state/github-response-intake.json`，记录 repo 闲时扫描时间、issue `updatedAt`、active/idle 模式、active 无变化次数和下次轮询时间。
+- Codex stdout/stderr 运行目录格式为 `/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/`；`<sequence>` 是 runner 进程内递增后缀，用来避免并发 runs 在同一 timestamp + count 下复用同一目录。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
-- `github-response-intake.ts`、`local-config.ts`、`conversation.ts` 与 `conversation-interrupt.ts` 只做业务数据操作；`src/triggers/` 封装 mention / stage 等触发规则；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做编排。
+- `github-response-intake.ts`、`local-config.ts`、`conversation.ts` 与 `conversation-interrupt.ts` 只做业务数据操作；`src/triggers/` 封装 mention / stage 等触发规则；`driver-pool.ts` 只承载 driver job 并发策略；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做编排。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 
 ## 修改前检查

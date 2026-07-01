@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   getRoleThreadState,
   loadRoleThreadStateStore,
+  saveRoleThreadStateEntry,
   saveRoleThreadStateStore,
   withRoleThreadState,
 } from "../src/state.js";
@@ -39,6 +40,34 @@ describe("role thread state store", () => {
     await fs.writeFile(filePath, JSON.stringify({ issue: { role: { threadId: "", lastSeenIndex: -1 } } }), "utf8");
 
     await expect(loadRoleThreadStateStore(filePath)).rejects.toThrow(/Invalid role thread state file/);
+  });
+
+  it("merges concurrent entry saves without overwriting other roles", async () => {
+    const filePath = path.join(await makeTempDir(), ".state", "role-threads.json");
+
+    await Promise.all([
+      saveRoleThreadStateEntry(
+        "tranfu-labs/agent-moebius#3",
+        "dev",
+        { threadId: "thread-dev", lastSeenIndex: 2 },
+        filePath,
+      ),
+      saveRoleThreadStateEntry(
+        "tranfu-labs/agent-moebius#4",
+        "product-manager",
+        { threadId: "thread-pm", lastSeenIndex: 5 },
+        filePath,
+      ),
+    ]);
+
+    await expect(loadRoleThreadStateStore(filePath)).resolves.toEqual({
+      "tranfu-labs/agent-moebius#3": {
+        dev: { threadId: "thread-dev", lastSeenIndex: 2 },
+      },
+      "tranfu-labs/agent-moebius#4": {
+        "product-manager": { threadId: "thread-pm", lastSeenIndex: 5 },
+      },
+    });
   });
 });
 

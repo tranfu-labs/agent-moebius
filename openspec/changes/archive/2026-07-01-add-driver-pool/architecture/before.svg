@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="300" viewBox="0 0 860 300" role="img" aria-labelledby="title desc">
+  <title id="title">Runner Before Driver Pool</title>
+  <desc id="desc">The runner processes due issues sequentially and calls Codex directly from each issue path.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#334155" />
+    </marker>
+  </defs>
+  <rect width="860" height="300" fill="#f8fafc" />
+  <g font-family="Arial, sans-serif" font-size="14" fill="#0f172a">
+    <rect x="40" y="80" width="170" height="70" rx="8" fill="#dbeafe" stroke="#2563eb" />
+    <text x="125" y="110" text-anchor="middle" font-weight="700">runner tick</text>
+    <text x="125" y="132" text-anchor="middle">sequential loops</text>
+    <rect x="290" y="40" width="180" height="70" rx="8" fill="#e2e8f0" stroke="#64748b" />
+    <text x="380" y="70" text-anchor="middle" font-weight="700">issue #1</text>
+    <text x="380" y="92" text-anchor="middle">fetch + trigger + Codex</text>
+    <rect x="290" y="170" width="180" height="70" rx="8" fill="#e2e8f0" stroke="#64748b" />
+    <text x="380" y="200" text-anchor="middle" font-weight="700">issue #2</text>
+    <text x="380" y="222" text-anchor="middle">waits for issue #1</text>
+    <rect x="570" y="105" width="210" height="70" rx="8" fill="#fee2e2" stroke="#dc2626" />
+    <text x="675" y="135" text-anchor="middle" font-weight="700">local Codex driver</text>
+    <text x="675" y="157" text-anchor="middle">called directly</text>
+    <path d="M210 115 L290 75" stroke="#334155" stroke-width="2" marker-end="url(#arrow)" fill="none" />
+    <path d="M210 115 L290 205" stroke="#334155" stroke-width="2" marker-end="url(#arrow)" fill="none" />
+    <path d="M470 75 L570 135" stroke="#334155" stroke-width="2" marker-end="url(#arrow)" fill="none" />
+    <path d="M470 205 L570 145" stroke="#334155" stroke-width="2" marker-end="url(#arrow)" fill="none" stroke-dasharray="6 6" />
+  </g>
+</svg>

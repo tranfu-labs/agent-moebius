@@ -4,8 +4,7 @@ import path from "node:path";
 import {
   getAgentContextState,
   loadAgentContextStateStore,
-  saveAgentContextStateStore,
-  withAgentContextState,
+  saveAgentContextStateEntry,
   type AgentContextState,
 } from "../agent-context-state.js";
 import type { AgentPreScriptInput, AgentPreScriptResult } from "./types.js";
@@ -25,7 +24,7 @@ interface DevWorkspaceDependencies {
   runGit(args: string[]): Promise<void>;
   isGitAncestor(input: { cwd: string; ancestor: string; descendant: string }): Promise<boolean>;
   loadState(filePath: string): Promise<Record<string, Record<string, AgentContextState>>>;
-  saveState(store: Record<string, Record<string, AgentContextState>>, filePath: string): Promise<void>;
+  saveStateEntry(issueKey: string, role: string, state: AgentContextState, filePath: string): Promise<void>;
 }
 
 const REMOTE_MAIN_REF = "refs/remotes/origin/main";
@@ -41,7 +40,7 @@ const defaultDependencies: DevWorkspaceDependencies = {
   runGit,
   isGitAncestor,
   loadState: loadAgentContextStateStore,
-  saveState: saveAgentContextStateStore,
+  saveStateEntry: saveAgentContextStateEntry,
 };
 
 export async function runDevWorkspacePreScript(
@@ -138,15 +137,14 @@ async function runDevWorkspacePreScriptUnsafe(
   await dependencies.runGit(["--git-dir", paths.repoCachePath, "worktree", "add", paths.worktreePath, REMOTE_MAIN_REF]);
   await dependencies.access(paths.worktreePath);
 
-  const nextState = withAgentContextState(stateStore, input.issueSource.issueKey, input.role, {
+  await dependencies.saveStateEntry(input.issueSource.issueKey, input.role, {
     preScript: input.preScript,
     owner: input.issueSource.owner,
     repo: input.issueSource.repo,
     issueNumber: input.issueSource.issueNumber,
     worktreePath: paths.worktreePath,
     preparedFromMessageIndex: input.latestIndex,
-  });
-  await dependencies.saveState(nextState, input.contextStatePath);
+  }, input.contextStatePath);
 
   return { ok: true, codexCwd: paths.worktreePath };
 }

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   getAgentContextState,
   loadAgentContextStateStore,
+  saveAgentContextStateEntry,
   saveAgentContextStateStore,
   withAgentContextState,
 } from "../src/agent-context-state.js";
@@ -47,6 +48,62 @@ describe("agent context state store", () => {
     await fs.writeFile(filePath, JSON.stringify({ issue: { dev: { worktreePath: "" } } }), "utf8");
 
     await expect(loadAgentContextStateStore(filePath)).rejects.toThrow(/Invalid agent context state file/);
+  });
+
+  it("merges concurrent entry saves without overwriting other issue contexts", async () => {
+    const filePath = path.join(await makeTempDir(), ".state", "agent-contexts.json");
+
+    await Promise.all([
+      saveAgentContextStateEntry(
+        "tranfu-labs/agent-moebius#4",
+        "dev",
+        {
+          preScript: "src/agent-prescripts/dev-workspace.ts",
+          owner: "tranfu-labs",
+          repo: "agent-moebius",
+          issueNumber: 4,
+          worktreePath: "/tmp/worktree-4",
+          preparedFromMessageIndex: 3,
+        },
+        filePath,
+      ),
+      saveAgentContextStateEntry(
+        "tranfu-labs/agent-moebius#5",
+        "dev",
+        {
+          preScript: "src/agent-prescripts/dev-workspace.ts",
+          owner: "tranfu-labs",
+          repo: "agent-moebius",
+          issueNumber: 5,
+          worktreePath: "/tmp/worktree-5",
+          preparedFromMessageIndex: 8,
+        },
+        filePath,
+      ),
+    ]);
+
+    await expect(loadAgentContextStateStore(filePath)).resolves.toEqual({
+      "tranfu-labs/agent-moebius#4": {
+        dev: {
+          preScript: "src/agent-prescripts/dev-workspace.ts",
+          owner: "tranfu-labs",
+          repo: "agent-moebius",
+          issueNumber: 4,
+          worktreePath: "/tmp/worktree-4",
+          preparedFromMessageIndex: 3,
+        },
+      },
+      "tranfu-labs/agent-moebius#5": {
+        dev: {
+          preScript: "src/agent-prescripts/dev-workspace.ts",
+          owner: "tranfu-labs",
+          repo: "agent-moebius",
+          issueNumber: 5,
+          worktreePath: "/tmp/worktree-5",
+          preparedFromMessageIndex: 8,
+        },
+      },
+    });
   });
 });
 
