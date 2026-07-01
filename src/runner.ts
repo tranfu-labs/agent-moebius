@@ -740,8 +740,22 @@ export async function processIssueSource(
       issueKey: input.source.issueKey,
     });
 
-    const postedBody = formatGuardedAgentComment(selectedAgent.name, ceoResult.body);
-    await dependencies.postComment(input.source, postedBody);
+    let workingTimeline = timeline;
+
+    if (ceoResult.action === "APPEND") {
+      const originalBody = formatAgentComment(selectedAgent.name, result.finalText);
+      await dependencies.postComment(input.source, originalBody);
+      workingTimeline = appendPostedComment(workingTimeline, selectedAgent.name, originalBody);
+
+      const ceoAppendBody = `${formatAgentComment(ceoResult.as, ceoResult.body)}\n\n${CEO_CORRECTED_METADATA}`;
+      await dependencies.postComment(input.source, ceoAppendBody);
+      workingTimeline = appendPostedComment(workingTimeline, ceoResult.as, ceoAppendBody);
+    } else {
+      const postedBody = formatGuardedAgentComment(selectedAgent.name, ceoResult.body);
+      await dependencies.postComment(input.source, postedBody);
+      workingTimeline = appendPostedComment(workingTimeline, selectedAgent.name, postedBody);
+    }
+
     await dependencies.saveRoleThreadStateEntry(input.source.issueKey, selectedAgent.name, nextState);
     log({
       event: "commented",
@@ -752,8 +766,6 @@ export async function processIssueSource(
       cachedInputTokens: result.cachedInputTokens,
       issueKey: input.source.issueKey,
     });
-
-    let workingTimeline = appendPostedComment(timeline, selectedAgent.name, postedBody);
     for (let iteration = 1; iteration <= MAX_SELF_REFLECT; iteration++) {
       const nextTrigger = resolveTrigger({ timeline: workingTimeline, availableAgentNames: agentNames });
       const step = decideNextSelfReflectStep(nextTrigger, iteration, MAX_SELF_REFLECT);
@@ -814,6 +826,18 @@ function logCeoGuardrailResult(input: {
       event: "ceo-guardrail-repaired",
       count: input.count,
       agent: input.agent,
+      reason: input.result.reason,
+      issueKey: input.issueKey,
+    });
+    return;
+  }
+
+  if (input.result.action === "APPEND") {
+    log({
+      event: "ceo-guardrail-appended",
+      count: input.count,
+      agent: input.agent,
+      as: input.result.as,
       reason: input.result.reason,
       issueKey: input.issueKey,
     });

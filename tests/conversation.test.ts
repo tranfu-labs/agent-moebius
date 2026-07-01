@@ -85,6 +85,26 @@ describe("conversation", () => {
     expect(getLatestTimelineMessage(timeline)?.body).toBe("@product-manager latest");
   });
 
+  it("normalizes role=ceo metadata to speaker=ceo without requiring it in availableAgentNames", () => {
+    const timeline = buildTimeline(
+      "initial",
+      [
+        {
+          body: "&lt;ceo&gt;:\n> CEO guardrail: 同意\n\n@dev 请继续\n\n<!-- agent-moebius:role=ceo -->\n\n<!-- agent-moebius:ceo-corrected -->",
+        },
+      ],
+      ["dev"],
+    );
+
+    expect(timeline[1]).toMatchObject({
+      speaker: "ceo",
+      source: "comment",
+    });
+    expect(timeline[1]?.body).toContain("> CEO guardrail: 同意");
+    expect(timeline[1]?.body).toContain("@dev");
+    expect(timeline[1]?.body).not.toContain("<!-- agent-moebius:role=ceo -->");
+  });
+
   it("formats agent comments with a visible role prefix and metadata", () => {
     expect(formatAgentComment("product-manager", "hello\n")).toBe(
       "&lt;product-manager&gt;:\nhello\n\n<!-- agent-moebius:role=product-manager -->",

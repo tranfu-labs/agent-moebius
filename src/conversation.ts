@@ -185,6 +185,13 @@ function normalizeComment(body: string, availableAgentNames: string[]): Pick<Tim
   const metadataRole = parseMetadataRole(body);
 
   if (metadataRole !== null) {
+    if (metadataRole === "ceo") {
+      return {
+        speaker: "ceo",
+        body: stripRoleEnvelope(stripAgentMetadata(body), "ceo"),
+      };
+    }
+
     if (!availableAgents.has(metadataRole)) {
       return {
         speaker: "user",

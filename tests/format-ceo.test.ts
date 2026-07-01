@@ -9,22 +9,54 @@ import {
   type FormatCeoInput,
 } from "../src/format-ceo.js";
 
-describe("formatCeoComment", () => {
-  it("accepts NO_CHANGE with whitespace or markdown fences", () => {
-    expect(parseCeoOutput("  NO_CHANGE\n")).toEqual({ kind: "NO_CHANGE" });
-    expect(parseCeoOutput("```text\nNO_CHANGE\n```")).toEqual({ kind: "NO_CHANGE" });
+describe("parseCeoOutput", () => {
+  it("parses no_change JSON", () => {
+    expect(parseCeoOutput('{"action":"no_change"}')).toEqual({ kind: "no_change" });
   });
 
+  it("parses no_change JSON wrapped in fenced code block", () => {
+    expect(parseCeoOutput('```json\n{"action":"no_change"}\n```')).toEqual({ kind: "no_change" });
+  });
+
+  it("parses replace JSON with body", () => {
+    expect(parseCeoOutput('{"action":"replace","body":"hello"}')).toEqual({ kind: "replace", body: "hello" });
+  });
+
+  it("parses append JSON with as and body", () => {
+    expect(parseCeoOutput('{"action":"append","as":"ceo","body":"hi"}')).toEqual({
+      kind: "append",
+      as: "ceo",
+      body: "hi",
+    });
+  });
+
+  it("returns invalid_json for non-JSON output", () => {
+    const parsed = parseCeoOutput("this is not json");
+    expect(parsed.kind).toBe("invalid_json");
+  });
+
+  it("returns invalid_json for JSON array", () => {
+    const parsed = parseCeoOutput("[1,2,3]");
+    expect(parsed.kind).toBe("invalid_json");
+  });
+
+  it("returns unknown_action for unknown action value", () => {
+    const parsed = parseCeoOutput('{"action":"delete","body":"x"}');
+    expect(parsed.kind).toBe("unknown_action");
+  });
+});
+
+describe("formatCeoComment", () => {
   it("replaces a missing marker response when CEO returns a valid repair", async () => {
     const agentsDir = await makeAgentsDir();
-    const repaired = `我已完成验证，测试通过。
+    const repairedBody = `> CEO guardrail: 已补齐发布契约。
 
-> CEO guardrail: 已补齐发布契约，使评论能继续被 runner 识别。
+我已完成验证，测试通过。
 
 <!-- agent-moebius:stage=code-verified -->`;
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
-      finalText: repaired,
+      finalText: JSON.stringify({ action: "replace", body: repairedBody }),
       threadId: "ceo-thread",
       cachedInputTokens: null,
       runDir: options.runDir,
@@ -46,16 +78,14 @@ describe("formatCeoComment", () => {
     expect(result.body.endsWith(CEO_CORRECTED_METADATA)).toBe(true);
   });
 
-  it("covers the issue 10 missing code-verified marker accident body", async () => {
+  it("returns APPEND when CEO decides to add an independent comment as=ceo", async () => {
     const agentsDir = await makeAgentsDir();
-    const repaired = `${ISSUE_10_ACCIDENT_COMMENT}
+    const appendBody = `> CEO guardrail: 新建 change 分支属于 dev 自主裁决范围。
 
-> CEO guardrail: 已补齐发布契约，使评论能继续被 runner 识别。
-
-<!-- agent-moebius:stage=code-verified -->`;
+@dev 同意你提出的分支方案，请自行创建并继续推进 plan-written。`;
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
-      finalText: repaired,
+      finalText: JSON.stringify({ action: "append", as: "ceo", body: appendBody }),
       threadId: "ceo-thread",
       cachedInputTokens: null,
       runDir: options.runDir,
@@ -63,26 +93,51 @@ describe("formatCeoComment", () => {
       stderrPath: path.join(options.runDir, "stderr.log"),
     }));
 
-    const result = await formatCeoComment({
-      ...baseInput,
-      latestResponse: ISSUE_10_ACCIDENT_COMMENT,
-      agentsDir,
-      runCodex,
-    });
+    const result = await formatCeoComment({ ...baseInput, agentsDir, runCodex });
 
-    expect(result.action).toBe("REPLACE");
-    expect(result.body).toContain("已做 `code-verified` 反思。");
-    expect(result.body).toContain("GitHub reaction 通过 adapter 的 argv 参数数组调用");
-    expect(result.body).toContain("> CEO guardrail:");
-    expect(result.body).toContain("<!-- agent-moebius:stage=code-verified -->");
-    expect(result.body.endsWith(CEO_CORRECTED_METADATA)).toBe(true);
+    expect(result).toMatchObject({
+      action: "APPEND",
+      as: "ceo",
+      reason: "appended",
+    });
+    if (result.action === "APPEND") {
+      expect(result.body).toBe(appendBody);
+    }
   });
 
-  it("returns the original body when CEO says NO_CHANGE", async () => {
+  it("returns APPEND with as=dev when CEO impersonates dev", async () => {
+    const agentsDir = await makeAgentsDir();
+    const appendBody = `> CEO guardrail: 新建 change 分支属于 dev 自主裁决范围。
+
+我按 change/foo 分支方案自行推进 plan-written。
+
+<!-- agent-moebius:stage=in-progress -->`;
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: JSON.stringify({ action: "append", as: "dev", body: appendBody }),
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({ ...baseInput, agentsDir, runCodex });
+
+    expect(result).toMatchObject({
+      action: "APPEND",
+      as: "dev",
+    });
+    if (result.action === "APPEND") {
+      expect(result.body).toContain("<!-- agent-moebius:stage=in-progress -->");
+    }
+  });
+
+  it("returns the original body when CEO says no_change", async () => {
     const agentsDir = await makeAgentsDir();
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
-      finalText: "```text\nNO_CHANGE\n```",
+      finalText: '```json\n{"action":"no_change"}\n```',
       threadId: "ceo-thread",
       cachedInputTokens: null,
       runDir: options.runDir,
@@ -115,11 +170,11 @@ ${CEO_CORRECTED_METADATA}`;
     expect(runCodex).not.toHaveBeenCalled();
   });
 
-  it("fail-opens when CEO repair lacks a valid trailing marker", async () => {
+  it("fail-opens when CEO returns non-JSON output", async () => {
     const agentsDir = await makeAgentsDir();
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
-      finalText: "修正版但没有 marker",
+      finalText: "自然语言而不是 JSON",
       threadId: "ceo-thread",
       cachedInputTokens: null,
       runDir: options.runDir,
@@ -129,18 +184,82 @@ ${CEO_CORRECTED_METADATA}`;
 
     const result = await formatCeoComment({ ...baseInput, latestResponse: "原文", agentsDir, runCodex });
 
-    expect(result).toMatchObject({
-      action: "FAIL_OPEN",
-      body: "原文",
-      reason: "post-validate-failed",
-    });
+    expect(result).toMatchObject({ action: "FAIL_OPEN", body: "原文", reason: "invalid-json" });
   });
 
-  it("fail-opens when CEO returns a stage outside AllStages", async () => {
+  it("fail-opens when CEO returns an unknown action", async () => {
     const agentsDir = await makeAgentsDir();
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
-      finalText: "修正版\n<!-- agent-moebius:stage=done -->",
+      finalText: '{"action":"delete","body":"x"}',
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({ ...baseInput, latestResponse: "原文", agentsDir, runCodex });
+
+    expect(result).toMatchObject({ action: "FAIL_OPEN", body: "原文", reason: "unknown-action" });
+  });
+
+  it("fail-opens when append.as is not in allowed set", async () => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: '{"action":"append","as":"nobody","body":"..."}',
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({ ...baseInput, latestResponse: "原文", agentsDir, runCodex });
+
+    expect(result).toMatchObject({ action: "FAIL_OPEN", body: "原文", reason: "unknown-as" });
+  });
+
+  it("fail-opens when append body is empty", async () => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: '{"action":"append","as":"ceo","body":"   "}',
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({ ...baseInput, latestResponse: "原文", agentsDir, runCodex });
+
+    expect(result).toMatchObject({ action: "FAIL_OPEN", body: "原文", reason: "empty-body" });
+  });
+
+  it("fail-opens when replace body lacks a valid trailing stage marker", async () => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: '{"action":"replace","body":"修正版但没有 marker"}',
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({ ...baseInput, latestResponse: "原文", agentsDir, runCodex });
+
+    expect(result).toMatchObject({ action: "FAIL_OPEN", body: "原文", reason: "post-validate-failed" });
+  });
+
+  it("fail-opens when replace body stage marker is outside AllStages", async () => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: '{"action":"replace","body":"修正版\\n<!-- agent-moebius:stage=done -->"}',
       threadId: "ceo-thread",
       cachedInputTokens: null,
       runDir: options.runDir,
@@ -188,7 +307,7 @@ ${CEO_CORRECTED_METADATA}`;
           stderrPath: path.join(options.runDir, "stderr.log"),
         }),
       }),
-    ).resolves.toMatchObject({ action: "FAIL_OPEN", reason: "empty-output" });
+    ).resolves.toMatchObject({ action: "FAIL_OPEN", reason: "invalid-json" });
   });
 
   it("aborts the CEO Codex run when timeout fires", async () => {
@@ -223,21 +342,3 @@ async function makeAgentsDir(): Promise<string> {
   await fs.writeFile(path.join(dir, "ceo.md"), "CEO persona", "utf8");
   return dir;
 }
-
-const ISSUE_10_ACCIDENT_COMMENT = `&lt;dev&gt;:
-已做 \`code-verified\` 反思。
-
-结论：实现与方案一致，没有发现需要回到代码阶段修补的问题。
-
-核对结果：
-
-- reaction 添加点在真实 Codex driver 前，且在 prompt plan run 与 preScript 成功之后。
-- no-trigger、stage hook、preScript 失败、prompt plan skip 都不会添加 reaction。
-- resume fallback 不会重复添加 reaction，因为 reaction 只在首次 \`runCodex\` 前执行一次。
-- reaction 失败只记录 \`codex-execution-reaction-failed\`，不会阻断 Codex，也不会改变既有状态推进条件。
-- GitHub reaction 通过 adapter 的 argv 参数数组调用，没有把 issue 内容拼进 shell。
-- 单测和 typecheck 已覆盖并通过。
-
-仍停在 \`code-verified\` 后，等待归档/提交/开 PR 的下一步指示。
-
-<!-- agent-moebius:role=dev -->`;

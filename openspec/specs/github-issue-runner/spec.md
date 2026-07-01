@@ -123,18 +123,29 @@
 - MUST 让 `in-progress` 承载“还在干活 / 采访 / 澄清 / 报进度 / 等待用户，不需要 reflector 接力”的语义。
 - SHOULD 让 `plan-written` / `code-verified` 保持为 dev agent 的开发阶段语义；其他 Codex agent 的默认 stage MUST 为 `in-progress`。
 - MUST 新增 `agents/ceo.md` 作为 CEO agent persona，承载触发范围、识别场景清单、输入契约、输出契约与修改红线；未来事故规则扩展 MUST 通过修改 `agents/ceo.md` 实现，NEVER 硬编码到 runner 或 `src/format-ceo.ts`。
-- MUST 让 `agents/ceo.md` 至少覆盖两类识别场景：缺失或非法的 stage marker；dev agent 收到含 `[MAX_REFLECT]` 或最后一次自动反思收敛指令的 reflector hook 后无实质推进动作。
+- MUST 让 `agents/ceo.md` 至少覆盖三类识别场景：① 缺失或非法的 stage marker（走 `replace`）；② dev agent 收到含 `[MAX_REFLECT]` 或最后一次自动反思收敛指令的 reflector hook 后无实质推进动作（走 `append`）；③ dev agent 停下询问"是否新建 change 分支"这类可自主裁决的确认题（走 `append`，CEO 决定 `as` 身份表态"同意 dev 自行推进"）。
 - MUST 定义 `agents/ceo.md` 的输入契约字段：`originalRequest`、`latestResponse`、`agent`、`allowedStages`、`lastReflectorHook`；MUST NOT 把完整 issue timeline 传给 CEO。
-- MUST 定义 `agents/ceo.md` 的输出契约：要么返回单一 token `NO_CHANGE`（允许前后空白与 markdown fence 包裹），要么返回改写后的完整评论文本；改写文本 MUST 保持原正文语义与内容不变、MUST 把 stage marker 保留在文本最末尾、MUST 在 marker 之前追加 quote 块标注 CEO 修改。
+- MUST 定义 `agents/ceo.md` 的输出契约为 JSON，仅允许以下三种结构（允许 fenced code block 包裹）：
+  1. `{"action":"no_change"}` — 不改动，runner 直接 post 原文。
+  2. `{"action":"replace","body":"<完整改写正文>"}` — 用于 stage marker 补齐等格式层修正；`body` MUST 末尾带合法 stage marker（marker MUST 在 `AllStages` 内）；`body` MUST 保留原正文语义与内容；`body` MUST 在 marker 之前含一行 `> CEO guardrail: <说明>` quote 标注。
+  3. `{"action":"append","as":"<role>","body":"<CEO 追加正文>"}` — 用于内容层修正与自主裁决表态；`as` MUST 在 `{ceo, dev, product-manager, hermes-user, reflector}` 集合内；`body` MUST 含一行 `> CEO guardrail: <说明>` quote 标注；`as=ceo` 时 body 不带 stage marker；`as=<driver role>` 时 body 末尾 MUST 带合法 stage marker（等价于该 role 自己发的一条评论）。
+- MUST 让 `format-ceo.ts` post-validate 只做基础格式红线校验：合法 JSON、`action` 枚举、`append.as` 已知 role、`replace.body` 末尾 stage marker、非空 body；MUST NOT 在 code 层做业务判据（触发条件、模板措辞、`@mention` 等），业务判据 MUST 全部由 `agents/ceo.md` 承担。
 - MUST 在 `src/runner.ts` 的 mention Codex 分支于 `postComment` 之前插入 CEO 拦截：所有 Codex agent 生成的评论 MUST 走 CEO；`reflector-stage-trigger` 直接生成的确定性 hook 评论 MUST NOT 走 CEO。
 - MUST 通过评论 body 中的 `<!-- agent-moebius:ceo-corrected -->` metadata 识别 CEO 自身修正版评论；此机制 MUST NOT 依赖 runner 内存中的响应通道来源。
-- MUST 在 CEO 返回修正文本、后置宽容匹配验证通过后，由 runner 在 post 前追加 `<!-- agent-moebius:ceo-corrected -->` metadata；此 metadata 由 runner 追加而非要求 CEO 输出，且在最终 GitHub comment body 中位于 `<!-- agent-moebius:role=<role> -->` 之后的最末尾。
+- MUST 让 runner 按 CEO 返回的 `action` 分支处理 post 逻辑：
+  - `no_change`：直接 post 原文，body 末尾**不**追加 `<!-- agent-moebius:ceo-corrected -->`。
+  - `replace`：在 CEO 返回的 `body` 末尾追加 `<!-- agent-moebius:ceo-corrected -->` metadata，走原 agent 前缀（`<原 agent>:` 可见 + `role=<原 agent>` metadata）post 一条。
+  - `append`：先 post 原 `LAST_RESPONSE` 一条（`<原 agent>:` 可见 + `role=<原 agent>` metadata，**不**追加 `ceo-corrected`），再 post 一条独立评论（`<${as}>:` 可见 + `role=${as}` metadata + 末尾追加 `ceo-corrected` metadata）。
 - MUST 让 CEO 调用以短上下文、无状态方式执行：每次 CEO 调用 MUST 新建 codex thread、NEVER 复用 dev thread、NEVER 复用上次 CEO thread。
-- MUST 在收到 CEO 修正文本后执行后置宽容匹配验证：修正文本末尾 MUST 存在合规 `<!-- agent-moebius:stage=<enum> -->` marker，且 `<enum>` MUST 属于 `AllStages`；验证不通过 MUST fail-open 直接 post 原文。
-- MUST 在 CEO 调用超时、抛异常、返回空、返回非法输出、返回 stage 不在 `AllStages` 时 fail-open 直接 post 原文；CEO guardrail MUST NOT 变成新的失败源阻断主流程。
+- MUST 在收到 CEO `replace` 输出后执行后置宽容匹配验证：`body` 末尾 MUST 存在合规 `<!-- agent-moebius:stage=<enum> -->` marker，且 `<enum>` MUST 属于 `AllStages`；验证不通过 MUST fail-open 直接 post 原文。
+- MUST 在 CEO 调用超时、抛异常、返回空、返回非法 JSON、`action` 字段缺失或不在 `{no_change, replace, append}` 枚举内、`append.as` 缺失或不在允许集合内、`replace.body` 或 `append.body` 为空、`replace.body` 末尾 stage marker 不在 `AllStages` 内时 fail-open 直接 post 原文；CEO guardrail MUST NOT 变成新的失败源阻断主流程。
+- MUST 在 `format-ceo.ts` 的 `FAIL_OPEN` reason 中区分：`invalid-json`、`unknown-action`、`unknown-as`、`empty-body`、`post-validate-failed`、`codex-failed`、`codex-timeout`、`persona-load-failed`、`already-corrected`（NO_CHANGE 类）。
 - MUST 在 CEO 调用超时时取消对应底层 Codex 子进程，避免 fail-open 后仍留下后台 guardrail 进程继续运行。
 - MUST 从当前 issue timeline 中定位最近一条 reflector hook 评论 body 作为 `lastReflectorHook` 传给 CEO；若不存在则传空值。
-- MUST 记录结构化日志覆盖 `event = "ceo-guardrail-repaired"`、`event = "ceo-guardrail-noop"`、`event = "ceo-guardrail-failopen"`，至少包含 `issueKey`、`agent`、`reason`。
+- MUST 记录结构化日志覆盖 `event = "ceo-guardrail-repaired"`（`replace` 命中）、`event = "ceo-guardrail-appended"`（`append` 命中，含 `as` 字段）、`event = "ceo-guardrail-noop"`（`no_change`）、`event = "ceo-guardrail-failopen"`（fail-open），至少包含 `issueKey`、`agent`、`reason`。
+- MUST 让 `src/conversation.ts` 的 `normalizeComment` 识别 `<!-- agent-moebius:role=ceo -->` metadata 并直接归为 `speaker=ceo`，**不走 `availableAgentNames` 白名单校验**；其他 role 仍走现有校验路径。
+- MUST NOT 把 `ceo` 加进 `availableAgentNames`；CEO 不是 mention codex agent，`@ceo` 不应触发 codex 调用。
+- 未来新增 driver agent 时 MUST 同步扩 `agents/ceo.md` 的 `as` 允许集合并更新 `format-ceo.ts` 的 `CEO_APPEND_ROLES` 白名单。
 - MUST 在 runner 写回 agent 评论时使用 GitHub 页面可见模板 `<role>:\n${LAST_RESPONSE}`，其中 `${LAST_RESPONSE}` 是 Codex 本轮最终 assistant 文本；落到 comment body 时 MUST 使用 `&lt;role&gt;:\n${LAST_RESPONSE}`，避免 GitHub Markdown 把 raw `<role>` 当作 HTML 标签处理。
 - MUST 在 runner 写回 agent 评论时追加隐藏 metadata `<!-- agent-moebius:role=<role> -->`。
 - MUST 仅在 Codex 成功且 GitHub 评论成功后更新 role thread 状态；失败时 MUST 保持旧状态，允许下一轮重试。
@@ -609,6 +620,54 @@ And 最新消息 body 末尾含 `<!--  agent-moebius:stage = code-verified  -->`
 When 一次轮询取回该 issue
 Then `resolveReflectorStageTrigger` 识别为 `code-verified` stage
 And 按现有规则发布 reflector hook 评论
+
+### 场景 42：CEO guardrail — dev 询问可自主裁决问题被 CEO append 同意
+Given 最新消息包含 `@dev`
+And dev codex 本轮返回的 `${LAST_RESPONSE}` 停下询问"是否从当前 HEAD 创建 `change/foo` 分支"并以 `<!-- agent-moebius:stage=in-progress -->` 结尾
+And `agents/ceo.md` 存在且识别场景清单包含"dev 询问可自主裁决问题"
+When runner 在 `postComment` 之前调用 CEO guardrail
+Then CEO 返回 `{"action":"append","as":"ceo","body":"> CEO guardrail: 新建 change 分支属于 dev 自主裁决范围。\n\n@dev 同意你提出的分支方案，请自行创建并继续推进 plan-written。"}`
+And 后置校验通过（合法 JSON、`action=append`、`as=ceo` 在允许集合、`body` 非空）
+And runner 先 `postComment` 一次：body 为 dev 原文 + `role=dev` metadata（**不追加** `ceo-corrected`）
+And runner 再 `postComment` 一次：body 为 `<ceo>:\n${CEO body}` + `role=ceo` metadata + `ceo-corrected` metadata
+And `appendPostedComment` 依次拼回 timeline（`speaker=dev` → `speaker=ceo`）
+And 日志包含 `event=ceo-guardrail-appended` 与 `agent=dev` / `as=ceo` / `issueKey`
+
+### 场景 43：CEO guardrail — CEO 扮演 dev 追加评论
+Given 最新消息包含 `@dev`
+And dev codex 本轮返回的 `${LAST_RESPONSE}` 停下询问"是否创建 change 分支"并以 `<!-- agent-moebius:stage=in-progress -->` 结尾
+And CEO 判定应扮演 dev 直接推进（`as=dev`）
+When runner 调用 CEO guardrail
+Then CEO 返回 `{"action":"append","as":"dev","body":"> CEO guardrail: 新建 change 分支属于 dev 自主裁决范围。\n\n我自行按 change/foo 分支方案继续推进 plan-written。\n\n<!-- agent-moebius:stage=in-progress -->"}`
+And 后置校验通过（`as=dev` 在允许集合、`body` 非空；code 层不校验 stage marker，是 dev 语义自带）
+And runner 先 post dev 原文，再 post 一条 `<dev>:\n${CEO body}` + `role=dev` metadata + `ceo-corrected` metadata 的评论
+And `appendPostedComment` 依次拼回 timeline（两条 `speaker=dev`，第二条含 `ceo-corrected` metadata）
+And 日志包含 `event=ceo-guardrail-appended` 与 `as=dev`
+
+### 场景 44：CEO guardrail — 非法 JSON fail-open
+Given 最新消息包含 `@dev`
+When runner 调用 CEO guardrail
+And CEO 返回一段自然语言解释而非 JSON
+Then `parseCeoOutput` 判定为非法 JSON
+And `FormatCeoResult.action = "FAIL_OPEN"` 且 `reason = "invalid-json"`
+And runner fail-open 直接 post dev 原文（单次 `postComment`）
+And 日志包含 `event=ceo-guardrail-failopen`
+
+### 场景 45：CEO guardrail — `append.as` 未知 role fail-open
+Given 最新消息包含 `@dev`
+When runner 调用 CEO guardrail
+And CEO 返回 `{"action":"append","as":"nobody","body":"..."}`
+Then `format-ceo.ts` post-validate 拒绝
+And `FormatCeoResult.action = "FAIL_OPEN"` 且 `reason = "unknown-as"`
+And runner fail-open 直接 post dev 原文
+And 日志包含 `event=ceo-guardrail-failopen`
+
+### 场景 46：CEO speaker 命名空间独立于 mention 白名单
+Given issue timeline 里有一条 body 含 `<!-- agent-moebius:role=ceo -->` 的评论
+And `availableAgentNames = ["dev", "product-manager", "hermes-user"]`（不含 `ceo`）
+When `normalizeComment` 处理该评论
+Then 该评论归一化为 `speaker=ceo`
+And 该评论 body 不会因 `@ceo` mention 触发 codex 调用（`ceo` 不在 mention agent 集合内）
 
 ## 可验证行为
 - `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed backoff 推进 `updatedAt` / `activeNoChangeCount` / `nextPollAt` 并到上限降级、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 通过可注入 driver pool 并发处理 due issue job、同阶段 issue job 去重、并发 job result 后确定性折叠 intake state、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、trigger 解析、reflector stage 触发、普通 `@reflector` / `@ceo` 不触发 Codex、stage hook 去重、最后一次自动反思 hook 收敛模板、stage 枚举与子集断言、stage marker 宽容匹配、`in-progress` 不触发 reflector、CEO `NO_CHANGE` 解析、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、reflector 确定性 hook 不走 CEO、最近 reflector hook 传给 CEO、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）、拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、以及 reaction 添加失败时仍继续调用 Codex。

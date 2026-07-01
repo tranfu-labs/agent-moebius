@@ -324,6 +324,90 @@ ${CEO_CORRECTED_METADATA}`,
     );
   });
 
+  it("posts dev original + independent CEO comment when CEO returns APPEND as=ceo", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const ceoBody = `> CEO guardrail: 新建 change 分支属于 dev 自主裁决范围。
+
+@dev 同意你提出的分支方案，请自行创建并继续推进。`;
+    const postComment = vi.fn(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        postComment,
+        formatCeoComment: async () => ({ action: "APPEND", body: ceoBody, as: "ceo", reason: "appended" }),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment).toHaveBeenCalledTimes(2);
+    expect(postComment).toHaveBeenNthCalledWith(
+      1,
+      source,
+      `&lt;dev&gt;:
+done
+
+<!-- agent-moebius:role=dev -->`,
+    );
+    expect(postComment).toHaveBeenNthCalledWith(
+      2,
+      source,
+      `&lt;ceo&gt;:
+${ceoBody}
+
+<!-- agent-moebius:role=ceo -->
+
+${CEO_CORRECTED_METADATA}`,
+    );
+  });
+
+  it("impersonates dev and posts a second dev comment when CEO returns APPEND as=dev", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const ceoBody = `> CEO guardrail: 新建 change 分支属于 dev 自主裁决范围。
+
+我按 change/foo 自行推进。
+
+<!-- agent-moebius:stage=in-progress -->`;
+    const postComment = vi.fn(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        postComment,
+        formatCeoComment: async () => ({ action: "APPEND", body: ceoBody, as: "dev", reason: "appended" }),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment).toHaveBeenCalledTimes(2);
+    expect(postComment).toHaveBeenNthCalledWith(
+      1,
+      source,
+      `&lt;dev&gt;:
+done
+
+<!-- agent-moebius:role=dev -->`,
+    );
+    expect(postComment).toHaveBeenNthCalledWith(
+      2,
+      source,
+      `&lt;dev&gt;:
+${ceoBody}
+
+<!-- agent-moebius:role=dev -->
+
+${CEO_CORRECTED_METADATA}`,
+    );
+  });
+
   it("passes the latest reflector hook body to CEO", async () => {
     const dev = await makeAgentFile("dev", "Dev persona");
     const reflector = await makeAgentFile("reflector", "Reflector persona");
