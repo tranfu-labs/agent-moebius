@@ -8,6 +8,7 @@ export interface GitHubComment {
 export interface GitHubIssue {
   body: string;
   updatedAt: string;
+  state: "OPEN" | "CLOSED";
   comments: GitHubComment[];
 }
 
@@ -15,6 +16,8 @@ export interface GitHubIssueSummary {
   issueNumber: number;
   updatedAt: string;
 }
+
+export type IssueReactionContent = "eyes";
 
 export async function listOpenIssueSummaries(
   repository: RepositoryRef,
@@ -56,6 +59,10 @@ export async function postComment(source: IssueSource, body: string): Promise<vo
   await runCommand("gh", buildPostCommentArgs(source), body);
 }
 
+export async function addIssueReaction(source: IssueSource, content: IssueReactionContent): Promise<void> {
+  await runCommand("gh", buildAddIssueReactionArgs(source, content));
+}
+
 export function buildListOpenIssueSummariesArgs(repository: RepositoryRef, limit: number): string[] {
   return [
     "issue",
@@ -79,12 +86,23 @@ export function buildFetchIssueWithCommentsArgs(source: IssueSource): string[] {
     "--repo",
     `${source.owner}/${source.repo}`,
     "--json",
-    "body,comments,updatedAt",
+    "body,comments,updatedAt,state",
   ];
 }
 
 export function buildPostCommentArgs(source: IssueSource): string[] {
   return ["issue", "comment", String(source.issueNumber), "--repo", `${source.owner}/${source.repo}`, "--body-file", "-"];
+}
+
+export function buildAddIssueReactionArgs(source: IssueSource, content: IssueReactionContent): string[] {
+  return [
+    "api",
+    "--method",
+    "POST",
+    `repos/${source.owner}/${source.repo}/issues/${source.issueNumber}/reactions`,
+    "-f",
+    `content=${content}`,
+  ];
 }
 
 interface CommandResult {
@@ -171,7 +189,7 @@ function isCommandFailedError(error: unknown): error is CommandFailedError {
   return error instanceof CommandFailedError;
 }
 
-function isGitHubIssue(value: unknown): value is GitHubIssue {
+export function isGitHubIssue(value: unknown): value is GitHubIssue {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -180,6 +198,7 @@ function isGitHubIssue(value: unknown): value is GitHubIssue {
   return (
     typeof issue.body === "string" &&
     typeof issue.updatedAt === "string" &&
+    (issue.state === "OPEN" || issue.state === "CLOSED") &&
     Array.isArray(issue.comments) &&
     issue.comments.every((comment) => typeof comment === "object" && comment !== null && typeof comment.body === "string")
   );

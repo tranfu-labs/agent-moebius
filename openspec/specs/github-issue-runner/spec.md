@@ -23,22 +23,25 @@
 - MUST 默认在 idle mode 下每 5 分钟扫描一次每个白名单 repository。
 - MUST 在 idle repository scan 中只扫描有界的最近更新 open issue 窗口；默认每个 repository 20 个 issues。
 - MUST 使用 GitHub issue `updatedAt` 作为 repository summary 与 active issue poll 的主要变更检测依据。
+- MUST 在拉取 issue body/comments 时同时读取 GitHub `state` 字段（`OPEN` / `CLOSED`），并作为 `GitHubIssue` shape 的必填字段。
 - MUST 默认在 repository 首次 baseline scan 时只记录历史 open issue 的 `updatedAt`，不批量处理历史 issue，避免对旧 mention 批量回复。
 - SHOULD 支持显式配置 seed issue sources，用于需要启动后立即检查的特定 issue。
-- MUST 仅在 issue 出现 runner-relevant 变化并成功处理后把该 issue 提升为 active mode。
+- MUST 在 issue 出现 runner-relevant 变化并成功处理后把该 issue 提升为 active mode；若处理返回 `failed`，MUST 同样把该 issue 纳入或保持在 active backoff 窗口，直到后续成功处理、无变化降级或 failed 到达上限降级。
 - MUST 默认每 1 分钟轮询 active issues。
 - MUST 仅轮询当前 watched repositories 内的 active issues。
 - MUST 在 active issue 连续 5 次 active poll 未观察到 GitHub `updatedAt` 变化后，将该 issue 降级回 idle。
 - MUST 在 active issue 观察到新 `updatedAt` 且成功处理后重置无变化计数。
 - MUST 在 active issue 观察到 `no-trigger` 变化时保持 active，重置无变化计数，并安排下一次 active poll。
+- MUST 在 active poll 或 idle-scan changed-issue 处理路径中发现 issue `state = CLOSED` 时，把该 issue 从 `.state/github-response-intake.json` 移除（与 `issue-not-found` 语义一致），不调用 trigger、不调用 Codex、不发评论；MUST 记录 `event = "skip"`、`reason = "issue-closed"` 与 `issueKey`。
 - MUST 限制当前 watched repositories 内的 active issues 数量；超出上限时，runner MUST 将多余 issue 降级到 idle 并记录原因。
 - MUST 把 GitHub response intake 状态保存在本地忽略目录 `.state/github-response-intake.json`，状态至少包含 repository idle scan 时间、issue `updatedAt`、mode、active 无变化计数和下次轮询时间。
-- MUST 在 `no-trigger` 后更新 intake state，避免未变化 issue 被重复 fetch。
-- MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进已处理 `updatedAt`。
+- MUST 在 `no-trigger` 与 `failed` 后更新 intake state，避免未变化或持续失败的 issue 被每 tick 重复 fetch / process。
+- MUST 在单 issue 处理返回 `failed` 时把该 issue 的 `updatedAt` 同步为刚拉取的最新值、`activeNoChangeCount` 累加 1、`nextPollAt` 设为处理时间后 `activeIssuePollIntervalMs`；只有此前已处于 active mode 的 issue 才继承既有 `activeNoChangeCount`，此前处于 idle 或缺失状态的 failed MUST 从 1 开始计数；一旦累加到 `activeIssueNoChangeLimit`，MUST 立即把 `mode` 降为 `idle` 并把 `nextPollAt` 设为 `null`。
+- MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进 role-thread 状态或发布 GitHub 评论；失败时仅推进 intake `updatedAt` / `activeNoChangeCount` / `nextPollAt`，确保轮询能收敛降级。
 - MUST keep an interrupted issue active and schedule a follow-up poll without advancing processing to the newly arrived message's `updatedAt`.
 - MUST 在配置的目标 issue 暂不可解析时把本轮视为可恢复 skip，记录 `reason = "issue-not-found"` 与 `issueKey`，并等待后续轮询。
-- MUST 在目标 issue 不存在时不调用 Codex、不发表评论，并从 intake active 状态中移除或降级该 issue。
-- MUST 继续把非 issue-not-found 的 GitHub CLI 失败视作可恢复错误，不得推进对应 issue 的已处理 `updatedAt`。
+- MUST 在目标 issue 不存在或已关闭时不调用 Codex、不发表评论，并从 intake active 状态中移除或降级该 issue。
+- MUST 继续把非 issue-not-found 的 GitHub CLI 失败视作可恢复错误；若本轮没有成功取得 latest `updatedAt`，MUST 保留原 `updatedAt`，但仍按 `failed` 规则推进 `activeNoChangeCount` 与 `nextPollAt`，确保 fetch 失败也不会每 tick 刷屏。
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
 - MUST 将 agent 触发决策封装为独立触发器；runner 只消费触发器结果，不把具体触发方式写死在编排流程中。
@@ -46,11 +49,21 @@
 - MUST 提供 `agents/reflector.md` 作为通用反思接力展示身份。
 - MUST NOT 通过普通 `@reflector` mention 启动 Codex reflector；reflector 的触发方式是 stage metadata。
 - MUST 支持 reflector stage trigger：最新非 `reflector` agent 消息包含 `<!-- agent-moebius:stage=<stage> -->` 且 stage 在白名单内时，runner 直接发布 reflector 评论。
-- MUST 先支持 `plan-confirmed` 与 `code-complete` 两个 reflector stage。
+- MUST 支持 `plan-written` 与 `code-verified` 两个 reflector stage。
+- MUST NOT 将 `plan-confirmed` 与 `code-complete` 视为受支持的 reflector stage。
 - MUST 让 reflector stage trigger 生成的评论包含 `<!-- agent-moebius:role=reflector -->` 与 `<!-- agent-moebius:stage-hook source=<role> stage=<stage> sourceIndex=<index> -->` metadata。
-- MUST 对同一 `source + stage + sourceIndex` 只发布一次 stage hook 评论；重复防护基于共享时间线中的 `stage-hook` metadata。
+- MUST 对同一 issue timeline 中同一 `(source, stage)` 累计发布的 stage hook 评论数限制为 `MAX_SELF_REFLECT` 次；重复防护基于共享时间线中的 `stage-hook` metadata 中的 `source` 与 `stage` 字段（`sourceIndex` 仅用于人 / 日志追溯，不参与去重）。
+- MUST 在发布同一 `(source, stage)` 的最后一次自动反思 hook 时追加收敛指令：若没有发现新问题，源 agent 不应继续输出同一个 stage marker，而应直接按推进计划进入后续步骤；若发现新问题，源 agent 应说明问题与建议处理方式，然后停下等待人类检查，不自动推进。
 - MUST NOT 对 `reflector` 自己的消息触发 reflector stage trigger。
 - MUST 让 `reflector` 只提醒输出 stage 的 agent 进行反思，不接管需求、方案、实现、测试或归档工作。
+- MUST 在每个 issue 处理周期内，agent 通过 mention trigger 完成 codex 评论 post 后立即把该评论拼回本地 timeline，并再次调用 trigger 解析；NEVER 仅依赖跨轮 active poll 触发 reflector stage hook。
+- MUST 仅在自反时再次解析命中 reflector stage hook（`kind === "post-comment"`）时继续自反并直接发布 hook 评论；若再次解析命中 mention（`kind === "run-agent"`），MUST 停止自反、将该 mention 留给下一轮 active poll 处理。
+- MUST 限制同轮自反次数为 `MAX_SELF_REFLECT = 3`；达到上限即停止本轮自反、留给下一轮 active poll。
+- MUST 在自反循环中复用 `resolveReflectorStageTrigger` 既有的 stage-hook 去重逻辑（同 `(source, stage)` 累计 < `MAX_SELF_REFLECT`），NEVER 为已达上限的 (source, stage) 再次发布 hook 评论。
+- MUST 保留每分钟 active poll 与 5 次无变化降级 idle 的现有节奏；自反失败或外部 actor 写带 stage marker 评论时，下一轮 active poll 仍负责兜底。
+- MUST 在自反每一步发布 hook 评论时记录 `event = "self-reflect-hook-commented"`、`iteration`、`stage`、`sourceRole`、`sourceIndex` 与 `issueKey`；自反停止时记录 `event = "self-reflect-stopped"`、`iteration`、`reason`、`issueKey`。
+- MUST 在自反循环中拼接本地 timeline 时使用 `formatAgentComment` 包过的 agent 评论 body（与 GitHub 实际写回的 comment body 一致），保证 `normalizeComment` 与 stage marker 解析在自反时与跨轮 poll 时行为一致。
+- MUST 把 `MAX_SELF_REFLECT` 与现有 tick / poll 参数一同写入启动日志的 `CONFIG_LOG_FIELDS`。
 - MUST 支持 agent Markdown frontmatter 声明受信任 `preScript`，用于 runner 在 Codex 执行前准备上下文；Markdown 正文仍作为 persona 文本输入 Codex。
 - MUST 将 `preScript` 路径限制在仓库内 `src/agent-prescripts/` 的静态 registry 中；issue body/comment 内容不得成为可执行脚本路径。
 - MUST 把共享时间线中的每条消息归一化为 `index`、`speaker`、`body`、`source`。
@@ -61,13 +74,21 @@
 - MUST 在触发源没有有效 trigger 时跳过，不调用 `codex`，不发表评论。
 - MUST 在同一条消息包含多个有效 agent mention 时选择文本中最早出现的一个。
 - MUST 在选中 agent 且本轮需要调用 Codex 时先执行该 agent 声明的 pre script；pre script 失败时 MUST 跳过 Codex、跳过 GitHub 评论、保持 role thread 状态不变。
+- MUST 在 mention trigger 选中可运行 agent、prompt plan 需要执行、且该 agent 的 preScript 已成功完成后，在首次调用 Codex driver 前为当前 GitHub issue 添加 `eyes` reaction。
+- MUST 仅在真实 Codex driver 执行路径添加该 reaction；no-trigger、deterministic stage hook、preScript 失败、prompt plan skip、Codex 不会启动的路径 MUST NOT 添加该 reaction。
+- MUST 在同一个 issue 处理周期中最多添加一次 Codex execution reaction；resume 失败后 fallback full run MUST NOT 再添加第二次 reaction。
+- MUST 在 Codex execution reaction 添加成功时记录结构化日志，至少包含 `event = "codex-execution-reaction-added"`、`issueKey` 与 `agent`。
+- MUST 在 Codex execution reaction 添加失败时记录结构化日志，至少包含 `event = "codex-execution-reaction-failed"`、`issueKey`、`agent` 与错误原因，并继续执行 Codex；reaction 失败本身 MUST NOT 推进或阻断 role thread 状态。
 - MUST 支持 `dev` pre script 基于 runner 当前处理的 GitHub issue source（owner、repo、issueNumber）准备 Codex 工作目录，而不是解析 issue body/comment 中的链接。
 - MUST 为每个 source issue 创建并复用一个 `dev` issue 独占 worktree；不同 source issue 即使属于同一个 repo 也 MUST 使用不同 worktree。
 - MUST 允许同一 repository 的多个 issue worktree 复用本地 bare repo cache，但 MUST 保持 worktree 彼此隔离。
 - MUST 在新建或复用 `dev` issue worktree 前刷新目标仓库远端 `main` tracking ref。
 - MUST 从已刷新的远端 `main` tracking ref 创建新的 `dev` issue worktree；MUST NOT 依赖本地 bare repo 的 `HEAD` 作为新 worktree 基线。
+- MUST 在复用已有 `dev` context 时验证记录的 `worktreePath` 与当前 owner / repo / issue / role / workdir root 计算出的 issue 独占 worktree 路径完全一致；不一致时 MUST fail closed，且不得访问、删除或重建该路径。
 - MUST 在复用已有 `dev` issue worktree 前检查当前 worktree `HEAD` 是否包含最新远端 `main`。
-- MUST 在已有 `dev` issue worktree 落后最新远端 `main` 时 fail closed，不自动 rebase、不自动 merge、不调用 Codex、不发表评论、不推进 role thread 状态。
+- MUST 在已有 `dev` issue worktree 落后最新远端 `main` 时先强制删除该 worktree（`git worktree remove --force`；失败时 fallback 到 `rm -rf` + `git worktree prune`），再从 `refs/remotes/origin/main` 重建；重建成功后继续以同一路径作为 Codex cwd，并保持原 agent context state。
+- MUST 在 stale worktree 重建过程任一步失败时 fail closed，不调用 Codex、不发表评论、不推进 role thread 状态，并返回 `stale-worktree-rebuild-failed:<detail>`。
+- MUST 在 stale worktree 自动重建过程中丢弃 worktree 内未推送的本地 commit；agent 产出的落地口径是 commit + push，未 push 的改动不属于要保护的运行时状态。
 - MUST 在已有 `dev` context 指向缺失或不可访问 worktree 时 fail closed，不自动重建。
 - MUST support interrupting an in-flight `dev` Codex run when the source conversation receives a new message before Codex completes.
 - MUST model agent-run interruption through a driver-agnostic conversation snapshot abstraction, so drivers provide current conversation state instead of embedding GitHub-specific logic in the local script executor.
@@ -92,7 +113,7 @@
 - MUST 在 resume 失败或 thread id 不可用时允许回退到 full prompt 新建 Codex thread，并在 GitHub 评论成功后更新该 role 的 thread 映射。
 - MUST 把本地脚本每次执行的 stdout / stderr 落到 `<TMP_ROOT>/agent-moebius-<ISO>-c<count>/` 下，并在日志中打印该路径，便于追溯；resume fallback 可使用独立 fallback 目录。
 - MUST 在本地脚本失败（非 0 退出 / 解析不出最终消息 / 无法取得必要 thread id）时只记日志、不发评论；下一轮若条件仍满足可再次尝试。
-- MUST 通过 `child_process.spawn(cmd, args[])` 调用 codex 与 gh，prompt 作为 argv 项、评论 body 通过 stdin（`gh ... --body-file -`）注入；MUST NOT 通过 shell 拼接。
+- MUST 通过 `child_process.spawn(cmd, args[])` 调用 codex 与 gh，prompt 作为 argv 项、评论 body 通过 stdin（`gh ... --body-file -`）注入，issue reaction 通过 `gh api` argv 参数数组添加；MUST NOT 通过 shell 拼接。
 - MUST 把 issue body / comment 内容当作不可信外部输入处理。
 - MUST 让 prompt 构造、speaker 归一化、触发判定、delta 消息选择、评论格式化与状态更新计算保持为可单元测试的业务数据操作，不依赖 GitHub、Codex CLI 或文件系统。
 - MUST NOT 把 GitHub token 或个人访问令牌写入仓库；当前实现复用本机 `gh auth login`。
@@ -172,13 +193,17 @@ Then 系统选择文本中最早出现的有效 agent mention
 
 ### 场景 7：通用反思者 — agent 输出 stage 时触发反思接力
 Given 最新消息 speaker 是 `dev`
-And 最新消息 body 包含 `<!-- agent-moebius:stage=plan-confirmed -->`
+And 最新消息 body 包含 `<!-- agent-moebius:stage=plan-written -->`
 And `agents/reflector.md` 存在
+And 同一 issue timeline 中同 `(source=dev, stage=plan-written)` 累计 hook 数小于 `MAX_SELF_REFLECT`
 When 一次轮询取回该 issue
 Then reflector stage trigger 直接发布 `reflector` 评论
-And comment body 包含 `@dev 请针对「plan-confirmed」做一次反思。`
+And comment body 包含 `@dev 请针对「plan-written」做一次反思。`
 And comment body 包含 `<!-- agent-moebius:role=reflector -->`
-And comment body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=<latest-index> -->`
+And comment body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=<latest-index> -->`
+And 若这是同一 `(source=dev, stage=plan-written)` 的最后一次自动反思 hook，comment body 包含“这是该阶段最后一次自动反思”
+And 最后一次自动反思 hook 要求没有新问题时直接按推进计划进入后续步骤
+And 最后一次自动反思 hook 要求发现新问题时说明问题并停下等待人类检查
 And 系统不调用 Codex reflector
 
 ### 场景 8：通用反思者 — 普通 @reflector mention 不启动 Codex
@@ -191,7 +216,7 @@ And 不发布 reflector hook 评论
 ### 场景 9：通用反思者 — reflector hook 评论继续触发源 agent
 Given 最新消息 speaker 是 `reflector`
 And 最新消息 body 包含 `@dev`
-And 最新消息 body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=1 -->`
+And 最新消息 body 包含 `<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->`
 When 一次轮询取回该 issue
 Then mention trigger 选择 `dev`
 And 系统按 `dev` role thread 执行 Codex
@@ -253,6 +278,27 @@ When 最新消息再次包含 `@dev`
 Then 系统不重复 clone，不重复创建 worktree
 And 以已记录 worktreePath 作为 Codex cwd 执行 resume 或 fallback full run
 
+### 场景 16.1：Dev agent — 已有 worktree 落后最新 main 时自动重建
+Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
+And 该 context 的 worktreePath 可访问
+And 该 worktree 的 `HEAD` 不包含最新 `refs/remotes/origin/main`
+When 最新消息再次包含 `@dev`
+Then 系统先 `git worktree remove --force` 旧 worktree
+And 若 remove 失败则 fallback 到 `rm -rf` 旧路径并执行 `git worktree prune`
+And 系统从 `refs/remotes/origin/main` 重建同一路径 worktree
+And 返回 `{ ok: true, codexCwd: <worktreePath> }`
+And 保留原 agent context state
+
+### 场景 16.2：Dev agent — stale worktree 重建失败时 fail closed
+Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
+And 该 context 的 worktreePath 可访问但落后最新 `refs/remotes/origin/main`
+And 删除旧 worktree、prune、重新 add worktree 或 access 断言任一步失败
+When 最新消息再次包含 `@dev`
+Then 系统返回 `{ ok: false, reason = "stale-worktree-rebuild-failed:<detail>" }`
+And 不调用 Codex
+And 不发表评论
+And 不更新 `.state/role-threads.json`
+
 ### 场景 17：Dev agent — worktree 缺失时 fail closed
 Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
 And 该 context 的 worktreePath 不存在或不可访问
@@ -299,15 +345,99 @@ And 保持 `mode = active`
 And 把 `activeNoChangeCount` 重置为 0
 And 把 `nextPollAt` 设置为处理时间后 1 分钟
 
-### 场景 22：GitHub response intake — 失败不推进 updatedAt
+### 场景 22：GitHub response intake — active poll 见 CLOSED 时从 state 移除
+Given `.state/github-response-intake.json` 中 `tranfu-labs/agent-moebius#4.mode = active`
+And 用户在 GitHub 上关闭了 issue #4
+When 一次 active poll 拉取该 issue
+Then `gh issue view` 返回 `state = "CLOSED"`
+And 系统记录 `event = "skip"`、`reason = "issue-closed"`、`issueKey = "tranfu-labs/agent-moebius#4"`
+And 不调用 trigger
+And 不调用 Codex
+And 不发表评论
+And `.state/github-response-intake.json` 中该 issue 记录被移除
+And 下一 tick `getDueActiveIssueSources` 不再返回该 issue
+
+### 场景 22.1：GitHub response intake — failed 后推进 backoff 并到上限降级
 Given `.state/github-response-intake.json` 中 `tranfu-labs/agent-moebius#4.updatedAt = T1`
 And repository scan 或 active poll 观察到该 issue 的 `updatedAt = T2`
 When pre script 执行失败、Codex 执行失败或 GitHub comment 发布失败
-Then 系统不把该 issue 的已处理 `updatedAt` 推进到 T2
+Then 系统把该 issue 的已处理 `updatedAt` 更新为 T2
+And 保持或设置 `mode = active`
+And 把 `activeNoChangeCount` 累加 1
+And 把 `nextPollAt` 设为处理时间后 1 分钟
+And 当 `activeNoChangeCount` 达到 5 时把 `mode` 降为 `idle`
+And 把 `nextPollAt` 设为 `null`
 And 不更新 `.state/role-threads.json`
-And 下一轮仍可重试该变化
+And 不发表评论
 
-### 场景 23：Dev agent — 新 comment 打断正在运行的 Codex
+### 场景 23：trigger 自反 — dev 写出 plan-written 后同轮触发 reflector stage hook
+Given 最新消息包含 `@dev`
+And `agents/dev.md` 与 `agents/reflector.md` 都存在
+And dev codex 本轮返回的 `${LAST_RESPONSE}` 含 `<!-- agent-moebius:stage=plan-written -->`
+When 一次轮询取回该 issue
+Then 系统先按 mention trigger 发布 dev 评论
+And 在本轮内把刚发布的 dev 评论拼回本地 timeline 再调用 `resolveTrigger`
+And 命中 reflector stage trigger 并立即发布 reflector hook 评论
+And 不等下一轮 active poll
+And 日志包含 `event:self-reflect-hook-commented` 与 `iteration:1`
+
+### 场景 24：trigger 自反 — 命中 mention 时停止自反
+Given dev codex 本轮返回的 `${LAST_RESPONSE}` 不含 stage marker 但包含 `@product-manager`
+And `agents/product-manager.md` 存在
+When 一次轮询取回该 issue
+Then 系统按 mention trigger 发布 dev 评论
+And 自反时再次解析命中 product-manager mention（`kind === "run-agent"`）
+And 系统停止本轮自反，不在本轮调用 product-manager 的 codex
+And 日志包含 `event:self-reflect-stopped` 与 `reason:"mention-not-self-reflected"`
+And 下一轮 active poll 仍按 mention trigger 处理 product-manager
+
+### 场景 25：trigger 自反 — 达到 MAX_SELF_REFLECT 上限退出
+Given 自反循环中连续 3 次 `resolveTrigger` 都返回新的 stage hook 结果（理论极端场景）
+When 第 `MAX_SELF_REFLECT + 1` 次循环开始
+Then 系统停止本轮自反
+And 日志包含 `event:self-reflect-stopped` 与 `reason:"max-iterations"`
+And 未发布的 hook 评论留给下一轮 active poll 兜底
+
+### 场景 26：trigger 自反 — 跨 tick 同 (source, stage) 达上限后停止
+Given 同一 issue 的 timeline 中已存在 `MAX_SELF_REFLECT` 条 `stage-hook source=dev stage=plan-written` metadata（无论 `sourceIndex` 是否相同）
+And 第 `MAX_SELF_REFLECT` 条同 `(source=dev, stage=plan-written)` hook 评论已经包含最后一次自动反思收敛指令
+And dev 在最新一轮再次发出包含 `<!-- agent-moebius:stage=plan-written -->` 的评论
+When 一次轮询取回该 issue
+Then `resolveReflectorStageTrigger` 返回 null
+And 系统不再发布 reflector hook 评论
+And 跨 tick 循环触发的发散被闭环
+
+### 场景 27：Codex 执行反馈 — 真正调用 Codex 前添加 eyes reaction
+Given 最新消息包含 `@dev`
+And `agents/dev.md` 存在
+And dev preScript 成功
+And prompt plan 需要执行 Codex
+When runner 即将调用 `runCodex`
+Then 系统先为当前 GitHub issue 添加 `eyes` reaction
+And 日志包含 `event = "codex-execution-reaction-added"`、`issueKey` 与 `agent = "dev"`
+And 随后调用 Codex driver
+
+### 场景 28：Codex 执行反馈 — 非 Codex 执行路径不添加 reaction
+Given 最新消息没有有效 mention，或最新消息触发 deterministic stage hook，或选中 agent 的 preScript 失败，或 resume prompt plan 因无新增外部消息跳过
+When runner 处理该 issue
+Then 系统不添加 `eyes` reaction
+And 不把该 reaction 当作处理成功条件
+
+### 场景 29：Codex 执行反馈 — resume fallback 不重复 reaction
+Given runner 已在本轮 resume Codex 前添加过 `eyes` reaction
+And `codex exec resume <threadId>` 失败
+When runner fallback 到 full prompt 再调用 Codex
+Then 系统不再添加第二次 `eyes` reaction
+
+### 场景 30：Codex 执行反馈 — reaction 失败不阻断 Codex
+Given runner 即将调用 Codex
+And GitHub issue reaction API 调用失败
+When runner 处理该失败
+Then 系统记录 `event = "codex-execution-reaction-failed"` 与错误原因
+And 继续调用 Codex driver
+And role thread 状态仍只在 Codex 成功且最终 GitHub 评论成功后更新
+
+### 场景 31：Dev agent — 新 comment 打断正在运行的 Codex
 Given 最新消息触发 `@dev`
 And runner 已基于当前 timeline 启动 Codex
 When Codex 尚未完成时该 issue 新增一条 comment
@@ -316,14 +446,14 @@ And 不发布该次 Codex 的 GitHub comment
 And 不更新该 issue + `dev` 的 role thread state
 And intake state 保持该 issue active，等待下一轮用包含新 comment 的 timeline 重新处理
 
-### 场景 24：中断检测 — driver 只提供 conversation snapshot
+### 场景 32：中断检测 — driver 只提供 conversation snapshot
 Given 一个 driver 可以读取当前 conversation message count
 When 当前 message count 大于 Codex 启动时的 baseline message count
 Then 通用中断 monitor 产生 `new-message` interrupt
 And monitor 不需要知道该 driver 是否来自 GitHub
 
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、失败不推进 `updatedAt`、运行中断 outcome、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed backoff 推进 `updatedAt` / `activeNoChangeCount` / `nextPollAt` 并到上限降级、运行中断 outcome、closed issue 从 active state 移除、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、trigger 解析、reflector stage 触发、普通 `@reflector` 不触发 Codex、stage hook 去重、最后一次自动反思 hook 收敛模板、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断、`appendPostedComment` 拼接、`decideNextSelfReflectStep` 4 个分支（post-comment 未到上限、达上限、run-agent、skip）、拼接 dev 评论后 `resolveTrigger` 命中 reflector stage trigger、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、以及 reaction 添加失败时仍继续调用 Codex。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 或发布 hook 评论；执行前应确认这是期望的外部副作用。

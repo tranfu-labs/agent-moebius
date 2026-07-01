@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 640" role="img" aria-labelledby="title2 desc2" font-family="ui-sans-serif, system-ui, -apple-system, 'Helvetica Neue', sans-serif">
+  <title id="title2">改造后：同轮 trigger 自反循环</title>
+  <desc id="desc2">processIssueSource 在 mention-codex 分支 postComment 后把刚发的评论拼回本地 timeline，立即再跑 resolveTrigger，命中 reflector stage hook 就当场再 postComment；命中 mention / 返回 skip / 达到上限即退出，留给下一轮 active poll 兜底。</desc>
+
+  <defs>
+    <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b6b6b"/>
+    </marker>
+    <marker id="arrow-accent2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d"/>
+    </marker>
+  </defs>
+
+  <style>
+    .box { fill: #ffffff; stroke: #d4d4d4; stroke-width: 1.2; rx: 8; }
+    .box-loop { fill: #f0fdf4; stroke: #15803d; stroke-width: 1.4; rx: 8; }
+    .box-muted { fill: #f5f5f5; stroke: #d4d4d4; stroke-width: 1; rx: 8; }
+    .label { fill: #1f1f1f; font-size: 13px; font-weight: 600; }
+    .sub { fill: #6b6b6b; font-size: 11px; }
+    .ok { fill: #15803d; font-size: 11px; font-weight: 600; }
+    .edge { stroke: #6b6b6b; stroke-width: 1.4; fill: none; }
+    .edge-loop { stroke: #15803d; stroke-width: 1.6; fill: none; }
+    .edge-loop-dashed { stroke: #15803d; stroke-width: 1.6; fill: none; stroke-dasharray: 6 4; }
+    .swim { fill: #f8f8f8; stroke: #e5e5e5; stroke-width: 1; rx: 10; }
+    .swim-label { fill: #6b6b6b; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; }
+    .title { fill: #1f1f1f; font-size: 15px; font-weight: 700; }
+    .legend { fill: #6b6b6b; font-size: 11px; }
+  </style>
+
+  <text class="title" x="20" y="28">改造后：单轮内 trigger 自反循环（post → 拼回 timeline → 再 resolveTrigger）</text>
+
+  <rect class="swim" x="20" y="50" width="860" height="460"/>
+  <text class="swim-label" x="36" y="72">同一轮 tick</text>
+
+  <rect class="box" x="40" y="90" width="160" height="64"/>
+  <text class="label" x="120" y="118" text-anchor="middle">pollActiveIssue</text>
+  <text class="sub" x="120" y="136" text-anchor="middle">fetch issue</text>
+
+  <rect class="box" x="230" y="90" width="200" height="64"/>
+  <text class="label" x="330" y="118" text-anchor="middle">buildTimeline</text>
+  <text class="sub" x="330" y="136" text-anchor="middle">含本地累加的「自反新增评论」</text>
+
+  <rect class="box-loop" x="460" y="90" width="220" height="64"/>
+  <text class="label" x="570" y="118" text-anchor="middle">resolveTrigger (第 k 次)</text>
+  <text class="ok" x="570" y="136" text-anchor="middle">看本地 timeline 末尾</text>
+
+  <rect class="box" x="710" y="90" width="170" height="64"/>
+  <text class="label" x="795" y="118" text-anchor="middle">命中？</text>
+  <text class="sub" x="795" y="136" text-anchor="middle">post-comment / run-agent / skip</text>
+
+  <rect class="box-muted" x="710" y="190" width="170" height="56"/>
+  <text class="label" x="795" y="214" text-anchor="middle">skip</text>
+  <text class="sub" x="795" y="230" text-anchor="middle">本轮结束，等下一个 tick</text>
+
+  <rect class="box" x="40" y="220" width="180" height="64"/>
+  <text class="label" x="130" y="248" text-anchor="middle">runCodex (agent)</text>
+  <text class="sub" x="130" y="266" text-anchor="middle">prescript + codex CLI</text>
+
+  <rect class="box" x="240" y="220" width="180" height="64"/>
+  <text class="label" x="330" y="248" text-anchor="middle">postComment</text>
+  <text class="sub" x="330" y="266" text-anchor="middle">agent 回复入 issue</text>
+
+  <rect class="box" x="440" y="220" width="220" height="64"/>
+  <text class="label" x="550" y="248" text-anchor="middle">postComment(hook)</text>
+  <text class="sub" x="550" y="266" text-anchor="middle">reflector stage hook</text>
+
+  <rect class="box-loop" x="180" y="320" width="540" height="70"/>
+  <text class="label" x="450" y="348" text-anchor="middle">appendPostedComment(刚 post 的评论)</text>
+  <text class="ok" x="450" y="366" text-anchor="middle">本地拼接，无需重新 fetch GitHub（兜底由下一轮 poll 校准）</text>
+
+  <rect class="box-loop" x="180" y="410" width="540" height="64"/>
+  <text class="label" x="450" y="436" text-anchor="middle">守卫：k++；k &gt; MAX_SELF_REFLECT 或命中 mention/skip → 退出</text>
+  <text class="ok" x="450" y="454" text-anchor="middle">防止 mention/stage 互相套娃形成死循环</text>
+
+  <path class="edge" d="M 200 122 H 230" marker-end="url(#arrow2)"/>
+  <path class="edge" d="M 430 122 H 460" marker-end="url(#arrow2)"/>
+  <path class="edge" d="M 680 122 H 710" marker-end="url(#arrow2)"/>
+
+  <path class="edge" d="M 795 154 V 175 H 130 V 220" marker-end="url(#arrow2)"/>
+  <path class="edge" d="M 795 154 V 175 H 550 V 220" marker-end="url(#arrow2)"/>
+  <path class="edge" d="M 795 154 V 190" marker-end="url(#arrow2)"/>
+  <path class="edge" d="M 220 252 H 240" marker-end="url(#arrow2)"/>
+
+  <path class="edge-loop" d="M 330 284 V 320" marker-end="url(#arrow-accent2)"/>
+  <path class="edge-loop" d="M 550 284 V 320" marker-end="url(#arrow-accent2)"/>
+  <path class="edge-loop" d="M 450 390 V 410" marker-end="url(#arrow-accent2)"/>
+
+  <path class="edge-loop-dashed" d="M 720 442 H 800 V 175 H 680 V 122 H 680" marker-end="url(#arrow-accent2)"/>
+  <text class="ok" x="820" y="300" text-anchor="middle" transform="rotate(90 820 300)">回到 resolveTrigger</text>
+
+  <text class="legend" x="20" y="540">兜底保留：runner 每分钟 tick + active poll 不变 —— 即便单轮自反失败，下一轮 poll 仍会按原路径补 hook（与现状语义一致）。</text>
+  <text class="legend" x="20" y="560">决策 1A：自反仅对 reflector stage hook 继续；命中 mention（要再跑 codex）即停止，留给下一轮 poll 处理。</text>
+  <text class="legend" x="20" y="580">MAX_SELF_REFLECT = 3：覆盖「dev plan-written → reflector hook → skip」「dev code-verified → reflector hook → skip」典型链，留 1 个余量。</text>
+  <text class="legend" x="20" y="600">post 失败处理：postComment 抛错 → 不拼回 timeline、退出自反循环、整轮按原 catch 路径报错；下一轮 poll 会再来一次。</text>
+  <text class="legend" x="20" y="620">timeline.index：本地拼接使用 timeline.length 续号；下一轮 poll 重 fetch 时按真 comment 顺序重新编号。stage-hook 去重按 (sourceRole, stage) 累计 &lt; MAX_SELF_REFLECT 判定，sourceIndex 仅用于人 / 日志追溯，本地与远端编号差异不影响判定。</text>
+</svg>

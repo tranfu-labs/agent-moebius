@@ -11,6 +11,7 @@ import {
   ISSUE_DISCOVERY_LIMIT,
   MAX_ACTIVE_ISSUES,
   RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS,
+  MAX_SELF_REFLECT,
   TICK_INTERVAL_MS,
   TMP_ROOT,
   WATCH_REPOSITORIES,
@@ -35,11 +36,13 @@ import {
 } from "./conversation.js";
 import { isInterruptedCodexRunResult, run as runCodex } from "./codex.js";
 import {
+  addIssueReaction,
   fetchIssueWithComments,
   isGitHubIssueNotFoundError,
   listOpenIssueSummaries,
   postComment,
   type GitHubIssue,
+  type IssueReactionContent,
 } from "./github.js";
 import {
   enforceActiveIssueLimit,
@@ -62,13 +65,34 @@ import {
   withRoleThreadState,
 } from "./state.js";
 import { resolveTrigger } from "./triggers/index.js";
+import { appendPostedComment, decideNextSelfReflectStep } from "./triggers/self-reflect.js";
 
 let running = false;
 
-interface AgentFile {
+export interface AgentFile {
   name: string;
   path: string;
 }
+
+export interface ProcessIssueSourceDependencies {
+  runAgentPreScript: typeof runAgentPreScript;
+  runCodex: typeof runCodex;
+  addIssueReaction: typeof addIssueReaction;
+  fetchIssueWithComments: typeof fetchIssueWithComments;
+  postComment: typeof postComment;
+  loadRoleThreadStateStore: typeof loadRoleThreadStateStore;
+  saveRoleThreadStateStore: typeof saveRoleThreadStateStore;
+}
+
+const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies = {
+  runAgentPreScript,
+  runCodex,
+  addIssueReaction,
+  fetchIssueWithComments,
+  postComment,
+  loadRoleThreadStateStore,
+  saveRoleThreadStateStore,
+};
 
 export async function tick(now = new Date()): Promise<void> {
   if (running) {
@@ -169,11 +193,17 @@ async function scanRepository(input: {
   }
 }
 
-async function pollActiveIssue(input: {
+export async function pollActiveIssue(input: {
   state: GitHubResponseIntakeState;
   source: IssueSource;
   agentFiles: AgentFile[];
   now: Date;
+}, dependencies: {
+  fetchIssueWithComments: typeof fetchIssueWithComments;
+  processIssueSource: typeof processIssueSource;
+} = {
+  fetchIssueWithComments,
+  processIssueSource,
 }): Promise<GitHubResponseIntakeState> {
   const issueState = input.state.issues[input.source.issueKey];
   if (issueState === undefined || issueState.mode !== "active") {
@@ -181,7 +211,19 @@ async function pollActiveIssue(input: {
   }
 
   try {
-    const issue = await fetchIssueWithComments(input.source);
+    const issue = await dependencies.fetchIssueWithComments(input.source);
+    if (issue.state === "CLOSED") {
+      log({ event: "skip", reason: "issue-closed", issueKey: input.source.issueKey });
+      return recordIssueProcessingOutcome({
+        state: input.state,
+        summary: issueSummaryFromSource(input.source, issue.updatedAt),
+        outcome: "issue-closed",
+        processedAt: input.now,
+        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+      });
+    }
+
     if (issue.updatedAt === issueState.updatedAt) {
       log({
         event: "active-issue-unchanged",
@@ -197,7 +239,7 @@ async function pollActiveIssue(input: {
       });
     }
 
-    const outcome = await processIssueSource({
+    const outcome = await dependencies.processIssueSource({
       source: input.source,
       issue,
       agentFiles: input.agentFiles,
@@ -208,6 +250,7 @@ async function pollActiveIssue(input: {
       outcome,
       processedAt: input.now,
       activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
     });
   } catch (error) {
     if (isGitHubIssueNotFoundError(error)) {
@@ -218,11 +261,19 @@ async function pollActiveIssue(input: {
         outcome: "issue-not-found",
         processedAt: input.now,
         activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
       });
     }
 
     log({ event: "active-issue-fetch-failed", issueKey: input.source.issueKey, error: formatError(error) });
-    return input.state;
+    return recordIssueProcessingOutcome({
+      state: input.state,
+      summary: issueSummaryFromSource(input.source, issueState.updatedAt),
+      outcome: "failed",
+      processedAt: input.now,
+      activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+    });
   }
 }
 
@@ -236,6 +287,18 @@ async function fetchAndProcessChangedIssue(input: {
 
   try {
     const issue = await fetchIssueWithComments(source);
+    if (issue.state === "CLOSED") {
+      log({ event: "skip", reason: "issue-closed", issueKey: source.issueKey });
+      return recordIssueProcessingOutcome({
+        state: input.state,
+        summary: issueSummaryFromSource(source, issue.updatedAt),
+        outcome: "issue-closed",
+        processedAt: input.now,
+        activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
+      });
+    }
+
     const outcome = await processIssueSource({
       source,
       issue,
@@ -248,6 +311,7 @@ async function fetchAndProcessChangedIssue(input: {
       outcome,
       processedAt: input.now,
       activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
     });
   } catch (error) {
     if (isGitHubIssueNotFoundError(error)) {
@@ -258,6 +322,7 @@ async function fetchAndProcessChangedIssue(input: {
         outcome: "issue-not-found",
         processedAt: input.now,
         activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+        activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
       });
     }
 
@@ -268,15 +333,19 @@ async function fetchAndProcessChangedIssue(input: {
       outcome: "failed",
       processedAt: input.now,
       activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
+      activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
     });
   }
 }
 
-async function processIssueSource(input: {
-  source: IssueSource;
-  issue: GitHubIssue;
-  agentFiles: AgentFile[];
-}): Promise<IssueProcessingOutcome> {
+export async function processIssueSource(
+  input: {
+    source: IssueSource;
+    issue: GitHubIssue;
+    agentFiles: AgentFile[];
+  },
+  dependencies = DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES,
+): Promise<IssueProcessingOutcome> {
   try {
     const count = countMessages(input.issue.comments.length);
     const agentFiles = input.agentFiles;
@@ -290,7 +359,7 @@ async function processIssueSource(input: {
     }
 
     if (trigger.kind === "post-comment") {
-      await postComment(input.source, trigger.body);
+      await dependencies.postComment(input.source, trigger.body);
       log({
         event: "hook-commented",
         count,
@@ -315,7 +384,7 @@ async function processIssueSource(input: {
 
     const agentMarkdown = await fs.readFile(selectedAgent.path, "utf8");
     const agentManifest = parseAgentManifest(agentMarkdown);
-    const stateStore = await loadRoleThreadStateStore();
+    const stateStore = await dependencies.loadRoleThreadStateStore();
     const existingState = getRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name);
     const plan = buildRolePromptPlan({
       role: selectedAgent.name,
@@ -331,7 +400,7 @@ async function processIssueSource(input: {
 
     let codexCwd: string | undefined;
     if (agentManifest.preScript !== null) {
-      const preScriptResult = await runAgentPreScript({
+      const preScriptResult = await dependencies.runAgentPreScript({
         role: selectedAgent.name,
         preScript: agentManifest.preScript,
         latestIndex: plan.latestIndex,
@@ -366,18 +435,25 @@ async function processIssueSource(input: {
     }
 
     const interruptController = new AbortController();
+    let currentThreadId = plan.mode === "resume" ? plan.threadId : null;
+    let finalRunDir = runDir;
+    await addCodexExecutionReaction({
+      source: input.source,
+      agent: selectedAgent.name,
+      count,
+      addIssueReaction: dependencies.addIssueReaction,
+    });
+
     const interruptMonitor = startAgentRunInterruptMonitor({
       source: input.source,
       agent: selectedAgent.name,
       baselineMessageCount: count,
       controller: interruptController,
+      fetchIssueWithComments: dependencies.fetchIssueWithComments,
     });
-
-    let currentThreadId = plan.mode === "resume" ? plan.threadId : null;
-    let finalRunDir = runDir;
-    let result: Awaited<ReturnType<typeof runCodex>>;
+    let result: Awaited<ReturnType<ProcessIssueSourceDependencies["runCodex"]>>;
     try {
-      result = await runCodex({
+      result = await dependencies.runCodex({
         prompt: plan.prompt,
         runDir,
         cwd: codexCwd,
@@ -409,7 +485,7 @@ async function processIssueSource(input: {
 
         currentThreadId = null;
         finalRunDir = `${runDir}-fallback`;
-        result = await runCodex({
+        result = await dependencies.runCodex({
           prompt: buildFallbackFullPrompt(agentManifest.body, timeline),
           runDir: finalRunDir,
           cwd: codexCwd,
@@ -444,6 +520,7 @@ async function processIssueSource(input: {
         source: input.source,
         agent: selectedAgent.name,
         baselineMessageCount: count,
+        fetchIssueWithComments: dependencies.fetchIssueWithComments,
       });
     } catch (error) {
       log({
@@ -475,8 +552,11 @@ async function processIssueSource(input: {
       return "failed";
     }
 
-    await postComment(input.source, formatAgentComment(selectedAgent.name, result.finalText));
-    await saveRoleThreadStateStore(withRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name, nextState));
+    const postedBody = formatAgentComment(selectedAgent.name, result.finalText);
+    await dependencies.postComment(input.source, postedBody);
+    await dependencies.saveRoleThreadStateStore(
+      withRoleThreadState(stateStore, input.source.issueKey, selectedAgent.name, nextState),
+    );
     log({
       event: "commented",
       count,
@@ -486,10 +566,68 @@ async function processIssueSource(input: {
       cachedInputTokens: result.cachedInputTokens,
       issueKey: input.source.issueKey,
     });
+
+    let workingTimeline = appendPostedComment(timeline, selectedAgent.name, postedBody);
+    for (let iteration = 1; iteration <= MAX_SELF_REFLECT; iteration++) {
+      const nextTrigger = resolveTrigger({ timeline: workingTimeline, availableAgentNames: agentNames });
+      const step = decideNextSelfReflectStep(nextTrigger, iteration, MAX_SELF_REFLECT);
+
+      if (step.kind === "stop") {
+        log({
+          event: "self-reflect-stopped",
+          iteration,
+          reason: step.reason,
+          issueKey: input.source.issueKey,
+        });
+        break;
+      }
+
+      // step.kind === "continue-hook" 保证 nextTrigger.kind === "post-comment"
+      if (nextTrigger.kind !== "post-comment") {
+        break;
+      }
+
+      await dependencies.postComment(input.source, nextTrigger.body);
+      log({
+        event: "self-reflect-hook-commented",
+        iteration,
+        stage: nextTrigger.stage,
+        sourceRole: nextTrigger.sourceRole,
+        sourceIndex: nextTrigger.sourceIndex,
+        issueKey: input.source.issueKey,
+      });
+      workingTimeline = appendPostedComment(workingTimeline, nextTrigger.role, nextTrigger.body);
+    }
+
     return "triggered-success";
   } catch (error) {
     log({ event: "process-issue-error", issueKey: input.source.issueKey, error: formatError(error) });
     return "failed";
+  }
+}
+
+async function addCodexExecutionReaction(input: {
+  source: IssueSource;
+  agent: string;
+  count: number;
+  addIssueReaction: (source: IssueSource, content: IssueReactionContent) => Promise<void>;
+}): Promise<void> {
+  try {
+    await input.addIssueReaction(input.source, "eyes");
+    log({
+      event: "codex-execution-reaction-added",
+      count: input.count,
+      agent: input.agent,
+      issueKey: input.source.issueKey,
+    });
+  } catch (error) {
+    log({
+      event: "codex-execution-reaction-failed",
+      count: input.count,
+      agent: input.agent,
+      issueKey: input.source.issueKey,
+      error: formatError(error),
+    });
   }
 }
 
@@ -530,6 +668,7 @@ function startAgentRunInterruptMonitor(input: {
   agent: string;
   baselineMessageCount: number;
   controller: AbortController;
+  fetchIssueWithComments: typeof fetchIssueWithComments;
 }): PollingConversationInterruptMonitor | null {
   if (input.agent !== "dev") {
     return null;
@@ -539,7 +678,7 @@ function startAgentRunInterruptMonitor(input: {
     baselineSnapshot: { messageCount: input.baselineMessageCount },
     intervalMs: RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS,
     fetchSnapshot: async () => {
-      const issue = await fetchIssueWithComments(input.source);
+      const issue = await input.fetchIssueWithComments(input.source);
       return { messageCount: countMessages(issue.comments.length) };
     },
     onInterrupt: (interrupt) => {
@@ -565,12 +704,13 @@ async function checkAgentRunInterrupt(input: {
   source: IssueSource;
   agent: string;
   baselineMessageCount: number;
+  fetchIssueWithComments: typeof fetchIssueWithComments;
 }): Promise<ConversationInterrupt | null> {
   if (input.agent !== "dev") {
     return null;
   }
 
-  const issue = await fetchIssueWithComments(input.source);
+  const issue = await input.fetchIssueWithComments(input.source);
   return resolveConversationInterrupt({
     baselineSnapshot: { messageCount: input.baselineMessageCount },
     currentSnapshot: { messageCount: countMessages(issue.comments.length) },

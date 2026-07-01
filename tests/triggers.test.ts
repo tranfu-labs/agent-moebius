@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildTimeline } from "../src/conversation.js";
+import { MAX_SELF_REFLECT } from "../src/config.js";
+import { buildTimeline, formatAgentComment } from "../src/conversation.js";
+import type { TimelineMessage } from "../src/conversation.js";
 import { resolveTrigger } from "../src/triggers/index.js";
 import { resolveReflectorStageTrigger } from "../src/triggers/reflector-stage-trigger.js";
+import { appendPostedComment } from "../src/triggers/self-reflect.js";
 
 const agents = ["dev", "product-manager", "reflector"];
 
@@ -28,7 +31,7 @@ describe("triggers", () => {
   it("posts a reflector comment when an agent emits a supported stage", () => {
     const timeline = buildTimeline(
       "initial",
-      [{ body: "&lt;dev&gt;:\n方案已确认\n<!-- agent-moebius:stage=plan-confirmed -->\n\n<!-- agent-moebius:role=dev -->" }],
+      [{ body: "&lt;dev&gt;:\n方案已写完\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=dev -->" }],
       agents,
     );
 
@@ -40,12 +43,12 @@ describe("triggers", () => {
       reason: "reflector-stage",
       sourceRole: "dev",
       sourceIndex: 1,
-      stage: "plan-confirmed",
+      stage: "plan-written",
     });
-    expect(trigger.kind === "post-comment" ? trigger.body : "").toContain("@dev 请针对「plan-confirmed」做一次反思。");
+    expect(trigger.kind === "post-comment" ? trigger.body : "").toContain("@dev 请针对「plan-written」做一次反思。");
     expect(trigger.kind === "post-comment" ? trigger.body : "").toContain("<!-- agent-moebius:role=reflector -->");
     expect(trigger.kind === "post-comment" ? trigger.body : "").toContain(
-      "<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=1 -->",
+      "<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->",
     );
   });
 
@@ -54,7 +57,7 @@ describe("triggers", () => {
       "initial",
       [
         {
-          body: "&lt;dev&gt;:\n@product-manager FYI\n<!-- agent-moebius:stage=code-complete -->\n\n<!-- agent-moebius:role=dev -->",
+          body: "&lt;dev&gt;:\n@product-manager FYI\n<!-- agent-moebius:stage=code-verified -->\n\n<!-- agent-moebius:role=dev -->",
         },
       ],
       agents,
@@ -63,14 +66,14 @@ describe("triggers", () => {
     expect(resolveTrigger({ timeline, availableAgentNames: agents })).toMatchObject({
       kind: "post-comment",
       role: "reflector",
-      stage: "code-complete",
+      stage: "code-verified",
     });
   });
 
-  it("ignores unsupported stages", () => {
+  it("ignores old unsupported stages", () => {
     const timeline = buildTimeline(
       "initial",
-      [{ body: "&lt;dev&gt;:\n准备中\n<!-- agent-moebius:stage=proposal-draft -->\n\n<!-- agent-moebius:role=dev -->" }],
+      [{ body: "&lt;dev&gt;:\n旧阶段\n<!-- agent-moebius:stage=plan-confirmed -->\n\n<!-- agent-moebius:role=dev -->" }],
       agents,
     );
 
@@ -85,7 +88,7 @@ describe("triggers", () => {
       "initial",
       [
         {
-          body: "&lt;reflector&gt;:\n@dev 请反思\n<!-- agent-moebius:stage=plan-confirmed -->\n\n<!-- agent-moebius:role=reflector -->",
+          body: "&lt;reflector&gt;:\n@dev 请反思\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=reflector -->",
         },
       ],
       agents,
@@ -98,23 +101,126 @@ describe("triggers", () => {
     });
   });
 
-  it("does not post duplicate stage hooks for the same source message and stage", () => {
+  it("still posts a stage hook when same (source, stage) count is below MAX_SELF_REFLECT", () => {
     const timeline = [
       { index: 0, speaker: "user", body: "initial", source: "issue-body" as const },
       {
-        index: 2,
-        speaker: "reflector",
-        body: "@dev 请反思\n<!-- agent-moebius:stage-hook source=dev stage=plan-confirmed sourceIndex=1 -->",
+        index: 1,
+        speaker: "dev",
+        body: "方案 v1\n<!-- agent-moebius:stage=plan-written -->",
         source: "comment" as const,
       },
       {
-        index: 1,
+        index: 2,
+        speaker: "reflector",
+        body: "@dev 请反思\n<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->",
+        source: "comment" as const,
+      },
+      {
+        index: 3,
         speaker: "dev",
-        body: "方案已确认\n<!-- agent-moebius:stage=plan-confirmed -->",
+        body: "方案 v2\n<!-- agent-moebius:stage=plan-written -->",
         source: "comment" as const,
       },
     ];
 
+    expect(resolveReflectorStageTrigger({ timeline, availableAgentNames: agents })).toMatchObject({
+      kind: "post-comment",
+      role: "reflector",
+      sourceRole: "dev",
+      stage: "plan-written",
+      sourceIndex: 3,
+    });
+  });
+
+  it("adds convergence instructions to the final automatic reflection hook", () => {
+    const timeline: TimelineMessage[] = [
+      { index: 0, speaker: "user", body: "initial", source: "issue-body" },
+    ];
+
+    for (let i = 0; i < MAX_SELF_REFLECT - 1; i += 1) {
+      const devIndex = timeline.length;
+      timeline.push({
+        index: devIndex,
+        speaker: "dev",
+        body: `方案 v${i + 1}\n<!-- agent-moebius:stage=plan-written -->`,
+        source: "comment",
+      });
+      timeline.push({
+        index: timeline.length,
+        speaker: "reflector",
+        body: `@dev 请反思\n<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=${devIndex} -->`,
+        source: "comment",
+      });
+    }
+
+    timeline.push({
+      index: timeline.length,
+      speaker: "dev",
+      body: "方案最终反思\n<!-- agent-moebius:stage=plan-written -->",
+      source: "comment",
+    });
+
+    const trigger = resolveReflectorStageTrigger({ timeline, availableAgentNames: agents });
+
+    expect(trigger).toMatchObject({
+      kind: "post-comment",
+      role: "reflector",
+      sourceRole: "dev",
+      stage: "plan-written",
+    });
+    const body = trigger?.kind === "post-comment" ? trigger.body : "";
+    expect(body).toContain("这是该阶段最后一次自动反思。");
+    expect(body).toContain("如果没有发现新问题，请不要继续输出同一个 stage marker，直接按推进计划进入后续步骤。");
+    expect(body).toContain("如果发现新问题，请说明问题与建议处理方式，然后停下等待人类检查，不要继续自动推进。");
+  });
+
+  it("stops triggering once same (source, stage) hook count reaches MAX_SELF_REFLECT", () => {
+    const timeline: TimelineMessage[] = [
+      { index: 0, speaker: "user", body: "initial", source: "issue-body" },
+    ];
+
+    for (let i = 0; i < MAX_SELF_REFLECT; i += 1) {
+      const devIndex = timeline.length;
+      timeline.push({
+        index: devIndex,
+        speaker: "dev",
+        body: `方案 v${i + 1}\n<!-- agent-moebius:stage=plan-written -->`,
+        source: "comment",
+      });
+      timeline.push({
+        index: timeline.length,
+        speaker: "reflector",
+        body: `@dev 请反思\n<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=${devIndex} -->`,
+        source: "comment",
+      });
+    }
+
+    timeline.push({
+      index: timeline.length,
+      speaker: "dev",
+      body: "方案再修\n<!-- agent-moebius:stage=plan-written -->",
+      source: "comment",
+    });
+
     expect(resolveReflectorStageTrigger({ timeline, availableAgentNames: agents })).toBeNull();
+  });
+
+
+  it("resolves a reflector stage trigger after locally appending dev's posted comment", () => {
+    const timeline = buildTimeline("@dev 请按要求推进", [], agents);
+    const postedBody = formatAgentComment(
+      "dev",
+      "已到 plan-written，按要求停下。\n\n<!-- agent-moebius:stage=plan-written -->",
+    );
+    const reflected = appendPostedComment(timeline, "dev", postedBody);
+
+    expect(resolveTrigger({ timeline: reflected, availableAgentNames: agents })).toMatchObject({
+      kind: "post-comment",
+      role: "reflector",
+      reason: "reflector-stage",
+      sourceRole: "dev",
+      stage: "plan-written",
+    });
   });
 });
