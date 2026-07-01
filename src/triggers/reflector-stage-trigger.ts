@@ -20,7 +20,12 @@ export function resolveReflectorStageTrigger(input: TriggerInput): TriggerResult
   }
 
   const stage = parseFirstReflectorStage(latestMessage.body);
-  if (stage === null || countExistingStageHooks(input.timeline, latestMessage.speaker, stage) >= MAX_SELF_REFLECT) {
+  if (stage === null) {
+    return null;
+  }
+
+  const existingHookCount = countExistingStageHooks(input.timeline, latestMessage.speaker, stage);
+  if (existingHookCount >= MAX_SELF_REFLECT) {
     return null;
   }
 
@@ -35,6 +40,7 @@ export function resolveReflectorStageTrigger(input: TriggerInput): TriggerResult
       sourceRole: latestMessage.speaker,
       sourceIndex: latestMessage.index,
       stage,
+      isFinalReflection: existingHookCount === MAX_SELF_REFLECT - 1,
     }),
   };
 }
@@ -106,9 +112,22 @@ function countExistingStageHooks(timeline: TimelineMessage[], sourceRole: string
   return count;
 }
 
-function formatReflectorStageComment(input: { sourceRole: string; sourceIndex: number; stage: string }): string {
+function formatReflectorStageComment(input: {
+  sourceRole: string;
+  sourceIndex: number;
+  stage: string;
+  isFinalReflection: boolean;
+}): string {
+  const finalReflectionInstruction = input.isFinalReflection
+    ? `
+
+这是该阶段最后一次自动反思。
+如果没有发现新问题，请不要继续输出同一个 stage marker，直接按推进计划进入后续步骤。
+如果发现新问题，请说明问题与建议处理方式，然后停下等待人类检查，不要继续自动推进。`
+    : "";
+
   return `&lt;${REFLECTOR_ROLE}&gt;:
-@${input.sourceRole} 请针对「${input.stage}」做一次反思。
+@${input.sourceRole} 请针对「${input.stage}」做一次反思。${finalReflectionInstruction}
 
 <!-- agent-moebius:role=${REFLECTOR_ROLE} -->
 <!-- agent-moebius:stage-hook source=${input.sourceRole} stage=${input.stage} sourceIndex=${input.sourceIndex} -->`;
