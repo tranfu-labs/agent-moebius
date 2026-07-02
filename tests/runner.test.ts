@@ -15,7 +15,7 @@ import {
   type RunnerDependencies,
 } from "../src/runner.js";
 import type { GitHubResponseIntakeState } from "../src/github-response-intake.js";
-import type { GitHubIssue } from "../src/github.js";
+import { CommandFailedError, type GitHubIssue } from "../src/github.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
 const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
@@ -417,6 +417,31 @@ describe("processIssueSource Codex execution reaction", () => {
     expect(outcome).toBe("interrupted");
     expect(postComment).not.toHaveBeenCalled();
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+  });
+
+  it("fails open and still posts the Codex result when the final interrupt check hits a transient gh error", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn(async () => {});
+    const saveRoleThreadStateEntry = vi.fn(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        fetchIssueWithComments: async () => {
+          throw new CommandFailedError("gh", 1, null, 'Post "https://api.github.com/graphql": EOF');
+        },
+        postComment,
+        saveRoleThreadStateEntry,
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment).toHaveBeenCalledTimes(1);
+    expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
   });
 
   it("does not add a reaction when no Codex driver will run", async () => {

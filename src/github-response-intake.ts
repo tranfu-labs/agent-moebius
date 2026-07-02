@@ -28,6 +28,7 @@ export type IssueProcessingOutcome =
   | "triggered-success"
   | "no-trigger"
   | "failed"
+  | "transient-failed"
   | "interrupted"
   | "issue-not-found"
   | "issue-closed";
@@ -167,6 +168,28 @@ export function recordIssueProcessingOutcome(input: {
           nextPollAt: shouldDemote
             ? null
             : addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString(),
+        },
+      },
+    };
+  }
+
+  if (input.outcome === "transient-failed") {
+    // 瞬时基础设施故障：不烧降级预算、不推进 updatedAt，保持 active 排下一次 poll，
+    // 恢复后成功拉取会重新看到仍存在的变化并自然重入。
+    const previousIssue = input.state.issues[source.issueKey];
+    const activeNoChangeCount = previousIssue?.mode === "active" ? previousIssue.activeNoChangeCount : 0;
+    return {
+      ...input.state,
+      issues: {
+        ...input.state.issues,
+        [source.issueKey]: {
+          owner: input.summary.owner,
+          repo: input.summary.repo,
+          issueNumber: input.summary.issueNumber,
+          updatedAt: previousIssue?.updatedAt ?? input.summary.updatedAt,
+          mode: "active",
+          activeNoChangeCount,
+          nextPollAt: addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString(),
         },
       },
     };
