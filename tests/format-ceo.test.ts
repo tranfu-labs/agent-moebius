@@ -179,7 +179,6 @@ describe("formatCeoComment", () => {
         ],
       },
       latestResponse: "我准备发布的最新响应",
-      lastReflectorHook: "最近 reflector hook",
       agentsDir,
       runCodex,
     });
@@ -197,8 +196,7 @@ describe("formatCeoComment", () => {
     expect(prompt).toContain("stage-hook source=dev stage=plan-written");
     expect(prompt).toContain("latestResponse:");
     expect(prompt).toContain("我准备发布的最新响应");
-    expect(prompt).toContain("lastReflectorHook:");
-    expect(prompt).toContain("最近 reflector hook");
+    expect(prompt).not.toContain("lastReflectorHook:");
     expect(prompt).not.toContain("originalRequest:");
   });
 
@@ -257,6 +255,23 @@ ${CEO_CORRECTED_METADATA}`;
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
       finalText: '{"action":"append","as":"nobody","body":"..."}',
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({ ...baseInput, latestResponse: "原文", agentsDir, runCodex });
+
+    expect(result).toMatchObject({ action: "FAIL_OPEN", body: "原文", reason: "unknown-as" });
+  });
+
+  it("fail-opens when append.as is the removed reflector role", async () => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: '{"action":"append","as":"reflector","body":"..."}',
       threadId: "ceo-thread",
       cachedInputTokens: null,
       runDir: options.runDir,
@@ -385,7 +400,6 @@ const baseInput: Omit<FormatCeoInput, "agentsDir" | "runCodex"> = {
     comments: [],
   },
   latestResponse: "done\n<!-- agent-moebius:stage=in-progress -->",
-  lastReflectorHook: null,
   runDir: path.join(os.tmpdir(), "agent-moebius-ceo-test"),
 };
 

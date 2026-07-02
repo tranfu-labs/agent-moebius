@@ -1,8 +1,6 @@
 export type Stage = "plan-written" | "code-verified" | "in-progress";
-export type ReflectorStage = "plan-written" | "code-verified";
 
-export const REFLECTOR_STAGES = ["plan-written", "code-verified"] as const satisfies readonly ReflectorStage[];
-export const ALL_STAGES = [...REFLECTOR_STAGES, "in-progress"] as const satisfies readonly Stage[];
+export const ALL_STAGES = ["plan-written", "code-verified", "in-progress"] as const satisfies readonly Stage[];
 
 const METADATA_NAME = "[a-z0-9]+(?:-[a-z0-9]+)*";
 const STAGE_MARKER_PATTERN = new RegExp(
@@ -16,10 +14,6 @@ const TRAILING_STAGE_MARKER_PATTERN = new RegExp(
 
 export function isStage(value: string): value is Stage {
   return (ALL_STAGES as readonly string[]).includes(value);
-}
-
-export function isReflectorStage(value: string): value is ReflectorStage {
-  return (REFLECTOR_STAGES as readonly string[]).includes(value);
 }
 
 export function parseStageMarkers(text: string, allowedStages: readonly string[] = ALL_STAGES): string[] {

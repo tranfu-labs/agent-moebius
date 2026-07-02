@@ -428,7 +428,6 @@ preScript: src/agent-prescripts/dev-workspace.ts
 ---
 Dev persona`,
     );
-    const reflector = await makeAgentFile("reflector", "Reflector persona");
 
     await expectNoReaction({
       issue: makeIssue("plain latest message"),
@@ -441,8 +440,8 @@ Dev persona`,
           body: "&lt;dev&gt;:\nplan\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=dev -->",
         },
       ]),
-      agentFiles: [dev, reflector],
-      expectedOutcome: "triggered-success",
+      agentFiles: [dev],
+      expectedOutcome: "no-trigger",
     });
     await expectNoReaction({
       issue: makeIssue("@dev please run"),
@@ -497,14 +496,12 @@ describe("processIssueSource CEO guardrail", () => {
           issueBody: `@${role} please run`,
           comments: [],
         },
-        lastReflectorHook: null,
       });
     }
   });
 
   it("passes full public issue context to CEO with comments in order", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
-    const reflector = await makeAgentFile("reflector", "Reflector persona");
     const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
       noChangeCeoResult(input.latestResponse),
     );
@@ -524,7 +521,7 @@ describe("processIssueSource CEO guardrail", () => {
           { body: secondComment },
           { body: thirdComment },
         ]),
-        agentFiles: [agent, reflector],
+        agentFiles: [agent],
       },
       makeDependencies({ formatCeoComment }),
     );
@@ -535,7 +532,6 @@ describe("processIssueSource CEO guardrail", () => {
         issueBody: "全局流程：先采访再方案",
         comments: [{ body: firstComment }, { body: secondComment }, { body: thirdComment }],
       },
-      lastReflectorHook: expect.stringContaining("stage-hook source=dev stage=plan-written"),
     });
   });
 
@@ -656,36 +652,12 @@ ${CEO_CORRECTED_METADATA}`,
     );
   });
 
-  it("passes the latest reflector hook body to CEO", async () => {
+  it("does not run CEO or post comments for stage-only agent comments", async () => {
     const dev = await makeAgentFile("dev", "Dev persona");
-    const reflector = await makeAgentFile("reflector", "Reflector persona");
     const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
       noChangeCeoResult(input.latestResponse),
     );
-    const hook = `&lt;reflector&gt;:
-@dev 请针对「plan-written」做一次反思。
-
-<!-- agent-moebius:role=reflector -->
-<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->`;
-
-    await processIssueSource(
-      {
-        source,
-        issue: makeIssue("initial", [{ body: hook }, { body: "@dev continue" }]),
-        agentFiles: [dev, reflector],
-      },
-      makeDependencies({ formatCeoComment }),
-    );
-
-    expect(formatCeoComment.mock.calls[0]?.[0].lastReflectorHook).toContain("stage-hook source=dev");
-  });
-
-  it("does not run CEO for deterministic reflector hook comments", async () => {
-    const dev = await makeAgentFile("dev", "Dev persona");
-    const reflector = await makeAgentFile("reflector", "Reflector persona");
-    const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
-      noChangeCeoResult(input.latestResponse),
-    );
+    const postComment = vi.fn(async () => {});
 
     const outcome = await processIssueSource(
       {
@@ -695,13 +667,14 @@ ${CEO_CORRECTED_METADATA}`,
             body: "&lt;dev&gt;:\nplan\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=dev -->",
           },
         ]),
-        agentFiles: [dev, reflector],
+        agentFiles: [dev],
       },
-      makeDependencies({ formatCeoComment }),
+      makeDependencies({ formatCeoComment, postComment }),
     );
 
-    expect(outcome).toBe("triggered-success");
+    expect(outcome).toBe("no-trigger");
     expect(formatCeoComment).not.toHaveBeenCalled();
+    expect(postComment).not.toHaveBeenCalled();
   });
 });
 
