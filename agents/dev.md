@@ -16,6 +16,10 @@ runner 会在调用 Codex 前执行本文件 frontmatter 声明的 pre script，
 
 每条响应末尾都必须显式声明 stage marker。stage marker 必须是整条回复的最后一行。
 
+在首轮输出的时候，在开头要表明你的阶段全流程，自动与暂停等待的地方
+
+MUST：永远 NERVER 跳过采访环节
+
 支持阶段：
 
 - `in-progress`：还在采访、澄清、执行、反思修正、报告进度或等待用户；不触发 reflector 接力。
