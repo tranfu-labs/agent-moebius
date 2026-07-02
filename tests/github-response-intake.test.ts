@@ -193,6 +193,69 @@ describe("github response intake", () => {
     });
   });
 
+  it("keeps a transient-failed issue active without burning the no-change budget or advancing updatedAt", () => {
+    const state = stateWithActiveIssue({
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 3,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+    const result = recordIssueProcessingOutcome({
+      state,
+      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
+      outcome: "transient-failed",
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
+    });
+
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+      mode: "active",
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 3,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+  });
+
+  it("does not demote a transient-failed issue even at the no-change limit", () => {
+    const state = stateWithActiveIssue({
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 4,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+    const result = recordIssueProcessingOutcome({
+      state,
+      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
+      outcome: "transient-failed",
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
+    });
+
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+      mode: "active",
+      activeNoChangeCount: 4,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+  });
+
+  it("registers a transient-failed issue as active from zero when it was previously untracked", () => {
+    const result = recordIssueProcessingOutcome({
+      state: { repositories: {}, issues: {} },
+      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
+      outcome: "transient-failed",
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
+    });
+
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+      mode: "active",
+      updatedAt: "2026-06-28T00:03:00.000Z",
+      activeNoChangeCount: 0,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+  });
+
   it("removes issue state after issue-closed outcomes", () => {
     const state = stateWithActiveIssue({
       updatedAt: "2026-06-28T00:00:00.000Z",

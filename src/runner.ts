@@ -7,6 +7,7 @@ import {
   AGENT_CONTEXTS_STATE_PATH,
   AGENTS_DIR,
   CODEX_DRIVER_POOL_MAX_CONCURRENT,
+  CODEX_RUN_MAX_DURATION_MS,
   CONFIG_LOG_FIELDS,
   IDLE_REPOSITORY_SCAN_INTERVAL_MS,
   ISSUE_DISCOVERY_LIMIT,
@@ -52,6 +53,7 @@ import {
   addReaction,
   fetchIssueWithComments,
   isGitHubIssueNotFoundError,
+  isTransientGitHubCliError,
   listOpenIssueSummaries,
   postComment,
   type GitHubIssue,
@@ -294,11 +296,12 @@ async function processActiveIssueJob(input: {
       };
     }
 
-    log({ event: "active-issue-fetch-failed", issueKey: input.job.source.issueKey, error: formatError(error) });
+    const outcome = isTransientGitHubCliError(error) ? "transient-failed" : "failed";
+    log({ event: "active-issue-fetch-failed", issueKey: input.job.source.issueKey, outcome, error: formatError(error) });
     return {
       kind: "processed",
       summary: issueSummaryFromSource(input.job.source, input.job.previousUpdatedAt),
-      outcome: "failed",
+      outcome,
     };
   }
 }
@@ -343,11 +346,12 @@ async function processChangedIssueJob(input: {
       };
     }
 
-    log({ event: "issue-fetch-failed", issueKey: source.issueKey, error: formatError(error) });
+    const outcome = isTransientGitHubCliError(error) ? "transient-failed" : "failed";
+    log({ event: "issue-fetch-failed", issueKey: source.issueKey, outcome, error: formatError(error) });
     return {
       kind: "processed",
       summary: input.job.summary,
-      outcome: "failed",
+      outcome,
     };
   }
 }
@@ -509,6 +513,39 @@ export async function processIssueSource(
       controller: interruptController,
       fetchIssueWithComments: dependencies.fetchIssueWithComments,
     });
+
+    // 看门狗：单次 codex run 的总时长上限，兜底 in-flight job 永不返回导致的 skip-inflight 死锁。
+    const codexWatchdog = { fired: false };
+    const watchdogTimer = setTimeout(() => {
+      codexWatchdog.fired = true;
+      interruptController.abort(`codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`);
+    }, CODEX_RUN_MAX_DURATION_MS);
+    watchdogTimer.unref();
+
+    const resolveInterruptedOutcome = (interruptedResult: { runDir: string; reason: string }): "interrupted" | "failed" => {
+      if (codexWatchdog.fired) {
+        log({
+          event: "codex-watchdog-timeout",
+          count,
+          runDir: interruptedResult.runDir,
+          agent: selectedAgent.name,
+          issueKey: input.source.issueKey,
+          timeoutMs: CODEX_RUN_MAX_DURATION_MS,
+        });
+        return "failed";
+      }
+
+      log({
+        event: "codex-interrupted",
+        count,
+        runDir: interruptedResult.runDir,
+        reason: interruptedResult.reason,
+        agent: selectedAgent.name,
+        issueKey: input.source.issueKey,
+      });
+      return "interrupted";
+    };
+
     let result: Awaited<ReturnType<ProcessIssueSourceDependencies["runCodex"]>>;
     try {
       result = await dependencies.runCodex({
@@ -520,15 +557,7 @@ export async function processIssueSource(
       });
 
       if (isInterruptedCodexRunResult(result)) {
-        log({
-          event: "codex-interrupted",
-          count,
-          runDir: result.runDir,
-          reason: result.reason,
-          agent: selectedAgent.name,
-          issueKey: input.source.issueKey,
-        });
-        return "interrupted";
+        return resolveInterruptedOutcome(result);
       }
 
       if (!result.ok && plan.mode === "resume") {
@@ -552,19 +581,12 @@ export async function processIssueSource(
         });
       }
     } finally {
+      clearTimeout(watchdogTimer);
       interruptMonitor?.stop();
     }
 
     if (isInterruptedCodexRunResult(result)) {
-      log({
-        event: "codex-interrupted",
-        count,
-        runDir: result.runDir,
-        reason: result.reason,
-        agent: selectedAgent.name,
-        issueKey: input.source.issueKey,
-      });
-      return "interrupted";
+      return resolveInterruptedOutcome(result);
     }
 
     if (!result.ok) {
@@ -581,13 +603,15 @@ export async function processIssueSource(
         fetchIssueWithComments: dependencies.fetchIssueWithComments,
       });
     } catch (error) {
+      // fail-open：收尾检查只是复核有没有人插话，网络抖动不该丢弃已完成的 codex 产出。
+      // 假定无新消息、照常发布；运行中监视器已覆盖绝大多数中途插话。
       log({
-        event: "agent-run-interrupt-check-failed",
+        event: "agent-run-interrupt-check-failopen",
         agent: selectedAgent.name,
         issueKey: input.source.issueKey,
         error: formatError(error),
       });
-      return "failed";
+      finalInterrupt = null;
     }
 
     if (finalInterrupt !== null) {
@@ -684,6 +708,9 @@ export async function processIssueSource(
 
     return "triggered-success";
   } catch (error) {
+    // 到这里的失败几乎都发生在发布阶段（postComment 抛错）——fetch 已在 job wrapper 处理、
+    // 收尾检查已 fail-open。发布阶段可能已部分发帖，若判 transient-failed 触发重入会重跑 codex
+    // 并重复发帖；故这里保持 failed（不重入、不重复发帖）。exactly-once 发帖留待后续 change。
     log({ event: "process-issue-error", issueKey: input.source.issueKey, error: formatError(error) });
     return "failed";
   }
@@ -905,7 +932,7 @@ function startAgentRunInterruptMonitor(input: {
     baselineSnapshot: { messageCount: input.baselineMessageCount },
     intervalMs: RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS,
     fetchSnapshot: async () => {
-      const issue = await input.fetchIssueWithComments(input.source);
+      const issue = await input.fetchIssueWithComments(input.source, { signal: input.controller.signal });
       return { messageCount: countMessages(issue.comments.length) };
     },
     onInterrupt: (interrupt) => {

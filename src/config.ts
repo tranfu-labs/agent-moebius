@@ -18,6 +18,13 @@ export const ISSUE_DISCOVERY_LIMIT = 20;
 export const MAX_ACTIVE_ISSUES = 20;
 export const MAX_SELF_REFLECT = 3;
 export const CODEX_DRIVER_POOL_MAX_CONCURRENT = 5;
+export const GITHUB_CLI_RETRY_POLICY = {
+  retries: 4,
+  minTimeoutMs: 500,
+  maxTimeoutMs: 8_000,
+  factor: 2,
+} as const;
+export const CODEX_RUN_MAX_DURATION_MS = 30 * 60 * 1000;
 export const AGENTS_DIR = "agents";
 export const TMP_ROOT = "/tmp";
 export const ROLE_THREADS_STATE_PATH = ".state/role-threads.json";
@@ -53,6 +60,8 @@ export const CONFIG_LOG_FIELDS = {
   maxActiveIssues: MAX_ACTIVE_ISSUES,
   maxSelfReflect: MAX_SELF_REFLECT,
   codexDriverPoolMaxConcurrent: CODEX_DRIVER_POOL_MAX_CONCURRENT,
+  githubCliRetry: GITHUB_CLI_RETRY_POLICY,
+  codexRunMaxDurationMs: CODEX_RUN_MAX_DURATION_MS,
   agentsDir: AGENTS_DIR,
   tmpRoot: TMP_ROOT,
   roleThreadsStatePath: ROLE_THREADS_STATE_PATH,

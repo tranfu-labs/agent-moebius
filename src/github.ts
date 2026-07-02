@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { IssueSource, RepositoryRef } from "./issue-source.js";
+import { classifyGhError, withRetry } from "./retry.js";
 
 export interface GitHubComment {
   id: string;
@@ -50,10 +51,13 @@ export async function listOpenIssueSummaries(
   }));
 }
 
-export async function fetchIssueWithComments(source: IssueSource): Promise<GitHubIssue> {
+export async function fetchIssueWithComments(
+  source: IssueSource,
+  options: { signal?: AbortSignal } = {},
+): Promise<GitHubIssue> {
   let result: CommandResult;
   try {
-    result = await runCommand("gh", buildFetchIssueWithCommentsArgs(source));
+    result = await runCommand("gh", buildFetchIssueWithCommentsArgs(source), { signal: options.signal });
   } catch (error) {
     if (isCommandFailedError(error) && isIssueNotFoundMessage(error.stderr)) {
       throw new GitHubIssueNotFoundError(source.issueKey, error.stderr);
@@ -71,7 +75,8 @@ export async function fetchIssueWithComments(source: IssueSource): Promise<GitHu
 }
 
 export async function postComment(source: IssueSource, body: string): Promise<void> {
-  await runCommand("gh", buildPostCommentArgs(source), body);
+  // 写操作默认不自动重试：无幂等去重标记前，重发可能造成重复评论。
+  await runCommand("gh", buildPostCommentArgs(source), { stdin: body, retry: false });
 }
 
 export async function addReaction(target: ReactionTarget, content: IssueReactionContent): Promise<void> {
@@ -156,7 +161,7 @@ export class GitHubIssueNotFoundError extends Error {
   }
 }
 
-class CommandFailedError extends Error {
+export class CommandFailedError extends Error {
   constructor(
     readonly command: string,
     readonly exitCode: number | null,
@@ -177,7 +182,26 @@ export function isIssueNotFoundMessage(stderr: string): boolean {
   return /Could not resolve to an issue or pull request with the number/i.test(stderr);
 }
 
-async function runCommand(command: string, args: string[], stdin?: string): Promise<CommandResult> {
+interface RunCommandOptions {
+  stdin?: string;
+  signal?: AbortSignal;
+  retry?: boolean;
+}
+
+async function runCommand(command: string, args: string[], options: RunCommandOptions = {}): Promise<CommandResult> {
+  const attempt = () => spawnCommand(command, args, options.stdin);
+  if (options.retry === false) {
+    return attempt();
+  }
+
+  return withRetry(attempt, {
+    label: `${command}:${args[0] ?? ""}`,
+    signal: options.signal,
+    shouldRetry: (error) => classifyGhError(error) === "transient",
+  });
+}
+
+function spawnCommand(command: string, args: string[], stdin?: string): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
@@ -223,6 +247,10 @@ async function runCommand(command: string, args: string[], stdin?: string): Prom
 
 function isCommandFailedError(error: unknown): error is CommandFailedError {
   return error instanceof CommandFailedError;
+}
+
+export function isTransientGitHubCliError(error: unknown): boolean {
+  return isCommandFailedError(error) && classifyGhError(error) === "transient";
 }
 
 export function isGitHubIssue(value: unknown): value is GitHubIssue {

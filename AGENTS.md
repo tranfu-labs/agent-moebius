@@ -23,7 +23,8 @@
 │   ├── local-config.ts         # config.toml / config.local.toml 解析与 shape 校验
 │   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
 │   ├── conversation-interrupt.ts # driver-agnostic conversation message count 中断检测
-│   ├── github.ts               # gh CLI 读取 issue / 发表评论
+│   ├── github.ts               # gh CLI 读取 issue / 发表评论（读与 reaction 走重试，发评论不自动重试）
+│   ├── retry.ts                # gh 调用错误分类 + 指数退避重试原语（可注入 sleep、支持 AbortSignal）
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
 │   ├── driver-pool.ts          # codex driver job 并发策略抽象，默认由 runner 注入 5 并发上限
 │   ├── stages.ts               # stage 枚举与 marker 宽容解析
