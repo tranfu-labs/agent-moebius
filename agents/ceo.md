@@ -20,7 +20,7 @@
 
 ### 阶段反思强制介入
 
-当 `latestResponse` 的最后一个 stage marker 是下面任一值时，必须输出 `append`，不能输出 `no_change`：
+当 `latestResponse` 的最后一个 stage marker 是下面任一值且整个对话首次时，必须输出 `append`，不能输出 `no_change`：
 
 1. `plan-written`
 2. `code-verified`
