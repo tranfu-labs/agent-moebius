@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAddReactionArgs,
   buildAddIssueReactionArgs,
   buildFetchIssueWithCommentsArgs,
   buildListOpenIssueSummariesArgs,
@@ -75,18 +76,37 @@ describe("github issue errors", () => {
       "-f",
       "content=eyes",
     ]);
+    expect(buildAddReactionArgs({ kind: "issue", source }, "eyes")).toEqual([
+      "api",
+      "--method",
+      "POST",
+      "repos/tranfu-labs/agent-moebius/issues/4/reactions",
+      "-f",
+      "content=eyes",
+    ]);
+    expect(buildAddReactionArgs({ kind: "issue-comment", source, commentId: "IC_kwDOTGDJNs8AAAABIUjPpQ" }, "eyes")).toEqual([
+      "api",
+      "graphql",
+      "-f",
+      "query=mutation($subjectId: ID!, $content: ReactionContent!) { addReaction(input: {subjectId: $subjectId, content: $content}) { reaction { content } } }",
+      "-f",
+      "subjectId=IC_kwDOTGDJNs8AAAABIUjPpQ",
+      "-f",
+      "content=EYES",
+    ]);
   });
 
   it("accepts GitHub issue shapes with OPEN or CLOSED state and rejects unknown states", () => {
     const baseIssue = {
       body: "@dev",
       updatedAt: "2026-07-01T00:00:00Z",
-      comments: [{ body: "hello" }],
+      comments: [{ id: "comment-1", body: "hello" }],
     };
 
     expect(isGitHubIssue({ ...baseIssue, state: "OPEN" })).toBe(true);
     expect(isGitHubIssue({ ...baseIssue, state: "CLOSED" })).toBe(true);
     expect(isGitHubIssue({ ...baseIssue, state: "MERGED" })).toBe(false);
     expect(isGitHubIssue(baseIssue)).toBe(false);
+    expect(isGitHubIssue({ ...baseIssue, state: "OPEN", comments: [{ body: "missing id" }] })).toBe(false);
   });
 });

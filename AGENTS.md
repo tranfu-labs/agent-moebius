@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 trigger 决定运行本机 `codex` 或发布确定性 hook 评论；真正进入 Codex driver 前会给对应 issue 添加 `eyes` reaction 作为即时反馈。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。
+本项目是一个 Node.js + TypeScript 常驻脚本：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 trigger 决定运行本机 `codex` 或发布确定性 hook 评论；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。
 
 ## 项目结构
 ```text
@@ -47,7 +47,7 @@
 - 运行常驻脚本：`pnpm start`
   - 需要本机 `codex` CLI 在 `PATH` 中。
   - 需要已完成 `gh auth login`。
-  - 会真实扫描 `config.local.toml` 中配置的白名单 repository 的最近更新 open issues；没有本机覆盖时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 trigger 时，可能调用 Codex 并发表评论，也可能直接发布 hook 评论；只有真正调用 Codex driver 前会先添加 `eyes` reaction。
+  - 会真实扫描 `config.local.toml` 中配置的白名单 repository 的最近更新 open issues；没有本机覆盖时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 trigger 时，可能调用 Codex 并发表评论，也可能直接发布 hook 评论；只有真正调用 Codex driver 前会先给本轮触发源消息添加 `eyes` reaction。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
@@ -71,7 +71,7 @@
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
 - `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。该 pre script 每次准备前刷新目标仓库远端 `main` tracking ref，新建 worktree 从最新远端 `main` 创建；复用已有 context 时会先校验记录的 `worktreePath` 等于当前配置计算出的 issue 独占 worktree 路径，不一致则 fail closed；复用已有 worktree 时若当前 `HEAD` 未包含最新远端 `main`，会强制删除旧 worktree（失败时 fallback 到 `rm -rf` + `git worktree prune`）并从最新远端 `main` 重建；重建失败才 fail closed，不调用 Codex / 评论 / 推进 role thread。
 - `@dev` Codex 运行期间会按 conversation message count 做运行中断检测；如果 GitHub issue 在本轮 Codex 完成前新增 comment，runner 会中断当前 Codex 子进程，不发表评论、不更新 role thread，并保持 issue active 以便下一轮基于最新 timeline 重跑。
-- runner 只在 mention trigger 进入真实 Codex driver 路径、prompt plan 需要执行且 preScript 成功后，为当前 GitHub issue 添加一次 `eyes` reaction；no-trigger、stage hook、preScript 失败、prompt plan skip 或 resume fallback 不重复添加 reaction。reaction 添加失败只记录日志，不阻断 Codex 执行。
+- runner 只在 mention trigger 进入真实 Codex driver 路径、prompt plan 需要执行且 preScript 成功后，为本轮触发源消息添加一次 `eyes` reaction：触发源是 issue body 时打到当前 GitHub issue，触发源是 comment 时打到该 comment；no-trigger、stage hook、preScript 失败、prompt plan skip 或 resume fallback 不重复添加 reaction。reaction 添加失败只记录日志，不阻断 Codex 执行。
 - 所有 Codex agent 的每条响应末尾都必须显式声明 stage marker；stage 枚举集中在 `src/stages.ts`，当前为 `plan-written`、`code-verified`、`in-progress`。`agents/dev.md` 可用 `plan-written` / `code-verified` 声明开发阶段，普通进度、采访、澄清或其他 agent 默认使用 `in-progress`；stage 只声明阶段，不直接指定后续 agent。
 - `agents/reflector.md` 是通用反思接力展示身份；普通 `@reflector` 不启动 Codex，reflector 由 `src/triggers/reflector-stage-trigger.ts` 根据 stage metadata 触发，并直接发布 hook 评论。
 - `src/triggers/reflector-stage-trigger.ts` 对 stage marker 的 metadata 名称与空白做宽容匹配，但只接受 `src/stages.ts` 中 `ReflectorStages` 白名单的 `plan-written` / `code-verified`；`in-progress` 不触发 reflector。

@@ -61,7 +61,7 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex`；MUST NOT 读取 GitHub issue 内容；MUST NOT 保存 token 或运行状态。
 
 ### github-issue-runner
-- 职责边界：常驻运行，按 `config.toml` / `config.local.toml` 解析出的白名单扫描 GitHub repositories，并把 due issue source 转成 issue processing jobs 交给 driver pool；每个 issue 的 body + comments 会归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 trigger 解析结果要求运行 agent 时，进入该 issue + role 独立 Codex thread，在真正调用 Codex driver 前通过 GitHub client 添加 `eyes` reaction，并在 Codex 完成、且最终确认未被新 comment 打断后先走 CEO guardrail，再回评 GitHub issue；当 `@dev` 运行期间检测到新 comment 时中断本轮 Codex 并保持 issue active；当 trigger 解析结果要求发布 hook 评论时，直接通过 GitHub client 评论。runner 负责在 driver jobs 完成后按确定顺序折叠 intake state，并在同一 processing phase 内按 issueKey 去重。
+- 职责边界：常驻运行，按 `config.toml` / `config.local.toml` 解析出的白名单扫描 GitHub repositories，并把 due issue source 转成 issue processing jobs 交给 driver pool；每个 issue 的 body + comments 会归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 trigger 解析结果要求运行 agent 时，进入该 issue + role 独立 Codex thread，在真正调用 Codex driver 前通过 GitHub client 为本轮触发源消息添加 `eyes` reaction（issue body 触发则打到 issue，comment 触发则打到该 comment），并在 Codex 完成、且最终确认未被新 comment 打断后先走 CEO guardrail，再回评 GitHub issue；当 `@dev` 运行期间检测到新 comment 时中断本轮 Codex 并保持 issue active；当 trigger 解析结果要求发布 hook 评论时，直接通过 GitHub client 评论。runner 负责在 driver jobs 完成后按确定顺序折叠 intake state，并在同一 processing phase 内按 issueKey 去重。
 - 入口：`pnpm start` → `src/runner.ts`
 - 上游：进程启动命令、本机 `gh auth login`、本机 `codex` CLI。
 - 下游：`src/github-response-intake.ts`、`src/driver-pool.ts`、`src/github-intake-state.ts`、`src/github.ts`、`src/conversation.ts`、`src/conversation-interrupt.ts`、`src/triggers/*`、`src/codex.ts`、`src/format-ceo.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
@@ -113,8 +113,8 @@
 - 禁止依赖：MUST NOT 存放在 `agents/`；MUST NOT 存 GitHub token、prompt 全文、comment 正文或 codex 执行日志。
 
 ### github-client
-- 职责边界：通过 `gh` CLI 拉取 repository open issue summaries、读取指定 issue body/comments/updatedAt，通过 stdin 向指定 issue 发布评论，并通过 `gh api` argv 参数数组为指定 issue 添加受控 reaction；不负责对话触发规则或 active/idle 调度规则。
+- 职责边界：通过 `gh` CLI 拉取 repository open issue summaries、读取指定 issue body/comments/updatedAt/comment node id，通过 stdin 向指定 issue 发布评论，并通过 `gh api` argv 参数数组为指定 issue 或 issue comment 添加受控 reaction；不负责对话触发规则或 active/idle 调度规则。
 - 入口：`src/github.ts`
 - 上游：`github-issue-runner`
 - 下游：本机 `gh` CLI。
-- 禁止依赖：MUST NOT 在命令参数中拼接 shell 字符串；评论正文 MUST 通过 `--body-file -` 从 stdin 传入；reaction content MUST 来自受控枚举。
+- 禁止依赖：MUST NOT 在命令参数中拼接 shell 字符串；评论正文 MUST 通过 `--body-file -` 从 stdin 传入；reaction target 与 content MUST 来自受控枚举 / adapter shape。
