@@ -154,6 +154,54 @@ describe("formatCeoComment", () => {
     });
   });
 
+  it("passes full public issue context to CEO prompt", async () => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: '{"action":"no_change"}',
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    await formatCeoComment({
+      ...baseInput,
+      issueContext: {
+        issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/20",
+        issueBody: "全局流程：先采访再方案",
+        comments: [
+          { body: "临时修改：本次不需要额外 token 统计" },
+          {
+            body: "&lt;reflector&gt;:\n@dev 请反思\n<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=7 -->",
+          },
+        ],
+      },
+      latestResponse: "我准备发布的最新响应",
+      lastReflectorHook: "最近 reflector hook",
+      agentsDir,
+      runCodex,
+    });
+
+    const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
+    expect(prompt).toContain("完整公开 issue 上下文");
+    expect(prompt).toContain("latestResponse 是本轮唯一待发布的 agent 响应");
+    expect(prompt).toContain("issueContext.issueUrl:");
+    expect(prompt).toContain("https://github.com/tranfu-labs/agent-moebius/issues/20");
+    expect(prompt).toContain("issueContext.issueBody:");
+    expect(prompt).toContain("全局流程：先采访再方案");
+    expect(prompt).toContain("#1 comment:");
+    expect(prompt).toContain("临时修改：本次不需要额外 token 统计");
+    expect(prompt).toContain("#2 comment:");
+    expect(prompt).toContain("stage-hook source=dev stage=plan-written");
+    expect(prompt).toContain("latestResponse:");
+    expect(prompt).toContain("我准备发布的最新响应");
+    expect(prompt).toContain("lastReflectorHook:");
+    expect(prompt).toContain("最近 reflector hook");
+    expect(prompt).not.toContain("originalRequest:");
+  });
+
   it("does not invoke CEO again for already corrected text", async () => {
     const runCodex = vi.fn();
     const latestResponse = `done
@@ -331,7 +379,11 @@ ${CEO_CORRECTED_METADATA}`;
 
 const baseInput: Omit<FormatCeoInput, "agentsDir" | "runCodex"> = {
   agent: "dev",
-  originalRequest: "@dev please fix",
+  issueContext: {
+    issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+    issueBody: "@dev please fix",
+    comments: [],
+  },
   latestResponse: "done\n<!-- agent-moebius:stage=in-progress -->",
   lastReflectorHook: null,
   runDir: path.join(os.tmpdir(), "agent-moebius-ceo-test"),

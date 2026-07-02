@@ -10,9 +10,19 @@ export const DEFAULT_CEO_TIMEOUT_MS = 60_000;
 export const CEO_APPEND_ROLES = ["ceo", "dev", "product-manager", "hermes-user", "reflector"] as const;
 export type CeoAppendRole = (typeof CEO_APPEND_ROLES)[number];
 
+export interface CeoIssueCommentContext {
+  body: string;
+}
+
+export interface CeoIssueContext {
+  issueUrl: string;
+  issueBody: string;
+  comments: CeoIssueCommentContext[];
+}
+
 export interface FormatCeoInput {
   agent: string;
-  originalRequest: string;
+  issueContext: CeoIssueContext;
   latestResponse: string;
   lastReflectorHook: string | null;
   runDir: string;
@@ -81,7 +91,7 @@ export async function formatCeoComment(input: FormatCeoInput): Promise<FormatCeo
         prompt: buildCeoPrompt({
           persona,
           agent: input.agent,
-          originalRequest: input.originalRequest,
+          issueContext: input.issueContext,
           latestResponse: input.latestResponse,
           lastReflectorHook: input.lastReflectorHook,
         }),
@@ -209,13 +219,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function buildCeoPrompt(input: {
   persona: string;
   agent: string;
-  originalRequest: string;
+  issueContext: CeoIssueContext;
   latestResponse: string;
   lastReflectorHook: string | null;
 }): string {
   return `${input.persona.trimEnd()}
 
-请根据以下短上下文判断是否需要校正最新 agent 响应，并按 ceo.md 输出契约返回一个 JSON 对象。
+请根据以下完整公开 issue 上下文判断是否需要校正最新 agent 响应，并按 ceo.md 输出契约返回一个 JSON 对象。
+latestResponse 是本轮唯一待发布的 agent 响应；issueContext 只用于理解用户流程、后续覆盖指令、反思 hook 历史和交付规范。
 
 输入：
 agent:
@@ -224,14 +235,30 @@ ${input.agent}
 allowedStages:
 ${ALL_STAGES.join(", ")}
 
-originalRequest:
-${input.originalRequest.trimEnd()}
+issueContext.issueUrl:
+${input.issueContext.issueUrl}
+
+issueContext.issueBody:
+${input.issueContext.issueBody.trimEnd()}
+
+issueContext.comments:
+${formatIssueContextComments(input.issueContext.comments)}
 
 latestResponse:
 ${input.latestResponse.trimEnd()}
 
 lastReflectorHook:
 ${input.lastReflectorHook?.trimEnd() ?? ""}`;
+}
+
+function formatIssueContextComments(comments: CeoIssueCommentContext[]): string {
+  if (comments.length === 0) {
+    return "(none)";
+  }
+
+  return comments
+    .map((comment, index) => `#${index + 1} comment:\n${comment.body.trimEnd()}`)
+    .join("\n\n");
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () => void): Promise<T> {

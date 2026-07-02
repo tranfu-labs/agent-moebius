@@ -492,10 +492,51 @@ describe("processIssueSource CEO guardrail", () => {
       expect(formatCeoComment).toHaveBeenCalledTimes(1);
       expect(formatCeoComment.mock.calls[0]?.[0]).toMatchObject({
         agent: role,
-        originalRequest: `@${role} please run`,
+        issueContext: {
+          issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+          issueBody: `@${role} please run`,
+          comments: [],
+        },
         lastReflectorHook: null,
       });
     }
+  });
+
+  it("passes full public issue context to CEO with comments in order", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const reflector = await makeAgentFile("reflector", "Reflector persona");
+    const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
+      noChangeCeoResult(input.latestResponse),
+    );
+    const firstComment = "临时修改：本次不需要额外 token 统计";
+    const secondComment = `&lt;reflector&gt;:
+@dev 请针对「plan-written」做一次反思。
+
+<!-- agent-moebius:role=reflector -->
+<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->`;
+    const thirdComment = "@dev continue";
+
+    await processIssueSource(
+      {
+        source,
+        issue: makeIssue("全局流程：先采访再方案", [
+          { body: firstComment },
+          { body: secondComment },
+          { body: thirdComment },
+        ]),
+        agentFiles: [agent, reflector],
+      },
+      makeDependencies({ formatCeoComment }),
+    );
+
+    expect(formatCeoComment.mock.calls[0]?.[0]).toMatchObject({
+      issueContext: {
+        issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+        issueBody: "全局流程：先采访再方案",
+        comments: [{ body: firstComment }, { body: secondComment }, { body: thirdComment }],
+      },
+      lastReflectorHook: expect.stringContaining("stage-hook source=dev stage=plan-written"),
+    });
   });
 
   it("posts CEO repaired text with correction metadata after role metadata", async () => {

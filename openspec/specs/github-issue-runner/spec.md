@@ -137,7 +137,13 @@
 - MUST 让 `agents/ceo.md` 至少覆盖三类识别场景（全部走 `append`）：① 工作明显未完成、或已交付但不符合规范（持续推进）；② 交付规范细则不满足（如 PR 缺 `Closes #N` 字样、评论中 PR 不是链接形式）；③ 死锁等待——agent 的最新响应在等待一个不存在或不会响应的对象（如把 reflector 当真人、等待系统中不存在的 reviewer / manager），CEO 追加评论纠正认知并直接裁决下一步。
 - MUST 让 `agents/ceo.md` 承载协作生态认知，至少包含：真实可通过 mention 触发的 Codex agent 清单（当前为 `dev`、`product-manager`、`hermes-user`、`tranfu-agents-manager`）；reflector 的真实机制说明（runner 基于 stage marker 确定性拼装的模板 hook，不是模型、不读回复，`@reflector` 不触发任何响应）；系统中不存在 reviewer、manager 等角色的说明；各 agent 常犯错误的经验清单（至少含 dev：把 reflector 当真人汇报、等待不存在的角色、收到反思提醒后只做确认式回复无实质推进）。
 - 未来新增 driver agent 时 MUST 同步更新 `agents/ceo.md` 生态认知章节的 agent 清单（与 `as` 允许集合的同步义务并列）。
-- MUST 定义 `agents/ceo.md` 的输入契约字段：`originalRequest`、`latestResponse`、`agent`、`allowedStages`、`lastReflectorHook`；MUST NOT 把完整 issue timeline 传给 CEO。
+- MUST 定义 `agents/ceo.md` 的输入契约字段：`issueContext`、`latestResponse`、`agent`、`allowedStages`、`lastReflectorHook`。
+- MUST 让 CEO `issueContext` 是完整公开 issue context，至少包含 `issueUrl = https://github.com/<owner>/<repo>/issues/<number>`、当前 issue body 原文 `issueBody`、以及按 GitHub 返回顺序排列的所有 comment body 原文 `comments`。
+- MUST 让 CEO prompt 明确 `latestResponse` 是本轮唯一待发布的 agent 响应；`issueContext` 只用于理解用户全局流程、后续覆盖指令、反思 hook 历史和交付规范。
+- MUST 由 `src/runner.ts` 基于当前 `IssueSource` 与已拉取的 `GitHubIssue` 组装 CEO `issueContext`；`src/format-ceo.ts` MUST NOT 自行调用 GitHub、读取 `.state/*` 或读取本地 intake state。
+- MUST 保留 comment body 中的隐藏 metadata 原文，包括 `role`、`stage`、`stage-hook` 与 `ceo-corrected`，以便 CEO 判断 speaker、反思轮次和循环防护背景。
+- MUST 继续向 CEO 传入最近一条 reflector hook body 作为 `lastReflectorHook`；完整 comments 不替代该稳定字段。
+- MUST NOT 在本 change 中新增独立 token 统计状态文件或新持久化机制；CEO token 成本观察沿用现有 Codex stdout JSONL 与 runDir 输出。
 - MUST 定义 `agents/ceo.md` 的输出契约为 JSON，persona 层仅承载以下两种结构（允许 fenced code block 包裹）：
   1. `{"action":"no_change"}` — 不改动，runner 直接 post 原文。
   2. `{"action":"append","as":"<role>","body":"<CEO 追加正文>"}` — `as` MUST 在 `{ceo, dev, product-manager, hermes-user, reflector}` 集合内，默认 `ceo`；`as=ceo` 时 body 不带 stage marker。
@@ -149,7 +155,7 @@
   - `no_change`：直接 post 原文，body 末尾**不**追加 `<!-- agent-moebius:ceo-corrected -->`。
   - `replace`：在 CEO 返回的 `body` 末尾追加 `<!-- agent-moebius:ceo-corrected -->` metadata，走原 agent 前缀（`<原 agent>:` 可见 + `role=<原 agent>` metadata）post 一条。
   - `append`：先 post 原 `LAST_RESPONSE` 一条（`<原 agent>:` 可见 + `role=<原 agent>` metadata，**不**追加 `ceo-corrected`），再 post 一条独立评论（`<${as}>:` 可见 + `role=${as}` metadata + 末尾追加 `ceo-corrected` metadata）。
-- MUST 让 CEO 调用以短上下文、无状态方式执行：每次 CEO 调用 MUST 新建 codex thread、NEVER 复用 dev thread、NEVER 复用上次 CEO thread。
+- MUST 让 CEO 调用以完整公开 issue context、无状态方式执行：每次 CEO 调用 MUST 新建 codex thread、NEVER 复用 dev thread、NEVER 复用上次 CEO thread。
 - MUST 在收到 CEO `replace` 输出后执行后置宽容匹配验证：`body` 末尾 MUST 存在合规 `<!-- agent-moebius:stage=<enum> -->` marker，且 `<enum>` MUST 属于 `AllStages`；验证不通过 MUST fail-open 直接 post 原文。
 - MUST 在 CEO 调用超时、抛异常、返回空、返回非法 JSON、`action` 字段缺失或不在 `{no_change, replace, append}` 枚举内、`append.as` 缺失或不在允许集合内、`replace.body` 或 `append.body` 为空、`replace.body` 末尾 stage marker 不在 `AllStages` 内时 fail-open 直接 post 原文；CEO guardrail MUST NOT 变成新的失败源阻断主流程。
 - MUST 在 `format-ceo.ts` 的 `FAIL_OPEN` reason 中区分：`invalid-json`、`unknown-action`、`unknown-as`、`empty-body`、`post-validate-failed`、`codex-failed`、`codex-timeout`、`persona-load-failed`、`already-corrected`（NO_CHANGE 类）。
@@ -582,7 +588,7 @@ Given 最新消息包含 `@dev`
 And dev codex 本轮返回的 `${LAST_RESPONSE}` 正文明显对应 `code-verified` 阶段但末尾无 `<!-- agent-moebius:stage=code-verified -->` marker
 And CEO 输出 `replace` 修正（代码层保留的能力，当前 `agents/ceo.md` 不再主动承载该场景）
 When runner 在 `postComment` 之前调用 CEO guardrail
-Then CEO 以短上下文（`originalRequest` + `latestResponse` + `agent = "dev"` + `allowedStages` + `lastReflectorHook`）被调用
+Then CEO 以完整公开 issue context（`issueContext` + `latestResponse` + `agent = "dev"` + `allowedStages` + `lastReflectorHook`）被调用
 And CEO 返回改写后完整文本，末尾含 `<!-- agent-moebius:stage=code-verified -->`
 And 后置宽容匹配验证通过
 And runner 在 post 前追加 `<!-- agent-moebius:ceo-corrected -->` metadata
@@ -643,8 +649,25 @@ And 不记录 `ceo-guardrail-*` 日志
 Given 最新消息 mention 的是 `product-manager` 或 `hermes-user`
 And 该 agent 的 codex 响应 `${LAST_RESPONSE}` 无合规 stage marker
 When runner 在 `postComment` 之前调用 CEO guardrail
-Then CEO 以短上下文（含对应 `agent` 值）被调用
+Then CEO 以完整公开 issue context（含对应 `agent` 值）被调用
 And runner 按 CEO 返回的 action 分支处理 post 逻辑
+
+### 场景 39.2：CEO guardrail — CEO 读取完整公开 issue context
+Given 最新消息包含 `@dev`
+And issue body 为 `全局流程：先采访再方案`
+And comments 依次包含 `临时修改：本次不需要额外 token 统计` 与一条 `reflector` stage-hook metadata 评论
+When runner 在 `postComment` 之前调用 CEO guardrail
+Then `formatCeoComment` 的输入包含 `issueContext.issueUrl = "https://github.com/<owner>/<repo>/issues/<number>"`
+And `issueContext.issueBody = "全局流程：先采访再方案"`
+And `issueContext.comments` 按原顺序包含两条 comment body 原文
+And `lastReflectorHook` 仍为最近一条 reflector hook body
+
+### 场景 39.3：CEO prompt — latestResponse 仍是唯一待发布对象
+Given CEO prompt 包含完整公开 issue context
+And `latestResponse` 为当前 Codex agent 本轮输出
+When CEO 判断是否需要 `no_change`、`replace` 或 `append`
+Then CEO MUST 只校正或追加围绕 `latestResponse` 的发布行为
+And issueContext 中的历史 agent 评论 MUST 只作为背景，不得被当成本轮待发布正文直接改写。
 
 ### 场景 40：Stage 契约扩展 — dev in-progress 响应不触发 reflector
 Given 最新消息 speaker 是 `dev`
