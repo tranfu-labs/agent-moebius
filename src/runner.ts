@@ -13,7 +13,6 @@ import {
   ISSUE_DISCOVERY_LIMIT,
   MAX_ACTIVE_ISSUES,
   RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS,
-  MAX_SELF_REFLECT,
   TICK_INTERVAL_MS,
   TMP_ROOT,
   WATCH_REPOSITORIES,
@@ -75,7 +74,6 @@ import {
   saveRoleThreadStateEntry,
 } from "./state.js";
 import { resolveTrigger } from "./triggers/index.js";
-import { appendPostedComment, decideNextSelfReflectStep } from "./triggers/self-reflect.js";
 
 let runDirSequence = 0;
 
@@ -416,21 +414,6 @@ export async function processIssueSource(
       return "no-trigger";
     }
 
-    if (trigger.kind === "post-comment") {
-      await dependencies.postComment(input.source, trigger.body);
-      log({
-        event: "hook-commented",
-        count,
-        reason: trigger.reason,
-        agent: trigger.role,
-        sourceRole: trigger.sourceRole,
-        sourceIndex: trigger.sourceIndex,
-        stage: trigger.stage,
-        issueKey: input.source.issueKey,
-      });
-      return "triggered-success";
-    }
-
     const selectedAgent = agentFiles.find((agent) => agent.name === trigger.role);
     if (selectedAgent === undefined) {
       log({ event: "skip", count, reason: "selected-agent-missing", agent: trigger.role });
@@ -638,7 +621,6 @@ export async function processIssueSource(
       agent: selectedAgent.name,
       issueContext: buildCeoIssueContext(input.source, input.issue),
       latestResponse: result.finalText,
-      lastReflectorHook: findLatestReflectorHookBody(timeline),
       runDir: finalRunDir,
       runCodex: dependencies.runCodex,
     });
@@ -649,20 +631,15 @@ export async function processIssueSource(
       issueKey: input.source.issueKey,
     });
 
-    let workingTimeline = timeline;
-
     if (ceoResult.action === "APPEND") {
       const originalBody = formatAgentComment(selectedAgent.name, result.finalText);
       await dependencies.postComment(input.source, originalBody);
-      workingTimeline = appendPostedComment(workingTimeline, selectedAgent.name, originalBody);
 
       const ceoAppendBody = `${formatAgentComment(ceoResult.as, ceoResult.body)}\n\n${CEO_CORRECTED_METADATA}`;
       await dependencies.postComment(input.source, ceoAppendBody);
-      workingTimeline = appendPostedComment(workingTimeline, ceoResult.as, ceoAppendBody);
     } else {
       const postedBody = formatGuardedAgentComment(selectedAgent.name, ceoResult.body);
       await dependencies.postComment(input.source, postedBody);
-      workingTimeline = appendPostedComment(workingTimeline, selectedAgent.name, postedBody);
     }
 
     await dependencies.saveRoleThreadStateEntry(input.source.issueKey, selectedAgent.name, nextState);
@@ -675,36 +652,6 @@ export async function processIssueSource(
       cachedInputTokens: result.cachedInputTokens,
       issueKey: input.source.issueKey,
     });
-    for (let iteration = 1; iteration <= MAX_SELF_REFLECT; iteration++) {
-      const nextTrigger = resolveTrigger({ timeline: workingTimeline, availableAgentNames: agentNames });
-      const step = decideNextSelfReflectStep(nextTrigger, iteration, MAX_SELF_REFLECT);
-
-      if (step.kind === "stop") {
-        log({
-          event: "self-reflect-stopped",
-          iteration,
-          reason: step.reason,
-          issueKey: input.source.issueKey,
-        });
-        break;
-      }
-
-      // step.kind === "continue-hook" 保证 nextTrigger.kind === "post-comment"
-      if (nextTrigger.kind !== "post-comment") {
-        break;
-      }
-
-      await dependencies.postComment(input.source, nextTrigger.body);
-      log({
-        event: "self-reflect-hook-commented",
-        iteration,
-        stage: nextTrigger.stage,
-        sourceRole: nextTrigger.sourceRole,
-        sourceIndex: nextTrigger.sourceIndex,
-        issueKey: input.source.issueKey,
-      });
-      workingTimeline = appendPostedComment(workingTimeline, nextTrigger.role, nextTrigger.body);
-    }
 
     return "triggered-success";
   } catch (error) {
@@ -726,17 +673,6 @@ function buildCeoIssueContext(source: IssueSource, issue: GitHubIssue): {
     issueBody: issue.body,
     comments: issue.comments.map((comment) => ({ body: comment.body })),
   };
-}
-
-function findLatestReflectorHookBody(timeline: ReturnType<typeof buildTimeline>): string | null {
-  for (let index = timeline.length - 1; index >= 0; index -= 1) {
-    const message = timeline[index];
-    if (message?.speaker === "reflector" && message.body.includes("agent-moebius:stage-hook")) {
-      return message.body;
-    }
-  }
-
-  return null;
 }
 
 function logCeoGuardrailResult(input: {

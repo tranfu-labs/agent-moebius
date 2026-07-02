@@ -7,7 +7,7 @@ import { ALL_STAGES, parseTrailingStageMarker } from "./stages.js";
 export const CEO_CORRECTED_METADATA = "<!-- agent-moebius:ceo-corrected -->";
 export const DEFAULT_CEO_TIMEOUT_MS = 60_000;
 
-export const CEO_APPEND_ROLES = ["ceo", "dev", "product-manager", "hermes-user", "reflector"] as const;
+export const CEO_APPEND_ROLES = ["ceo", "dev", "product-manager", "hermes-user"] as const;
 export type CeoAppendRole = (typeof CEO_APPEND_ROLES)[number];
 
 export interface CeoIssueCommentContext {
@@ -24,7 +24,6 @@ export interface FormatCeoInput {
   agent: string;
   issueContext: CeoIssueContext;
   latestResponse: string;
-  lastReflectorHook: string | null;
   runDir: string;
   agentsDir?: string;
   timeoutMs?: number;
@@ -93,7 +92,6 @@ export async function formatCeoComment(input: FormatCeoInput): Promise<FormatCeo
           agent: input.agent,
           issueContext: input.issueContext,
           latestResponse: input.latestResponse,
-          lastReflectorHook: input.lastReflectorHook,
         }),
         runDir,
         mode: { kind: "full" },
@@ -221,7 +219,6 @@ function buildCeoPrompt(input: {
   agent: string;
   issueContext: CeoIssueContext;
   latestResponse: string;
-  lastReflectorHook: string | null;
 }): string {
   return `${input.persona.trimEnd()}
 
@@ -245,10 +242,7 @@ issueContext.comments:
 ${formatIssueContextComments(input.issueContext.comments)}
 
 latestResponse:
-${input.latestResponse.trimEnd()}
-
-lastReflectorHook:
-${input.lastReflectorHook?.trimEnd() ?? ""}`;
+${input.latestResponse.trimEnd()}`;
 }
 
 function formatIssueContextComments(comments: CeoIssueCommentContext[]): string {

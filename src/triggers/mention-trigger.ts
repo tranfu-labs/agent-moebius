@@ -1,7 +1,7 @@
 import { getLatestTimelineMessage, selectMentionedAgent } from "../conversation.js";
 import type { TriggerInput, TriggerResult } from "./types.js";
 
-const NON_CODEX_MENTION_ROLES = new Set(["ceo", "reflector"]);
+const NON_CODEX_MENTION_ROLES = new Set(["ceo"]);
 
 export function resolveMentionTrigger(input: TriggerInput): TriggerResult | null {
   const latestMessage = getLatestTimelineMessage(input.timeline);

@@ -1,24 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_STAGES,
-  REFLECTOR_STAGES,
-  isReflectorStage,
   isStage,
   parseStageMarkers,
   parseTrailingStageMarker,
 } from "../src/stages.js";
 
 describe("stages", () => {
-  it("defines reflector stages as a subset of all stages", () => {
-    expect(REFLECTOR_STAGES).toEqual(["plan-written", "code-verified"]);
+  it("defines all supported stages", () => {
     expect(ALL_STAGES).toEqual(["plan-written", "code-verified", "in-progress"]);
   });
 
   it("checks stage membership", () => {
     expect(isStage("in-progress")).toBe(true);
     expect(isStage("unknown")).toBe(false);
-    expect(isReflectorStage("code-verified")).toBe(true);
-    expect(isReflectorStage("in-progress")).toBe(false);
   });
 
   it("parses tolerant marker variants while preserving strict stage names", () => {

@@ -7,15 +7,6 @@ export type TriggerResult =
       reason: "mention";
     }
   | {
-      kind: "post-comment";
-      role: string;
-      body: string;
-      reason: "reflector-stage";
-      sourceRole: string;
-      sourceIndex: number;
-      stage: string;
-    }
-  | {
       kind: "skip";
       reason: "empty-timeline" | "no-trigger";
     };

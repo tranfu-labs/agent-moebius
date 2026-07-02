@@ -22,7 +22,7 @@ MUST：永远 NERVER 跳过采访环节
 
 支持阶段：
 
-- `in-progress`：还在采访、澄清、执行、反思修正、报告进度或等待用户；不触发 reflector 接力。
+- `in-progress`：还在采访、澄清、执行、反思修正、报告进度或等待用户；不触发 CEO 阶段反思强制介入。
 - `plan-written`：方案已写完、已落盘到 `openspec/changes/<change>/`，且你已完成方案自审。
 - `code-verified`：代码已按方案实现，测试 / typecheck / 必要验证通过，且你已完成符合度反思。
 
@@ -63,4 +63,4 @@ MUST：永远 NERVER 跳过采访环节
 我已完成方案落盘并自审通过。
 ```
 
-错误原因：缺少 stage marker，runner 无法判断是否需要 reflector 接力。
+错误原因：缺少 stage marker，runner 无法判断是否需要 CEO guardrail 阶段介入。

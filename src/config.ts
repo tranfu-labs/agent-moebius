@@ -16,7 +16,6 @@ export const RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS = 15 * 1000;
 export const ACTIVE_ISSUE_NO_CHANGE_LIMIT = 5;
 export const ISSUE_DISCOVERY_LIMIT = 20;
 export const MAX_ACTIVE_ISSUES = 20;
-export const MAX_SELF_REFLECT = 3;
 export const CODEX_DRIVER_POOL_MAX_CONCURRENT = 5;
 export const GITHUB_CLI_RETRY_POLICY = {
   retries: 4,
@@ -58,7 +57,6 @@ export const CONFIG_LOG_FIELDS = {
   activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
   issueDiscoveryLimit: ISSUE_DISCOVERY_LIMIT,
   maxActiveIssues: MAX_ACTIVE_ISSUES,
-  maxSelfReflect: MAX_SELF_REFLECT,
   codexDriverPoolMaxConcurrent: CODEX_DRIVER_POOL_MAX_CONCURRENT,
   githubCliRetry: GITHUB_CLI_RETRY_POLICY,
   codexRunMaxDurationMs: CODEX_RUN_MAX_DURATION_MS,
