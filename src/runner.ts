@@ -612,7 +612,7 @@ export async function processIssueSource(
 
     const ceoResult = await dependencies.formatCeoComment({
       agent: selectedAgent.name,
-      originalRequest: input.issue.body,
+      issueContext: buildCeoIssueContext(input.source, input.issue),
       latestResponse: result.finalText,
       lastReflectorHook: findLatestReflectorHookBody(timeline),
       runDir: finalRunDir,
@@ -687,6 +687,18 @@ export async function processIssueSource(
     log({ event: "process-issue-error", issueKey: input.source.issueKey, error: formatError(error) });
     return "failed";
   }
+}
+
+function buildCeoIssueContext(source: IssueSource, issue: GitHubIssue): {
+  issueUrl: string;
+  issueBody: string;
+  comments: Array<{ body: string }>;
+} {
+  return {
+    issueUrl: `https://github.com/${source.owner}/${source.repo}/issues/${source.issueNumber}`,
+    issueBody: issue.body,
+    comments: issue.comments.map((comment) => ({ body: comment.body })),
+  };
 }
 
 function findLatestReflectorHookBody(timeline: ReturnType<typeof buildTimeline>): string | null {

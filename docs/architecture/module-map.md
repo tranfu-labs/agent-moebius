@@ -17,7 +17,7 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 依赖 runner 状态；MUST NOT 把 stage 白名单复制到触发器或 CEO 模块里各自维护。
 
 ### ceo-format-guardrail
-- 职责边界：在 GitHub 评论发布前，用 `agents/ceo.md` persona 和短上下文校正 Codex agent 输出；负责组装 `originalRequest`、`latestResponse`、`agent`、`allowedStages`、`lastReflectorHook` prompt，解析 `NO_CHANGE` 或修正版文本，对修正版做尾部 stage marker 后置验证，并在异常 / 超时 / 非法输出时 fail-open 返回原文。不维护 role thread，不推进 issue 状态。
+- 职责边界：在 GitHub 评论发布前，用 `agents/ceo.md` persona 和完整公开 issue context 校正 Codex agent 输出；负责组装 `issueContext`（issue 链接、issue body、所有 comment body 原文）、`latestResponse`、`agent`、`allowedStages`、`lastReflectorHook` prompt，解析 `NO_CHANGE` 或修正版文本，对修正版做尾部 stage marker 后置验证，并在异常 / 超时 / 非法输出时 fail-open 返回原文。不维护 role thread，不推进 issue 状态。
 - 入口：`src/format-ceo.ts`
 - 上游：`src/runner.ts` 在 mention Codex 分支、`postComment` 前调用。
 - 下游：`src/codex.ts` 的受控 Codex 调用、`src/stages.ts` 的 stage 验证、`agents/ceo.md` persona。
