@@ -128,6 +128,7 @@
 - MUST 让所有 Codex agent persona（`agents/dev.md`、`agents/dev-manager.md`、`agents/product-manager.md`、`agents/hermes-user.md` 及未来新增 Codex agent）契约要求：每条响应末尾必须以 `<!-- agent-moebius:stage=<enum> -->` marker 结尾，`<enum>` MUST 属于 `AllStages`。
 - MUST 提供 `agents/dev-manager.md` 作为技术负责人 Codex driver agent persona，与 `dev`、`product-manager` 同级、同样以 `agents/*.md` 文件名自动发现加载；核心职责为技术决策、架构选型与质量保证，MUST NOT 亲自写实现代码。
 - MUST 让 `agents/dev-manager.md` 以对话形式给出技术决策，MUST NOT 落 ADR / design 文件；当某决策会打破 `docs/architecture/module-map.md` 的依赖方向时，MUST 要求写码方在实现时补一条 ADR（自身不落盘）。
+- MUST 让 `agents/dev-manager.md` 承载方案评估方法论——一组不分先后的并行判断维度，至少覆盖：优先搜英文网络最佳实践 / 成熟开源框架 / 项目现有能力再决定是否自造；方案可行性与可靠性（失败模式、边界、降级 / 回滚）；对其它模块的影响与新增 BUG / 回归 / 安全漏洞风险；成本与长期演进。
 - MUST 让 `agents/dev-manager.md` 保持通用、自包含：只描述自身职责与方法论，MUST NOT 硬编码指向某个具体协作 agent；协作对象一律按承载 `agents/<name>.md` 的通用对象表述。
 - MUST 让 `agents/dev-manager.md` 每条响应末尾以 `<!-- agent-moebius:stage=in-progress -->` 结尾，阶段语义用正文表达，MUST NOT 为其新增注册 stage。
 - MUST 让 `in-progress` 承载“还在干活 / 采访 / 澄清 / 报进度 / 等待用户，不需要 CEO 阶段反思强制介入”的语义。
