@@ -496,7 +496,7 @@ Dev persona`,
 
 describe("processIssueSource CEO guardrail", () => {
   it("runs CEO guardrail for every Codex agent response", async () => {
-    for (const role of ["dev", "product-manager", "hermes-user"]) {
+    for (const role of ["dev", "dev-manager", "product-manager", "hermes-user"]) {
       const agent = await makeAgentFile(role, `${role} persona`);
       const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
         noChangeCeoResult(input.latestResponse),

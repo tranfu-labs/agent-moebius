@@ -32,6 +32,24 @@ describe("conversation", () => {
     expect(selectMentionedAgent("@unknown please ask @product-manager", ["product-manager"])).toBe("product-manager");
   });
 
+  it("selects dev-manager as a first-class Codex agent mention", () => {
+    expect(parseAgentMentions("@dev-manager 请定一下架构")).toEqual([{ name: "dev-manager", index: 0 }]);
+    expect(selectMentionedAgent("@dev-manager please decide", ["dev-manager"])).toBe("dev-manager");
+  });
+
+  it("normalizes dev-manager comments into speaker=dev-manager", () => {
+    const timeline = buildTimeline(
+      "initial",
+      [{ body: "&lt;dev-manager&gt;:\ntech decision\n\n<!-- agent-moebius:role=dev-manager -->" }],
+      ["dev-manager"],
+    );
+
+    expect(timeline).toEqual([
+      { index: 0, speaker: "user", body: "initial", source: "issue-body" },
+      { index: 1, speaker: "dev-manager", body: "tech decision", source: "comment" },
+    ]);
+  });
+
   it("does not select an agent from historical messages when the latest message has none", () => {
     const timeline = buildTimeline("@product-manager old request", [{ body: "plain latest reply" }], [
       "product-manager",

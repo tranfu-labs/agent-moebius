@@ -133,6 +133,31 @@ describe("formatCeoComment", () => {
     }
   });
 
+  it("returns APPEND with as=dev-manager when CEO speaks as the tech lead", async () => {
+    const agentsDir = await makeAgentsDir();
+    const appendBody = `> CEO guardrail: 技术选型属于 dev-manager 裁决范围。
+
+我确认当前架构决策并要求写码方按质量门推进。
+
+<!-- agent-moebius:stage=in-progress -->`;
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: JSON.stringify({ action: "append", as: "dev-manager", body: appendBody }),
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({ ...baseInput, agentsDir, runCodex });
+
+    expect(result).toMatchObject({
+      action: "APPEND",
+      as: "dev-manager",
+    });
+  });
+
   it("returns the original body when CEO says no_change", async () => {
     const agentsDir = await makeAgentsDir();
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({

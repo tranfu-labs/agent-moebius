@@ -125,12 +125,16 @@
 - MUST 从 Codex JSONL stdout 中提取 `thread.started.thread_id` 作为 role thread 句柄。
 - SHOULD 记录 Codex JSONL 中的 `turn.completed.usage.cached_input_tokens`，用于观察 Codex resume 与模型侧 prompt caching 的收益。
 - MUST 在 pre script 返回 Codex 工作目录时，以显式 `cwd` 调用 Codex。
-- MUST 让所有 Codex agent persona（`agents/dev.md`、`agents/product-manager.md`、`agents/hermes-user.md` 及未来新增 Codex agent）契约要求：每条响应末尾必须以 `<!-- agent-moebius:stage=<enum> -->` marker 结尾，`<enum>` MUST 属于 `AllStages`。
+- MUST 让所有 Codex agent persona（`agents/dev.md`、`agents/dev-manager.md`、`agents/product-manager.md`、`agents/hermes-user.md` 及未来新增 Codex agent）契约要求：每条响应末尾必须以 `<!-- agent-moebius:stage=<enum> -->` marker 结尾，`<enum>` MUST 属于 `AllStages`。
+- MUST 提供 `agents/dev-manager.md` 作为技术负责人 Codex driver agent persona，与 `dev`、`product-manager` 同级、同样以 `agents/*.md` 文件名自动发现加载；核心职责为技术决策、架构选型与质量保证，MUST NOT 亲自写实现代码。
+- MUST 让 `agents/dev-manager.md` 以对话形式给出技术决策，MUST NOT 落 ADR / design 文件；当某决策会打破 `docs/architecture/module-map.md` 的依赖方向时，MUST 要求写码方在实现时补一条 ADR（自身不落盘）。
+- MUST 让 `agents/dev-manager.md` 保持通用、自包含：只描述自身职责与方法论，MUST NOT 硬编码指向某个具体协作 agent；协作对象一律按承载 `agents/<name>.md` 的通用对象表述。
+- MUST 让 `agents/dev-manager.md` 每条响应末尾以 `<!-- agent-moebius:stage=in-progress -->` 结尾，阶段语义用正文表达，MUST NOT 为其新增注册 stage。
 - MUST 让 `in-progress` 承载“还在干活 / 采访 / 澄清 / 报进度 / 等待用户，不需要 CEO 阶段反思强制介入”的语义。
 - SHOULD 让 `plan-written` / `code-verified` 保持为 dev agent 的开发阶段语义；其他 Codex agent 的默认 stage MUST 为 `in-progress`。
 - MUST 新增 `agents/ceo.md` 作为 CEO agent persona，承载触发范围、识别场景清单、输入契约、输出契约与修改红线；未来事故规则扩展 MUST 通过修改 `agents/ceo.md` 实现，NEVER 硬编码到 runner 或 `src/format-ceo.ts`。
 - MUST 让 `agents/ceo.md` 至少覆盖四类识别场景（全部走 `append`）：① `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified`（阶段反思强制介入）；② 工作明显未完成、或已交付但不符合规范（持续推进）；③ 交付规范细则不满足（如 PR 缺 `Closes #N` 字样、评论中 PR 不是链接形式）；④ 死锁等待——agent 的最新响应在等待一个不存在或不会响应的对象（如把历史 reflector 评论当真人、等待系统中不存在的 reviewer / manager），CEO 追加评论纠正认知并直接裁决下一步。
-- MUST 让 `agents/ceo.md` 承载协作生态认知，至少包含：真实可通过 mention 触发的 Codex agent 清单（当前为 `dev`、`product-manager`、`hermes-user`、`tranfu-agents-manager`）；系统中不存在 reflector、reviewer、manager 等可交互对象；历史 `<reflector>` / `stage-hook` 评论只作为旧公开上下文，不代表当前仍有可触发角色；各 agent 常犯错误的经验清单（至少含 dev：把历史 reflector 评论当真人汇报、等待不存在的角色、收到提醒后只做确认式回复无实质推进）。
+- MUST 让 `agents/ceo.md` 承载协作生态认知，至少包含：真实可通过 mention 触发的 Codex agent 清单（当前为 `dev`、`dev-manager`、`product-manager`、`hermes-user`、`tranfu-agents-manager`）；系统中不存在 reflector、reviewer、manager 等可交互对象；历史 `<reflector>` / `stage-hook` 评论只作为旧公开上下文，不代表当前仍有可触发角色；各 agent 常犯错误的经验清单（至少含 dev：把历史 reflector 评论当真人汇报、等待不存在的角色、收到提醒后只做确认式回复无实质推进）。
 - 未来新增 driver agent 时 MUST 同步更新 `agents/ceo.md` 生态认知章节的 agent 清单（与 `as` 允许集合的同步义务并列）。
 - MUST 定义 `agents/ceo.md` 的输入契约字段：`issueContext`、`latestResponse`、`agent`、`allowedStages`。
 - MUST 让 CEO `issueContext` 是完整公开 issue context，至少包含 `issueUrl = https://github.com/<owner>/<repo>/issues/<number>`、当前 issue body 原文 `issueBody`、以及按 GitHub 返回顺序排列的所有 comment body 原文 `comments`。
@@ -140,7 +144,7 @@
 - MUST NOT 在本 change 中新增独立 token 统计状态文件或新持久化机制；CEO token 成本观察沿用现有 Codex stdout JSONL 与 runDir 输出。
 - MUST 定义 `agents/ceo.md` 的输出契约为 JSON，persona 层仅承载以下两种结构（允许 fenced code block 包裹）：
   1. `{"action":"no_change"}` — 不改动，runner 直接 post 原文。
-  2. `{"action":"append","as":"<role>","body":"<CEO 追加正文>"}` — `as` MUST 在 `{ceo, dev, product-manager, hermes-user}` 集合内，默认 `ceo`；`as=ceo` 时 body 不带 stage marker。
+  2. `{"action":"append","as":"<role>","body":"<CEO 追加正文>"}` — `as` MUST 在 `{ceo, dev, dev-manager, product-manager, hermes-user}` 集合内，默认 `ceo`；`as=ceo` 时 body 不带 stage marker。
 - `replace` action 保留在代码层（`src/format-ceo.ts` 的解析与 post-validate 不变），但 `agents/ceo.md` MUST NOT 被要求承载 `replace` 的触发场景与格式约束；未来需要恢复时通过修改 `agents/ceo.md` 实现。
 - MUST 让 `format-ceo.ts` post-validate 只做基础格式红线校验：合法 JSON、`action` 枚举、`append.as` 已知 role、`replace.body` 末尾 stage marker、非空 body；MUST NOT 在 code 层做业务判据（触发条件、模板措辞、`@mention` 等），业务判据 MUST 全部由 `agents/ceo.md` 承担。
 - MUST 在 `src/runner.ts` 的 mention Codex 分支于 `postComment` 之前插入 CEO 拦截：所有 Codex agent 生成的评论 MUST 走 CEO。
