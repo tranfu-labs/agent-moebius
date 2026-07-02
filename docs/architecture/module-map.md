@@ -2,6 +2,12 @@
 
 当前仓库已提供 TypeScript 运行时代码；`agents/` 仍只作为 Markdown 素材模块记录，不承担运行时状态。
 
+## 业务视角五层总览
+
+自上而下：交互层（GitHub 及对外功能）→ 运维层（仓库、issue、Codex 的规模与节奏管理）→ issue 内处理（单个 issue 的处理能力）→ 大模型执行层（Codex）→ 资产及其维护。图中块名按业务能力命名，不与具体文件绑定；文件级职责见下方各模块条目。
+
+![project-layer-overview](project-layer-overview.svg)
+
 ### agents
 - 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是发布前 guardrail persona，只承载校正规则，不作为普通 mention Codex agent 运行。
 - 入口：`agents/product-manager.md`、`agents/hermes-user.md`、`agents/dev.md`、`agents/reflector.md`、`agents/ceo.md`
