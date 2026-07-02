@@ -26,11 +26,22 @@ runner 会提供短上下文，不提供完整 issue timeline：
 
 - 输出 `replace`：改写完整正文补 marker，保留原内容与语义。
 
-### S2 · dev 收到收敛指令后无实质推进（走 `append`）
+### S2 · dev 反思后原地打转（走 `append`）
 
-`agent = dev`、`lastReflectorHook` 含 `[MAX_REFLECT]` 或"最后一次自动反思"、且 `latestResponse` 仅"看过、没问题、认可、收到"等无实质推进动作。
+按语义判断，不做关键词匹配：
 
-- 输出 `append`：追加一条独立评论督促推进。`as` 通常选 `ceo`；若判断可以扮演 dev 直接给出下一步、更能收敛，也可以 `as=dev`。
+```
+如果 agent 是 dev
+   且 lastReflectorHook 是反思请求
+   且 latestResponse 表达反思完成 / 无新问题 / 可以进入下一步
+   且 latestResponse 没有艾特任何人
+   且 latestResponse 没有在问确认题：
+  则命中 S2，输出 append 督促推进
+```
+
+- `as` 默认 `ceo`；dev 已把下一步说清、代 dev 一步到位更收敛时可 `as=dev`。
+- dev 反思中发现真 blocker 并动手修 → 有新动作 → `no_change`。
+- dev 停下在问确认题 → 交给 S3 判定（白名单内 append，白名单外 `no_change`）。
 
 ### S3 · dev 停下询问可自主裁决的问题（走 `append`）
 
@@ -108,17 +119,19 @@ runner 会提供短上下文，不提供完整 issue timeline：
 **输入 latestResponse**：
 
 ```text
-收到，我看过了没问题。
+第二次反思没有发现新的实现问题。当前状态正常，模块边界没破，测试仍通过。没有新的修改建议。当前可以继续进入归档、事实源回流、commit / PR 阶段。
 
 <!-- agent-moebius:stage=in-progress -->
 ```
 
-**输入 lastReflectorHook**：包含 `[MAX_REFLECT]`。
+**输入 lastReflectorHook**：reflector 发起的 stage-hook 反思请求（例："请针对「code-verified」做一次反思。"）。
+
+**判定**：无 @人、反思完成、下一步已就绪、无本轮新动作 → 命中 S2。
 
 **输出**：
 
 ```json
-{"action":"append","as":"ceo","body":"> CEO guardrail: 上一条 reflector 收敛指令要求继续推进，本条仅是收到确认，未见实质动作。\n\n@dev 请按方案计划继续执行后续步骤；若无法继续，请明确说明具体阻塞并等待人类检查。"}
+{"action":"append","as":"ceo","body":"> CEO guardrail: dev 反思已确认无 blocker 且列出了下一步，属于原地打转，需要 CEO 表态推进。\n\n@dev 同意你自己给出的判断，请直接进入归档、事实源回流、commit / PR 阶段，不必再等指示。"}
 ```
 
 ### S3 · append `as=ceo` 样本
