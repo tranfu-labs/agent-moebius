@@ -13,7 +13,10 @@
 │   ├── product-manager.md      # 产品经理 agent 角色素材
 │   └── reflector.md            # 通用反思接力 agent 角色素材
 ├── src/                        # TypeScript 运行时代码
-│   ├── runner.ts               # 常驻轮询入口
+│   ├── runner.ts               # 常驻心跳编排入口（扫描派发与执行解耦）
+│   ├── scanner.ts              # 发现层：due 仓库扫描，产出 changed issues
+│   ├── issue-dispatcher.ts     # 派发层：in-flight 防重、完成即折叠回写
+│   ├── state-persister.ts      # intake state 单写者：写串行化 + 合并 + 原子落盘
 │   ├── github-response-intake.ts # GitHub 响应接入的纯业务调度规则
 │   ├── github-intake-state.ts  # .state/github-response-intake.json 状态读写适配
 │   ├── issue-source.ts         # repo / issue source key 与 clone URL 生成
@@ -65,8 +68,8 @@
   ```
 - 闲时扫描间隔、忙时 issue 轮询间隔、运行中 agent 中断检测轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
 - GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active，处理失败时也会进入 / 保持 active backoff 窗口并按 1 分钟轮询；连续 5 次 active poll 无变化或处理失败后降回 idle；active poll / idle changed-issue 拉到 `state = CLOSED` 时从本地 intake state 移除，不触发 Codex / 评论。
-- runner 会把同一 processing phase 内的 due issue 转成 issue processing jobs 交给 `src/driver-pool.ts`；`DEFAULT_TICK_DEPENDENCIES` 通过 `createDefaultCodexDriverPool()` 注入默认并发上限 `CODEX_DRIVER_POOL_MAX_CONCURRENT = 5`，超额 job 排队等前面空槽；`src/driver-pool.ts` 抽象本身仍允许 `undefined` / `null` 表示不限，便于测试注入 fake pool。调度业务逻辑仍集中在 `github-response-intake.ts`，不得引入 Codex / GitHub adapter 或 driver pool 依赖。
-- runner 在同一 processing phase 内按 `issueKey` 去重 issue jobs；driver jobs 完成后再按确定顺序折叠回 GitHub response intake state，避免并发 job 直接覆盖完整 intake state snapshot。
+- runner 每分钟一轮**心跳**：`src/scanner.ts` 扫描 due 仓库找 changed issue，加上 due 的 active issue 转成 issue processing jobs，批内按 `issueKey` 去重后交给 `src/issue-dispatcher.ts` 派发，**心跳从不等待 job 执行**（防重入只覆盖秒级的扫描派发阶段）；`createDefaultRunnerDependencies()` 通过 `createDefaultCodexDriverPool()` 注入默认并发上限 `CODEX_DRIVER_POOL_MAX_CONCURRENT = 5`，超额 job 排队等前面空槽；`src/driver-pool.ts` 抽象本身仍允许 `undefined` / `null` 表示不限，便于测试注入 fake pool。调度业务逻辑仍集中在 `github-response-intake.ts`，不得引入 Codex / GitHub adapter 或 driver pool 依赖。
+- `src/issue-dispatcher.ts` 维护跨心跳的 in-flight issue 集合：在跑 issue 重复派发记 `skip-inflight` 跳过（同 issue 严格串行、不同 issue 互不阻塞，长跑 codex 只占驱动池 1 个名额）；每个 job **完成即**把结果以纯函数折叠进 `src/state-persister.ts`（intake state 单写者，写串行化 + 合并 + 原子落盘，写失败记日志不中断），并执行 active 上限策略（豁免在跑 issue）。job 运行期间该 issue 的 intake state 不推进，中途变化由后续心跳依据折叠后的状态重新推导，不排队重放。
 - `agents/<name>.md` 对应 issue 消息里的 `@<name>`；当前每轮只看共享时间线最新消息作为触发源，但具体触发方式由 `src/triggers/` 决定。`agents/ceo.md` 是发布前 guardrail persona，不作为普通 mention Codex agent 运行。
 - `agents/<name>.md` 可通过 frontmatter 声明 `preScript`；路径必须是仓库内 `src/agent-prescripts/` 下的受信任脚本，正文仍作为 persona 传给 Codex。
 - `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。该 pre script 每次准备前刷新目标仓库远端 `main` tracking ref，新建 worktree 从最新远端 `main` 创建；复用已有 context 时会先校验记录的 `worktreePath` 等于当前配置计算出的 issue 独占 worktree 路径，不一致则 fail closed；复用已有 worktree 时若当前 `HEAD` 未包含最新远端 `main`，会强制删除旧 worktree（失败时 fallback 到 `rm -rf` + `git worktree prune`）并从最新远端 `main` 重建；重建失败才 fail closed，不调用 Codex / 评论 / 推进 role thread。
@@ -84,7 +87,7 @@
 - GitHub response intake 状态保存在被忽略的 `.state/github-response-intake.json`，记录 repo 闲时扫描时间、issue `updatedAt`、active/idle 模式、active 无变化次数和下次轮询时间。
 - Codex stdout/stderr 运行目录格式为 `/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/`；`<sequence>` 是 runner 进程内递增后缀，用来避免并发 runs 在同一 timestamp + count 下复用同一目录。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
-- `github-response-intake.ts`、`local-config.ts`、`conversation.ts` 与 `conversation-interrupt.ts` 只做业务数据操作；`src/triggers/` 封装 mention / stage 等触发规则；`driver-pool.ts` 只承载 driver job 并发策略；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做编排。
+- `github-response-intake.ts`、`local-config.ts`、`conversation.ts` 与 `conversation-interrupt.ts` 只做业务数据操作；`src/triggers/` 封装 mention / stage 等触发规则；`driver-pool.ts` 只承载 driver job 并发策略；`scanner.ts` 只做发现、`issue-dispatcher.ts` 只做派发与折叠、`state-persister.ts` 只做单写者状态持有与落盘；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做心跳编排与组装。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 
 ## 修改前检查

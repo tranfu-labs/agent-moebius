@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="400" viewBox="0 0 920 400" role="img" aria-labelledby="title desc">
+  <title id="title">变更前：tick 单体流水线（批内并发、批间串行）</title>
+  <desc id="desc">定时器每分钟触发 tick，tick 依次扫描仓库、派发 job、等待全部 job 结束、折叠并保存状态；running 互斥覆盖全程，codex 长跑时后续 tick 全部 skip-overlap。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#334155" />
+    </marker>
+  </defs>
+  <rect width="920" height="400" fill="#f8fafc" />
+  <g font-family="Arial, sans-serif" font-size="14" fill="#0f172a">
+    <rect x="20" y="60" width="150" height="60" rx="8" fill="#e2e8f0" stroke="#64748b" />
+    <text x="95" y="86" text-anchor="middle" font-weight="700">定时器</text>
+    <text x="95" y="106" text-anchor="middle" font-size="12">每分钟触发</text>
+    <line x1="170" y1="90" x2="205" y2="90" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)" />
+    <line x1="95" y1="120" x2="95" y2="165" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)" />
+
+    <rect x="20" y="170" width="150" height="70" rx="8" fill="#fef9c3" stroke="#ca8a04" />
+    <text x="95" y="196" text-anchor="middle" font-weight="700">skip-overlap</text>
+    <text x="95" y="214" text-anchor="middle" font-size="12">tick 未返回时</text>
+    <text x="95" y="230" text-anchor="middle" font-size="12">整轮直接跳过</text>
+
+    <rect x="210" y="30" width="440" height="330" rx="10" fill="none" stroke="#94a3b8" stroke-dasharray="7 5" />
+    <text x="226" y="56" font-size="12" fill="#475569">tick()——全局 running 互斥覆盖全程</text>
+
+    <rect x="240" y="70" width="380" height="56" rx="8" fill="#dbeafe" stroke="#2563eb" />
+    <text x="430" y="93" text-anchor="middle" font-weight="700">扫描仓库</text>
+    <text x="430" y="113" text-anchor="middle" font-size="12">找 changed / due 的 issue</text>
+    <line x1="430" y1="126" x2="430" y2="136" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)" />
+
+    <rect x="240" y="140" width="380" height="56" rx="8" fill="#dbeafe" stroke="#2563eb" />
+    <text x="430" y="163" text-anchor="middle" font-weight="700">派发 job 到 codex driver pool</text>
+    <text x="430" y="183" text-anchor="middle" font-size="12">并发上限 5（仅批内生效）</text>
+    <line x1="430" y1="196" x2="430" y2="206" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)" />
+
+    <rect x="240" y="210" width="380" height="56" rx="8" fill="#fef9c3" stroke="#ca8a04" />
+    <text x="430" y="233" text-anchor="middle" font-weight="700">await 全部 job 结束</text>
+    <text x="430" y="253" text-anchor="middle" font-size="12">codex 长跑全程卡在这里</text>
+    <line x1="430" y1="266" x2="430" y2="276" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)" />
+
+    <rect x="240" y="280" width="380" height="56" rx="8" fill="#dbeafe" stroke="#2563eb" />
+    <text x="430" y="303" text-anchor="middle" font-weight="700">折叠结果 + 保存 state 文件</text>
+    <text x="430" y="323" text-anchor="middle" font-size="12">整轮唯一一次落盘</text>
+
+    <rect x="680" y="70" width="220" height="170" rx="8" fill="#fef2f2" stroke="#dc2626" />
+    <text x="790" y="98" text-anchor="middle" font-weight="700" fill="#b91c1c">后果</text>
+    <text x="790" y="124" text-anchor="middle" font-size="12">一个 codex 长跑</text>
+    <text x="790" y="144" text-anchor="middle" font-size="12">→ tick 一直不返回</text>
+    <text x="790" y="164" text-anchor="middle" font-size="12">→ 每分钟扫描全部跳过</text>
+    <text x="790" y="184" text-anchor="middle" font-size="12">→ 新 issue / 新评论停摆</text>
+    <text x="790" y="212" text-anchor="middle" font-size="12" fill="#b91c1c">issue 级串行被放大成</text>
+    <text x="790" y="228" text-anchor="middle" font-size="12" fill="#b91c1c">系统级串行</text>
+    <line x1="650" y1="238" x2="676" y2="220" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)" />
+  </g>
+</svg>

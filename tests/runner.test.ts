@@ -7,11 +7,12 @@ import type { DriverPool } from "../src/driver-pool.js";
 import { CEO_CORRECTED_METADATA, type FormatCeoResult } from "../src/format-ceo.js";
 import {
   createDefaultCodexDriverPool,
+  createRunner,
   makeRunDir,
   pollActiveIssue,
   processIssueSource,
-  tick,
   type ProcessIssueSourceDependencies,
+  type RunnerDependencies,
 } from "../src/runner.js";
 import type { GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import type { GitHubIssue } from "../src/github.js";
@@ -55,7 +56,7 @@ describe("pollActiveIssue", () => {
   });
 });
 
-describe("tick driver pool orchestration", () => {
+describe("runner heartbeat orchestration", () => {
   it("runs changed issue jobs through the injected driver pool without serializing them", async () => {
     const first = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 1 });
     const second = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 2 });
@@ -78,20 +79,20 @@ describe("tick driver pool orchestration", () => {
       return "triggered-success" as const;
     });
 
-    const tickPromise = tick(
-      new Date("2026-07-01T00:10:00Z"),
-      makeTickDependencies({
-        initialState: stateWithIdleScanDueIssues([first, second]),
+    const runner = createRunner({
+      initialState: stateWithIdleScanDueIssues([first, second]),
+      dependencies: makeRunnerDependencies({
         summaries: [
           { issueNumber: 1, updatedAt: "2026-07-01T00:05:00Z" },
           { issueNumber: 2, updatedAt: "2026-07-01T00:06:00Z" },
         ],
         processIssueSource: processIssueSourceMock,
-        saveGitHubResponseIntakeState: async (state) => {
+        saveGitHubResponseIntakeState: async (state: GitHubResponseIntakeState) => {
           savedStates.push(state);
         },
       }),
-    );
+    });
+    await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
 
     await Promise.race([
       bothStarted.promise,
@@ -103,30 +104,83 @@ describe("tick driver pool orchestration", () => {
     expect(startedIssueNumbers.sort()).toEqual([1, 2]);
 
     releaseJobs.resolve();
-    await tickPromise;
+    await runner.dispatcher.idle();
+    await runner.persister.flush();
 
     expect(processIssueSourceMock).toHaveBeenCalledTimes(2);
-    expect(savedStates[0]?.issues[first.issueKey]?.mode).toBe("active");
-    expect(savedStates[0]?.issues[second.issueKey]?.mode).toBe("active");
+    expect(runner.persister.state().issues[first.issueKey]?.mode).toBe("active");
+    expect(runner.persister.state().issues[second.issueKey]?.mode).toBe("active");
+    expect(savedStates.at(-1)?.issues[first.issueKey]?.mode).toBe("active");
+    expect(savedStates.at(-1)?.issues[second.issueKey]?.mode).toBe("active");
   });
 
-  it("dedupes duplicate issue jobs within a processing phase", async () => {
+  it("dedupes duplicate issue jobs within a heartbeat", async () => {
     const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 1 });
     const processIssueSourceMock = vi.fn(async () => "triggered-success" as const);
 
-    await tick(
-      new Date("2026-07-01T00:10:00Z"),
-      makeTickDependencies({
-        initialState: stateWithIdleScanDueIssues([issue]),
+    const runner = createRunner({
+      initialState: stateWithIdleScanDueIssues([issue]),
+      dependencies: makeRunnerDependencies({
         summaries: [
           { issueNumber: 1, updatedAt: "2026-07-01T00:05:00Z" },
           { issueNumber: 1, updatedAt: "2026-07-01T00:05:00Z" },
         ],
         processIssueSource: processIssueSourceMock,
       }),
-    );
+    });
+    await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
+    await runner.dispatcher.idle();
 
     expect(processIssueSourceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps later heartbeats scanning and dispatching while a job runs long", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const slow = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
+    const fast = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 68 });
+    const slowStarted = deferred<void>();
+    const releaseSlow = deferred<void>();
+    const summaries = [{ issueNumber: 67, updatedAt: "2026-07-01T00:05:00Z" }];
+    const processIssueSourceMock = vi.fn(async (input: { source: ReturnType<typeof makeIssueSource> }) => {
+      if (input.source.issueNumber === 67) {
+        slowStarted.resolve();
+        await releaseSlow.promise;
+      }
+      return "triggered-success" as const;
+    });
+
+    const runner = createRunner({
+      initialState: stateWithIdleScanDueIssues([slow, fast]),
+      dependencies: makeRunnerDependencies({ summaries, processIssueSource: processIssueSourceMock }),
+    });
+
+    // 心跳 1：派发 #67，它长跑挂起
+    await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
+    await slowStarted.promise;
+
+    // 心跳 2：#67 仍在跑，#68 出现新变化，扫描与派发不被阻塞
+    summaries.push({ issueNumber: 68, updatedAt: "2026-07-01T00:15:00Z" });
+    await runner.heartbeat(new Date("2026-07-01T00:16:00Z"));
+    await vi.waitFor(() => {
+      expect(runner.persister.state().issues[fast.issueKey]?.mode).toBe("active");
+    });
+
+    // #67 未折叠、仍在跑；#68 已全流程完成
+    expect(runner.persister.state().issues[slow.issueKey]?.mode).toBe("idle");
+    expect(runner.dispatcher.busyIssueKeys().has(slow.issueKey)).toBe(true);
+    expect(
+      logSpy.mock.calls.some(([line]) => typeof line === "string" && line.includes('"event":"skip-overlap"')),
+    ).toBe(false);
+    // 心跳 2 再次发现 #67 变化，但被在跑防重跳过
+    expect(
+      logSpy.mock.calls.some(([line]) => typeof line === "string" && line.includes('"event":"skip-inflight"')),
+    ).toBe(true);
+    expect(processIssueSourceMock.mock.calls.filter(([input]) => input.source.issueNumber === 67)).toHaveLength(1);
+
+    releaseSlow.resolve();
+    await runner.dispatcher.idle();
+    expect(runner.persister.state().issues[slow.issueKey]?.mode).toBe("active");
+    logSpy.mockRestore();
   });
 });
 
@@ -662,12 +716,11 @@ function noChangeCeoResult(body: string): FormatCeoResult {
   };
 }
 
-function makeTickDependencies(
-  input: Partial<NonNullable<Parameters<typeof tick>[1]>> & {
-    initialState?: GitHubResponseIntakeState;
+function makeRunnerDependencies(
+  input: Partial<RunnerDependencies> & {
     summaries?: Array<{ issueNumber: number; updatedAt: string }>;
   } = {},
-): NonNullable<Parameters<typeof tick>[1]> {
+): RunnerDependencies {
   const driverPool: DriverPool = {
     run: (job) => job(),
   };
@@ -686,7 +739,6 @@ function makeTickDependencies(
           "2026-07-01T00:00:00Z",
       ),
     processIssueSource: async () => "triggered-success",
-    loadGitHubResponseIntakeState: async () => input.initialState ?? { repositories: {}, issues: {} },
     saveGitHubResponseIntakeState: async () => {},
     ...input,
   };

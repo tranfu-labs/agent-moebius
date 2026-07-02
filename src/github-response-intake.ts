@@ -252,6 +252,7 @@ export function enforceActiveIssueLimit(input: {
   repositories: readonly RepositoryRef[];
   state: GitHubResponseIntakeState;
   maxActiveIssues: number;
+  excludedIssueKeys?: ReadonlySet<string>;
 }): ActiveIssueLimitResult {
   const watchedRepositories = makeRepositorySet(input.repositories);
   const activeIssues = Object.entries(input.state.issues)
@@ -273,7 +274,7 @@ export function enforceActiveIssueLimit(input: {
   const issues = { ...input.state.issues };
 
   for (const [issueKey, issue] of activeIssues) {
-    if (keepIssueKeys.has(issueKey)) {
+    if (keepIssueKeys.has(issueKey) || input.excludedIssueKeys?.has(issueKey) === true) {
       continue;
     }
 
