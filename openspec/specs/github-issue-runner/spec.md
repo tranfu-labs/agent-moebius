@@ -23,10 +23,11 @@
 - MUST 默认在 idle mode 下每 5 分钟扫描一次每个白名单 repository。
 - MUST 在 idle repository scan 中只扫描有界的最近更新 open issue 窗口；默认每个 repository 20 个 issues。
 - MUST 使用 GitHub issue `updatedAt` 作为 repository summary 与 active issue poll 的主要变更检测依据。
+- MUST 让 intake 游标 `updatedAt` 只在 GitHub 上留下可见结果之后推进：要么本轮处理成功发布了 agent 评论（`triggered-success`）或确认无需触发（`no-trigger`），要么重试预算耗尽后成功发布了死信评论（`dead-lettered`）。任何处理失败 MUST NOT 推进 `updatedAt`。
 - MUST 在拉取 issue body/comments 时同时读取 GitHub `state` 字段（`OPEN` / `CLOSED`），并作为 `GitHubIssue` shape 的必填字段。
 - MUST 默认在 repository 首次 baseline scan 时只记录历史 open issue 的 `updatedAt`，不批量处理历史 issue，避免对旧 mention 批量回复。
 - SHOULD 支持显式配置 seed issue sources，用于需要启动后立即检查的特定 issue。
-- MUST 在 issue 出现 runner-relevant 变化并成功处理后把该 issue 提升为 active mode；若处理返回 `failed`，MUST 同样把该 issue 纳入或保持在 active backoff 窗口，直到后续成功处理、无变化降级或 failed 到达上限降级。
+- MUST 在 issue 出现 runner-relevant 变化并成功处理后把该 issue 提升为 active mode；若处理返回 `failed`，MUST 保持该 issue 在 active 窗口按 poll 节奏重试，直到后续成功处理，或失败达 `FAILURE_RETRY_LIMIT` 后死信发布成功（`dead-lettered`）降级。
 - MUST 默认每 1 分钟轮询 active issues。
 - MUST 仅轮询当前 watched repositories 内的 active issues。
 - MUST 在 active issue 连续 5 次 active poll 未观察到 GitHub `updatedAt` 变化后，将该 issue 降级回 idle。
@@ -34,17 +35,21 @@
 - MUST 在 active issue 观察到 `no-trigger` 变化时保持 active，重置无变化计数，并安排下一次 active poll。
 - MUST 在 active poll 或 idle-scan changed-issue 处理路径中发现 issue `state = CLOSED` 时，把该 issue 从 `.state/github-response-intake.json` 移除（与 `issue-not-found` 语义一致），不调用 trigger、不调用 Codex、不发评论；MUST 记录 `event = "skip"`、`reason = "issue-closed"` 与 `issueKey`。
 - MUST 限制当前 watched repositories 内的 active issues 数量；超出上限时，runner MUST 将多余 issue 降级到 idle 并记录原因。
-- MUST 把 GitHub response intake 状态保存在本地忽略目录 `.state/github-response-intake.json`，状态至少包含 repository idle scan 时间、issue `updatedAt`、mode、active 无变化计数和下次轮询时间。
-- MUST 在 `no-trigger` 与 `failed` 后更新 intake state，避免未变化或持续失败的 issue 被每 tick 重复 fetch / process。
-- MUST 在单 issue 处理返回 `failed` 时把该 issue 的 `updatedAt` 同步为刚拉取的最新值、`activeNoChangeCount` 累加 1、`nextPollAt` 设为处理时间后 `activeIssuePollIntervalMs`；只有此前已处于 active mode 的 issue 才继承既有 `activeNoChangeCount`，此前处于 idle 或缺失状态的 failed MUST 从 1 开始计数；一旦累加到 `activeIssueNoChangeLimit`，MUST 立即把 `mode` 降为 `idle` 并把 `nextPollAt` 设为 `null`。
-- MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进 role-thread 状态或发布 GitHub 评论；失败时仅推进 intake `updatedAt` / `activeNoChangeCount` / `nextPollAt`，确保轮询能收敛降级。
+- MUST 把 GitHub response intake 状态保存在本地忽略目录 `.state/github-response-intake.json`，状态至少包含 repository idle scan 时间、issue `updatedAt`、mode、active 无变化计数、下次轮询时间，以及可选 `failureCount`（缺省 0）与 `lastFailureReason`。
+- MUST 在 `no-trigger` 后推进 intake `updatedAt`；`failed` 后 MUST 更新 `failureCount` / `lastFailureReason` / `nextPollAt` 但 MUST NOT 推进 `updatedAt`，重试节奏由既有 poll / scan 间隔约束，MUST NOT 每 tick 刷屏。
+- MUST 在单 issue 处理返回 `failed` 时保留既有 `updatedAt`、`failureCount` 累加 1（此前 idle 或缺失状态从 1 开始）、记录 `lastFailureReason`、`activeNoChangeCount` 保持不变、`mode = active`、`nextPollAt` 设为处理时间后 `activeIssuePollIntervalMs`。失败 MUST NOT 消耗安静降级预算（`activeNoChangeCount`），安静轮询 MUST NOT 消耗失败预算（`failureCount`）。
+- MUST 在 `triggered-success` / `no-trigger` / `dead-lettered` 结局折叠时清零 `failureCount` 与 `lastFailureReason`。存量状态文件（无新字段）MUST 可直接加载。
+- MUST 在处理失败且折叠后 `failureCount` 将达到 `FAILURE_RETRY_LIMIT` 时，于同轮先完成本次真实处理尝试、确认仍失败后，向该 issue 发布死信评论；死信评论发布成功 MUST 折叠为 `dead-lettered`（推进 `updatedAt`、`mode = idle`、清零计数、`nextPollAt = null`），发布失败 MUST 保持 `failed` 并在后续轮次继续「先处理、后死信」。MUST NOT 在本轮处理成功时发布死信。
+- MUST 让死信评论以系统身份发布、不包含任何 agent mention、携带机器可识别标记 `<!-- agent-moebius:dead-letter -->`，并包含目标 agent 名、`lastFailureReason`、累计失败次数与恢复提示（在 issue 发表任意新评论即可重新触发）。
+- MUST 在死信评论被后续扫描读到时按 `no-trigger` 吸收，MUST NOT 形成自触发循环。
+- MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进 role-thread 状态；失败时仅更新 intake `failureCount` / `lastFailureReason` / `nextPollAt`，MUST NOT 推进 `updatedAt`，由重试预算与死信机制收敛。
 - MUST keep an interrupted issue active and schedule a follow-up poll without advancing processing to the newly arrived message's `updatedAt`.
 - MUST 通过独立 driver pool 抽象执行可能调用本地 Codex driver 的 issue processing jobs；driver pool MUST NOT 依赖 GitHub issue domain types、trigger 规则、prompt 或 intake state。
 - MUST 在调度业务逻辑注入 Codex driver pool 时使用默认并发上限 `CODEX_DRIVER_POOL_MAX_CONCURRENT = 5`；`src/driver-pool.ts` 抽象本身仍允许 `undefined` 或 `null` 表示无限制，以便测试注入 fake pool。
 - MUST 通过编排层导出函数 `createDefaultCodexDriverPool()` 装配默认 driver pool；`DEFAULT_TICK_DEPENDENCIES.driverPool` 由该函数初始化，便于测试直接对默认 pool 断言并发行为。
 - MUST 允许 driver pool 使用正整数 `maxConcurrent` 显式限流；配置后同一时刻 running jobs 数量 MUST 不超过该值，queued jobs MUST 在 running job 完成后继续启动。
 - MUST 允许 runner 测试注入 fake 或 instrumented driver pool，使 runner 编排可在不调用本地 Codex driver 的情况下测试。
-- MUST 把 `CODEX_DRIVER_POOL_MAX_CONCURRENT` 写入启动日志 `CONFIG_LOG_FIELDS`（字段名 `codexDriverPoolMaxConcurrent`）。
+- MUST 把 `CODEX_DRIVER_POOL_MAX_CONCURRENT` 与 `FAILURE_RETRY_LIMIT` 写入启动日志 `CONFIG_LOG_FIELDS`（字段名分别为 `codexDriverPoolMaxConcurrent` 与 `failureRetryLimit`）。
 - MUST 保持心跳级防重入：上一轮心跳的扫描派发阶段尚未返回时，同一 runner 进程 MUST NOT 启动新心跳（记录 `event = "skip-overlap"`）；正在执行的 issue processing jobs MUST NOT 阻止后续心跳的扫描与派发。
 - MUST 在同一轮心跳内按 `issueKey` 去重 issue processing jobs；并 MUST 维护跨心跳的 in-flight issue 集合：已有 job 在执行的 issue 在后续心跳 MUST NOT 重复派发，MUST 记录 `event = "skip-inflight"` 与 `issueKey`；job settle（成功、失败或异常）后 MUST 从集合移除该 issue。
 - MUST 在每个 driver job 完成时立即把其 result 以纯函数折叠进单写者持有的内存 intake state 并调度落盘；并发完成的 jobs 的折叠 MUST 互不覆盖，MUST NOT 等待同批其他 job 完成后统一落盘。
@@ -56,13 +61,13 @@
 - MUST 为同一 runner 进程内每个本地 Codex driver run 生成唯一 run directory；即使并发 runs 拥有相同 message count 且在同一 timestamp interval 内启动，runDir 也 MUST 不相等。
 - MUST 在配置的目标 issue 暂不可解析时把本轮视为可恢复 skip，记录 `reason = "issue-not-found"` 与 `issueKey`，并等待后续轮询。
 - MUST 在目标 issue 不存在或已关闭时不调用 Codex、不发表评论，并从 intake active 状态中移除或降级该 issue。
-- MUST 把非 issue-not-found 的 GitHub CLI 失败按 `classifyGhError` 分类处理：分类为 `transient`（`EOF`、5xx、超时、连接错误、限流等）时按 `transient-failed` 结局折叠——保留原 `updatedAt`、MUST NOT 累加 `activeNoChangeCount`、保持 `mode = active` 并排下一次 poll，使长时间瞬时故障不降级、恢复后自然重入；分类为 `deterministic`（认证失败、参数非法等）时仍按 `failed` 规则推进 `activeNoChangeCount` 与 `nextPollAt` 以收敛降级。两类都 MUST NOT 每 tick 刷屏。
+- MUST 把非 issue-not-found 的处理失败（含 GitHub CLI 失败、pre script 失败、Codex 失败、看门狗超时、thread 状态解析失败）统一折叠为携带失败原因的 `failed`，MUST NOT 在结局层按错误类型分类决定游标是否推进。`classifyGhError` 仅继续用于 gh 调用内同步重试的重试判定。
 - MUST 对 `gh` CLI 调用提供调用内同步重试（指数退避），只重试 `classifyGhError` 判定为 `transient` 的错误；判定为 `deterministic` 的错误（issue 不存在、`HTTP 40x/422`、`Bad credentials`、`gh auth login`、`ENOENT` 等）MUST 立即上抛不重试。重试参数集中在 `src/config.ts` 的 `GITHUB_CLI_RETRY_POLICY`，每次重试 MUST 记录 `event = "gh-retry-attempt"`（含 `label`、`attempt`、错误原因）。
 - MUST 让重试原语 `withRetry` 支持 `AbortSignal` 取消：signal 触发时停止后续重试与退避等待并上抛；MUST 允许注入无副作用 sleep，使重试逻辑可在不真实等待的情况下单元测试。
 - MUST 让 `classifyGhError` 以 `gh` 命令 stderr / 错误消息为依据返回 `"transient" | "deterministic"`；未知的 `gh` 运行期失败默认 `transient`。
-- MUST 对发表评论（写操作）默认不自动重试，避免瞬时错误引发重复评论；对幂等的 issue reaction 与只读拉取（issue 列表 / issue 详情）允许重试。发布阶段（`processIssueSource` 主流程内）抛出的 GitHub CLI 失败 MUST 判为 `failed`（不重入、不重复发帖），瞬时软失败仅适用于尚未发布任何评论的拉取路径。
-- MUST 新增 `transient-failed` issue 处理结局并在 `recordIssueProcessingOutcome` 中折叠为：保留既有 `updatedAt`（不推进到最新）、`activeNoChangeCount` 不变、`mode = active`、`nextPollAt = processedAt + activeIssuePollIntervalMs`。
-- MUST 在拉取 issue（active poll / changed 处理路径）遇到非 issue-not-found 的 `transient` GitHub CLI 失败时，按 `transient-failed` 结局折叠而非 `failed`。
+- MUST 对发表评论（写操作）默认不自动重试，避免瞬时错误引发重复评论；对幂等的 issue reaction 与只读拉取（issue 列表 / issue 详情）允许重试。
+- MUST 以「首条 GitHub 评论发布成功」为发布边界：边界之前的任何失败 MUST 折叠为 `failed`（不推进 `updatedAt`，重入安全）；边界之后的失败 MUST NOT 触发重入（避免重复发帖），按已发布收尾并记录日志。role-thread 状态 MUST 在首条评论发布成功之后才保存，保证重入时增量窗口一致。
+- MUST 记录结构化日志：失败重试 `event = "issue-retry-scheduled"`（含 `issueKey`、`failureCount`、失败原因），死信发布成功 `event = "dead-letter-posted"`，死信发布失败 `event = "dead-letter-post-failed"`。
 - MUST 在收尾中断检查（codex 成功后的 conversation snapshot 复核）因 GitHub CLI 抛异常而失败时 fail-open：记录 `event = "agent-run-interrupt-check-failopen"`，视作未观察到新消息并照常执行后续发布流程，MUST NOT 因该次检查失败而丢弃已完成的 codex 产出或返回 `failed`。
 - MUST 为单次本地 codex run 设置总时长看门狗上限 `CODEX_RUN_MAX_DURATION_MS`；超时 MUST 通过既有 `AbortController` 中止该 run，记录 `event = "codex-watchdog-timeout"` 并将该次处理判为 `failed`（区别于收到新消息的 `interrupted`），以兜底 in-flight job 永不返回导致的 `skip-inflight` 死锁。
 - MUST 把 `GITHUB_CLI_RETRY_POLICY` 与 `CODEX_RUN_MAX_DURATION_MS` 写入启动日志 `CONFIG_LOG_FIELDS`。
@@ -119,6 +124,7 @@
 - MUST 在 stale worktree 重建过程任一步失败时 fail closed，不调用 Codex、不发表评论、不推进 role thread 状态，并返回 `stale-worktree-rebuild-failed:<detail>`。
 - MUST 在 stale worktree 自动重建过程中丢弃 worktree 内未推送的本地 commit；agent 产出的落地口径是 commit + push，未 push 的改动不属于要保护的运行时状态。
 - MUST 在已有 `dev` context 指向缺失或不可访问 worktree 时 fail closed，不自动重建。
+- MUST 让 `dev` pre script 的 git 调用在失败时携带 stderr 摘要（如 `git failed with exit-code-128: fatal: unable to access ...`），使 `lastFailureReason` 与死信评论可定位根因。
 - MUST support interrupting an in-flight `dev` Codex run when the source conversation receives a new message before Codex completes.
 - MUST model agent-run interruption through a driver-agnostic conversation snapshot abstraction, so drivers provide current conversation state instead of embedding GitHub-specific logic in the local script executor.
 - MUST use GitHub issue body + comments count as the GitHub conversation snapshot message count for new-comment interruption.
@@ -430,18 +436,50 @@ And 不发表评论
 And `.state/github-response-intake.json` 中该 issue 记录被移除
 And 下一 tick `getDueActiveIssueSources` 不再返回该 issue
 
-### 场景 22.1：GitHub response intake — failed 后推进 backoff 并到上限降级
+### 场景 22.1：GitHub response intake — failed 后保留游标并按失败预算重试
 Given `.state/github-response-intake.json` 中 `tranfu-labs/agent-moebius#4.updatedAt = T1`
 And repository scan 或 active poll 观察到该 issue 的 `updatedAt = T2`
 When pre script 执行失败、Codex 执行失败或 GitHub comment 发布失败
-Then 系统把该 issue 的已处理 `updatedAt` 更新为 T2
+Then 系统保持该 issue 的已处理 `updatedAt = T1`
 And 保持或设置 `mode = active`
-And 把 `activeNoChangeCount` 累加 1
+And 把 `failureCount` 累加 1
+And 记录 `lastFailureReason`
+And `activeNoChangeCount` 保持不变
 And 把 `nextPollAt` 设为处理时间后 1 分钟
-And 当 `activeNoChangeCount` 达到 5 时把 `mode` 降为 `idle`
-And 把 `nextPollAt` 设为 `null`
 And 不更新 `.state/role-threads.json`
-And 不发表评论
+And 不发布 agent 评论
+
+### 场景 22.2：GitHub response intake — 持续失败达预算后发布死信
+Given `.state/github-response-intake.json` 中某 issue 的 `failureCount = 4`
+And `FAILURE_RETRY_LIMIT = 5`
+And 本轮处理再次失败
+When runner 在同轮向该 issue 发布死信评论且发布成功
+Then 结局折叠为 `dead-lettered`
+And `updatedAt` 推进到本轮观察到的最新值
+And `mode = idle`
+And `failureCount` 与 `lastFailureReason` 被清零
+And `nextPollAt = null`
+And issue 上可见一条不含 agent mention、含 `<!-- agent-moebius:dead-letter -->`、失败原因与恢复提示的死信评论
+And 用户之后的任意新评论能重新触发处理
+
+### 场景 22.3：GitHub response intake — 死信发布失败不吞指令
+Given 某 issue 失败已达预算且本轮处理再次失败
+And 死信评论 `postComment` 抛出异常
+When runner 折叠该次处理结局
+Then 结局保持 `failed`
+And `updatedAt` 不推进
+And `failureCount` 保持累加后的值
+And 后续轮次继续「先处理、后死信」
+And 处理一旦成功则正常收敛且不发死信
+
+### 场景 22.4：GitHub response intake — 故障恢复后不误发死信
+Given 某 issue 因 GitHub 长时间故障 `failureCount` 已超过 `FAILURE_RETRY_LIMIT`
+And 故障已恢复
+When 下一轮到期先执行真实处理尝试且处理成功
+Then 结局为 `triggered-success`
+And 系统正常发布 agent 评论
+And MUST NOT 发布死信评论
+And `failureCount` 与 `lastFailureReason` 被清零
 
 ### 场景 23：agent 输出后不做同轮自反
 Given 最新消息包含 `@dev`
@@ -785,12 +823,14 @@ Then 系统记录 `event = "agent-run-interrupt-check-failopen"`
 And 视作未观察到新消息，继续执行 CEO guardrail 与评论发布
 And MUST NOT 返回 `failed`、MUST NOT 丢弃已完成的 codex 产出
 
-### 场景 49：瞬时 GitHub 故障不烧降级预算并在下一 tick 重入
+### 场景 49：瞬时 GitHub 故障不推进 intake 游标并在下一 tick 重入
 Given `tranfu-labs/agent-moebius#4.mode = active` 且 `activeNoChangeCount = 3`
 And 一次 active poll 拉取该 issue 时遇到 `transient` GitHub CLI 失败且调用内重试耗尽
 When runner 折叠该次处理结局
 Then 该 issue 的 `activeNoChangeCount` 保持 3（不累加）
 And `updatedAt` 保持原值（不推进）
+And `failureCount` 累加 1
+And `lastFailureReason` 记录 GitHub CLI 失败原因
 And `mode` 保持 `active` 并排下一次 poll
 And 后续 poll 成功拉取到仍存在的变化时重新进入处理
 
@@ -830,7 +870,7 @@ Then CEO MUST NOT 基于猜测对该 PR 下判断
 And 仅纯文本层可确定的问题（如评论中 PR 不是链接形式）仍可介入
 
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed backoff 推进 `updatedAt` / `activeNoChangeCount` / `nextPollAt` 并到上限降级、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断、issue media 纯提取 / prompt manifest、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、`isTransientGitHubCliError` 仅对 `gh` 瞬时失败为真、`transient-failed` 折叠不累加计数不推进 `updatedAt` 不降级、以及收尾中断检查抛错时 fail-open 照常发布。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed 保留 `updatedAt` 并更新 `failureCount` / `lastFailureReason` / `nextPollAt`、`dead-lettered` 清零失败状态并降级 idle、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、dev workspace git 失败 stderr 摘要、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断、issue media 纯提取 / prompt manifest、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、死信发布成功 / 失败 / 故障恢复不误发死信、以及收尾中断检查抛错时 fail-open 照常发布。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 并可能发表评论；执行前应确认这是期望的外部副作用。

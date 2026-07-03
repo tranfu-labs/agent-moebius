@@ -220,10 +220,20 @@ async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
-async function runGit(args: string[]): Promise<void> {
+export async function runGit(args: string[]): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn("git", args, {
-      stdio: ["ignore", "ignore", "ignore"],
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+
+    let stderr = "";
+    if (child.stderr === null) {
+      reject(new Error("git did not expose stderr pipe"));
+      return;
+    }
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
     });
 
     child.once("error", reject);
@@ -234,7 +244,8 @@ async function runGit(args: string[]): Promise<void> {
       }
 
       const suffix = signal ? `signal-${signal}` : `exit-code-${code}`;
-      reject(new Error(`git failed with ${suffix}`));
+      const detail = stderr.trim();
+      reject(new Error(detail === "" ? `git failed with ${suffix}` : `git failed with ${suffix}: ${detail}`));
     });
   });
 }

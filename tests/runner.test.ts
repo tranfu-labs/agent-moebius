@@ -7,6 +7,7 @@ import type { DriverPool } from "../src/driver-pool.js";
 import { CEO_CORRECTED_METADATA, type FormatCeoResult } from "../src/format-ceo.js";
 import {
   createDefaultCodexDriverPool,
+  formatDeadLetterComment,
   createRunner,
   makeRunDir,
   pollActiveIssue,
@@ -14,7 +15,7 @@ import {
   type ProcessIssueSourceDependencies,
   type RunnerDependencies,
 } from "../src/runner.js";
-import type { GitHubResponseIntakeState } from "../src/github-response-intake.js";
+import { failedIssueProcessingOutcome, type GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import { CommandFailedError, type GitHubIssue } from "../src/github.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
@@ -53,6 +54,46 @@ describe("pollActiveIssue", () => {
 
     expect(result.issues).not.toHaveProperty(source.issueKey);
     expect(process).not.toHaveBeenCalled();
+  });
+
+  it("records fetch failures as failed without advancing the intake cursor", async () => {
+    const state: GitHubResponseIntakeState = {
+      repositories: {},
+      issues: {
+        [source.issueKey]: {
+          owner: source.owner,
+          repo: source.repo,
+          issueNumber: source.issueNumber,
+          updatedAt: "2026-07-01T00:00:00Z",
+          mode: "active",
+          activeNoChangeCount: 2,
+          nextPollAt: "2026-07-01T00:01:00Z",
+        },
+      },
+    };
+
+    const result = await pollActiveIssue(
+      {
+        state,
+        source,
+        agentFiles: [],
+        now: new Date("2026-07-01T00:02:00Z"),
+      },
+      {
+        fetchIssueWithComments: async () => {
+          throw new CommandFailedError("gh", 1, null, 'Post "https://api.github.com/graphql": EOF');
+        },
+        processIssueSource: async () => "triggered-success",
+      },
+    );
+
+    expect(result.issues[source.issueKey]).toMatchObject({
+      mode: "active",
+      updatedAt: "2026-07-01T00:00:00Z",
+      activeNoChangeCount: 2,
+      failureCount: 1,
+      lastFailureReason: 'gh failed with exit code 1: Post "https://api.github.com/graphql": EOF',
+    });
   });
 });
 
@@ -181,6 +222,144 @@ describe("runner heartbeat orchestration", () => {
     await runner.dispatcher.idle();
     expect(runner.persister.state().issues[slow.issueKey]?.mode).toBe("active");
     logSpy.mockRestore();
+  });
+
+  it("posts a dead-letter comment and records dead-lettered when the failure retry budget is reached", async () => {
+    const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
+    const posted: string[] = [];
+    const runner = createRunner({
+      initialState: {
+        repositories: {
+          [`${source.owner}/${source.repo}`]: {
+            lastIdleScanAt: "2026-07-01T00:00:00.000Z",
+          },
+        },
+        issues: {
+          [issue.issueKey]: {
+            owner: issue.owner,
+            repo: issue.repo,
+            issueNumber: issue.issueNumber,
+            updatedAt: "2026-07-01T00:00:00Z",
+            mode: "idle",
+            activeNoChangeCount: 0,
+            nextPollAt: null,
+            failureCount: 4,
+            lastFailureReason: "old failure",
+          },
+        },
+      },
+      dependencies: makeRunnerDependencies({
+        summaries: [{ issueNumber: 67, updatedAt: "2026-07-01T00:05:00Z" }],
+        processIssueSource: async () => failedIssueProcessingOutcome({ reason: "dev-workspace-error:git failed", agent: "dev" }),
+        postComment: async (_source, body) => {
+          posted.push(body);
+        },
+      }),
+    });
+
+    await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
+    await runner.dispatcher.idle();
+
+    expect(posted).toEqual([
+      formatDeadLetterComment({
+        agent: "dev",
+        reason: "dev-workspace-error:git failed",
+        failureCount: 5,
+      }),
+    ]);
+    expect(posted[0]).toContain("<!-- agent-moebius:dead-letter -->");
+    expect(posted[0]).not.toContain("@dev");
+    expect(runner.persister.state().issues[issue.issueKey]).toMatchObject({
+      mode: "idle",
+      updatedAt: "2026-07-01T00:05:00Z",
+      failureCount: 0,
+      activeNoChangeCount: 0,
+      nextPollAt: null,
+    });
+  });
+
+  it("keeps retrying when dead-letter posting fails", async () => {
+    const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
+    const runner = createRunner({
+      initialState: {
+        repositories: {
+          [`${source.owner}/${source.repo}`]: {
+            lastIdleScanAt: "2026-07-01T00:00:00.000Z",
+          },
+        },
+        issues: {
+          [issue.issueKey]: {
+            owner: issue.owner,
+            repo: issue.repo,
+            issueNumber: issue.issueNumber,
+            updatedAt: "2026-07-01T00:00:00Z",
+            mode: "idle",
+            activeNoChangeCount: 0,
+            nextPollAt: null,
+            failureCount: 4,
+          },
+        },
+      },
+      dependencies: makeRunnerDependencies({
+        summaries: [{ issueNumber: 67, updatedAt: "2026-07-01T00:05:00Z" }],
+        processIssueSource: async () => failedIssueProcessingOutcome({ reason: "still failing", agent: "dev" }),
+        postComment: async () => {
+          throw new Error("comment failed");
+        },
+      }),
+    });
+
+    await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
+    await runner.dispatcher.idle();
+
+    expect(runner.persister.state().issues[issue.issueKey]).toMatchObject({
+      mode: "active",
+      updatedAt: "2026-07-01T00:00:00Z",
+      failureCount: 5,
+      lastFailureReason: "still failing",
+    });
+  });
+
+  it("does not post a dead-letter comment when processing recovers on the budget round", async () => {
+    const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
+    const postComment = vi.fn(async () => {});
+    const runner = createRunner({
+      initialState: {
+        repositories: {
+          [`${source.owner}/${source.repo}`]: {
+            lastIdleScanAt: "2026-07-01T00:00:00.000Z",
+          },
+        },
+        issues: {
+          [issue.issueKey]: {
+            owner: issue.owner,
+            repo: issue.repo,
+            issueNumber: issue.issueNumber,
+            updatedAt: "2026-07-01T00:00:00Z",
+            mode: "idle",
+            activeNoChangeCount: 0,
+            nextPollAt: null,
+            failureCount: 4,
+            lastFailureReason: "old failure",
+          },
+        },
+      },
+      dependencies: makeRunnerDependencies({
+        summaries: [{ issueNumber: 67, updatedAt: "2026-07-01T00:05:00Z" }],
+        processIssueSource: async () => "triggered-success",
+        postComment,
+      }),
+    });
+
+    await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
+    await runner.dispatcher.idle();
+
+    expect(postComment).not.toHaveBeenCalled();
+    expect(runner.persister.state().issues[issue.issueKey]).toMatchObject({
+      mode: "active",
+      updatedAt: "2026-07-01T00:05:00Z",
+      failureCount: 0,
+    });
   });
 });
 
@@ -563,6 +742,67 @@ describe("processIssueSource Codex execution reaction", () => {
     expect(postComment.mock.calls[0]?.[1]).toContain("无法发布生成产物");
   });
 
+  it("returns a failed outcome with the pre script reason before any comment is posted", async () => {
+    const agent = await makeAgentFile(
+      "dev",
+      `---
+preScript: src/agent-prescripts/dev-workspace.ts
+---
+Dev persona`,
+    );
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        postComment,
+        runAgentPreScript: async () => ({ ok: false, reason: "dev-workspace-error:git failed with exit-code-128" }),
+      }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      agent: "dev",
+      reason: "dev-workspace-error:git failed with exit-code-128",
+    });
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
+  it("does not nack after the first visible agent comment has been posted", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi
+      .fn<ProcessIssueSourceDependencies["postComment"]>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("second comment failed"));
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        postComment,
+        saveRoleThreadStateEntry,
+        formatCeoComment: async () => ({
+          action: "APPEND",
+          as: "ceo",
+          body: "Please continue without waiting.",
+          reason: "appended",
+        }),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment).toHaveBeenCalledTimes(2);
+    expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
+  });
+
   it("fails open and still posts the Codex result when the final interrupt check hits a transient gh error", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
     const postComment = vi.fn(async () => {});
@@ -863,16 +1103,19 @@ async function expectNoReaction(input: {
     runCodex,
   };
 
-  await expect(
-    processIssueSource(
-      {
-        source,
-        issue: input.issue,
-        agentFiles: input.agentFiles,
-      },
-      dependencies,
-    ),
-  ).resolves.toBe(input.expectedOutcome);
+  const outcome = await processIssueSource(
+    {
+      source,
+      issue: input.issue,
+      agentFiles: input.agentFiles,
+    },
+    dependencies,
+  );
+  if (input.expectedOutcome === "failed") {
+    expect(outcome).toMatchObject({ kind: "failed" });
+  } else {
+    expect(outcome).toBe(input.expectedOutcome);
+  }
   expect(addReaction).not.toHaveBeenCalled();
   expect(runCodex).not.toHaveBeenCalled();
 }
@@ -930,6 +1173,7 @@ function makeRunnerDependencies(
           "2026-07-01T00:00:00Z",
       ),
     processIssueSource: async () => "triggered-success",
+    postComment: async () => {},
     saveGitHubResponseIntakeState: async () => {},
     ...input,
   };

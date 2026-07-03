@@ -311,10 +311,6 @@ function isCommandFailedError(error: unknown): error is CommandFailedError {
   return error instanceof CommandFailedError;
 }
 
-export function isTransientGitHubCliError(error: unknown): boolean {
-  return isCommandFailedError(error) && classifyGhError(error) === "transient";
-}
-
 export function isGitHubIssue(value: unknown): value is GitHubIssue {
   if (typeof value !== "object" || value === null) {
     return false;

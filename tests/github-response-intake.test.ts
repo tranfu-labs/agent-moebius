@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   enforceActiveIssueLimit,
+  failedIssueProcessingOutcome,
   getDueActiveIssueSources,
   getDueRepositories,
   recordActiveIssueUnchanged,
@@ -115,16 +116,16 @@ describe("github response intake", () => {
     });
   });
 
-  it("backs off failed processing by advancing the latest timestamp and next active poll", () => {
+  it("records failed processing without advancing updatedAt or burning the no-change budget", () => {
     const state = stateWithActiveIssue({
       updatedAt: "2026-06-28T00:00:00.000Z",
-      activeNoChangeCount: 0,
+      activeNoChangeCount: 3,
       nextPollAt: "2026-06-28T00:01:00.000Z",
     });
     const result = recordIssueProcessingOutcome({
       state,
       summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
-      outcome: "failed",
+      outcome: failedIssueProcessingOutcome({ reason: "git failed with exit-code-128", agent: "dev" }),
       processedAt: now,
       activeIssuePollIntervalMs: oneMinuteMs,
       activeIssueNoChangeLimit: 5,
@@ -132,36 +133,40 @@ describe("github response intake", () => {
 
     expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
       mode: "active",
-      updatedAt: "2026-06-28T00:03:00.000Z",
-      activeNoChangeCount: 1,
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 3,
       nextPollAt: "2026-06-28T00:01:00.000Z",
+      failureCount: 1,
+      lastFailureReason: "git failed with exit-code-128",
     });
   });
 
-  it("demotes failed processing to idle when the active no-change limit is reached", () => {
+  it("increments existing failure count without demoting at the no-change limit", () => {
     const state = stateWithActiveIssue({
       updatedAt: "2026-06-28T00:00:00.000Z",
       activeNoChangeCount: 4,
       nextPollAt: "2026-06-28T00:01:00.000Z",
+      failureCount: 2,
     });
     const result = recordIssueProcessingOutcome({
       state,
       summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
-      outcome: "failed",
+      outcome: failedIssueProcessingOutcome({ reason: "still failing" }),
       processedAt: now,
       activeIssuePollIntervalMs: oneMinuteMs,
       activeIssueNoChangeLimit: 5,
     });
 
     expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
-      mode: "idle",
-      updatedAt: "2026-06-28T00:03:00.000Z",
-      activeNoChangeCount: 5,
-      nextPollAt: null,
+      mode: "active",
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 4,
+      failureCount: 3,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
     });
   });
 
-  it("starts failed backoff from one when a previously demoted idle issue changes again", () => {
+  it("starts failed retry accounting from one when a previously idle issue changes again", () => {
     const state: GitHubResponseIntakeState = {
       repositories: {},
       issues: {
@@ -179,30 +184,7 @@ describe("github response intake", () => {
     const result = recordIssueProcessingOutcome({
       state,
       summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
-      outcome: "failed",
-      processedAt: now,
-      activeIssuePollIntervalMs: oneMinuteMs,
-      activeIssueNoChangeLimit: 5,
-    });
-
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
-      mode: "active",
-      updatedAt: "2026-06-28T00:03:00.000Z",
-      activeNoChangeCount: 1,
-      nextPollAt: "2026-06-28T00:01:00.000Z",
-    });
-  });
-
-  it("keeps a transient-failed issue active without burning the no-change budget or advancing updatedAt", () => {
-    const state = stateWithActiveIssue({
-      updatedAt: "2026-06-28T00:00:00.000Z",
-      activeNoChangeCount: 3,
-      nextPollAt: "2026-06-28T00:01:00.000Z",
-    });
-    const result = recordIssueProcessingOutcome({
-      state,
-      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
-      outcome: "transient-failed",
+      outcome: failedIssueProcessingOutcome({ reason: "pre script failed" }),
       processedAt: now,
       activeIssuePollIntervalMs: oneMinuteMs,
       activeIssueNoChangeLimit: 5,
@@ -211,38 +193,18 @@ describe("github response intake", () => {
     expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
       mode: "active",
       updatedAt: "2026-06-28T00:00:00.000Z",
-      activeNoChangeCount: 3,
+      activeNoChangeCount: 0,
       nextPollAt: "2026-06-28T00:01:00.000Z",
+      failureCount: 1,
+      lastFailureReason: "pre script failed",
     });
   });
 
-  it("does not demote a transient-failed issue even at the no-change limit", () => {
-    const state = stateWithActiveIssue({
-      updatedAt: "2026-06-28T00:00:00.000Z",
-      activeNoChangeCount: 4,
-      nextPollAt: "2026-06-28T00:01:00.000Z",
-    });
-    const result = recordIssueProcessingOutcome({
-      state,
-      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
-      outcome: "transient-failed",
-      processedAt: now,
-      activeIssuePollIntervalMs: oneMinuteMs,
-      activeIssueNoChangeLimit: 5,
-    });
-
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
-      mode: "active",
-      activeNoChangeCount: 4,
-      nextPollAt: "2026-06-28T00:01:00.000Z",
-    });
-  });
-
-  it("registers a transient-failed issue as active from zero when it was previously untracked", () => {
+  it("uses an epoch cursor for failed processing when the issue was not previously tracked", () => {
     const result = recordIssueProcessingOutcome({
       state: { repositories: {}, issues: {} },
       summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
-      outcome: "transient-failed",
+      outcome: failedIssueProcessingOutcome({ reason: "fetch failed" }),
       processedAt: now,
       activeIssuePollIntervalMs: oneMinuteMs,
       activeIssueNoChangeLimit: 5,
@@ -250,10 +212,37 @@ describe("github response intake", () => {
 
     expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
       mode: "active",
-      updatedAt: "2026-06-28T00:03:00.000Z",
+      updatedAt: "1970-01-01T00:00:00.000Z",
       activeNoChangeCount: 0,
+      failureCount: 1,
       nextPollAt: "2026-06-28T00:01:00.000Z",
     });
+  });
+
+  it("records dead-lettered processing as visible ack and clears failure accounting", () => {
+    const result = recordIssueProcessingOutcome({
+      state: stateWithActiveIssue({
+        updatedAt: "2026-06-28T00:00:00.000Z",
+        activeNoChangeCount: 4,
+        nextPollAt: "2026-06-28T00:01:00.000Z",
+        failureCount: 5,
+        lastFailureReason: "still failing",
+      }),
+      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
+      outcome: "dead-lettered",
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
+    });
+
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+      mode: "idle",
+      updatedAt: "2026-06-28T00:03:00.000Z",
+      activeNoChangeCount: 0,
+      nextPollAt: null,
+      failureCount: 0,
+    });
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).not.toHaveProperty("lastFailureReason");
   });
 
   it("removes issue state after issue-closed outcomes", () => {
@@ -319,7 +308,9 @@ describe("github response intake", () => {
       updatedAt: "2026-06-28T00:03:00.000Z",
       activeNoChangeCount: 0,
       nextPollAt: "2026-06-28T00:01:00.000Z",
+      failureCount: 0,
     });
+    expect(result.issues["tranfu-labs/agent-moebius#4"]).not.toHaveProperty("lastFailureReason");
   });
 
   it("demotes active issues after five unchanged active polls", () => {
@@ -391,6 +382,8 @@ function stateWithActiveIssue(input: {
   updatedAt: string;
   activeNoChangeCount: number;
   nextPollAt: string;
+  failureCount?: number;
+  lastFailureReason?: string;
 }): GitHubResponseIntakeState {
   return {
     repositories: {},
@@ -402,6 +395,8 @@ function stateWithActiveIssue(input: {
         updatedAt: input.updatedAt,
         activeNoChangeCount: input.activeNoChangeCount,
         nextPollAt: input.nextPollAt,
+        failureCount: input.failureCount,
+        lastFailureReason: input.lastFailureReason,
       },
     },
   };

@@ -9,6 +9,7 @@ import {
   CODEX_DRIVER_POOL_MAX_CONCURRENT,
   CODEX_RUN_MAX_DURATION_MS,
   CONFIG_LOG_FIELDS,
+  FAILURE_RETRY_LIMIT,
   IDLE_REPOSITORY_SCAN_INTERVAL_MS,
   ISSUE_DISCOVERY_LIMIT,
   MAX_ACTIVE_ISSUES,
@@ -53,7 +54,6 @@ import {
   addReaction,
   fetchIssueWithComments,
   isGitHubIssueNotFoundError,
-  isTransientGitHubCliError,
   listOpenIssueSummaries,
   postComment,
   publishReleaseArtifacts,
@@ -71,7 +71,9 @@ import {
   prepareIssueMedia,
 } from "./media-assets.js";
 import {
+  failedIssueProcessingOutcome,
   getDueActiveIssueSources,
+  isFailedIssueProcessingOutcome,
   type GitHubResponseIntakeState,
   type IssueProcessingOutcome,
   type IssueSummary,
@@ -128,6 +130,7 @@ export interface RunnerDependencies {
   listOpenIssueSummaries: typeof listOpenIssueSummaries;
   fetchIssueWithComments: typeof fetchIssueWithComments;
   processIssueSource: typeof processIssueSource;
+  postComment: typeof postComment;
   saveGitHubResponseIntakeState: typeof saveGitHubResponseIntakeState;
 }
 
@@ -143,6 +146,7 @@ export function createDefaultRunnerDependencies(): RunnerDependencies {
     listOpenIssueSummaries,
     fetchIssueWithComments,
     processIssueSource,
+    postComment,
     saveGitHubResponseIntakeState,
   };
 }
@@ -167,20 +171,29 @@ export function createRunner(input: {
   const dispatcher = createIssueDispatcher({
     driverPool: dependencies.driverPool,
     persister,
-    runJob: (job) =>
-      job.kind === "active"
-        ? processActiveIssueJob({
-            job,
-            agentFiles,
-            fetchIssueWithComments: dependencies.fetchIssueWithComments,
-            processIssueSource: dependencies.processIssueSource,
-          })
-        : processChangedIssueJob({
-            job,
-            agentFiles,
-            fetchIssueWithComments: dependencies.fetchIssueWithComments,
-            processIssueSource: dependencies.processIssueSource,
-          }),
+    runJob: async (job) => {
+      const result =
+        job.kind === "active"
+          ? await processActiveIssueJob({
+              job,
+              agentFiles,
+              fetchIssueWithComments: dependencies.fetchIssueWithComments,
+              processIssueSource: dependencies.processIssueSource,
+            })
+          : await processChangedIssueJob({
+              job,
+              agentFiles,
+              fetchIssueWithComments: dependencies.fetchIssueWithComments,
+              processIssueSource: dependencies.processIssueSource,
+            });
+
+      return resolveDeadLetterForFailedResult({
+        state: persister.state(),
+        result,
+        failureRetryLimit: FAILURE_RETRY_LIMIT,
+        postComment: dependencies.postComment,
+      });
+    },
     timing: {
       activeIssuePollIntervalMs: ACTIVE_ISSUE_POLL_INTERVAL_MS,
       activeIssueNoChangeLimit: ACTIVE_ISSUE_NO_CHANGE_LIMIT,
@@ -311,12 +324,12 @@ async function processActiveIssueJob(input: {
       };
     }
 
-    const outcome = isTransientGitHubCliError(error) ? "transient-failed" : "failed";
-    log({ event: "active-issue-fetch-failed", issueKey: input.job.source.issueKey, outcome, error: formatError(error) });
+    const reason = formatFailureReason(error);
+    log({ event: "active-issue-fetch-failed", issueKey: input.job.source.issueKey, outcome: "failed", error: formatError(error) });
     return {
       kind: "processed",
       summary: issueSummaryFromSource(input.job.source, input.job.previousUpdatedAt),
-      outcome,
+      outcome: failedIssueProcessingOutcome({ reason }),
     };
   }
 }
@@ -361,12 +374,12 @@ async function processChangedIssueJob(input: {
       };
     }
 
-    const outcome = isTransientGitHubCliError(error) ? "transient-failed" : "failed";
-    log({ event: "issue-fetch-failed", issueKey: source.issueKey, outcome, error: formatError(error) });
+    const reason = formatFailureReason(error);
+    log({ event: "issue-fetch-failed", issueKey: source.issueKey, outcome: "failed", error: formatError(error) });
     return {
       kind: "processed",
       summary: input.job.summary,
-      outcome,
+      outcome: failedIssueProcessingOutcome({ reason }),
     };
   }
 }
@@ -411,6 +424,61 @@ export async function pollActiveIssue(input: {
   });
 }
 
+async function resolveDeadLetterForFailedResult(input: {
+  state: GitHubResponseIntakeState;
+  result: IssueProcessingJobResult;
+  failureRetryLimit: number;
+  postComment: typeof postComment;
+}): Promise<IssueProcessingJobResult> {
+  if (input.result.kind !== "processed" || !isFailedIssueProcessingOutcome(input.result.outcome)) {
+    return input.result;
+  }
+
+  const source = makeIssueSource(input.result.summary);
+  const previousFailureCount = input.state.issues[source.issueKey]?.failureCount ?? 0;
+  const failureCount = previousFailureCount + 1;
+
+  if (failureCount < input.failureRetryLimit) {
+    log({
+      event: "issue-retry-scheduled",
+      issueKey: source.issueKey,
+      failureCount,
+      reason: input.result.outcome.reason,
+    });
+    return input.result;
+  }
+
+  try {
+    await input.postComment(
+      source,
+      formatDeadLetterComment({
+        agent: input.result.outcome.agent ?? "unknown",
+        reason: input.result.outcome.reason,
+        failureCount,
+      }),
+    );
+    log({
+      event: "dead-letter-posted",
+      issueKey: source.issueKey,
+      failureCount,
+      reason: input.result.outcome.reason,
+    });
+    return {
+      ...input.result,
+      outcome: "dead-lettered",
+    };
+  } catch (error) {
+    log({
+      event: "dead-letter-post-failed",
+      issueKey: source.issueKey,
+      failureCount,
+      reason: input.result.outcome.reason,
+      error: formatError(error),
+    });
+    return input.result;
+  }
+}
+
 export async function processIssueSource(
   input: {
     source: IssueSource;
@@ -419,6 +487,14 @@ export async function processIssueSource(
   },
   dependencies = DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES,
 ): Promise<IssueProcessingOutcome> {
+  let selectedAgentName: string | null = null;
+  let published = false;
+
+  const postVisibleComment = async (body: string): Promise<void> => {
+    await dependencies.postComment(input.source, body);
+    published = true;
+  };
+
   try {
     const count = countMessages(input.issue.comments.length);
     const agentFiles = input.agentFiles;
@@ -436,6 +512,7 @@ export async function processIssueSource(
       log({ event: "skip", count, reason: "selected-agent-missing", agent: trigger.role });
       return "no-trigger";
     }
+    selectedAgentName = selectedAgent.name;
 
     const runDir = makeRunDir(count);
     log({ event: "trigger", count, runDir, agent: selectedAgent.name, issueKey: input.source.issueKey });
@@ -477,7 +554,7 @@ export async function processIssueSource(
           reason: preScriptResult.reason,
           issueKey: input.source.issueKey,
         });
-        return "failed";
+        return failedIssueProcessingOutcome({ reason: preScriptResult.reason, agent: selectedAgent.name });
       }
 
       codexCwd = preScriptResult.codexCwd;
@@ -501,7 +578,7 @@ export async function processIssueSource(
       dependencies,
     });
     if (!initialMedia.ok) {
-      await dependencies.postComment(input.source, formatAgentComment(selectedAgent.name, formatMediaPreparationFailure(initialMedia.failures)));
+      await postVisibleComment(formatAgentComment(selectedAgent.name, formatMediaPreparationFailure(initialMedia.failures)));
       return "triggered-success";
     }
 
@@ -536,7 +613,7 @@ export async function processIssueSource(
     }, CODEX_RUN_MAX_DURATION_MS);
     watchdogTimer.unref();
 
-    const resolveInterruptedOutcome = (interruptedResult: { runDir: string; reason: string }): "interrupted" | "failed" => {
+    const resolveInterruptedOutcome = (interruptedResult: { runDir: string; reason: string }): IssueProcessingOutcome => {
       if (codexWatchdog.fired) {
         log({
           event: "codex-watchdog-timeout",
@@ -546,7 +623,10 @@ export async function processIssueSource(
           issueKey: input.source.issueKey,
           timeoutMs: CODEX_RUN_MAX_DURATION_MS,
         });
-        return "failed";
+        return failedIssueProcessingOutcome({
+          reason: `codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`,
+          agent: selectedAgent.name,
+        });
       }
 
       log({
@@ -597,10 +677,7 @@ export async function processIssueSource(
           dependencies,
         });
         if (!fallbackMedia.ok) {
-          await dependencies.postComment(
-            input.source,
-            formatAgentComment(selectedAgent.name, formatMediaPreparationFailure(fallbackMedia.failures)),
-          );
+          await postVisibleComment(formatAgentComment(selectedAgent.name, formatMediaPreparationFailure(fallbackMedia.failures)));
           return "triggered-success";
         }
 
@@ -625,7 +702,7 @@ export async function processIssueSource(
 
     if (!result.ok) {
       log({ event: "codex-failed", count, runDir: result.runDir, reason: result.reason, agent: selectedAgent.name });
-      return "failed";
+      return failedIssueProcessingOutcome({ reason: result.reason, agent: selectedAgent.name });
     }
 
     let finalInterrupt: ConversationInterrupt | null;
@@ -665,7 +742,7 @@ export async function processIssueSource(
 
     if (nextState === null) {
       log({ event: "codex-failed", count, runDir: result.runDir, reason: "no-thread-id", agent: selectedAgent.name });
-      return "failed";
+      return failedIssueProcessingOutcome({ reason: "no-thread-id", agent: selectedAgent.name });
     }
 
     const publishableFinalText = await buildPublishableFinalText({
@@ -679,10 +756,7 @@ export async function processIssueSource(
       dependencies,
     });
     if (!publishableFinalText.ok) {
-      await dependencies.postComment(
-        input.source,
-        formatAgentComment(selectedAgent.name, formatArtifactPublishingFailure(publishableFinalText.error)),
-      );
+      await postVisibleComment(formatAgentComment(selectedAgent.name, formatArtifactPublishingFailure(publishableFinalText.error)));
       return "triggered-success";
     }
 
@@ -702,16 +776,17 @@ export async function processIssueSource(
 
     if (ceoResult.action === "APPEND") {
       const originalBody = formatAgentComment(selectedAgent.name, publishableFinalText.body);
-      await dependencies.postComment(input.source, originalBody);
+      await postVisibleComment(originalBody);
+      await dependencies.saveRoleThreadStateEntry(input.source.issueKey, selectedAgent.name, nextState);
 
       const ceoAppendBody = `${formatAgentComment(ceoResult.as, ceoResult.body)}\n\n${CEO_CORRECTED_METADATA}`;
       await dependencies.postComment(input.source, ceoAppendBody);
     } else {
       const postedBody = formatGuardedAgentComment(selectedAgent.name, ceoResult.body);
-      await dependencies.postComment(input.source, postedBody);
+      await postVisibleComment(postedBody);
+      await dependencies.saveRoleThreadStateEntry(input.source.issueKey, selectedAgent.name, nextState);
     }
 
-    await dependencies.saveRoleThreadStateEntry(input.source.issueKey, selectedAgent.name, nextState);
     log({
       event: "commented",
       count,
@@ -724,11 +799,16 @@ export async function processIssueSource(
 
     return "triggered-success";
   } catch (error) {
-    // 到这里的失败几乎都发生在发布阶段（postComment 抛错）——fetch 已在 job wrapper 处理、
-    // 收尾检查已 fail-open。发布阶段可能已部分发帖，若判 transient-failed 触发重入会重跑 codex
-    // 并重复发帖；故这里保持 failed（不重入、不重复发帖）。exactly-once 发帖留待后续 change。
+    // 首条可见评论成功后不再 nack 重入，避免重复发帖；成功前失败仍可安全重试。
     log({ event: "process-issue-error", issueKey: input.source.issueKey, error: formatError(error) });
-    return "failed";
+    if (published) {
+      return "triggered-success";
+    }
+
+    return failedIssueProcessingOutcome({
+      reason: formatFailureReason(error),
+      agent: selectedAgentName ?? undefined,
+    });
   }
 }
 
@@ -1008,6 +1088,23 @@ function issueSummaryFromSource(source: IssueSource, updatedAt: string): IssueSu
   };
 }
 
+export function formatDeadLetterComment(input: {
+  agent: string;
+  reason: string;
+  failureCount: number;
+}): string {
+  const reason = truncateForComment(input.reason.trim() === "" ? "unknown failure" : input.reason.trim(), 2_000);
+  return `Agent Moebius dead letter
+
+Target agent: ${input.agent}
+Failure reason: ${reason}
+Failure count: ${String(input.failureCount)}
+
+Recovery: fix the underlying problem, then add any new comment to this issue to trigger processing again.
+
+<!-- agent-moebius:dead-letter -->`;
+}
+
 function startAgentRunInterruptMonitor(input: {
   source: IssueSource;
   agent: string;
@@ -1075,6 +1172,18 @@ function logAgentRunInterrupt(input: { source: IssueSource; agent: string; inter
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.stack ?? error.message : String(error);
+}
+
+function formatFailureReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function truncateForComment(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength - 3)}...`;
 }
 
 process.on("unhandledRejection", (reason) => {
