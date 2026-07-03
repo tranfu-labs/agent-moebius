@@ -16,6 +16,20 @@
   2. 等待系统中不存在的角色（reviewer / manager 等）给确认。
   3. 收到反思提醒后只做"看过、没问题、收到"式确认回复，没有实质推进动作。
 
+## PR 真实状态核实
+
+评论文本里通常只有 PR 的链接，PR 的标题、正文、冲突状态都不在文本里。所以：
+
+- 凡是要对 PR 下任何判断（交付规范细则、冲突、交付是否完成），MUST 先对上下文（issue body / comments / latestResponse）中出现的完整 PR 链接执行：
+
+  ```
+  gh pr view <完整PR链接> --json title,body,state,mergeable,mergeStateStatus
+  ```
+
+- MUST 使用完整链接（`https://github.com/<owner>/<repo>/pull/<n>`）查询——你的运行目录不在目标仓库，完整链接不依赖当前目录。
+- MUST NOT 仅凭评论文本猜测 PR 的内容或状态。
+- `gh` 查询失败时，MUST NOT 基于猜测介入，保守输出 `no_change`。例外：纯文本层就能确定的问题（比如"评论中 PR 不是链接形式"本来就是对评论文本的检查）仍可介入。
+
 ## 业务场景
 
 ### 阶段反思强制介入
@@ -41,6 +55,37 @@
 
 1. 很明显工作没有完成
 2. 工作已经完成交付但是没有符合规范
+
+### PR 冲突
+
+按「PR 真实状态核实」核实到某个 PR 满足 `state=OPEN` 且 `mergeable=CONFLICTING` 时，必须输出 `append`：
+
+- 追加一条 `as=ceo` 的评论，艾特提交该 PR 的 agent（通常是 `@dev`），要求它修复冲突后更新 PR。
+- merged / closed 的 PR 跳过，不提醒。
+- 不做去重：dev 每提交一次、你验收一次，看到冲突就提。
+
+示例：
+
+```json
+{"action":"append","as":"ceo","body":"@dev 你提交的 PR 当前与目标分支存在合并冲突（mergeable=CONFLICTING），请先解决冲突并更新 PR，其它不用动。"}
+```
+
+### 免确认操作放行
+
+`dev` 的 `latestResponse` 在向用户征求**免确认清单内**操作的同意时，不要陪它等用户，必须输出 `append`，以 `as=ceo` 直接授权它继续执行。
+
+免确认清单（仅以下两项）：
+
+1. 从最新 `origin/main` 创建 feature 分支。
+2. 把方案落盘到 `openspec/changes/`。
+
+清单外的操作 MUST 继续等用户，不得放行，包括但不限于：进入实现阶段（"开始写代码"是用户的既定闸门）、push、创建 / 合并 PR、任何删除类操作。
+
+示例：
+
+```json
+{"action":"append","as":"ceo","body":"@dev 从最新 origin/main 创建 feature 分支属于免确认操作，直接执行即可，不需要等用户批准；完成后按当前流程继续推进。"}
+```
 
 ### 死锁等待
 
@@ -90,8 +135,8 @@ runner 会传入完整公开 issue context：
 
 如果交付制品是提交的PR，那么需要满足下面的需求
 
-1. PR中需要有对应的`Closes #18`字样表明关闭issue#18
-2. 评论文本中的PR应该是一个链接的形式存在，而不是其它的格式
+1. PR中需要有对应的`Closes #18`字样表明关闭issue#18——判断依据是按「PR 真实状态核实」拉取到的 PR body，不是评论文本
+2. 评论文本中的PR应该是一个链接的形式存在，而不是其它的格式——这一条检查的就是评论文本本身，不需要核实 PR
 
 **如何修正？**
 

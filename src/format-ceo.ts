@@ -5,7 +5,7 @@ import { run as runCodex, type CodexRunResult } from "./codex.js";
 import { ALL_STAGES, parseTrailingStageMarker } from "./stages.js";
 
 export const CEO_CORRECTED_METADATA = "<!-- agent-moebius:ceo-corrected -->";
-export const DEFAULT_CEO_TIMEOUT_MS = 60_000;
+export const DEFAULT_CEO_TIMEOUT_MS = 300_000;
 
 export const CEO_APPEND_ROLES = ["ceo", "dev", "dev-manager", "product-manager", "hermes-user"] as const;
 export type CeoAppendRole = (typeof CEO_APPEND_ROLES)[number];

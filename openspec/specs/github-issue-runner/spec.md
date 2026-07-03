@@ -153,7 +153,10 @@
 - MUST 让 `in-progress` 承载“还在干活 / 采访 / 澄清 / 报进度 / 等待用户，不需要 CEO 阶段反思强制介入”的语义。
 - SHOULD 让 `plan-written` / `code-verified` 保持为 dev agent 的开发阶段语义；其他 Codex agent 的默认 stage MUST 为 `in-progress`。
 - MUST 新增 `agents/ceo.md` 作为 CEO agent persona，承载触发范围、识别场景清单、输入契约、输出契约与修改红线；未来事故规则扩展 MUST 通过修改 `agents/ceo.md` 实现，NEVER 硬编码到 runner 或 `src/format-ceo.ts`。
-- MUST 让 `agents/ceo.md` 至少覆盖四类识别场景（全部走 `append`）：① `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified`（阶段反思强制介入）；② 工作明显未完成、或已交付但不符合规范（持续推进）；③ 交付规范细则不满足（如 PR 缺 `Closes #N` 字样、评论中 PR 不是链接形式）；④ 死锁等待——agent 的最新响应在等待一个不存在或不会响应的对象（如把历史 reflector 评论当真人、等待系统中不存在的 reviewer / manager），CEO 追加评论纠正认知并直接裁决下一步。
+- MUST 让 `agents/ceo.md` 至少覆盖六类识别场景（全部走 `append`）：① `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified`（阶段反思强制介入）；② 工作明显未完成、或已交付但不符合规范（持续推进）；③ 交付规范细则不满足（如 PR 缺 `Closes #N` 字样、评论中 PR 不是链接形式）；④ 死锁等待——agent 的最新响应在等待一个不存在或不会响应的对象（如把历史 reflector 评论当真人、等待系统中不存在的 reviewer / manager），CEO 追加评论纠正认知并直接裁决下一步；⑤ PR 冲突——按 PR 真实状态核实规则核实到 `state=OPEN` 且 `mergeable=CONFLICTING` 的 PR 时，`append` 一条 `@dev` 修复冲突的评论，merged / closed 的 PR MUST 跳过，MUST NOT 做去重（每次验收看到冲突即提醒）；⑥ 免确认操作放行——`dev` 的 `latestResponse` 在向用户征求免确认清单内操作的同意时，`append as=ceo` 直接授权继续。
+- MUST 让 `agents/ceo.md` 承载「PR 真实状态核实」要求：CEO 对 PR 下任何判断（交付规范细则、冲突、交付完成度）前，MUST 先对上下文中出现的完整 PR 链接 `https://github.com/<owner>/<repo>/pull/<n>` 在其 Codex 子进程内执行 `gh pr view <完整URL> --json title,body,state,mergeable,mergeStateStatus` 核实；MUST 使用完整 URL（CEO 运行目录不在目标仓库）；MUST NOT 仅凭评论文本猜测 PR 内容；`gh` 查询失败时 MUST NOT 基于猜测介入，保守输出 `no_change`（纯文本层即可确定的问题除外，如"评论中 PR 不是链接形式"）。PR 核实发生在 CEO Codex 子进程内部，属 persona 层行为，不经过 runner 的 GitHub adapter，不与"`src/format-ceo.ts` MUST NOT 自行调用 GitHub"红线冲突。
+- MUST 让交付规范中 `Closes #N` 的检查对象为核实到的 PR body，而非评论文本。
+- MUST 让 `agents/ceo.md` 承载免确认操作清单（授权边界只存在于 `agents/ceo.md`，`agents/dev.md` 行为不变）：清单内（CEO 直接放行）为从最新 `origin/main` 创建 feature 分支、把方案落盘到 `openspec/changes/`；清单外（仍等用户）包括但不限于进入实现阶段（"开始写代码"闸门）、push、创建 / 合并 PR、任何删除类操作。
 - MUST 让 `agents/ceo.md` 承载协作生态认知，至少包含：真实可通过 mention 触发的 Codex agent 清单（当前为 `dev`、`dev-manager`、`product-manager`、`hermes-user`、`tranfu-agents-manager`）；系统中不存在 reflector、reviewer、manager 等可交互对象；历史 `<reflector>` / `stage-hook` 评论只作为旧公开上下文，不代表当前仍有可触发角色；各 agent 常犯错误的经验清单（至少含 dev：把历史 reflector 评论当真人汇报、等待不存在的角色、收到提醒后只做确认式回复无实质推进）。
 - 未来新增 driver agent 时 MUST 同步更新 `agents/ceo.md` 生态认知章节的 agent 清单（与 `as` 允许集合的同步义务并列）。
 - MUST 定义 `agents/ceo.md` 的输入契约字段：`issueContext`、`latestResponse`、`agent`、`allowedStages`。
@@ -178,6 +181,7 @@
 - MUST 在 CEO 调用超时、抛异常、返回空、返回非法 JSON、`action` 字段缺失或不在 `{no_change, replace, append}` 枚举内、`append.as` 缺失或不在允许集合内、`replace.body` 或 `append.body` 为空、`replace.body` 末尾 stage marker 不在 `AllStages` 内时 fail-open 直接 post 原文；CEO guardrail MUST NOT 变成新的失败源阻断主流程。
 - MUST 在 `format-ceo.ts` 的 `FAIL_OPEN` reason 中区分：`invalid-json`、`unknown-action`、`unknown-as`、`empty-body`、`post-validate-failed`、`codex-failed`、`codex-timeout`、`persona-load-failed`、`already-corrected`（no_change 类）。
 - MUST 在 CEO 调用超时时取消对应底层 Codex 子进程，避免 fail-open 后仍留下后台 guardrail 进程继续运行。
+- MUST 让 `format-ceo.ts` 的 `DEFAULT_CEO_TIMEOUT_MS = 300_000`，为 CEO 子进程内执行 `gh` 核实留出时长余量；超时取消子进程并 fail-open 发原文的语义不变。
 - MUST 记录结构化日志覆盖 `event = "ceo-guardrail-repaired"`（`replace` 命中）、`event = "ceo-guardrail-appended"`（`append` 命中，含 `as` 字段）、`event = "ceo-guardrail-noop"`（`no_change`）、`event = "ceo-guardrail-failopen"`（fail-open），至少包含 `issueKey`、`agent`、`reason`。
 - MUST 让 `src/conversation.ts` 的 `normalizeComment` 识别 `<!-- agent-moebius:role=ceo -->` metadata 并直接归为 `speaker=ceo`，**不走 `availableAgentNames` 白名单校验**；其他 role 仍走现有校验路径。
 - MUST NOT 把 `ceo` 加进 `availableAgentNames`；CEO 不是 mention codex agent，`@ceo` 不应触发 codex 调用。
@@ -796,6 +800,34 @@ When 看门狗触发并通过 `AbortController` 中止该 run
 Then 系统记录 `event = "codex-watchdog-timeout"`
 And 该次处理判为 `failed`（而非 `interrupted`）
 And 该 issue 从 in-flight 集合释放，避免永久 `skip-inflight`
+
+### 场景 51：CEO 核实到 PR 冲突
+Given issue 上下文中出现一个完整 PR 链接，该 PR `state=OPEN` 且 `mergeable=CONFLICTING`
+When runner 调用 CEO guardrail 校正本轮 agent 响应
+Then CEO 在其 Codex 子进程内执行 `gh pr view` 核实后返回 `append`
+And 追加评论正文 `@dev` 要求修复冲突
+
+### 场景 52：PR 无冲突且格式合规
+Given 上下文中的 PR `state=OPEN`、`mergeable=MERGEABLE`，且核实到的 PR body 含 `Closes #N`
+When runner 调用 CEO guardrail
+Then CEO 返回 `no_change`
+
+### 场景 53：dev 征求免确认清单内操作的同意被直接放行
+Given `dev` 的 `latestResponse` 在向用户征求"从最新 `origin/main` 创建 feature 分支"的同意
+When runner 调用 CEO guardrail
+Then CEO 返回 `append`（`as=ceo`）
+And 追加评论正文直接授权 `@dev` 继续执行该操作，不等用户
+
+### 场景 54：dev 征求清单外操作的同意不被放行
+Given `dev` 的 `latestResponse` 在向用户征求"是否可以 push"的同意
+When runner 调用 CEO guardrail
+Then CEO 不因免确认放行场景介入（`no_change`，除非命中其他识别场景）
+
+### 场景 55：gh 核实失败时保守处理
+Given 上下文中出现 PR 链接但 CEO 子进程内 `gh pr view` 执行失败
+When runner 调用 CEO guardrail
+Then CEO MUST NOT 基于猜测对该 PR 下判断
+And 仅纯文本层可确定的问题（如评论中 PR 不是链接形式）仍可介入
 
 ## 可验证行为
 - `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed backoff 推进 `updatedAt` / `activeNoChangeCount` / `nextPollAt` 并到上限降级、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断、issue media 纯提取 / prompt manifest、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、`isTransientGitHubCliError` 仅对 `gh` 瞬时失败为真、`transient-failed` 折叠不累加计数不推进 `updatedAt` 不降级、以及收尾中断检查抛错时 fail-open 照常发布。
