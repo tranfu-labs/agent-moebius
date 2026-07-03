@@ -398,8 +398,8 @@ describe("processIssueSource Codex execution reaction", () => {
 
   it("does not post a stale Codex result when a new comment arrives before posting", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
-    const postComment = vi.fn(async () => {});
-    const saveRoleThreadStateEntry = vi.fn(async () => {});
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
 
     const outcome = await processIssueSource(
       {
@@ -417,6 +417,150 @@ describe("processIssueSource Codex execution reaction", () => {
     expect(outcome).toBe("interrupted");
     expect(postComment).not.toHaveBeenCalled();
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+  });
+
+  it("passes prepared issue images and media manifest to Codex", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const prepareIssueMedia = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["prepareIssueMedia"]>[0]) => ({
+      ok: true as const,
+      prepared: [
+        {
+          reference: input.references[0]!,
+          messageIndex: input.references[0]!.messageIndex,
+          kind: "image" as const,
+          filePath: "/tmp/run/input-media/0000-01-image.png",
+          originalUrl: input.references[0]!.url,
+          label: "screen",
+          contentType: "image/png",
+          byteLength: 5,
+        },
+      ],
+      imagePaths: ["/tmp/run/input-media/0000-01-image.png"],
+    }));
+    const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) => {
+      expect(options.imagePaths).toEqual(["/tmp/run/input-media/0000-01-image.png"]);
+      expect(options.prompt).toContain("本轮可用媒体文件");
+      expect(options.prompt).toContain("kind=image");
+      return successfulCodexRun(options.runDir);
+    });
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please inspect ![screen](https://example.test/screen.png)"),
+        agentFiles: [agent],
+      },
+      makeDependencies({ prepareIssueMedia, runCodex }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(prepareIssueMedia.mock.calls[0]?.[0].references[0]).toMatchObject({
+      kind: "image",
+      url: "https://example.test/screen.png",
+    });
+    expect(runCodex).toHaveBeenCalledTimes(1);
+  });
+
+  it("posts a media preparation error without running Codex or saving role state", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) =>
+      successfulCodexRun(options.runDir),
+    );
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn(async () => {});
+    const prepareIssueMedia = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["prepareIssueMedia"]>[0]) => ({
+      ok: false as const,
+      failures: [{ reference: input.references[0]!, reason: "unsupported-content-type:text/html" }],
+    }));
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev inspect ![screen](https://example.test/screen.png)"),
+        agentFiles: [agent],
+      },
+      makeDependencies({ prepareIssueMedia, runCodex, postComment, saveRoleThreadStateEntry }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(runCodex).not.toHaveBeenCalled();
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+    expect(postComment.mock.calls[0]?.[1]).toContain("无法准备媒体输入");
+  });
+
+  it("publishes output artifacts before CEO sees the final response", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
+      noChangeCeoResult(input.latestResponse),
+    );
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev generate an svg"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        discoverOutputArtifacts: async () => [
+          {
+            filePath: "/tmp/run/output-artifacts/diagram.svg",
+            assetName: "diagram.svg",
+            displayName: "diagram.svg",
+            kind: "image",
+            byteLength: 11,
+          },
+        ],
+        publishArtifacts: async () => [{ displayName: "diagram.svg", kind: "image", url: "https://example.test/diagram.svg" }],
+        formatCeoComment,
+        postComment,
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(formatCeoComment.mock.calls[0]?.[0].latestResponse).toContain(
+      "![diagram.svg](https://example.test/diagram.svg)",
+    );
+    expect(postComment.mock.calls[0]?.[1]).toContain("![diagram.svg](https://example.test/diagram.svg)");
+  });
+
+  it("posts an artifact publishing error without saving role state", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+    const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
+      noChangeCeoResult(input.latestResponse),
+    );
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev generate an svg"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        discoverOutputArtifacts: async () => [
+          {
+            filePath: "/tmp/run/output-artifacts/diagram.svg",
+            assetName: "diagram.svg",
+            displayName: "diagram.svg",
+            kind: "image",
+            byteLength: 11,
+          },
+        ],
+        publishArtifacts: async () => {
+          throw new Error("upload failed");
+        },
+        postComment,
+        saveRoleThreadStateEntry,
+        formatCeoComment,
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(formatCeoComment).not.toHaveBeenCalled();
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+    expect(postComment.mock.calls[0]?.[1]).toContain("无法发布生成产物");
   });
 
   it("fails open and still posts the Codex result when the final interrupt check hits a transient gh error", async () => {
@@ -740,6 +884,14 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
     addReaction: async () => {},
     fetchIssueWithComments: async () => makeIssue("@dev please run"),
     postComment: async () => {},
+    prepareIssueMedia: async () => ({ ok: true, prepared: [], imagePaths: [] }),
+    discoverOutputArtifacts: async () => [],
+    publishArtifacts: async (_source, files) =>
+      files.map((file) => ({
+        displayName: file.displayName,
+        kind: file.kind,
+        url: `https://example.test/${file.assetName}`,
+      })),
     loadRoleThreadStateStore: async () => ({}),
     saveRoleThreadStateEntry: async () => {},
     formatCeoComment: async (input) => noChangeCeoResult(input.latestResponse),

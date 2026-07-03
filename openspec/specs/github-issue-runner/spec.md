@@ -97,6 +97,17 @@
 - MUST 在同一个 issue 处理周期中最多添加一次 Codex execution reaction；resume 失败后 fallback full run MUST NOT 再添加第二次 reaction。
 - MUST 在 Codex execution reaction 添加成功时记录结构化日志，至少包含 `event = "codex-execution-reaction-added"`、`issueKey`、`agent`、`targetSource` 与 `targetIndex`。
 - MUST 在 Codex execution reaction 添加失败时记录结构化日志，至少包含 `event = "codex-execution-reaction-failed"`、`issueKey`、`agent`、`targetSource`、`targetIndex` 与错误原因，并继续执行 Codex；reaction 失败本身 MUST NOT 推进或阻断 role thread 状态。
+- MUST 在运行被 mention 的 Codex agent 前，从本轮 prompt 范围内的 GitHub issue body/comments 检测图片与视频引用。
+- MUST 让媒体引用提取保持为纯业务数据操作，不调用 GitHub、Codex、网络或文件系统。
+- MUST 只把 `http:` 与 `https:` URL 视为可下载 issue media 引用。
+- MUST 将 issue media 下载到当前 Codex run directory，MUST NOT 写入 `agents/`、`.state/` 或目标 worktree。
+- MUST 按媒体类型、响应 content type 与有界大小校验已下载 issue media，再暴露给 Codex。
+- MUST 通过重复 `--image <file>` 参数把准备好的图片传给 `codex exec` 与 `codex exec resume`。
+- MUST 通过 prompt media manifest 暴露准备好的视频本地文件路径，因为当前 Codex CLI 图片参数不接收视频。
+- MUST 在首次 full run 与 fallback full run 中包含完整公开 timeline 的媒体；resume run 只包含新增外部 delta 消息中的媒体。
+- MUST 在 issue media 下载或校验失败时发布可见错误评论，MUST NOT 在媒体缺失时静默运行 Codex。
+- MUST 在 Codex 启动前的 issue media preparation 失败时保持 role thread 状态不变。
+- MUST 将确定性的 media-preparation 错误评论视为已处理本次触发 mention，避免同一个坏链接在 active poll 中重复刷错误评论。
 - MUST 支持 `dev` pre script 基于 runner 当前处理的 GitHub issue source（owner、repo、issueNumber）准备 Codex 工作目录，而不是解析 issue body/comment 中的链接。
 - MUST 为每个 source issue 创建并复用一个 `dev` issue 独占 worktree；不同 source issue 即使属于同一个 repo 也 MUST 使用不同 worktree。
 - MUST 允许同一 repository 的多个 issue worktree 复用本地 bare repo cache，但 MUST 保持 worktree 彼此隔离。
@@ -125,6 +136,14 @@
 - MUST 从 Codex JSONL stdout 中提取 `thread.started.thread_id` 作为 role thread 句柄。
 - SHOULD 记录 Codex JSONL 中的 `turn.completed.usage.cached_input_tokens`，用于观察 Codex resume 与模型侧 prompt caching 的收益。
 - MUST 在 pre script 返回 Codex 工作目录时，以显式 `cwd` 调用 Codex。
+- MUST 在发布 agent comment 前发现 Codex 本轮生成的受支持 SVG、图片与视频 artifact。
+- MUST NOT 为了让输出 artifact 在 GitHub comment 中可见而把生成产物提交到 source repository。
+- MUST 通过 artifact publisher 边界发布生成 artifact，并返回 GitHub comment 可直接查看的 Markdown 引用。
+- MUST 默认使用同仓库 GitHub release tag `agent-moebius-artifacts` 存储 artifact，且不把生成文件提交到 worktree 或 source branch。
+- MUST 在 CEO guardrail 接收 `latestResponse` 前，把已发布 artifact 预览追加到 agent 最终回复。
+- MUST 在生成 artifact 发布失败时发布可见错误评论，MUST NOT 声称 artifact 已成功交付。
+- MUST 等到 agent comment 与必要 artifact publication 都成功后才更新 role thread 状态。
+- MUST 让 artifact publishing 保持在 `conversation.ts`、`github-response-intake.ts`、`driver-pool.ts` 等纯调度模块之外。
 - MUST 让所有 Codex agent persona（`agents/dev.md`、`agents/dev-manager.md`、`agents/product-manager.md`、`agents/hermes-user.md` 及未来新增 Codex agent）契约要求：每条响应末尾必须以 `<!-- agent-moebius:stage=<enum> -->` marker 结尾，`<enum>` MUST 属于 `AllStages`。
 - MUST 提供 `agents/dev-manager.md` 作为技术负责人 Codex driver agent persona，与 `dev`、`product-manager` 同级、同样以 `agents/*.md` 文件名自动发现加载；核心职责为技术决策、架构选型与质量保证，MUST NOT 亲自写实现代码。
 - MUST 让 `agents/dev-manager.md` 以对话形式给出技术决策，MUST NOT 落 ADR / design 文件；当某决策会打破 `docs/architecture/module-map.md` 的依赖方向时，MUST 要求写码方在实现时补一条 ADR（自身不落盘）。
@@ -171,11 +190,11 @@
 - MUST 在 resume 失败或 thread id 不可用时允许回退到 full prompt 新建 Codex thread，并在 GitHub 评论成功后更新该 role 的 thread 映射。
 - MUST 把本地脚本每次执行的 stdout / stderr 落到 `<TMP_ROOT>/agent-moebius-<ISO>-c<count>-r<sequence>/` 下，并在日志中打印该路径，便于追溯；`<sequence>` 是 runner 进程内递增后缀，用于保证并发 runDir 唯一；resume fallback 可使用独立 fallback 目录。
 - MUST 在本地脚本失败（非 0 退出 / 解析不出最终消息 / 无法取得必要 thread id）时只记日志、不发评论；下一轮若条件仍满足可再次尝试。
-- MUST 通过 `child_process.spawn(cmd, args[])` 调用 codex 与 gh，prompt 作为 argv 项、评论 body 通过 stdin（`gh ... --body-file -`）注入，issue reaction 通过 `gh api` argv 参数数组添加；MUST NOT 通过 shell 拼接。
+- MUST 通过 `child_process.spawn(cmd, args[])` 调用 codex 与 gh，prompt 作为 argv 项、评论 body 通过 stdin（`gh ... --body-file -`）注入，issue reaction 通过 `gh api` argv 参数数组添加；artifact publisher 若调用外部命令也 MUST 使用受控 argv 数组；MUST NOT 通过 shell 拼接。
 - MUST 把 issue body / comment 内容当作不可信外部输入处理。
 - MUST 让 prompt 构造、speaker 归一化、触发判定、delta 消息选择、评论格式化与状态更新计算保持为可单元测试的业务数据操作，不依赖 GitHub、Codex CLI 或文件系统。
 - MUST NOT 把 GitHub token 或个人访问令牌写入仓库；当前实现复用本机 `gh auth login`。
-- 当前 watched repositories 来自 `config.toml` 与 `config.local.toml`；tick 间隔、idle repo scan 间隔、active issue poll 间隔、issue scan limit、active issue 上限、本地 agent Markdown 目录、临时目录、role thread 状态文件路径、agent context 状态文件路径、GitHub response intake 状态文件路径、默认 workdir root 集中在 `src/config.ts`。
+- 当前 watched repositories 来自 `config.toml` 与 `config.local.toml`；tick 间隔、idle repo scan 间隔、active issue poll 间隔、issue scan limit、active issue 上限、本地 agent Markdown 目录、临时目录、role thread 状态文件路径、agent context 状态文件路径、GitHub response intake 状态文件路径、默认 workdir root、issue media 大小上限、output artifact 大小上限与默认 artifact release tag 集中在 `src/config.ts`。
 - MUST 在启动日志中打印 config path、local config path、resolved watched repositories、tick 间隔、idle/active 轮询参数、issue scan limit、active issue 上限与解析后的默认 workdir root。
 
 ## 场景
@@ -479,6 +498,50 @@ Then 系统记录 `event = "codex-execution-reaction-failed"` 与错误原因
 And 继续调用 Codex driver
 And role thread 状态仍只在 Codex 成功且最终 GitHub 评论成功后更新
 
+### 场景 30.1：Issue media 输入 — full run 准备图片和视频
+Given issue body 包含 `@dev`
+And issue body 或 comments 中包含可下载的图片 URL 与视频 URL
+And `.state/role-threads.json` 中没有当前 issue + `dev` 状态
+When runner 即将首次调用 Codex
+Then 系统从完整公开 timeline 提取媒体引用
+And 将媒体下载到当前 runDir 的 `input-media/`
+And 通过 `--image <file>` 传入图片
+And 在 prompt media manifest 中列出视频本地路径
+And 不把输入媒体写入目标 worktree、`agents/` 或 `.state/`
+
+### 场景 30.2：Issue media 输入 — resume 只包含新增外部消息媒体
+Given `.state/role-threads.json` 中已有当前 issue + `dev` 的 `lastSeenIndex = 2`
+And 最新用户 comment 包含 `@dev` 与一个图片 URL
+And 历史消息中还存在另一个视频 URL
+When runner 使用 `codex exec resume <threadId>`
+Then 本轮 media preparation 只处理 index 大于 2 且 speaker 不是 `dev` 的新增外部消息中的媒体
+And 历史视频 URL 不重复进入本次 media manifest
+
+### 场景 30.3：Issue media 输入 — 下载或校验失败时发布错误评论
+Given 最新消息包含 `@dev` 和一个不支持或不可下载的 media URL
+When runner 在 Codex 启动前准备媒体失败
+Then 系统发布一条带当前 agent role envelope 的可见错误评论
+And 不调用 Codex driver
+And 不更新 `.state/role-threads.json`
+And intake 把本次触发视为已处理，避免同一坏链接每分钟重复刷屏
+
+### 场景 30.4：输出 artifact — 生成 SVG / 图片 / 视频后可在 comment 直接查看
+Given Codex 成功完成且在 runDir 或最终回复引用中产生支持的 SVG、图片或视频 artifact
+When runner 发布 agent comment 前处理输出 artifact
+Then 系统将 artifact 复制到 `output-artifacts/`
+And 通过 artifact publisher 发布到同仓库 GitHub release tag `agent-moebius-artifacts`
+And 把可直接查看的 Markdown 预览追加到 `latestResponse`
+And CEO guardrail 看到的是已追加 artifact 预览的 `latestResponse`
+And 生成 artifact 不会被提交到业务仓库
+
+### 场景 30.5：输出 artifact — 发布失败时不伪装成功
+Given Codex 成功完成且产生了需要发布的 artifact
+And artifact publisher 上传失败
+When runner 处理该失败
+Then 系统发布一条带当前 agent role envelope 的可见错误评论
+And 不发布声称 artifact 已交付的 agent comment
+And 不更新 `.state/role-threads.json`
+
 ### 场景 31：Dev agent — 新 comment 打断正在运行的 Codex
 Given 最新消息触发 `@dev`
 And runner 已基于当前 timeline 启动 Codex
@@ -735,7 +798,7 @@ And 该次处理判为 `failed`（而非 `interrupted`）
 And 该 issue 从 in-flight 集合释放，避免永久 `skip-inflight`
 
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed backoff 推进 `updatedAt` / `activeNoChangeCount` / `nextPollAt` 并到上限降级、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、`isTransientGitHubCliError` 仅对 `gh` 瞬时失败为真、`transient-failed` 折叠不累加计数不推进 `updatedAt` 不降级、以及收尾中断检查抛错时 fail-open 照常发布。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed backoff 推进 `updatedAt` / `activeNoChangeCount` / `nextPollAt` 并到上限降级、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断、issue media 纯提取 / prompt manifest、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、`isTransientGitHubCliError` 仅对 `gh` 瞬时失败为真、`transient-failed` 折叠不累加计数不推进 `updatedAt` 不降级、以及收尾中断检查抛错时 fail-open 照常发布。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 并可能发表评论；执行前应确认这是期望的外部副作用。

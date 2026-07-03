@@ -23,7 +23,9 @@
 │   ├── local-config.ts         # config.toml / config.local.toml 解析与 shape 校验
 │   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
 │   ├── conversation-interrupt.ts # driver-agnostic conversation message count 中断检测
-│   ├── github.ts               # gh CLI 读取 issue / 发表评论（读与 reaction 走重试，发评论不自动重试）
+│   ├── issue-media.ts          # issue 图片 / 视频引用提取与媒体 manifest 纯业务逻辑
+│   ├── media-assets.ts         # issue 媒体下载校验、输出 artifact 发现与 Markdown 生成
+│   ├── github.ts               # gh CLI 读取 issue / 发表评论 / reaction / release artifact 发布
 │   ├── retry.ts                # gh 调用错误分类 + 指数退避重试原语（可注入 sleep、支持 AbortSignal）
 │   ├── codex.ts                # codex CLI 调用与 jsonl 解析
 │   ├── driver-pool.ts          # codex driver job 并发策略抽象，默认由 runner 注入 5 并发上限
@@ -67,7 +69,7 @@
   owner = "tranfu-labs"
   repo = "tranfu-agents-app"
   ```
-- 闲时扫描间隔、忙时 issue 轮询间隔、运行中 agent 中断检测轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread 状态文件路径集中在 `src/config.ts`。
+- 闲时扫描间隔、忙时 issue 轮询间隔、运行中 agent 中断检测轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread 状态文件路径、issue 媒体大小限制、输出 artifact release tag 集中在 `src/config.ts`。
 - GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active，处理失败时也会进入 / 保持 active backoff 窗口并按 1 分钟轮询；连续 5 次 active poll 无变化或处理失败后降回 idle；active poll / idle changed-issue 拉到 `state = CLOSED` 时从本地 intake state 移除，不触发 Codex / 评论。
 - runner 每分钟一轮**心跳**：`src/scanner.ts` 扫描 due 仓库找 changed issue，加上 due 的 active issue 转成 issue processing jobs，批内按 `issueKey` 去重后交给 `src/issue-dispatcher.ts` 派发，**心跳从不等待 job 执行**（防重入只覆盖秒级的扫描派发阶段）；`createDefaultRunnerDependencies()` 通过 `createDefaultCodexDriverPool()` 注入默认并发上限 `CODEX_DRIVER_POOL_MAX_CONCURRENT = 5`，超额 job 排队等前面空槽；`src/driver-pool.ts` 抽象本身仍允许 `undefined` / `null` 表示不限，便于测试注入 fake pool。调度业务逻辑仍集中在 `github-response-intake.ts`，不得引入 Codex / GitHub adapter 或 driver pool 依赖。
 - `src/issue-dispatcher.ts` 维护跨心跳的 in-flight issue 集合：在跑 issue 重复派发记 `skip-inflight` 跳过（同 issue 严格串行、不同 issue 互不阻塞，长跑 codex 只占驱动池 1 个名额）；每个 job **完成即**把结果以纯函数折叠进 `src/state-persister.ts`（intake state 单写者，写串行化 + 合并 + 原子落盘，写失败记日志不中断），并执行 active 上限策略（豁免在跑 issue）。job 运行期间该 issue 的 intake state 不推进，中途变化由后续心跳依据折叠后的状态重新推导，不排队重放。
@@ -76,6 +78,10 @@
 - `agents/dev.md` 声明 `src/agent-prescripts/dev-workspace.ts`；runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用 issue 独占 worktree，并把 Codex cwd 切到该 worktree。该 pre script 每次准备前刷新目标仓库远端 `main` tracking ref，新建 worktree 从最新远端 `main` 创建；复用已有 context 时会先校验记录的 `worktreePath` 等于当前配置计算出的 issue 独占 worktree 路径，不一致则 fail closed；复用已有 worktree 时若当前 `HEAD` 未包含最新远端 `main`，会强制删除旧 worktree（失败时 fallback 到 `rm -rf` + `git worktree prune`）并从最新远端 `main` 重建；重建失败才 fail closed，不调用 Codex / 评论 / 推进 role thread。
 - `@dev` Codex 运行期间会按 conversation message count 做运行中断检测；如果 GitHub issue 在本轮 Codex 完成前新增 comment，runner 会中断当前 Codex 子进程，不发表评论、不更新 role thread，并保持 issue active 以便下一轮基于最新 timeline 重跑。
 - runner 只在 mention trigger 进入真实 Codex driver 路径、prompt plan 需要执行且 preScript 成功后，为本轮触发源消息添加一次 `eyes` reaction：触发源是 issue body 时打到当前 GitHub issue，触发源是 comment 时打到该 comment；no-trigger、preScript 失败、prompt plan skip 或 resume fallback 不重复添加 reaction。reaction 添加失败只记录日志，不阻断 Codex 执行。
+- runner 在真正进入 Codex driver 前会解析本轮 prompt 范围内的 issue 图片 / 视频引用：full run 与 fallback full run 使用完整公开 timeline，resume 只使用新增外部 delta 消息。媒体引用提取由 `src/issue-media.ts` 纯函数完成，不访问网络 / 文件系统。
+- issue 媒体下载与校验由 `src/media-assets.ts` 完成，文件只写入本轮 Codex `runDir/input-media/`，不写入目标 worktree、`agents/` 或 `.state/`。图片默认上限 10MB，视频默认上限 100MB；只接受 `http:` / `https:` URL 与图片 / 视频 MIME。媒体准备失败时 runner 发布一条带当前 agent role envelope 的错误评论，且不调用 Codex、不更新 role thread，并把该触发视为已处理，避免同一坏链接每分钟重复刷屏。
+- Codex 图片输入通过 `codex exec --image <file>` / `codex exec resume --image <file>` 传递；视频因当前 Codex CLI 没有视频 attachment 参数，以本地文件路径 manifest 的形式注入 prompt，供 Codex 用本地工具检查或抽帧。
+- Codex 成功后，runner 会发现本轮新增 / 修改或最终回复明确引用的 SVG、图片、视频产物，复制到 `runDir/output-artifacts/` 后通过 artifact publisher 发布为 GitHub comment 可查看链接；默认 publisher 使用同仓库 GitHub release tag `agent-moebius-artifacts` 上传 release assets，不把生成产物提交到业务仓库。artifact 发布失败时发布错误评论，不更新 role thread，不伪装成已交付。
 - 所有 Codex agent 的每条响应末尾都必须显式声明 stage marker；stage 枚举集中在 `src/stages.ts`，当前为 `plan-written`、`code-verified`、`in-progress`。`agents/dev.md` 可用 `plan-written` / `code-verified` 声明开发阶段，普通进度、采访、澄清或其他 agent 默认使用 `in-progress`；stage 只声明阶段，不直接指定后续 agent。
 - runner 在 Codex agent 生成 `LAST_RESPONSE` 后、发布 GitHub 评论前调用 `src/format-ceo.ts`，用 `agents/ceo.md` 和完整公开 issue context（issue 链接、issue body、所有 comment body 原文、最新响应、agent 名、allowedStages）做一次无状态 CEO guardrail 校正；`latestResponse` 仍是本轮唯一待发布的 agent 响应，完整 issue context 只作为理解用户流程、后续覆盖指令、历史上下文和交付规范的背景。CEO 输出统一为 JSON，三态 `action`：`no_change` 直接发原文；`replace` 用改写后的 `body`（末尾必带合法 stage marker）替换原评论，runner 追加 `ceo-corrected` metadata 后发布；`append` 让 runner 先发原评论、再发一条独立评论（前缀与 `role=<as>` metadata 按 `as` 字段决定，`as` 允许 `{ceo, dev, dev-manager, product-manager, hermes-user}`；独立评论末尾追加 `ceo-corrected` metadata）。CEO 超时、失败、返回非法 JSON / 未知 action / 未知 as / body 空 / stage marker 缺失时 fail-open 发布原文。业务判据（触发条件、模板措辞、`@mention` 与否等）全部由 `agents/ceo.md` 承担，`format-ceo.ts` 只做格式红线校验（合法 JSON、`action` 枚举、`append.as` 已知 role、`replace.body` 末尾 stage marker、非空 body）。persona 层（`agents/ceo.md`）当前只承载 `no_change` / `append` 两种输出（`replace` 保留为代码层能力），并承载协作生态认知：真实可触发 agent 清单、系统中不存在的协作对象、阶段反思强制介入、交付规范和死锁等待识别场景。
 - `agents/ceo.md` 承载 CEO speaker，但不是 mention Codex agent（不在 `availableAgentNames` 内）；`src/conversation.ts` 的 `normalizeComment` 对 `<!-- agent-moebius:role=ceo -->` metadata 特殊处理直接归为 `speaker=ceo`，跳过白名单校验。
@@ -84,9 +90,9 @@
 - 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。并发 Codex 成功写回时必须使用 issue + role entry 级别的串行 merge helper，不能用旧 state snapshot 覆盖整文件。
 - agent pre script 上下文保存在被忽略的 `.state/agent-contexts.json`；当前 `@dev` 记录 issue、role、preScript、目标仓库、worktreePath 与 preparedFromMessageIndex。并发 pre script context 写回时必须使用 issue + role entry 级别的串行 merge helper。
 - GitHub response intake 状态保存在被忽略的 `.state/github-response-intake.json`，记录 repo 闲时扫描时间、issue `updatedAt`、active/idle 模式、active 无变化次数和下次轮询时间。
-- Codex stdout/stderr 运行目录格式为 `/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/`；`<sequence>` 是 runner 进程内递增后缀，用来避免并发 runs 在同一 timestamp + count 下复用同一目录。
+- Codex stdout/stderr 运行目录格式为 `/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/`；`<sequence>` 是 runner 进程内递增后缀，用来避免并发 runs 在同一 timestamp + count 下复用同一目录。本轮下载的输入媒体位于 `input-media/`，准备发布的输出产物位于 `output-artifacts/`。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
-- `github-response-intake.ts`、`local-config.ts`、`conversation.ts` 与 `conversation-interrupt.ts` 只做业务数据操作；`src/triggers/` 封装 mention 触发规则；`driver-pool.ts` 只承载 driver job 并发策略；`scanner.ts` 只做发现、`issue-dispatcher.ts` 只做派发与折叠、`state-persister.ts` 只做单写者状态持有与落盘；GitHub、Codex CLI、状态文件读写分别由 `github.ts`、`codex.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做心跳编排与组装。
+- `github-response-intake.ts`、`local-config.ts`、`conversation.ts`、`conversation-interrupt.ts` 与 `issue-media.ts` 只做业务数据操作；`src/triggers/` 封装 mention 触发规则；`driver-pool.ts` 只承载 driver job 并发策略；`scanner.ts` 只做发现、`issue-dispatcher.ts` 只做派发与折叠、`state-persister.ts` 只做单写者状态持有与落盘；GitHub、Codex CLI、媒体 IO、状态文件读写分别由 `github.ts`、`codex.ts`、`media-assets.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做心跳编排与组装。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 
 ## 修改前检查

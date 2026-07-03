@@ -24,6 +24,11 @@ export const GITHUB_CLI_RETRY_POLICY = {
   factor: 2,
 } as const;
 export const CODEX_RUN_MAX_DURATION_MS = 30 * 60 * 1000;
+export const ISSUE_MEDIA_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const ISSUE_MEDIA_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+export const OUTPUT_ARTIFACT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const OUTPUT_ARTIFACT_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+export const OUTPUT_ARTIFACT_RELEASE_TAG = "agent-moebius-artifacts";
 export const AGENTS_DIR = "agents";
 export const TMP_ROOT = "/tmp";
 export const ROLE_THREADS_STATE_PATH = ".state/role-threads.json";
@@ -60,6 +65,11 @@ export const CONFIG_LOG_FIELDS = {
   codexDriverPoolMaxConcurrent: CODEX_DRIVER_POOL_MAX_CONCURRENT,
   githubCliRetry: GITHUB_CLI_RETRY_POLICY,
   codexRunMaxDurationMs: CODEX_RUN_MAX_DURATION_MS,
+  issueMediaImageMaxBytes: ISSUE_MEDIA_IMAGE_MAX_BYTES,
+  issueMediaVideoMaxBytes: ISSUE_MEDIA_VIDEO_MAX_BYTES,
+  outputArtifactImageMaxBytes: OUTPUT_ARTIFACT_IMAGE_MAX_BYTES,
+  outputArtifactVideoMaxBytes: OUTPUT_ARTIFACT_VIDEO_MAX_BYTES,
+  outputArtifactReleaseTag: OUTPUT_ARTIFACT_RELEASE_TAG,
   agentsDir: AGENTS_DIR,
   tmpRoot: TMP_ROOT,
   roleThreadsStatePath: ROLE_THREADS_STATE_PATH,

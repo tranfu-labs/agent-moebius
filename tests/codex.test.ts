@@ -96,6 +96,16 @@ describe("extractFinalAssistant", () => {
     expect(buildCodexArgs("delta", { kind: "resume", threadId: "thread-1" })).not.toContain("--ephemeral");
   });
 
+  it("adds image attachments to full and resume codex args", () => {
+    expect(buildCodexArgs("hello", { kind: "full" }, ["/tmp/a.png", "/tmp/b.jpg"])).toEqual(
+      expect.arrayContaining(["--image", "/tmp/a.png", "--image", "/tmp/b.jpg", "hello"]),
+    );
+
+    expect(buildCodexArgs("delta", { kind: "resume", threadId: "thread-1" }, ["/tmp/a.png"])).toEqual(
+      expect.arrayContaining(["exec", "resume", "--image", "/tmp/a.png", "thread-1", "delta"]),
+    );
+  });
+
   it("returns null when no assistant message is present", () => {
     const lines = [
       JSON.stringify({ type: "message", role: "user", content: "hello" }),

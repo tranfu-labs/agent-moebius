@@ -13,6 +13,7 @@ export interface CodexRunOptions {
   mode?: CodexRunMode;
   cwd?: string;
   signal?: AbortSignal;
+  imagePaths?: string[];
 }
 
 export type CodexRunResult =
@@ -36,7 +37,7 @@ export type CodexRunResult =
 const INTERRUPT_TERMINATION_DELAY_MS = 5_000;
 
 export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
-  const { prompt, runDir, mode = { kind: "full" }, cwd, signal } = options;
+  const { prompt, runDir, mode = { kind: "full" }, cwd, signal, imagePaths = [] } = options;
   await fs.mkdir(runDir, { recursive: true });
   const stdoutPath = path.join(runDir, "stdout.jsonl");
   const stderrPath = path.join(runDir, "stderr.log");
@@ -53,7 +54,7 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   const stdoutFile = createWriteStream(stdoutPath, { flags: "a" });
   const stderrFile = createWriteStream(stderrPath, { flags: "a" });
 
-  const child = spawn("codex", buildCodexArgs(prompt, mode), {
+  const child = spawn("codex", buildCodexArgs(prompt, mode, imagePaths), {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -190,12 +191,17 @@ export function extractCodexOutput(lines: string[]): CodexOutputSummary {
   };
 }
 
-export function buildCodexArgs(prompt: string, mode: CodexRunMode = { kind: "full" }): string[] {
+export function buildCodexArgs(
+  prompt: string,
+  mode: CodexRunMode = { kind: "full" },
+  imagePaths: string[] = [],
+): string[] {
+  const imageArgs = imagePaths.flatMap((imagePath) => ["--image", imagePath]);
   if (mode.kind === "resume") {
-    return ["exec", "resume", ...CODEX_EXEC_OPTIONS, mode.threadId, prompt];
+    return ["exec", "resume", ...CODEX_EXEC_OPTIONS, ...imageArgs, mode.threadId, prompt];
   }
 
-  return ["exec", ...CODEX_EXEC_OPTIONS, prompt];
+  return ["exec", ...CODEX_EXEC_OPTIONS, ...imageArgs, prompt];
 }
 
 export function isInterruptedCodexRunResult(

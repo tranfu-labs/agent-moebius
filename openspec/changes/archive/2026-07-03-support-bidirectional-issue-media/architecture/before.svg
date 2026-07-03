@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="320" viewBox="0 0 920 320" role="img" aria-labelledby="title desc">
+  <title id="title">Current issue runner media flow</title>
+  <desc id="desc">GitHub issue text is normalized into a timeline, sent as text to Codex, and the final text is posted as a GitHub comment.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, sans-serif; font-size: 14px; fill: #1f2937; }
+      .box { fill: #f8fafc; stroke: #64748b; stroke-width: 1.5; rx: 8; }
+      .note { fill: #fff7ed; stroke: #f97316; stroke-width: 1.5; rx: 8; }
+      .arrow { stroke: #334155; stroke-width: 1.8; fill: none; marker-end: url(#arrowhead); }
+      .label { font-size: 12px; fill: #475569; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#334155" />
+    </marker>
+  </defs>
+  <rect class="box" x="40" y="80" width="160" height="72" />
+  <text x="120" y="111" text-anchor="middle">GitHub issue</text>
+  <text x="120" y="132" text-anchor="middle" class="label">body + comments</text>
+  <rect class="box" x="250" y="80" width="170" height="72" />
+  <text x="335" y="111" text-anchor="middle">conversation.ts</text>
+  <text x="335" y="132" text-anchor="middle" class="label">text timeline prompt</text>
+  <rect class="box" x="470" y="80" width="150" height="72" />
+  <text x="545" y="111" text-anchor="middle">codex.ts</text>
+  <text x="545" y="132" text-anchor="middle" class="label">prompt argv only</text>
+  <rect class="box" x="670" y="80" width="170" height="72" />
+  <text x="755" y="111" text-anchor="middle">GitHub comment</text>
+  <text x="755" y="132" text-anchor="middle" class="label">final text body</text>
+  <path class="arrow" d="M200 116 H250" />
+  <path class="arrow" d="M420 116 H470" />
+  <path class="arrow" d="M620 116 H670" />
+  <rect class="note" x="250" y="200" width="370" height="64" />
+  <text x="435" y="227" text-anchor="middle">Media URLs remain plain text</text>
+  <text x="435" y="248" text-anchor="middle" class="label">No input attachment preparation or output artifact publication</text>
+</svg>
