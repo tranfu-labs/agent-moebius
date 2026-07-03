@@ -357,6 +357,38 @@ describe("processIssueSource Codex execution reaction", () => {
     expect(runCodex).toHaveBeenCalledTimes(1);
   });
 
+  it("passes preScript Codex cwd to the secretary Codex run", async () => {
+    const secretary = await makeAgentFile(
+      "secretary",
+      `---
+preScript: src/agent-prescripts/current-repo-workspace.ts
+---
+Secretary persona`,
+    );
+    const runAgentPreScript = vi.fn(async () => ({ ok: true as const, codexCwd: "/repo/agent-moebius" }));
+    const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) =>
+      successfulCodexRun(options.runDir),
+    );
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@secretary learn this CEO miss"),
+        agentFiles: [secretary],
+      },
+      makeDependencies({ runAgentPreScript, runCodex }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(runAgentPreScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "secretary",
+        preScript: "src/agent-prescripts/current-repo-workspace.ts",
+      }),
+    );
+    expect(runCodex.mock.calls[0]?.[0].cwd).toBe("/repo/agent-moebius");
+  });
+
   it("does not add a second reaction when resume falls back to a full Codex run", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
     const addReaction = vi.fn(async () => {});
@@ -640,7 +672,7 @@ Dev persona`,
 
 describe("processIssueSource CEO guardrail", () => {
   it("runs CEO guardrail for every Codex agent response", async () => {
-    for (const role of ["dev", "dev-manager", "product-manager", "hermes-user"]) {
+    for (const role of ["dev", "dev-manager", "product-manager", "hermes-user", "secretary"]) {
       const agent = await makeAgentFile(role, `${role} persona`);
       const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
         noChangeCeoResult(input.latestResponse),

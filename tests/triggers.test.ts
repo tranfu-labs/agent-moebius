@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildTimeline } from "../src/conversation.js";
 import { resolveTrigger } from "../src/triggers/index.js";
 
-const agents = ["dev", "product-manager"];
+const agents = ["dev", "product-manager", "secretary"];
 
 describe("triggers", () => {
   it("runs the mentioned agent through the mention trigger", () => {
@@ -11,6 +11,16 @@ describe("triggers", () => {
     expect(resolveTrigger({ timeline, availableAgentNames: agents })).toEqual({
       kind: "run-agent",
       role: "dev",
+      reason: "mention",
+    });
+  });
+
+  it("runs secretary through the ordinary mention trigger", () => {
+    const timeline = buildTimeline("@secretary learn this CEO miss", [], agents);
+
+    expect(resolveTrigger({ timeline, availableAgentNames: agents })).toEqual({
+      kind: "run-agent",
+      role: "secretary",
       reason: "mention",
     });
   });
