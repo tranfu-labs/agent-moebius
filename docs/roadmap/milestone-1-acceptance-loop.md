@@ -41,7 +41,7 @@
 - 本地 dry-run：模拟需求 `@dev 请给 docs/guide.md 增加安装命令说明`；模拟 `plan-written` 末尾包含 `## 验收语句` 与 `1. 跑 rg -n "pnpm install" docs/guide.md → 应输出/退出码 0。`；检查结果为 `stage marker last: true`、`acceptance section before marker: true`、`dry-run result: PASS`。
 - 项目检查：`pnpm test` 通过（23 个测试文件、190 个测试）；`pnpm typecheck` 通过。
 
-### - [ ] T2 · CEO 阶段反思改为验收回流路由
+### - [x] T2 · CEO 阶段反思改为验收回流路由
 
 **目标**：`plan-written` / `code-verified` 的 CEO 强制 `append` 从通用反思升级为**验收回流**：识别时间线中发起本需求的 agent 角色（如 `hermes-user`、`product-manager`），append 评论 mention 该角色，要求其按方案中的验收语句逐条验收；若发起者是真人用户而非 agent 角色，维持现状等用户。若 dev 方案缺失验收语句清单，CEO 应在 append 中要求 dev 补齐而不是放行验收。
 
@@ -49,10 +49,17 @@
 
 **验收语句**：
 1. 打开 `agents/ceo.md` → 查找阶段反思规则 → 应看到"回流给发起需求角色验收"与"缺验收语句时要求补齐"两条路由规则。
-2. 构造一条 hermes-user 发起、dev 产出 `plan-written`（含验收语句）的时间线跑一次 CEO 校正 → CEO 输出应为 `append`，`as` 为发起角色可达的合法值，正文 mention 发起角色并引用验收要求。
+2. 构造一条 hermes-user 发起、dev 产出 `plan-written`（含验收语句）的时间线跑一次 CEO 校正 → CEO 输出应为 `append`，`as=ceo`，正文 mention 发起角色并引用验收要求。
 3. 构造 dev 方案缺验收语句的时间线 → CEO append 应要求 @dev 补齐验收语句。
 
 **依赖**：T1。
+
+**验收证据**（2026-07-04）：
+- 文件路径：`agents/ceo.md` 已将“阶段反思强制介入”升级为 `### 阶段验收回流路由`，并包含“回流给发起需求角色验收”与“缺验收语句时要求补齐”两条路由规则；缺清单分支要求 `@dev` 补齐，验收回流分支保持 `as=ceo` 并 mention 发起需求角色。
+- 测试覆盖：`tests/format-ceo.test.ts` 新增 persona 文本合约断言、`hermes-user` 发起的 `plan-written` 验收回流 fake CEO append、缺验收语句时要求 `@dev` 补齐的 fake CEO append。
+- 事实源：`openspec/specs/github-issue-runner/spec.md` 已合入阶段验收回流规则、发起角色识别优先级、缺验收语句补齐规则，以及 `plan-written` / `code-verified` Given/When/Then 场景；对应 change 已归档到 `openspec/changes/archive/2026-07-04-route-ceo-stage-acceptance-feedback/`。
+- 项目手册：`AGENTS.md` 已同步 CEO 阶段验收回流与缺清单补齐描述，且保留 `src/format-ceo.ts` 不承载业务判据的边界。
+- 验证命令：`pnpm test -- tests/format-ceo.test.ts` 通过（27 tests）；`pnpm test` 通过（23 个测试文件、193 tests）；`pnpm typecheck` 通过。
 
 ### - [ ] T3 · 验收角色的走查行为
 
