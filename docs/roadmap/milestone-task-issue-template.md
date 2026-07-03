@@ -31,7 +31,7 @@
 - 需求持有者是 product-manager：负责回答你的澄清提问，并在方案与代码完成后按验收语句逐条走查。它只做消歧，不扩需求；任务原文没写的，按"范围最小"处理。
 - 你先通读任务原文。若有歧义，mention product-manager 一次性列出全部具体问题，不要分多轮挤牙膏；若无歧义，直接产出方案，不必为了流程而采访。
 - 方案（plan-written）按仓库 OpenSpec 纪律落到 openspec/changes/，末尾必须含「验收语句」一节：默认沿用任务原文中的验收语句，如需细化或增补，逐条说明理由。
-- 方案经 product-manager 验收才进入实现；实现完成打 code-verified，并为每条验收语句附上可核查的证据（文件路径、测试输出、截图 artifact 链接）。
+- 方案经 product-manager 验收通过后你直接进入实现，不再需要用户口头放行；实现完成打 code-verified，并为每条验收语句附上可核查的证据（文件路径、测试输出、截图 artifact 链接）。
 - 验收全部通过后，在同一改动内把验收证据追记到 `docs/roadmap/milestone-1-acceptance-loop.md` 对应任务下方并勾选该任务。
 
 ## 边界
