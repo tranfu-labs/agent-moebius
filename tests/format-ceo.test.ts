@@ -105,6 +105,99 @@ describe("formatCeoComment", () => {
     }
   });
 
+  it("documents CEO stage acceptance routing in the persona", async () => {
+    const persona = await fs.readFile(path.resolve("agents", "ceo.md"), "utf8");
+
+    expect(persona).toContain("回流给发起需求角色验收");
+    expect(persona).toContain("缺验收语句时要求补齐");
+    expect(persona).toContain("mention `@dev`");
+    expect(persona).toContain("mention 该发起角色");
+  });
+
+  it("returns APPEND when CEO routes plan-written acceptance back to hermes-user", async () => {
+    const agentsDir = await makeAgentsDir();
+    const latestResponse = `方案已落盘。
+
+## 验收语句
+1. 跑 pnpm test -- tests/format-ceo.test.ts → 应退出码 0。
+
+<!-- agent-moebius:stage=plan-written -->`;
+    const appendBody =
+      "@hermes-user 请按本轮方案末尾的「验收语句」逐条验收方案：每条给出通过 / 不通过 + 依据。";
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: JSON.stringify({ action: "append", as: "ceo", body: appendBody }),
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({
+      ...baseInput,
+      issueContext: {
+        issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/34",
+        issueBody: "需求持有者是 hermes-user。\n@dev 请实现验收回流路由。",
+        comments: [],
+      },
+      latestResponse,
+      agentsDir,
+      runCodex,
+    });
+
+    expect(result).toMatchObject({
+      action: "APPEND",
+      as: "ceo",
+      reason: "appended",
+    });
+    if (result.action === "APPEND") {
+      expect(result.body).toContain("@hermes-user");
+      expect(result.body).toContain("验收语句");
+      expect(result.body).toContain("逐条验收");
+    }
+    const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
+    expect(prompt).toContain("需求持有者是 hermes-user");
+    expect(prompt).toContain("<!-- agent-moebius:stage=plan-written -->");
+    expect(prompt).toContain("## 验收语句");
+  });
+
+  it("returns APPEND when CEO asks dev to add missing acceptance statements", async () => {
+    const agentsDir = await makeAgentsDir();
+    const latestResponse = `方案已落盘，但这里只写了泛泛说明。
+
+<!-- agent-moebius:stage=plan-written -->`;
+    const appendBody =
+      "@dev 当前 `plan-written` 缺少可逐条核查的「验收语句」清单，请先补齐验收语句后再回流给验收角色。";
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: JSON.stringify({ action: "append", as: "ceo", body: appendBody }),
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({
+      ...baseInput,
+      latestResponse,
+      agentsDir,
+      runCodex,
+    });
+
+    expect(result).toMatchObject({
+      action: "APPEND",
+      as: "ceo",
+      reason: "appended",
+    });
+    if (result.action === "APPEND") {
+      expect(result.body).toContain("@dev");
+      expect(result.body).toContain("缺少");
+      expect(result.body).toContain("补齐验收语句");
+    }
+  });
+
   it("returns APPEND with as=dev when CEO impersonates dev", async () => {
     const agentsDir = await makeAgentsDir();
     const appendBody = `> CEO guardrail: 新建 change 分支属于 dev 自主裁决范围。
