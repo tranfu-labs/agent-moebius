@@ -34,6 +34,7 @@ import {
   countMessages,
   formatAgentComment,
   resolveNextRoleThreadState,
+  type TimelineMessage,
 } from "./conversation.js";
 import { isInterruptedCodexRunResult, run as runCodex } from "./codex.js";
 import { createDriverPool, type DriverPool } from "./driver-pool.js";
@@ -55,10 +56,20 @@ import {
   isTransientGitHubCliError,
   listOpenIssueSummaries,
   postComment,
+  publishReleaseArtifacts,
   type GitHubIssue,
   type IssueReactionContent,
   type ReactionTarget,
 } from "./github.js";
+import { appendMediaManifest, extractIssueMediaReferences, type MediaPromptEntry } from "./issue-media.js";
+import {
+  discoverOutputArtifacts,
+  formatArtifactPublishingFailure,
+  formatMediaPreparationFailure,
+  formatPublishedArtifactsMarkdown,
+  type MediaPreparationFailure,
+  prepareIssueMedia,
+} from "./media-assets.js";
 import {
   getDueActiveIssueSources,
   type GitHubResponseIntakeState,
@@ -88,6 +99,9 @@ export interface ProcessIssueSourceDependencies {
   addReaction: typeof addReaction;
   fetchIssueWithComments: typeof fetchIssueWithComments;
   postComment: typeof postComment;
+  prepareIssueMedia: typeof prepareIssueMedia;
+  discoverOutputArtifacts: typeof discoverOutputArtifacts;
+  publishArtifacts: typeof publishReleaseArtifacts;
   loadRoleThreadStateStore: typeof loadRoleThreadStateStore;
   saveRoleThreadStateEntry: typeof saveRoleThreadStateEntry;
   formatCeoComment: typeof formatCeoComment;
@@ -99,6 +113,9 @@ const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies 
   addReaction,
   fetchIssueWithComments,
   postComment,
+  prepareIssueMedia,
+  discoverOutputArtifacts,
+  publishArtifacts: publishReleaseArtifacts,
   loadRoleThreadStateStore,
   saveRoleThreadStateEntry,
   formatCeoComment,
@@ -475,9 +492,23 @@ export async function processIssueSource(
       });
     }
 
+    const initialMedia = await prepareMediaForPrompt({
+      messages: plan.mode === "resume" ? plan.deltaMessages : timeline,
+      runDir,
+      count,
+      agent: selectedAgent.name,
+      issueKey: input.source.issueKey,
+      dependencies,
+    });
+    if (!initialMedia.ok) {
+      await dependencies.postComment(input.source, formatAgentComment(selectedAgent.name, formatMediaPreparationFailure(initialMedia.failures)));
+      return "triggered-success";
+    }
+
     const interruptController = new AbortController();
     let currentThreadId = plan.mode === "resume" ? plan.threadId : null;
     let finalRunDir = runDir;
+    let finalCodexStartedAtMs = Date.now();
     await addCodexExecutionReaction({
       reaction: resolveCodexExecutionReactionTarget({
         source: input.source,
@@ -531,12 +562,14 @@ export async function processIssueSource(
 
     let result: Awaited<ReturnType<ProcessIssueSourceDependencies["runCodex"]>>;
     try {
+      finalCodexStartedAtMs = Date.now();
       result = await dependencies.runCodex({
-        prompt: plan.prompt,
+        prompt: appendMediaManifest(plan.prompt, initialMedia.prepared),
         runDir,
         cwd: codexCwd,
         signal: interruptController.signal,
         mode: plan.mode === "resume" ? { kind: "resume", threadId: plan.threadId } : { kind: "full" },
+        imagePaths: initialMedia.imagePaths,
       });
 
       if (isInterruptedCodexRunResult(result)) {
@@ -555,12 +588,30 @@ export async function processIssueSource(
 
         currentThreadId = null;
         finalRunDir = `${runDir}-fallback`;
+        const fallbackMedia = await prepareMediaForPrompt({
+          messages: timeline,
+          runDir: finalRunDir,
+          count,
+          agent: selectedAgent.name,
+          issueKey: input.source.issueKey,
+          dependencies,
+        });
+        if (!fallbackMedia.ok) {
+          await dependencies.postComment(
+            input.source,
+            formatAgentComment(selectedAgent.name, formatMediaPreparationFailure(fallbackMedia.failures)),
+          );
+          return "triggered-success";
+        }
+
+        finalCodexStartedAtMs = Date.now();
         result = await dependencies.runCodex({
-          prompt: buildFallbackFullPrompt(agentManifest.body, timeline),
+          prompt: appendMediaManifest(buildFallbackFullPrompt(agentManifest.body, timeline), fallbackMedia.prepared),
           runDir: finalRunDir,
           cwd: codexCwd,
           signal: interruptController.signal,
           mode: { kind: "full" },
+          imagePaths: fallbackMedia.imagePaths,
         });
       }
     } finally {
@@ -617,10 +668,28 @@ export async function processIssueSource(
       return "failed";
     }
 
+    const publishableFinalText = await buildPublishableFinalText({
+      source: input.source,
+      finalText: result.finalText,
+      runDir: finalRunDir,
+      cwd: codexCwd,
+      startedAtMs: finalCodexStartedAtMs,
+      count,
+      agent: selectedAgent.name,
+      dependencies,
+    });
+    if (!publishableFinalText.ok) {
+      await dependencies.postComment(
+        input.source,
+        formatAgentComment(selectedAgent.name, formatArtifactPublishingFailure(publishableFinalText.error)),
+      );
+      return "triggered-success";
+    }
+
     const ceoResult = await dependencies.formatCeoComment({
       agent: selectedAgent.name,
       issueContext: buildCeoIssueContext(input.source, input.issue),
-      latestResponse: result.finalText,
+      latestResponse: publishableFinalText.body,
       runDir: finalRunDir,
       runCodex: dependencies.runCodex,
     });
@@ -632,7 +701,7 @@ export async function processIssueSource(
     });
 
     if (ceoResult.action === "APPEND") {
-      const originalBody = formatAgentComment(selectedAgent.name, result.finalText);
+      const originalBody = formatAgentComment(selectedAgent.name, publishableFinalText.body);
       await dependencies.postComment(input.source, originalBody);
 
       const ceoAppendBody = `${formatAgentComment(ceoResult.as, ceoResult.body)}\n\n${CEO_CORRECTED_METADATA}`;
@@ -660,6 +729,92 @@ export async function processIssueSource(
     // 并重复发帖；故这里保持 failed（不重入、不重复发帖）。exactly-once 发帖留待后续 change。
     log({ event: "process-issue-error", issueKey: input.source.issueKey, error: formatError(error) });
     return "failed";
+  }
+}
+
+async function prepareMediaForPrompt(input: {
+  messages: TimelineMessage[];
+  runDir: string;
+  count: number;
+  agent: string;
+  issueKey: string;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<{ ok: true; prepared: MediaPromptEntry[]; imagePaths: string[] } | { ok: false; failures: MediaPreparationFailure[] }> {
+  const references = extractIssueMediaReferences(input.messages);
+  if (references.length === 0) {
+    return { ok: true, prepared: [], imagePaths: [] };
+  }
+
+  const result = await input.dependencies.prepareIssueMedia({ references, runDir: input.runDir });
+  if (!result.ok) {
+    log({
+      event: "issue-media-preparation-failed",
+      count: input.count,
+      runDir: input.runDir,
+      agent: input.agent,
+      issueKey: input.issueKey,
+      failures: result.failures.map((failure) => failure.reason),
+    });
+    return result;
+  }
+
+  log({
+    event: "issue-media-prepared",
+    count: input.count,
+    runDir: input.runDir,
+    agent: input.agent,
+    issueKey: input.issueKey,
+    mediaCount: result.prepared.length,
+    imageCount: result.imagePaths.length,
+  });
+  return result;
+}
+
+async function buildPublishableFinalText(input: {
+  source: IssueSource;
+  finalText: string;
+  runDir: string;
+  cwd: string | undefined;
+  startedAtMs: number;
+  count: number;
+  agent: string;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<{ ok: true; body: string } | { ok: false; error: unknown }> {
+  const artifacts = await input.dependencies.discoverOutputArtifacts({
+    cwd: input.cwd,
+    runDir: input.runDir,
+    finalText: input.finalText,
+    startedAtMs: input.startedAtMs,
+  });
+  if (artifacts.length === 0) {
+    return { ok: true, body: input.finalText };
+  }
+
+  try {
+    const publishedArtifacts = await input.dependencies.publishArtifacts(input.source, artifacts);
+    const artifactMarkdown = formatPublishedArtifactsMarkdown(publishedArtifacts);
+    log({
+      event: "output-artifacts-published",
+      count: input.count,
+      runDir: input.runDir,
+      agent: input.agent,
+      issueKey: input.source.issueKey,
+      artifactCount: publishedArtifacts.length,
+    });
+    return {
+      ok: true,
+      body: artifactMarkdown === "" ? input.finalText : `${input.finalText.trimEnd()}\n\n${artifactMarkdown}`,
+    };
+  } catch (error) {
+    log({
+      event: "output-artifact-publish-failed",
+      count: input.count,
+      runDir: input.runDir,
+      agent: input.agent,
+      issueKey: input.source.issueKey,
+      error: formatError(error),
+    });
+    return { ok: false, error };
   }
 }
 

@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { OUTPUT_ARTIFACT_RELEASE_TAG } from "./config.js";
 import type { IssueSource, RepositoryRef } from "./issue-source.js";
+import type { PreparedOutputArtifact, PublishedArtifact } from "./media-assets.js";
 import { classifyGhError, withRetry } from "./retry.js";
 
 export interface GitHubComment {
@@ -87,6 +89,27 @@ export async function addIssueReaction(source: IssueSource, content: IssueReacti
   await addReaction({ kind: "issue", source }, content);
 }
 
+export async function publishReleaseArtifacts(
+  source: IssueSource,
+  files: PreparedOutputArtifact[],
+): Promise<PublishedArtifact[]> {
+  if (files.length === 0) {
+    return [];
+  }
+
+  await ensureArtifactRelease(source);
+  for (const file of files) {
+    await runCommand("gh", buildReleaseUploadArgs(source, file), { retry: false });
+  }
+
+  const assets = await listArtifactReleaseAssets(source);
+  return files.map((file) => ({
+    displayName: file.displayName,
+    kind: file.kind,
+    url: assets.get(file.assetName) ?? buildReleaseAssetUrl(source, file.assetName),
+  }));
+}
+
 export function buildListOpenIssueSummariesArgs(repository: RepositoryRef, limit: number): string[] {
   return [
     "issue",
@@ -143,6 +166,45 @@ export function buildAddReactionArgs(target: ReactionTarget, content: IssueReact
     `repos/${target.source.owner}/${target.source.repo}/issues/${target.source.issueNumber}/reactions`,
     "-f",
     `content=${content}`,
+  ];
+}
+
+export function buildReleaseViewArgs(source: IssueSource): string[] {
+  return [
+    "release",
+    "view",
+    OUTPUT_ARTIFACT_RELEASE_TAG,
+    "--repo",
+    `${source.owner}/${source.repo}`,
+    "--json",
+    "assets",
+  ];
+}
+
+export function buildReleaseCreateArgs(source: IssueSource): string[] {
+  return [
+    "release",
+    "create",
+    OUTPUT_ARTIFACT_RELEASE_TAG,
+    "--repo",
+    `${source.owner}/${source.repo}`,
+    "--title",
+    "Agent Moebius artifacts",
+    "--notes",
+    "Generated media artifacts for Agent Moebius issue comments.",
+    "--latest=false",
+  ];
+}
+
+export function buildReleaseUploadArgs(source: IssueSource, file: PreparedOutputArtifact): string[] {
+  return [
+    "release",
+    "upload",
+    OUTPUT_ARTIFACT_RELEASE_TAG,
+    `${file.filePath}#${file.displayName}`,
+    "--repo",
+    `${source.owner}/${source.repo}`,
+    "--clobber",
   ];
 }
 
@@ -295,4 +357,40 @@ function isGitHubIssueSummaryList(value: unknown): value is Array<{ number: numb
       return Number.isInteger(summary.number) && summary.number !== undefined && summary.number > 0 && typeof summary.updatedAt === "string";
     })
   );
+}
+
+async function ensureArtifactRelease(source: IssueSource): Promise<void> {
+  try {
+    await runCommand("gh", buildReleaseViewArgs(source));
+  } catch {
+    await runCommand("gh", buildReleaseCreateArgs(source), { retry: false });
+  }
+}
+
+async function listArtifactReleaseAssets(source: IssueSource): Promise<Map<string, string>> {
+  const result = await runCommand("gh", buildReleaseViewArgs(source));
+  const parsed: unknown = JSON.parse(result.stdout);
+  const assets = new Map<string, string>();
+  if (typeof parsed !== "object" || parsed === null || !Array.isArray((parsed as { assets?: unknown }).assets)) {
+    return assets;
+  }
+
+  for (const asset of (parsed as { assets: unknown[] }).assets) {
+    if (typeof asset !== "object" || asset === null) {
+      continue;
+    }
+
+    const record = asset as Partial<{ name: unknown; url: unknown }>;
+    if (typeof record.name === "string" && typeof record.url === "string") {
+      assets.set(record.name, record.url);
+    }
+  }
+
+  return assets;
+}
+
+function buildReleaseAssetUrl(source: IssueSource, assetName: string): string {
+  return `https://github.com/${source.owner}/${source.repo}/releases/download/${encodeURIComponent(
+    OUTPUT_ARTIFACT_RELEASE_TAG,
+  )}/${encodeURIComponent(assetName)}`;
 }
