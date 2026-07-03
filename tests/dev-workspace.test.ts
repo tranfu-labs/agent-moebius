@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DEV_WORKSPACE_PRE_SCRIPT_PATH,
+  buildLocalBranchName,
   removeWorktreeWithFallback,
   runGit,
   runDevWorkspacePreScript,
@@ -36,7 +37,7 @@ describe("dev workspace pre script", () => {
         }
 
         if (args[2] === "worktree") {
-          await fs.mkdir(args[4] as string, { recursive: true });
+          await fs.mkdir(worktreePathFromWorktreeAdd(args), { recursive: true });
         }
       },
     });
@@ -58,6 +59,8 @@ describe("dev workspace pre script", () => {
         path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
         "worktree",
         "add",
+        "-B",
+        "agent/dev/tranfu-labs__agent-moebius__4",
         expectedWorktreePath,
         REMOTE_MAIN_REF,
       ],
@@ -129,7 +132,7 @@ describe("dev workspace pre script", () => {
       runGit: async (args) => {
         commands.push(args);
         if (args[2] === "worktree") {
-          await fs.mkdir(args[4] as string, { recursive: true });
+          await fs.mkdir(worktreePathFromWorktreeAdd(args), { recursive: true });
         }
       },
     });
@@ -149,6 +152,8 @@ describe("dev workspace pre script", () => {
         path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
         "worktree",
         "add",
+        "-B",
+        "agent/dev/tranfu-labs__agent-moebius__4",
         path.join(root, "worktrees", "tranfu-labs__agent-moebius__4__dev"),
         REMOTE_MAIN_REF,
       ],
@@ -193,8 +198,9 @@ describe("dev workspace pre script", () => {
         }
 
         if (args[2] === "worktree" && args[3] === "add") {
-          events.push(`add:${args[4]}`);
-          await fs.mkdir(args[4] as string, { recursive: true });
+          const target = worktreePathFromWorktreeAdd(args);
+          events.push(`add:${target}`);
+          await fs.mkdir(target, { recursive: true });
           return;
         }
       },
@@ -366,9 +372,259 @@ describe("dev workspace pre script", () => {
       /git failed with exit-code-\d+: git: 'not-a-real-git-subcommand-for-agent-moebius-test' is not a git command/,
     );
   });
+
+  it("derives a controlled local branch name from role/owner/repo/issue", () => {
+    const input = makeInput("/tmp/does-not-matter");
+    expect(buildLocalBranchName(input)).toBe("agent/dev/tranfu-labs__agent-moebius__4");
+  });
+
+  it("normalizes owner/repo characters when building the local branch name", () => {
+    const input = makeInput("/tmp/does-not-matter", {
+      issueSource: {
+        owner: "tranfu labs",
+        repo: "agent/moebius",
+        issueNumber: 4,
+        issueKey: "tranfu labs/agent/moebius#4",
+        cloneUrl: "https://example.com/x.git",
+      },
+    });
+    expect(buildLocalBranchName(input)).toBe("agent/dev/tranfu_labs__agent_moebius__4");
+  });
+
+  it("serializes calls sharing the same repo cache key", async () => {
+    const root = await makeTempDir();
+    const inputA = makeInput(root, {
+      issueSource: {
+        owner: "tranfu-labs",
+        repo: "agent-moebius",
+        issueNumber: 4,
+        issueKey: "tranfu-labs/agent-moebius#4",
+        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+      },
+    });
+    const inputB = makeInput(root, {
+      issueSource: {
+        owner: "tranfu-labs",
+        repo: "agent-moebius",
+        issueNumber: 5,
+        issueKey: "tranfu-labs/agent-moebius#5",
+        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+      },
+    });
+
+    const events: string[] = [];
+    let releaseAWorktreeAdd: () => void = () => {};
+    const aGate = new Promise<void>((resolve) => {
+      releaseAWorktreeAdd = resolve;
+    });
+
+    const makeRunGit = (label: "A" | "B") => async (args: string[]) => {
+      const phase = args[0] === "clone" ? "clone" : `${args[2]}${args[3] ? ":" + args[3] : ""}`;
+      events.push(`${label}:${phase}:enter`);
+      if (args[0] === "clone") {
+        await fs.mkdir(args[3] as string, { recursive: true });
+      } else if (args[2] === "worktree" && args[3] === "add") {
+        if (label === "A") {
+          await aGate;
+        }
+        await fs.mkdir(worktreePathFromWorktreeAdd(args), { recursive: true });
+      }
+      events.push(`${label}:${phase}:exit`);
+    };
+
+    const promiseA = runDevWorkspacePreScript(inputA, {
+      ...makeFsDependencies(),
+      runGit: makeRunGit("A"),
+    });
+    const promiseB = runDevWorkspacePreScript(inputB, {
+      ...makeFsDependencies(),
+      runGit: makeRunGit("B"),
+    });
+
+    await waitUntil(() => events.includes("A:worktree:add:enter"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(events.filter((event) => event.startsWith("B:"))).toEqual([]);
+    expect(events.filter((event) => event.startsWith("A:"))).not.toContain("A:worktree:add:exit");
+
+    releaseAWorktreeAdd();
+    const [resultA, resultB] = await Promise.all([promiseA, promiseB]);
+
+    expect(resultA.ok).toBe(true);
+    expect(resultB.ok).toBe(true);
+    const aExit = events.indexOf("A:worktree:add:exit");
+    const bFirst = events.findIndex((event) => event.startsWith("B:") && event.endsWith(":enter"));
+    expect(aExit).toBeGreaterThanOrEqual(0);
+    expect(bFirst).toBeGreaterThan(aExit);
+  });
+
+  it("runs different repo cache keys in parallel", async () => {
+    const root = await makeTempDir();
+    const inputA = makeInput(root, {
+      issueSource: {
+        owner: "tranfu-labs",
+        repo: "agent-moebius",
+        issueNumber: 4,
+        issueKey: "tranfu-labs/agent-moebius#4",
+        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+      },
+    });
+    const inputB = makeInput(root, {
+      issueSource: {
+        owner: "tranfu-labs",
+        repo: "tranfucom",
+        issueNumber: 4,
+        issueKey: "tranfu-labs/tranfucom#4",
+        cloneUrl: "https://github.com/tranfu-labs/tranfucom.git",
+      },
+    });
+
+    const events: string[] = [];
+    let releaseAWorktreeAdd: () => void = () => {};
+    const aGate = new Promise<void>((resolve) => {
+      releaseAWorktreeAdd = resolve;
+    });
+
+    const makeRunGit = (label: "A" | "B") => async (args: string[]) => {
+      const phase = args[0] === "clone" ? "clone" : `${args[2]}${args[3] ? ":" + args[3] : ""}`;
+      events.push(`${label}:${phase}:enter`);
+      if (args[0] === "clone") {
+        await fs.mkdir(args[3] as string, { recursive: true });
+      } else if (args[2] === "worktree" && args[3] === "add") {
+        if (label === "A") {
+          await aGate;
+        }
+        await fs.mkdir(worktreePathFromWorktreeAdd(args), { recursive: true });
+      }
+      events.push(`${label}:${phase}:exit`);
+    };
+
+    const promiseA = runDevWorkspacePreScript(inputA, {
+      ...makeFsDependencies(),
+      runGit: makeRunGit("A"),
+    });
+    const promiseB = runDevWorkspacePreScript(inputB, {
+      ...makeFsDependencies(),
+      runGit: makeRunGit("B"),
+    });
+
+    await waitUntil(
+      () => events.includes("A:worktree:add:enter") && events.includes("B:worktree:add:enter"),
+    );
+
+    releaseAWorktreeAdd();
+    const [resultA, resultB] = await Promise.all([promiseA, promiseB]);
+    expect(resultA.ok).toBe(true);
+    expect(resultB.ok).toBe(true);
+  });
+
+  it("releases the repo lock when the critical section throws", async () => {
+    const root = await makeTempDir();
+    const inputA = makeInput(root, {
+      issueSource: {
+        owner: "tranfu-labs",
+        repo: "agent-moebius",
+        issueNumber: 4,
+        issueKey: "tranfu-labs/agent-moebius#4",
+        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+      },
+    });
+    const inputB = makeInput(root, {
+      issueSource: {
+        owner: "tranfu-labs",
+        repo: "agent-moebius",
+        issueNumber: 5,
+        issueKey: "tranfu-labs/agent-moebius#5",
+        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+      },
+    });
+
+    let aCalls = 0;
+    const runGitA = async (args: string[]) => {
+      aCalls++;
+      if (args[0] === "clone") {
+        await fs.mkdir(args[3] as string, { recursive: true });
+        return;
+      }
+      if (args[2] === "fetch") {
+        throw new Error("boom: A refresh failed");
+      }
+      if (args[2] === "worktree" && args[3] === "add") {
+        await fs.mkdir(worktreePathFromWorktreeAdd(args), { recursive: true });
+      }
+    };
+    const runGitB = async (args: string[]) => {
+      if (args[0] === "clone") {
+        await fs.mkdir(args[3] as string, { recursive: true });
+        return;
+      }
+      if (args[2] === "worktree" && args[3] === "add") {
+        await fs.mkdir(worktreePathFromWorktreeAdd(args), { recursive: true });
+      }
+    };
+
+    const resultA = await runDevWorkspacePreScript(inputA, {
+      ...makeFsDependencies(),
+      runGit: runGitA,
+    });
+    const resultB = await runDevWorkspacePreScript(inputB, {
+      ...makeFsDependencies(),
+      runGit: runGitB,
+    });
+
+    expect(resultA.ok).toBe(false);
+    if (resultA.ok) return;
+    expect(resultA.reason).toContain("boom: A refresh failed");
+    expect(aCalls).toBeGreaterThan(0);
+    expect(resultB.ok).toBe(true);
+  });
+
+  it("rebuilds a stale worktree with -B and the derived local branch name", async () => {
+    const root = await makeTempDir();
+    const events: string[] = [];
+    const input = makeInput(root);
+    const worktreePath = expectedWorktreePath(root);
+    const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
+    await fs.mkdir(worktreePath, { recursive: true });
+    await fs.mkdir(repoCachePath, { recursive: true });
+    await saveAgentContextStateStore(
+      {
+        "tranfu-labs/agent-moebius#4": {
+          dev: {
+            preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
+            owner: "tranfu-labs",
+            repo: "agent-moebius",
+            issueNumber: 4,
+            worktreePath,
+            preparedFromMessageIndex: 2,
+          },
+        },
+      },
+      input.contextStatePath,
+    );
+
+    const result = await runDevWorkspacePreScript(input, {
+      ...makeFsDependencies(),
+      removeWorktree: async () => {
+        await fs.rm(worktreePath, { recursive: true, force: true });
+      },
+      runGit: async (args) => {
+        if (args[2] === "worktree" && args[3] === "add") {
+          events.push(args.join(" "));
+          await fs.mkdir(worktreePathFromWorktreeAdd(args), { recursive: true });
+        }
+      },
+      isGitAncestor: async () => false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(events).toEqual([
+      `--git-dir ${repoCachePath} worktree add -B agent/dev/tranfu-labs__agent-moebius__4 ${worktreePath} ${REMOTE_MAIN_REF}`,
+    ]);
+  });
 });
 
-function makeInput(root: string): AgentPreScriptInput {
+function makeInput(root: string, overrides: Partial<AgentPreScriptInput> = {}): AgentPreScriptInput {
   return {
     role: "dev",
     preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
@@ -382,7 +638,22 @@ function makeInput(root: string): AgentPreScriptInput {
     },
     workdirRoot: root,
     contextStatePath: path.join(root, ".state", "agent-contexts.json"),
+    ...overrides,
   };
+}
+
+function worktreePathFromWorktreeAdd(args: string[]): string {
+  return args[args.length - 2] as string;
+}
+
+async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!condition()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("waitUntil timeout");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 function expectedWorktreePath(root: string): string {

@@ -30,6 +30,22 @@ interface DevWorkspaceDependencies {
 const REMOTE_MAIN_REF = "refs/remotes/origin/main";
 const FETCH_REMOTE_MAIN_REFSPEC = `+refs/heads/main:${REMOTE_MAIN_REF}`;
 
+const repoLocks = new Map<string, Promise<unknown>>();
+
+async function withRepoLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = repoLocks.get(key) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  repoLocks.set(key, next.catch(() => {}));
+  return await next;
+}
+
+export function buildLocalBranchName(input: AgentPreScriptInput): string {
+  const role = safePathSegment(input.role);
+  const owner = safePathSegment(input.issueSource.owner);
+  const repo = safePathSegment(input.issueSource.repo);
+  return `agent/${role}/${owner}__${repo}__${input.issueSource.issueNumber}`;
+}
+
 const defaultDependencies: DevWorkspaceDependencies = {
   access: (targetPath) => fs.access(targetPath),
   mkdir: async (targetPath, options) => {
@@ -91,7 +107,7 @@ async function runDevWorkspacePreScriptUnsafe(
       return { ok: false, reason: `missing-repo-cache:${paths.repoCachePath}` };
     }
 
-    await refreshRemoteMain(paths.repoCachePath, dependencies);
+    await withRepoLock(paths.repoCachePath, () => refreshRemoteMain(paths.repoCachePath, dependencies));
     const containsLatestMain = await dependencies.isGitAncestor({
       cwd: existingState.worktreePath,
       ancestor: REMOTE_MAIN_REF,
@@ -99,18 +115,22 @@ async function runDevWorkspacePreScriptUnsafe(
     });
     if (!containsLatestMain) {
       try {
-        await dependencies.removeWorktree({
-          repoCachePath: paths.repoCachePath,
-          worktreePath: existingState.worktreePath,
+        await withRepoLock(paths.repoCachePath, async () => {
+          await dependencies.removeWorktree({
+            repoCachePath: paths.repoCachePath,
+            worktreePath: existingState.worktreePath,
+          });
+          await dependencies.runGit([
+            "--git-dir",
+            paths.repoCachePath,
+            "worktree",
+            "add",
+            "-B",
+            buildLocalBranchName(input),
+            existingState.worktreePath,
+            REMOTE_MAIN_REF,
+          ]);
         });
-        await dependencies.runGit([
-          "--git-dir",
-          paths.repoCachePath,
-          "worktree",
-          "add",
-          existingState.worktreePath,
-          REMOTE_MAIN_REF,
-        ]);
         await dependencies.access(existingState.worktreePath);
       } catch (error) {
         return { ok: false, reason: `stale-worktree-rebuild-failed:${formatError(error)}` };
@@ -129,12 +149,23 @@ async function runDevWorkspacePreScriptUnsafe(
   await dependencies.mkdir(path.dirname(paths.repoCachePath), { recursive: true });
   await dependencies.mkdir(path.dirname(paths.worktreePath), { recursive: true });
 
-  if (!(await dependencies.pathExists(paths.repoCachePath))) {
-    await dependencies.runGit(["clone", "--bare", input.issueSource.cloneUrl, paths.repoCachePath]);
-  }
+  await withRepoLock(paths.repoCachePath, async () => {
+    if (!(await dependencies.pathExists(paths.repoCachePath))) {
+      await dependencies.runGit(["clone", "--bare", input.issueSource.cloneUrl, paths.repoCachePath]);
+    }
 
-  await refreshRemoteMain(paths.repoCachePath, dependencies);
-  await dependencies.runGit(["--git-dir", paths.repoCachePath, "worktree", "add", paths.worktreePath, REMOTE_MAIN_REF]);
+    await refreshRemoteMain(paths.repoCachePath, dependencies);
+    await dependencies.runGit([
+      "--git-dir",
+      paths.repoCachePath,
+      "worktree",
+      "add",
+      "-B",
+      buildLocalBranchName(input),
+      paths.worktreePath,
+      REMOTE_MAIN_REF,
+    ]);
+  });
   await dependencies.access(paths.worktreePath);
 
   await dependencies.saveStateEntry(input.issueSource.issueKey, input.role, {
