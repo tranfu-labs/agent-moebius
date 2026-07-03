@@ -61,7 +61,7 @@
 - 项目手册：`AGENTS.md` 已同步 CEO 阶段验收回流与缺清单补齐描述，且保留 `src/format-ceo.ts` 不承载业务判据的边界。
 - 验证命令：`pnpm test -- tests/format-ceo.test.ts` 通过（27 tests）；`pnpm test` 通过（23 个测试文件、193 tests）；`pnpm typecheck` 通过。
 
-### - [ ] T3 · 验收角色的走查行为
+### - [x] T3 · 验收角色的走查行为
 
 **目标**：`agents/hermes-user.md` 与 `agents/product-manager.md` 增加验收职责：被 mention 请求验收时，逐条走查验收语句并输出结构化结论——每条语句一行"通过 / 不通过 + 依据"；全部通过则声明验收通过并说明下一步等待谁；任一不通过则 mention `@dev` 并明确指出未过语句与期望差异。方案阶段的验收基于阅读方案推演，代码阶段的验收基于 dev 提供的证据（测试输出、截图 artifact 等）。
 
@@ -72,6 +72,14 @@
 2. 构造一轮验收请求（含 3 条验收语句、其中 1 条明显不满足的方案）→ 角色响应应逐条给出结论且 mention @dev 指出未过项。
 
 **依赖**：T2。
+
+**验收证据**（2026-07-04）：
+- 文件路径：`agents/hermes-user.md` 与 `agents/product-manager.md` 均已新增 `## 验收职责`，要求被 mention 请求验收时逐条走查「验收语句」、每条输出 `通过` / `不通过` + 依据、不通过时 mention `@dev` 并指出未过语句、实际观察、期望结果和差异。
+- 阶段证据规则：两个 persona 均明确方案阶段基于 dev 方案文本推演，代码阶段基于 dev 提供的测试输出、截图 artifact、文件路径、命令输出或可核查交付说明。
+- 事实源：`openspec/specs/github-issue-runner/spec.md` 已合入验收角色的 MUST 契约与两个 Given/When/Then 场景；对应 change 归档到 `openspec/changes/archive/2026-07-04-add-acceptance-walkthrough-personas/`。
+- 文本检查：`rg -n "验收职责|逐条|结构化结论|通过|不通过|@dev|方案阶段|代码阶段|下一步等待" agents/hermes-user.md agents/product-manager.md` 命中两个 persona 的验收职责定义。
+- 本地 dry-run：构造 3 条验收语句、其中 1 条明显不满足的方案，按 persona 规则得到 `persona contract check: PASS` 与 `dry-run result: PASS`；失败项响应包含 `不通过`、`@dev`、未过项与期望差异，且末尾保留 `<!-- agent-moebius:stage=in-progress -->`。
+- 项目检查：`pnpm test` 通过（23 个测试文件、193 个测试）；`pnpm typecheck` 通过。
 
 ### - [ ] T4 ·【人工】预览 oracle 探针（spike）
 
