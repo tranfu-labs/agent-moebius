@@ -44,9 +44,9 @@
   <!-- record failed (A) -->
   <rect x="300" y="540" width="360" height="90" rx="6" fill="#ecfdf5" stroke="#059669"/>
   <text x="480" y="566" text-anchor="middle" font-size="13" font-weight="700" fill="#065f46">recordIssueProcessingOutcome(failed) ★A</text>
-  <text x="480" y="586" text-anchor="middle" font-size="12" fill="#065f46">· updatedAt = latest（下 tick 不再判"有变化"）</text>
-  <text x="480" y="602" text-anchor="middle" font-size="12" fill="#065f46">· activeNoChangeCount++（复用现有降级）</text>
-  <text x="480" y="618" text-anchor="middle" font-size="12" fill="#065f46">· nextPollAt = now + 1min；到 5 次降 idle</text>
+  <text x="480" y="586" text-anchor="middle" font-size="12" fill="#065f46">· updatedAt 保持旧值（不 ack 未处理变化）</text>
+  <text x="480" y="602" text-anchor="middle" font-size="12" fill="#065f46">· failureCount++ / lastFailureReason 更新</text>
+  <text x="480" y="618" text-anchor="middle" font-size="12" fill="#065f46">· 达 FAILURE_RETRY_LIMIT 后尝试死信</text>
 
   <!-- arrows main flow -->
   <line x1="480" y1="124" x2="480" y2="150" stroke="#334155" marker-end="url(#arrow2)"/>
@@ -67,19 +67,19 @@
   <text x="825" y="486" text-anchor="middle" font-size="12" font-weight="700" fill="#065f46">Codex 执行 → 评论</text>
   <text x="825" y="504" text-anchor="middle" font-size="11" fill="#065f46">success 分支照旧</text>
 
-  <!-- back to tick (green: nextPollAt 已推进，下 tick 才到期) -->
+  <!-- back to tick (green: failed keeps old updatedAt and retries by poll) -->
   <path d="M 300,585 C 130,585 130,102 410,102" fill="none" stroke="#059669" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrowGreen)"/>
   <text x="150" y="330" text-anchor="middle" font-size="12" font-weight="700" fill="#065f46">★A</text>
-  <text x="150" y="346" text-anchor="middle" font-size="11" fill="#065f46">nextPollAt 已推</text>
-  <text x="150" y="362" text-anchor="middle" font-size="11" fill="#065f46">下 tick 不重判</text>
-  <text x="150" y="378" text-anchor="middle" font-size="11" fill="#065f46">"changed"</text>
+  <text x="150" y="346" text-anchor="middle" font-size="11" fill="#065f46">updatedAt 未 ack</text>
+  <text x="150" y="362" text-anchor="middle" font-size="11" fill="#065f46">按 poll 重试</text>
+  <text x="150" y="378" text-anchor="middle" font-size="11" fill="#065f46">直到成功 / 死信</text>
 
   <!-- legend -->
   <rect x="700" y="150" width="230" height="150" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
   <text x="815" y="172" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">收敛点</text>
-  <text x="712" y="196" font-size="11" fill="#059669">★A failed 也推 nextPollAt</text>
-  <text x="712" y="212" font-size="11" fill="#059669">    + activeNoChangeCount++</text>
-  <text x="712" y="228" font-size="11" fill="#059669">    到 5 降级 idle</text>
+  <text x="712" y="196" font-size="11" fill="#059669">★A failed 不推进 updatedAt</text>
+  <text x="712" y="212" font-size="11" fill="#059669">    failureCount++ 后重试</text>
+  <text x="712" y="228" font-size="11" fill="#059669">    死信成功才 ack</text>
   <text x="712" y="250" font-size="11" fill="#059669">★B stale → 重建 worktree</text>
   <text x="712" y="270" font-size="11" fill="#059669">★C CLOSED → 从 state 删</text>
   <text x="712" y="292" font-size="11" fill="#475569">现象：60s 至多 1 次 fail</text>

@@ -6,6 +6,7 @@ import {
   DEV_WORKSPACE_PRE_SCRIPT_PATH,
   buildLocalBranchName,
   removeWorktreeWithFallback,
+  runGit,
   runDevWorkspacePreScript,
   safePathSegment,
 } from "../src/agent-prescripts/dev-workspace.js";
@@ -364,6 +365,12 @@ describe("dev workspace pre script", () => {
 
   it("sanitizes path segments", () => {
     expect(safePathSegment("owner/repo name")).toBe("owner_repo_name");
+  });
+
+  it("includes git stderr when a git command fails", async () => {
+    await expect(runGit(["not-a-real-git-subcommand-for-agent-moebius-test"])).rejects.toThrow(
+      /git failed with exit-code-\d+: git: 'not-a-real-git-subcommand-for-agent-moebius-test' is not a git command/,
+    );
   });
 
   it("derives a controlled local branch name from role/owner/repo/issue", () => {

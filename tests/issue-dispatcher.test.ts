@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDriverPool } from "../src/driver-pool.js";
-import type { GitHubResponseIntakeState, IssueSummary } from "../src/github-response-intake.js";
+import { failedIssueProcessingOutcome, type GitHubResponseIntakeState, type IssueSummary } from "../src/github-response-intake.js";
 import {
   createIssueDispatcher,
   issueKeyForJob,
@@ -169,6 +169,75 @@ describe("issue dispatcher", () => {
 
     releaseInFlight();
     await dispatcher.idle();
+  });
+
+  it("folds dead-lettered job results", async () => {
+    const { dispatcher, persister } = makeDispatcher({
+      persister: makePersister({
+        repositories: {},
+        issues: {
+          "tranfu-labs/tranfu-agents-app#67": {
+            ...REPO,
+            issueNumber: 67,
+            updatedAt: "2026-07-02T02:00:00.000Z",
+            mode: "active",
+            activeNoChangeCount: 0,
+            nextPollAt: "2026-07-02T03:00:00.000Z",
+            failureCount: 4,
+            lastFailureReason: "old failure",
+          },
+        },
+      }),
+      runJob: async () => ({
+        kind: "processed",
+        summary: summary(67),
+        outcome: "dead-lettered",
+      }),
+    });
+
+    dispatcher.dispatch(changedJob(67));
+    await dispatcher.idle();
+
+    expect(persister.state().issues["tranfu-labs/tranfu-agents-app#67"]).toMatchObject({
+      mode: "idle",
+      updatedAt: "2026-07-02T03:00:00.000Z",
+      failureCount: 0,
+      nextPollAt: null,
+    });
+  });
+
+  it("folds failed job results", async () => {
+    const { dispatcher, persister } = makeDispatcher({
+      persister: makePersister({
+        repositories: {},
+        issues: {
+          "tranfu-labs/tranfu-agents-app#67": {
+            ...REPO,
+            issueNumber: 67,
+            updatedAt: "2026-07-02T02:00:00.000Z",
+            mode: "active",
+            activeNoChangeCount: 2,
+            nextPollAt: "2026-07-02T03:00:00.000Z",
+          },
+        },
+      }),
+      runJob: async () => ({
+        kind: "processed",
+        summary: summary(67),
+        outcome: failedIssueProcessingOutcome({ reason: "fetch failed" }),
+      }),
+    });
+
+    dispatcher.dispatch(changedJob(67));
+    await dispatcher.idle();
+
+    expect(persister.state().issues["tranfu-labs/tranfu-agents-app#67"]).toMatchObject({
+      mode: "active",
+      updatedAt: "2026-07-02T02:00:00.000Z",
+      activeNoChangeCount: 2,
+      failureCount: 1,
+      lastFailureReason: "fetch failed",
+    });
   });
 
   it("derives the issue key from either job shape", () => {

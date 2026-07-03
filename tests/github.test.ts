@@ -5,12 +5,10 @@ import {
   buildFetchIssueWithCommentsArgs,
   buildListOpenIssueSummariesArgs,
   buildPostCommentArgs,
-  CommandFailedError,
   GitHubIssueNotFoundError,
   isGitHubIssue,
   isGitHubIssueNotFoundError,
   isIssueNotFoundMessage,
-  isTransientGitHubCliError,
 } from "../src/github.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
@@ -32,19 +30,6 @@ describe("github issue errors", () => {
 
     expect(isGitHubIssueNotFoundError(error)).toBe(true);
     expect(isGitHubIssueNotFoundError(new Error("missing"))).toBe(false);
-  });
-
-  it("treats transient gh command failures as retriable, but not deterministic ones", () => {
-    expect(
-      isTransientGitHubCliError(
-        new CommandFailedError("gh", 1, null, 'Post "https://api.github.com/graphql": EOF'),
-      ),
-    ).toBe(true);
-    expect(
-      isTransientGitHubCliError(new CommandFailedError("gh", 1, null, "HTTP 401: Bad credentials")),
-    ).toBe(false);
-    // A non-gh error (e.g. a JSON parse bug) must never be treated as a transient GitHub failure.
-    expect(isTransientGitHubCliError(new Error("Post ... EOF"))).toBe(false);
   });
 
   it("builds safe gh argument arrays for issue summary discovery", () => {

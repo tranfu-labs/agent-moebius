@@ -29,11 +29,35 @@ describe("github response intake state store", () => {
           mode: "active",
           activeNoChangeCount: 0,
           nextPollAt: "2026-06-28T00:02:00.000Z",
+          failureCount: 2,
+          lastFailureReason: "pre script failed",
         },
       },
     };
 
     await saveGitHubResponseIntakeState(state, filePath);
+
+    await expect(loadGitHubResponseIntakeState(filePath)).resolves.toEqual(state);
+  });
+
+  it("loads legacy issue state without failure accounting fields", async () => {
+    const filePath = path.join(await makeTempDir(), ".state", "github-response-intake.json");
+    const state: GitHubResponseIntakeState = {
+      repositories: {},
+      issues: {
+        "tranfu-labs/agent-moebius#4": {
+          owner: "tranfu-labs",
+          repo: "agent-moebius",
+          issueNumber: 4,
+          updatedAt: "2026-06-28T00:01:00.000Z",
+          mode: "active",
+          activeNoChangeCount: 0,
+          nextPollAt: "2026-06-28T00:02:00.000Z",
+        },
+      },
+    };
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, `${JSON.stringify(state)}\n`, "utf8");
 
     await expect(loadGitHubResponseIntakeState(filePath)).resolves.toEqual(state);
   });

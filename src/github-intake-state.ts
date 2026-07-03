@@ -73,7 +73,10 @@ function isIntakeIssueState(value: unknown): value is IntakeIssueState {
     Number.isInteger(state.activeNoChangeCount) &&
     state.activeNoChangeCount !== undefined &&
     state.activeNoChangeCount >= 0 &&
-    (state.nextPollAt === null || (typeof state.nextPollAt === "string" && state.nextPollAt.length > 0))
+    (state.nextPollAt === null || (typeof state.nextPollAt === "string" && state.nextPollAt.length > 0)) &&
+    (state.failureCount === undefined || (Number.isInteger(state.failureCount) && state.failureCount >= 0)) &&
+    (state.lastFailureReason === undefined ||
+      (typeof state.lastFailureReason === "string" && state.lastFailureReason.length > 0))
   );
 }
 

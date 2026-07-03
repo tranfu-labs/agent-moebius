@@ -17,6 +17,8 @@ export interface IntakeIssueState extends RepositoryRef {
   mode: IntakeIssueMode;
   activeNoChangeCount: number;
   nextPollAt: string | null;
+  failureCount?: number;
+  lastFailureReason?: string;
 }
 
 export interface GitHubResponseIntakeState {
@@ -24,11 +26,17 @@ export interface GitHubResponseIntakeState {
   issues: Record<string, IntakeIssueState>;
 }
 
+export interface FailedIssueProcessingOutcome {
+  kind: "failed";
+  reason: string;
+  agent?: string;
+}
+
 export type IssueProcessingOutcome =
   | "triggered-success"
   | "no-trigger"
-  | "failed"
-  | "transient-failed"
+  | FailedIssueProcessingOutcome
+  | "dead-lettered"
   | "interrupted"
   | "issue-not-found"
   | "issue-closed";
@@ -119,6 +127,7 @@ export function resolveRepositoryScan(input: {
         mode: "idle",
         activeNoChangeCount: 0,
         nextPollAt: null,
+        failureCount: 0,
       };
     }
 
@@ -148,12 +157,31 @@ export function recordIssueProcessingOutcome(input: {
   activeIssueNoChangeLimit: number;
 }): GitHubResponseIntakeState {
   const source = makeIssueSource(input.summary);
-  if (input.outcome === "failed") {
+  if (isFailedIssueProcessingOutcome(input.outcome)) {
     const previousIssue = input.state.issues[source.issueKey];
-    const previousActiveNoChangeCount = previousIssue?.mode === "active" ? previousIssue.activeNoChangeCount : 0;
-    const activeNoChangeCount = previousActiveNoChangeCount + 1;
-    const shouldDemote = activeNoChangeCount >= input.activeIssueNoChangeLimit;
+    const activeNoChangeCount = previousIssue?.mode === "active" ? previousIssue.activeNoChangeCount : 0;
+    const failureCount = (previousIssue?.failureCount ?? 0) + 1;
 
+    return {
+      ...input.state,
+      issues: {
+        ...input.state.issues,
+        [source.issueKey]: {
+          owner: input.summary.owner,
+          repo: input.summary.repo,
+          issueNumber: input.summary.issueNumber,
+          updatedAt: previousIssue?.updatedAt ?? new Date(0).toISOString(),
+          mode: "active",
+          activeNoChangeCount,
+          nextPollAt: addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString(),
+          failureCount,
+          lastFailureReason: input.outcome.reason,
+        },
+      },
+    };
+  }
+
+  if (input.outcome === "dead-lettered") {
     return {
       ...input.state,
       issues: {
@@ -163,33 +191,10 @@ export function recordIssueProcessingOutcome(input: {
           repo: input.summary.repo,
           issueNumber: input.summary.issueNumber,
           updatedAt: input.summary.updatedAt,
-          mode: shouldDemote ? "idle" : "active",
-          activeNoChangeCount,
-          nextPollAt: shouldDemote
-            ? null
-            : addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString(),
-        },
-      },
-    };
-  }
-
-  if (input.outcome === "transient-failed") {
-    // 瞬时基础设施故障：不烧降级预算、不推进 updatedAt，保持 active 排下一次 poll，
-    // 恢复后成功拉取会重新看到仍存在的变化并自然重入。
-    const previousIssue = input.state.issues[source.issueKey];
-    const activeNoChangeCount = previousIssue?.mode === "active" ? previousIssue.activeNoChangeCount : 0;
-    return {
-      ...input.state,
-      issues: {
-        ...input.state.issues,
-        [source.issueKey]: {
-          owner: input.summary.owner,
-          repo: input.summary.repo,
-          issueNumber: input.summary.issueNumber,
-          updatedAt: previousIssue?.updatedAt ?? input.summary.updatedAt,
-          mode: "active",
-          activeNoChangeCount,
-          nextPollAt: addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString(),
+          mode: "idle",
+          activeNoChangeCount: 0,
+          nextPollAt: null,
+          failureCount: 0,
         },
       },
     };
@@ -216,6 +221,7 @@ export function recordIssueProcessingOutcome(input: {
           mode: "active",
           activeNoChangeCount: 0,
           nextPollAt: input.processedAt.toISOString(),
+          failureCount: 0,
         },
       },
     };
@@ -235,9 +241,20 @@ export function recordIssueProcessingOutcome(input: {
         mode: isActive ? "active" : "idle",
         activeNoChangeCount: 0,
         nextPollAt: isActive ? addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString() : null,
+        failureCount: 0,
       },
     },
   };
+}
+
+export function failedIssueProcessingOutcome(input: { reason: string; agent?: string }): FailedIssueProcessingOutcome {
+  return input.agent === undefined
+    ? { kind: "failed", reason: input.reason }
+    : { kind: "failed", reason: input.reason, agent: input.agent };
+}
+
+export function isFailedIssueProcessingOutcome(outcome: IssueProcessingOutcome): outcome is FailedIssueProcessingOutcome {
+  return typeof outcome === "object" && outcome.kind === "failed";
 }
 
 export function recordActiveIssueUnchanged(input: {
