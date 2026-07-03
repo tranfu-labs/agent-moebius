@@ -50,6 +50,24 @@ describe("conversation", () => {
     ]);
   });
 
+  it("selects secretary as a first-class Codex agent mention", () => {
+    expect(parseAgentMentions("@secretary 请学习 CEO 漏判场景")).toEqual([{ name: "secretary", index: 0 }]);
+    expect(selectMentionedAgent("@secretary please evolve CEO", ["secretary"])).toBe("secretary");
+  });
+
+  it("normalizes secretary comments into speaker=secretary", () => {
+    const timeline = buildTimeline(
+      "initial",
+      [{ body: "&lt;secretary&gt;:\nlearning note\n\n<!-- agent-moebius:role=secretary -->" }],
+      ["secretary"],
+    );
+
+    expect(timeline).toEqual([
+      { index: 0, speaker: "user", body: "initial", source: "issue-body" },
+      { index: 1, speaker: "secretary", body: "learning note", source: "comment" },
+    ]);
+  });
+
   it("does not select an agent from historical messages when the latest message has none", () => {
     const timeline = buildTimeline("@product-manager old request", [{ body: "plain latest reply" }], [
       "product-manager",
