@@ -120,6 +120,8 @@
 - MUST 在 stale worktree 重建过程任一步失败时 fail closed，不调用 Codex、不发表评论、不推进 role thread 状态，并返回 `stale-worktree-rebuild-failed:<detail>`。
 - MUST 在 stale worktree 自动重建过程中丢弃 worktree 内未推送的本地 commit；agent 产出的落地口径是 commit + push，未 push 的改动不属于要保护的运行时状态。
 - MUST 在已有 `dev` context 指向缺失或不可访问 worktree 时 fail closed，不自动重建。
+- MUST 让 dev-workspace pre script 在为一个 issue 建立 worktree 时把 worktree checkout 到受控本地分支 `agent/<role>/<owner>__<repo>__<issue>`（`role` / `owner` / `repo` 经 `safePathSegment` 规范化，`issue` 为 `issueNumber` 十进制字符串），MUST NOT 让 worktree 停留在 detached HEAD 状态。新首建路径与 stale 重建路径 MUST 使用同一命名规则，MUST 使用 `git worktree add -B <localBranch> <worktreePath> refs/remotes/origin/main` 语义（分支不存在则创建、存在则强制 reset 到 `refs/remotes/origin/main`）。
+- MUST 让 dev-workspace pre script 对同一个 bare repository cache（同一 `repoCachePath`）的 `git clone --bare` / `git fetch --prune` / `git worktree add` / `git worktree remove` 操作按 `repoCachePath` 键值串行执行；跨不同 bare repository cache 的操作 MUST 保持并发不受限。串行化 MUST 在 `dev-workspace.ts` 模块内部完成，MUST NOT 依赖 runner 层派发聚合，MUST NOT 影响 `saveStateEntry` 与 `loadState` 等不接触 bare repository 的步骤的并发性。
 - MUST support interrupting an in-flight `dev` Codex run when the source conversation receives a new message before Codex completes.
 - MUST model agent-run interruption through a driver-agnostic conversation snapshot abstraction, so drivers provide current conversation state instead of embedding GitHub-specific logic in the local script executor.
 - MUST use GitHub issue body + comments count as the GitHub conversation snapshot message count for new-comment interruption.
