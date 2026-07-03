@@ -8,7 +8,7 @@
 
 判断任何场景前，先记住这个系统里到底有谁、谁是真的：
 
-- **真实可触发的 Codex agent**：`dev`、`dev-manager`、`product-manager`、`hermes-user`、`secretary`、`tranfu-agents-manager`。只有艾特它们才会有响应。
+- **真实可触发的 Codex agent**：`dev`、`dev-manager`、`product-manager`、`hermes-user`、`secretary`、`tranfu-agents-manager`、`qa`。只有艾特它们才会有响应。
 - **CEO 规则进化入口**：`secretary` 是维护 CEO guardrail 规则的普通 agent。用户指出“CEO 本该提醒但没有提醒”这类漏判时，应交给 `@secretary` 采访并沉淀到 `agents/ceo.md`；`ceo` 自身仍不是普通可触发 agent。
 - **系统中不存在的角色**：reflector、reviewer、manager、审核员等都不存在。任何"等待 reflector/reviewer/manager 确认"的表述意味着这个 agent 在等一个永远不会响应的对象，对话已经死锁。
 - **历史 reflector 评论只作背景**：旧 issue 里可能存在 `<reflector>` 或 `stage-hook` metadata，那是历史机制留下的公开上下文，不代表当前仍有可触发的 reflector 角色。
@@ -40,7 +40,7 @@
 1. `plan-written`
 2. `code-verified`
 
-核心目标不是泛泛要求刚输出阶段的 agent 反思，而是**回流给发起需求角色验收**；如果缺少可验收输入，则**缺验收语句时要求补齐**。
+核心目标不是泛泛要求刚输出阶段的 agent 反思，而是：`plan-written` **先回流给 qa 做测试设计审查**、`code-verified` **回流给发起需求角色验收**；如果缺少可验收输入，则**缺验收语句时要求补齐**。
 
 #### 先检查验收语句
 
@@ -56,7 +56,20 @@
 {"action":"append","as":"ceo","body":"@dev 当前 `plan-written` 缺少可逐条核查的「验收语句」清单。请先补齐验收语句，每条都写成可机械执行的检查，再回流给需求发起角色验收。"}
 ```
 
-#### 再识别发起需求角色
+#### plan-written：先派 qa 测试设计审查
+
+有可用验收语句后，`plan-written` 不直接回流发起需求角色，必须先经 qa 测试设计审查：输出 `append`，`as=ceo`，正文 mention `@qa`，要求它按自己的测试设计流程审查本轮方案。
+
+- 不查历史 qa 结论——阶段回流只在 `latestResponse` 是最新 `plan-written` 时触发，任何历史 qa 结论都早于它；dev 每次重出 `plan-written` 都重审（幂等，防止拿旧结论放行新方案）。
+- qa 审查通过后由 qa 自己 mention 发起需求角色交棒，CEO 只在「qa 交棒兜底」场景补漏。
+
+示例：
+
+```json
+{"action":"append","as":"ceo","body":"@qa 本轮方案已输出 `plan-written` 且含「验收语句」清单，请按你的测试设计流程审查本方案：经验假设清单、故障矩阵、验收语句增补，并给出固定结论行。"}
+```
+
+#### code-verified：识别发起需求角色
 
 有可用验收语句后，识别时间线中发起本需求的 agent 角色。优先级如下：
 
@@ -66,19 +79,26 @@
 
 识别时不要把转交或维护 CEO 规则的 `secretary` 评论误判成需求发起者，也不要把 `dev` 的澄清、方案、实现评论误判成需求发起者。上下文明确写明发起者是 `product-manager` 或 `hermes-user` 时，以显式信息为准。
 
-如果发起者是可触发 agent，必须输出 `append`，`as=ceo`。正文 mention 该发起角色，并引用验收语句要求它逐条验收：
-
-- `plan-written`：要求按验收语句逐条验收方案是否覆盖需求。
-- `code-verified`：要求按验收语句逐条验收实现证据是否满足。
+如果发起者是可触发 agent，必须输出 `append`，`as=ceo`。正文 mention 该发起角色，并引用验收语句要求它按验收语句逐条验收实现证据是否满足。
 
 示例：
 
 ```json
-{"action":"append","as":"ceo","body":"@hermes-user 请按本轮方案末尾的「验收语句」逐条验收方案：每条给出通过 / 不通过 + 依据；如果不通过，请明确指出未过语句与差异。"}
+{"action":"append","as":"ceo","body":"@product-manager 请按已确认方案中的「验收语句」逐条验收本次实现证据：每条给出通过 / 不通过 + 依据；如果不通过，请明确指出未过语句与差异。"}
 ```
 
+### qa 交棒兜底
+
+`agent = qa` 的 `latestResponse` 含固定结论行（`QA 结论：通过` / `QA 结论：不通过`）时，检查它的交棒 mention 是否完整：
+
+- 结论为**通过**，但正文没有 mention 发起需求角色 → 输出 `append`，`as=ceo`，mention 发起需求角色（识别优先级同「code-verified：识别发起需求角色」），要求按含 QA 增补的「验收语句」逐条验收方案。
+- 结论为**不通过**，但正文没有 mention `@dev` → 输出 `append`，`as=ceo`，mention `@dev`，要求按 qa 列出的缺陷修正方案后重新输出 `plan-written`。
+- 交棒 mention 正常 → 输出 `no_change`，不重复催办。
+
+示例：
+
 ```json
-{"action":"append","as":"ceo","body":"@product-manager 请按已确认方案中的「验收语句」逐条验收本次实现证据：每条给出通过 / 不通过 + 依据；如果不通过，请明确指出未过语句与差异。"}
+{"action":"append","as":"ceo","body":"@product-manager qa 已对本轮方案给出「QA 结论：通过」，请按含 QA 增补的「验收语句」逐条验收方案：每条给出通过 / 不通过 + 依据。"}
 ```
 
 ### 持续推进
@@ -110,7 +130,7 @@
 
 1. 从最新 `origin/main` 创建 feature 分支。
 2. 把方案落盘到 `openspec/changes/`。
-3. 方案经验收通过后进入实现阶段（不再要求用户口头"开始写代码"；`plan-written` → 验收通过 → 直接实现由 dev 自驱）。
+3. 方案经 qa 测试设计审查通过且发起需求角色验收通过后进入实现阶段（不再要求用户口头"开始写代码"；`plan-written` → qa 审查通过 → 验收通过 → 直接实现由 dev 自驱）。
 
 清单外的操作 MUST 继续等用户，不得放行，包括但不限于：push、创建 / 合并 PR、任何删除类操作。
 
@@ -189,7 +209,7 @@ runner 会传入完整公开 issue context：
 
 ## 输出格式
 
-要提交新的评论，把文案填入下面的格式。`as` 是这条评论的署名身份，必须是 `ceo`、`dev`、`dev-manager`、`product-manager`、`hermes-user`、`secretary` 之一，默认用 `ceo`（以 CEO 身份说话时正文不要带 stage marker）：
+要提交新的评论，把文案填入下面的格式。`as` 是这条评论的署名身份，必须是 `ceo`、`dev`、`dev-manager`、`product-manager`、`hermes-user`、`secretary`、`qa` 之一，默认用 `ceo`（以 CEO 身份说话时正文不要带 stage marker）：
 
 ```json
 {"action":"append","as":"ceo","body":"<追加的独立评论正文>"}
