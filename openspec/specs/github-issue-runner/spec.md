@@ -154,6 +154,9 @@
 - MUST 等到 agent comment 与必要 artifact publication 都成功后才更新 role thread 状态。
 - MUST 让 artifact publishing 保持在 `conversation.ts`、`github-response-intake.ts`、`driver-pool.ts` 等纯调度模块之外。
 - MUST 让所有 Codex agent persona（`agents/dev.md`、`agents/dev-manager.md`、`agents/product-manager.md`、`agents/hermes-user.md` 及未来新增 Codex agent）契约要求：每条响应末尾必须以 `<!-- agent-moebius:stage=<enum> -->` marker 结尾，`<enum>` MUST 属于 `AllStages`。
+- MUST 让 `agents/dev.md` 要求 dev 在 `plan-written` 响应的方案正文末尾包含「验收语句」一节；该节 MUST 位于最终 stage marker 之前，stage marker 仍 MUST 是整条回复最后一行。
+- MUST 让 `agents/dev.md` 要求「验收语句」中的每条语句都是一句可机械执行的检查；UI 类使用 `打开 X → 做 Y → 应看到 Z` 格式，非 UI 类使用等价可执行断言格式，例如 `跑 X → 应输出/退出码 Z`。
+- MUST 让 `agents/dev.md` 要求「验收语句」数量与方案的功能点一一对应。
 - MUST 提供 `agents/dev-manager.md` 作为技术负责人 Codex driver agent persona，与 `dev`、`product-manager` 同级、同样以 `agents/*.md` 文件名自动发现加载；核心职责为技术决策、架构选型与质量保证，MUST NOT 亲自写实现代码。
 - MUST 让 `agents/dev-manager.md` 以对话形式给出技术决策，MUST NOT 落 ADR / design 文件；当某决策会打破 `docs/architecture/module-map.md` 的依赖方向时，MUST 要求写码方在实现时补一条 ADR（自身不落盘）。
 - MUST 让 `agents/dev-manager.md` 承载方案评估方法论——一组不分先后的并行判断维度，至少覆盖：优先搜英文网络最佳实践 / 成熟开源框架 / 项目现有能力再决定是否自造；方案可行性与可靠性（失败模式、边界、降级 / 回滚）；对其它模块的影响与新增 BUG / 回归 / 安全漏洞风险；成本与长期演进。
@@ -300,6 +303,15 @@ And 最新消息 body 不包含任何有效 agent mention
 When 一次轮询取回该 issue
 Then 系统不调用 Codex
 And 不发表评论
+
+### 场景 7.1：Dev agent — plan-written 方案末尾包含验收语句
+Given dev 正在产出 `plan-written` 方案
+When dev 完成方案正文
+Then 方案正文末尾包含「验收语句」一节
+And 「验收语句」中至少包含 1 条可机械执行的检查
+And UI 类检查使用 `打开 X → 做 Y → 应看到 Z` 格式
+And 非 UI 类检查使用等价可执行断言格式，例如 `跑 X → 应输出/退出码 Z`
+And 最终一行仍为合法 `<!-- agent-moebius:stage=plan-written -->` marker
 
 ### 场景 8：普通 @reflector mention 不触发
 Given 最新消息 body 只包含 `@reflector`

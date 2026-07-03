@@ -22,7 +22,7 @@
 - 每个任务完成时，把"验收证据"（文件路径、issue 链接或测试输出）追记到本文件对应任务下方，再勾选。
 - 标注【人工】的任务需要用户参与，循环应准备好材料后停下等用户，不得伪造完成。
 
-### - [ ] T1 · dev 方案必须附验收语句清单
+### - [x] T1 · dev 方案必须附验收语句清单
 
 **目标**：`agents/dev.md` 增加硬性要求——`plan-written` 阶段的方案末尾必须有「验收语句」一节，每条为一句可机械执行的检查：UI 类用"打开 X → 做 Y → 应看到 Z"；非 UI 类用等价的可执行断言（跑某命令 → 应输出/退出码 Z）。语句数量与方案的功能点一一对应。
 
@@ -33,6 +33,13 @@
 2. 给 dev 一个模拟需求（可用测试或本地 dry-run 构造时间线）→ 检查其 `plan-written` 响应 → 末尾应含 ≥1 条符合格式的验收语句。
 
 **依赖**：无。
+
+**验收证据**（2026-07-03）：
+- 文件路径：`agents/dev.md` 已新增 `## plan-written 方案验收语句要求`，要求 `plan-written` 方案正文末尾包含「验收语句」一节，且位于最终 stage marker 之前；包含 UI 示例 `打开 X → 做 Y → 应看到 Z`、非 UI 示例 `跑 X → 应输出/退出码 Z`，并要求数量与功能点一一对应。
+- Spec delta：`openspec/changes/archive/2026-07-03-require-dev-plan-acceptance-statements/spec-delta/github-issue-runner.md` 已记录 dev persona 的 `plan-written` 输出契约。
+- 文本检查：`rg -n "plan-written|验收语句|打开 X|跑 X|功能点|stage marker" agents/dev.md` 命中强制要求与两类格式示例。
+- 本地 dry-run：模拟需求 `@dev 请给 docs/guide.md 增加安装命令说明`；模拟 `plan-written` 末尾包含 `## 验收语句` 与 `1. 跑 rg -n "pnpm install" docs/guide.md → 应输出/退出码 0。`；检查结果为 `stage marker last: true`、`acceptance section before marker: true`、`dry-run result: PASS`。
+- 项目检查：`pnpm test` 通过（23 个测试文件、190 个测试）；`pnpm typecheck` 通过。
 
 ### - [ ] T2 · CEO 阶段反思改为验收回流路由
 
