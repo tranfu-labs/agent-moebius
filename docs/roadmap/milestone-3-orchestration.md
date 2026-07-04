@@ -59,9 +59,17 @@
 - 验证命令：`pnpm test -- tests/runner.test.ts`、`pnpm test`、`pnpm typecheck` 均退出码 0。
 - 验收清单：需求持有者已确认最新落盘方案中的 23 条验收语句；实现证据覆盖 CEO 可触发、独立 role thread、ledger prescript fail-closed、剧本加载、三类剧本、真实子 issue adapter、质量基准 / 验收语句注入、guardrail fail-open、防自激、T8 汇合、非目标边界，以及 QA 增补的超时、部分成功重试、ledger 保存失败、JSON + stage marker、shell metacharacters、title drift 与 hidden key 找回故障注入场景。
 
-### - [ ] T4 · 验收路由与集成验收点
+### - [x] T4 · 验收路由与集成验收点
 
 子任务级验收沿用里程碑 1 机制；新增 join 语义：全部子任务通过后触发集成验收（合并后的整体按目标级验收语句走查），失败回流为新子任务。
+
+验收证据（2026-07-04）：
+- 方案与归档：`openspec/changes/archive/2026-07-04-integration-acceptance-join-t4/`
+- 行为事实源：`openspec/specs/goal-ledger/spec.md`、`openspec/specs/github-issue-runner/spec.md`
+- 实现：`src/goal-ledger.ts`、`src/runner.ts`、`src/ceo-scripts.ts`、`agents/ceo-scripts/integration-acceptance.md`、`agents/ceo-scripts/integration-repair-child-issues.md`
+- 测试：`tests/goal-ledger.test.ts`、`tests/runner.test.ts`、`tests/ceo-scripts.test.ts`
+- 验证命令：`pnpm typecheck`、`pnpm test`、`git diff --check` 均退出码 0。
+- 验收清单：需求持有者已确认正式验收语句 1-18 全部通过；实现证据覆盖 child pass 判定、ledger provenance、父 issue integration acceptance 路由、active phase acceptance 来源、父级失败 repair child 回流、修复后重新 join、幂等去重、缺目标验收 fail closed、scope 与真实角色边界，以及 QA 增补的 ledger save 失败、父 issue 发帖失败、重复 fact、带 handoff mention 的失败入账、缺 parent ref、repair 部分成功恢复、hidden key lookup timeout 和非目标边界。
 
 ### - [ ] T5 · issue 级 worktree 资源化
 

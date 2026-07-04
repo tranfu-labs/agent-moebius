@@ -23,7 +23,7 @@ import {
 } from "../src/runner.js";
 import { failedIssueProcessingOutcome, type GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import { CommandFailedError, type GitHubIssue } from "../src/github.js";
-import type { GoalLedgerState } from "../src/goal-ledger.js";
+import type { GoalLedgerEntry, GoalLedgerState } from "../src/goal-ledger.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
 const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
@@ -1564,6 +1564,272 @@ CEO persona`,
     expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("agent-moebius-orchestration-key:");
   });
 
+  it("integration acceptance prepass posts one parent request only after every ledger child has passed", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState({ task2Passed: true });
+    const posted: Array<{ issueNumber: number; body: string }> = [];
+    const saveGoalLedgerEntry = ledgerSaveMutator(ledger);
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) =>
+      successfulCodexRun(options.runDir),
+    );
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          {
+            id: "comment-child-pass",
+            body: pmEnvelope("验收结论：通过\n1. 通过：跑 child 1"),
+          },
+        ]),
+        agentFiles: [dev, productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry,
+        fetchIssueWithComments: async () => makeIssue("parent"),
+        postComment: async (target, body) => {
+          posted.push({ issueNumber: target.issueNumber, body });
+        },
+        runCodex,
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(runCodex).not.toHaveBeenCalled();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ issueNumber: source.issueNumber });
+    expect(posted[0]?.body).toContain("@product-manager");
+    expect(posted[0]?.body).toContain("目标级验收语句");
+    expect(posted[0]?.body).toContain("agent-moebius-integration-acceptance-key:");
+    expect(ledger.tasks["task-1"]?.acceptanceFacts).toHaveLength(1);
+    expect(ledger.phases["phase-1"]?.integrationAcceptance?.[0]).toMatchObject({ status: "requested" });
+  });
+
+  it("integration acceptance prepass leaves parent untouched when some in-scope child is not passed", async () => {
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          {
+            id: "comment-child-pass",
+            body: pmEnvelope("验收结论：通过\n1. 通过：跑 child 1"),
+          },
+        ]),
+        agentFiles: [productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+        postComment,
+      }),
+    );
+
+    expect(outcome).toBe("no-trigger");
+    expect(postComment).not.toHaveBeenCalled();
+    expect(ledger.phases["phase-1"]?.integrationAcceptance).toBeUndefined();
+  });
+
+  it("integration acceptance parent request publish failure returns failed without recording requested", async () => {
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState({ task2Passed: true });
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          {
+            id: "comment-child-pass",
+            body: pmEnvelope("验收结论：通过\n1. 通过：跑 child 1"),
+          },
+        ]),
+        agentFiles: [productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+        fetchIssueWithComments: async () => makeIssue("parent"),
+        postComment: async () => {
+          throw new Error("parent post failed");
+        },
+      }),
+    );
+
+    expect(outcome).toMatchObject({ kind: "failed", reason: "parent post failed" });
+    expect(ledger.phases["phase-1"]?.integrationAcceptance).toBeUndefined();
+  });
+
+  it("integration acceptance prepass records failed child acceptance before a handoff mention triggers dev", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const calls: string[] = [];
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          {
+            id: "comment-child-fail",
+            body: pmEnvelope("验收结论：不通过\n1. 不通过：跑 child 1\n\n@dev 请修复失败项。"),
+          },
+        ]),
+        agentFiles: [dev, productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: async (...args) => {
+          calls.push("save");
+          await ledgerSaveMutator(ledger)(...args);
+        },
+        runCodex: async (options) => {
+          calls.push("codex");
+          return successfulCodexRun(options.runDir);
+        },
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(calls.slice(0, 2)).toEqual(["save", "codex"]);
+    expect(ledger.tasks["task-1"]?.acceptanceFacts?.[0]).toMatchObject({ status: "failed", commentId: "comment-child-fail" });
+  });
+
+  it("integration acceptance parent failure creates a repair child and suppresses a ceo handoff mention", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState({ requested: true });
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 201,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/201",
+    }));
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) =>
+      successfulCodexRun(options.runDir),
+    );
+    const posted: string[] = [];
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("parent", [
+          {
+            id: "comment-parent-fail",
+            body: pmEnvelope("集成验收结论：不通过\n1. 不通过：目标级验收 1\n2. 通过：目标级验收 2\n\n@ceo 请回流修复。"),
+          },
+        ]),
+        agentFiles: [ceo, dev, productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+        createIssue,
+        runCodex,
+        postComment: async (_target, body) => {
+          posted.push(body);
+        },
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(runCodex).not.toHaveBeenCalled();
+    expect(createIssue).toHaveBeenCalledTimes(1);
+    expect(createIssue.mock.calls[0]?.[1].body).toContain("@dev 请按本子 issue");
+    expect(createIssue.mock.calls[0]?.[1].body).toContain("目标级验收 1");
+    expect(Object.keys(ledger.tasks).some((id) => id.startsWith("integration-repair-"))).toBe(true);
+    expect(posted[0]).toContain("集成验收失败已回流为修复子任务");
+    expect(ledger.phases["phase-1"]?.integrationAcceptance?.find((event) => event.status === "failed")).toMatchObject({
+      failedStatementIds: ["1"],
+    });
+  });
+
+  it("integration acceptance fail-closed is visible on the child issue when parent ref is missing", async () => {
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState({ missingParent: true, task2Passed: true });
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+    const posted: string[] = [];
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          {
+            id: "comment-child-pass",
+            body: pmEnvelope("验收结论：通过\n1. 通过：跑 child 1"),
+          },
+        ]),
+        agentFiles: [productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+        postComment: async (_target, body) => {
+          posted.push(body);
+        },
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(posted[0]).toContain("parent-reference-missing");
+    expect(posted[0]).toContain("integration-acceptance-blocked");
+  });
+
+  it("integration repair hidden key lookup timeout is bounded and does not create duplicate repair issues", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const lookupStarted = deferred<void>();
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 201,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/201",
+    }));
+    const ledger = makeIntegrationLedgerState({ requested: true });
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+
+    vi.useFakeTimers();
+    try {
+      const outcomePromise = processIssueSource(
+        {
+          source,
+          issue: makeIssue("parent", [
+            {
+              id: "comment-parent-fail",
+              body: pmEnvelope("集成验收结论：不通过\n1. 不通过：目标级验收 1\n2. 通过：目标级验收 2"),
+            },
+          ]),
+          agentFiles: [ceo, dev, productManager],
+        },
+        makeDependencies({
+          loadGoalLedgerState: async () => ledger,
+          saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+          createIssue,
+          postComment,
+          findIssueByOrchestrationKey: async () =>
+            new Promise(() => {
+              lookupStarted.resolve();
+            }),
+        }),
+      );
+
+      await lookupStarted.promise;
+      await vi.advanceTimersByTimeAsync(CEO_ORCHESTRATION_ACTION_TIMEOUT_MS);
+      await expect(outcomePromise).resolves.toBe("triggered-success");
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(createIssue).not.toHaveBeenCalled();
+    expect(postComment.mock.calls[0]?.[1]).toContain("findIssueByOrchestrationKey-timeout");
+  });
+
   it("routes the latest external no-mention comment on active issues with a CEO append envelope", async () => {
     const dev = await makeAgentFile("dev", "Dev persona");
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
@@ -2249,6 +2515,128 @@ function makeCeoLedgerState(input: { childIssueRefs?: GoalLedgerState["tasks"][s
       },
     },
   };
+}
+
+function makeIntegrationLedgerState(input: {
+  task2Passed?: boolean;
+  requested?: boolean;
+  missingParent?: boolean;
+} = {}): GoalLedgerState {
+  const now = "2026-07-04T00:00:00.000Z";
+  const parentIssueRef = { owner: source.owner, repo: source.repo, number: source.issueNumber, relation: "parent" as const, status: "open" as const };
+  const requested = {
+    joinKey: `agent-moebius-integration-acceptance-key:${"a".repeat(64)}`,
+    phaseId: "phase-1",
+    parentIssue: { owner: source.owner, repo: source.repo, number: source.issueNumber },
+    reviewerRole: "product-manager",
+    status: "requested" as const,
+    childPassDigest: "b".repeat(64),
+    targetAcceptanceDigest: "c".repeat(64),
+    capturedAt: "2026-07-04T00:05:00.000Z",
+  };
+  return {
+    schemaVersion: 1,
+    goals: {
+      "goal-1": {
+        id: "goal-1",
+        title: "Integration acceptance",
+        status: "ready",
+        scope: "join",
+        acceptanceStatements: ["目标级验收 1", "目标级验收 2"],
+        dependencies: [],
+        qualityBaseline: "data-correct",
+        issueRefs: input.missingParent ? [] : [{ owner: source.owner, repo: source.repo, number: source.issueNumber, relation: "source", status: "open" }],
+        milestoneIds: [],
+        provenance: [{ issue: { owner: source.owner, repo: source.repo, number: source.issueNumber }, messageIndex: 0, capturedAt: now }],
+        missingFields: [],
+        nextQuestions: [],
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+    milestones: {},
+    tasks: {
+      "task-1": {
+        id: "task-1",
+        goalId: "goal-1",
+        title: "child 1",
+        status: "ready",
+        scope: "child 1",
+        acceptanceStatements: ["跑 child 1"],
+        dependencies: [],
+        qualityBaseline: "data-correct",
+        phaseIds: [],
+        ...(input.missingParent ? {} : { parentIssueRef }),
+        childIssueRefs: [{ owner: source.owner, repo: source.repo, number: 101, relation: "child", status: "open" }],
+        runManifestRefs: [],
+        provenance: [{ issue: { owner: source.owner, repo: source.repo, number: source.issueNumber }, messageIndex: 0, capturedAt: now }],
+        createdAt: now,
+        updatedAt: now,
+      },
+      "task-2": {
+        id: "task-2",
+        goalId: "goal-1",
+        title: "child 2",
+        status: "ready",
+        scope: "child 2",
+        acceptanceStatements: ["跑 child 2"],
+        dependencies: [],
+        qualityBaseline: "data-correct",
+        phaseIds: [],
+        ...(input.missingParent ? {} : { parentIssueRef }),
+        childIssueRefs: [{ owner: source.owner, repo: source.repo, number: 102, relation: "child", status: "open" }],
+        acceptanceFacts: input.task2Passed
+          ? [
+              {
+                factKey: `task-acceptance:${"d".repeat(64)}`,
+                issue: { owner: source.owner, repo: source.repo, number: 102 },
+                role: "product-manager",
+                status: "passed",
+                statementResults: [{ id: "1", status: "passed", statement: "跑 child 2" }],
+                messageIndex: 1,
+                commentId: "comment-102-pass",
+                capturedAt: "2026-07-04T00:01:00.000Z",
+              },
+            ]
+          : undefined,
+        runManifestRefs: [],
+        provenance: [{ issue: { owner: source.owner, repo: source.repo, number: source.issueNumber }, messageIndex: 0, capturedAt: now }],
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+    phases: {
+      "phase-1": {
+        id: "phase-1",
+        owner: { kind: "goal", id: "goal-1" },
+        name: "integration",
+        status: "active",
+        qualityBaseline: "data-correct",
+        objective: "集成验收 join",
+        acceptanceStatements: ["目标级验收 1", "目标级验收 2"],
+        dependencies: [],
+        ...(input.requested ? { integrationAcceptance: [requested] } : {}),
+        provenance: [{ issue: { owner: source.owner, repo: source.repo, number: source.issueNumber }, messageIndex: 0, capturedAt: now }],
+      },
+    },
+  };
+}
+
+function ledgerSaveMutator(ledger: GoalLedgerState): ProcessIssueSourceDependencies["saveGoalLedgerEntry"] {
+  return async (kind, id, mutate) => {
+    const entry = ledger[kind][id] ?? null;
+    const next = mutate(entry as GoalLedgerEntry | null, ledger);
+    const collection = ledger[kind] as Record<string, GoalLedgerEntry>;
+    if (next === null) {
+      delete collection[id];
+    } else {
+      collection[id] = next;
+    }
+  };
+}
+
+function pmEnvelope(body: string): string {
+  return `&lt;product-manager&gt;:\n${body}\n\n<!-- agent-moebius:role=product-manager -->`;
 }
 
 function noChangeCeoResult(body: string): FormatCeoResult {

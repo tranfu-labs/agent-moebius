@@ -1636,6 +1636,64 @@ And 不存在 T5 issue 级 worktree resourceization
 And 不存在 T6 fan-out / join / roundtable 拓扑
 And 不存在 T7 observer UI 写入或展示改动
 
+## T4 acceptance route and integration acceptance point
+- MUST run an acceptance pre-pass before normal mention trigger handling.
+- MUST recognize child task pass only from a real acceptance role comment that covers every formal child acceptance statement and states overall pass.
+- MUST NOT treat `code-verified`, issue close, or ledger child refs alone as acceptance pass.
+- MUST write child acceptance provenance to the ledger before consuming any handoff mention in the same comment.
+- MUST post one parent issue integration acceptance request after all current active phase ledger child refs pass.
+- MUST use active phase projection acceptance statements as the parent target-level acceptance checklist.
+- MUST fail closed and request ledger facts when target-level acceptance statements are missing.
+- MUST route parent integration acceptance failure into repair child issues, not direct parent issue implementation.
+- MUST rejoin the same parent goal after repair child issues pass.
+- MUST dedupe parent integration requests by hidden integration key.
+- MUST dedupe repair child creation by hidden orchestration key and recover existing issues before creating.
+- MUST bound ledger IO, parent issue fetch/post, hidden key lookup, and child issue creation.
+- MUST return failed and not advance intake `updatedAt` when required ledger save or parent request publish fails before a visible result.
+- MUST leave a visible current-issue or dead-letter trail when a child ref exists but parent issue ref cannot be resolved.
+- MUST NOT add worktree provisioning, observer writes, fixed ledger phases, GitHub lifecycle sync, cross-repo joins, or T6 round-table topology.
+
+### 场景 T4.1：all children passed triggers parent request
+Given every current active phase ledger child issue has passed acceptance facts
+When the last child pass is recorded
+Then the parent issue receives one integration acceptance request with the target-level acceptance checklist
+
+### 场景 T4.2：partial children do not trigger
+Given at least one current active phase ledger child has no passed acceptance fact
+When another child pass is recorded
+Then no parent integration acceptance request is posted
+
+### 场景 T4.3：parent request post failure does not advance
+Given all children pass
+And posting the parent integration acceptance request fails
+When processing completes
+Then the issue processing outcome is failed and the requested event is not recorded
+
+### 场景 T4.4：acceptance failure with handoff mention is recorded first
+Given a child or parent acceptance failure comment contains a legal handoff mention
+When processing begins
+Then the failed acceptance provenance is recorded before mention trigger handling can run
+
+### 场景 T4.5：parent integration failure creates repair child
+Given a parent integration acceptance comment fails one or more target-level statements
+When the runner processes the comment
+Then a repair child issue is created or recovered with failed statements as acceptance statements
+
+### 场景 T4.6：bounded hidden key lookup failure
+Given repair hidden key lookup never settles
+When the lookup deadline is reached
+Then processing exits visibly without creating duplicate repair issues
+
+### 场景 T4.7：parent ref missing fails closed visibly
+Given a ledger child ref is locatable but no parent issue ref is resolvable
+When child pass processing reaches join
+Then the current child issue receives a fail-closed explanation or the existing dead-letter path records it
+
+### 场景 T4.8：scope boundaries remain unchanged
+Given T4 is implemented
+When tests inspect runner and ledger behavior
+Then worktree provisioning, observer writes, fixed phase names, issue lifecycle sync, cross-repo join, and round-table topology are not introduced
+
 ## 可验证行为
 - `pnpm vitest run tests/observer.test.ts` MUST 通过，覆盖 observer 的白名单聚合、状态来源标注、artifact 发布链接 / 图片预览、未发布 artifact 路径、缺 `.state` 文件、坏 state JSON、坏 JSONL、JSONL 尾行截断、manifest 缺字段、损坏 config 诊断、无写入边界、fake `gh` / `codex` 零调用，以及 observer 被强杀后 runner 测试不受影响。
 - `pnpm vitest run tests/runner.test.ts tests/format-ceo.test.ts tests/github-response-intake.test.ts tests/conversation.test.ts` MUST 通过，覆盖外部无 mention 兜底路由、route parser 负例、comment id ledger 防重、CEO 审阅 metadata 覆盖、旧 intake state 兼容与 speaker 归一化边界。
