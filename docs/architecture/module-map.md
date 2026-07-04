@@ -83,10 +83,10 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex`；MUST NOT 读取 GitHub issue 内容；MUST NOT 保存 token 或运行状态。
 
 ### observer
-- 职责边界：本地只读观察页旁路。按浏览器请求读取 `config.toml` / `config.local.toml`、`.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl`，聚合白名单 issue 的 intake、role thread、agent context、run stage 与 artifact 发布状态；缺失 / 损坏状态 fail-open 为页面诊断，不写任何状态。
+- 职责边界：本地只读观察页旁路。按浏览器请求读取 `config.toml` / `config.local.toml`、`.state/goal-ledger.json`、`.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl`，以目标账本为主视图渲染 goal -> milestone -> task 树、owner phase 摘要、人工闸口、显式 run evidence 与 unlinked local runs，并保留 legacy issue/run records 作为二级诊断；缺失 / 损坏状态 fail-open 为页面诊断，不写任何状态。
 - 入口：`pnpm observer` → `src/observer/server.ts`
-- 上游：本地浏览器 HTTP 请求；本地配置与 `.state` 文件；T3 run manifest 契约。
-- 下游：`src/local-config.ts` 的 TOML shape 解析、`src/issue-source.ts` 的 repo / issue key 工具、Node 文件系统只读 API。
+- 上游：本地浏览器 HTTP 请求；本地配置与 `.state` 文件；目标账本契约；T3 run manifest 契约。
+- 下游：`src/local-config.ts` 的 TOML shape 解析、`src/issue-source.ts` 的 repo / issue key 工具、`src/goal-ledger.ts` 的只读 schema / type 口径与缺字段纯函数、Node 文件系统只读 API。
 - 禁止依赖：MUST NOT 被 `runner.ts`、scanner、dispatcher、state persister 或任何 GitHub / Codex 主链路模块依赖；MUST NOT 调用 `gh` / `codex` / artifact publisher；MUST NOT 写 `.state/*`、run manifest、release asset、worktree 文件或运行时状态；MUST NOT 提供重跑、ack、发布、同步等操作能力。
 
 ### github-issue-runner
@@ -162,7 +162,7 @@
 - 入口：`src/goal-ledger.ts`、`src/goal-ledger-state.ts`
 - 上游：`src/agent-prescripts/ceo-ledger-context.ts` 读取当前 active phase projection；`src/runner.ts` 在 CEO 编排成功创建或找回子 issue 后显式写入 task child refs，并在验收 pre-pass 中显式写入 child acceptance facts、integration acceptance events 与 repair task refs。
 - 下游：本地 `.state/goal-ledger.json`；`src/config.ts` 的 `GOAL_LEDGER_STATE_PATH`。
-- 禁止依赖：`src/goal-ledger.ts` MUST NOT 调用 GitHub / Codex / 文件系统 / shell；`src/goal-ledger-state.ts` MUST NOT 调用 GitHub / Codex 或执行 issue 内容；MUST NOT 存放在 `agents/`；MUST NOT 把 run manifest 当成目标账本唯一事实源；MUST NOT 被 `observer` 或 runner 主链路隐式依赖。
+- 禁止依赖：`src/goal-ledger.ts` MUST NOT 调用 GitHub / Codex / 文件系统 / shell；`src/goal-ledger-state.ts` MUST NOT 调用 GitHub / Codex 或执行 issue 内容；MUST NOT 存放在 `agents/`；MUST NOT 把 run manifest 当成目标账本唯一事实源；MUST NOT 让 observer 成为账本写入口或复用会全局 fail-closed 的执行期 projection/assert 路径；MUST NOT 被 runner 主链路隐式依赖。
 
 ### role-thread-state
 - 职责边界：读取与写入本地 `.state/role-threads.json`，保存 issue + role 到 Codex threadId 与 lastSeenIndex 的映射；提供按 issue + role entry 级别 merge 保存的串行写入 helper，避免并发 Codex 成功结果覆盖彼此。不负责 prompt 构造、speaker 判定或 GitHub/Codex 调用。
