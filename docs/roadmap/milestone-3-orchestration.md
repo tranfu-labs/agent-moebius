@@ -102,6 +102,25 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 
 真实多子任务目标完整走成功标准闭环（含至少一次圆桌评审与一次 goal-intake 入账），记录卡点。
 
+### - [ ] T10 ·【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收（tranfu-agents-app）
+
+第一个纯产品域垂直切片：在 tranfu-agents-app 新建一个页面 / 新功能，验证"设计提案 → 决策 → 自动实现 → 视觉对照验收"的完整价值链。它同时是 Figma 对齐流程的先导实验——先证明"按图实现 + 按图验收"成立。流程五步：
+
+1. **需求入场**：issue 描述新功能（可经 T8 goal-intake，或直接一句话需求）。
+2. **三案生成**：dev 在 Codex 运行中生成 3 张视觉方案图（标注 A / B / C），经现有 artifact publisher 发布到 issue 评论。**fallback**：生图失败时由 loop watcher 代为生成（如 HTML mockup + Playwright 截图链路），fallback 的启用与原因必须在 issue 时间线声明，不得无痕替换。
+3. **选案（全自动）**：product-manager 对照用户画像与页面目标自动选定一案并给出理由，mention dev 继续。
+4. **自动实现**：dev 按选定方案实现页面（无 code gate），完成后在 worktree 起 app、按验收语句截取最终结果，经 publisher 发布，打 `code-verified`。
+5. **视觉对照验收**：验收角色同时获得选定方案图与结果截图（issue 媒体管线会把两图注入其 Codex 输入），输出两部分结论——逐条验收语句走查 + **与选定方案的一致性对照**（布局 / 信息结构 / 主要元素逐项对照，不苛求像素级）。
+
+**验收场景（细化时保留）**：
+1. 打开该 issue → 应看到一条含 3 张方案图（A / B / C）的评论。
+2. 应看到 product-manager 评论明确选定一案并给出理由。
+3. 应看到 `code-verified` 评论含最终页面截图链接。
+4. 应看到验收角色的对照结论：逐条验收语句 + 与选定方案的一致性判断。
+5. 全程用户零介入（观战除外）；出现卡点时按演练惯例记录回流，不现场改规则。
+
+**依赖**：T5（非 dev 角色 / 目标 app worktree 链路先被 spike 验证）、T4（验收路由）；建议与 T9 相邻执行或作为 T9 的素材场景之一。
+
 ## 非目标
 
 - 不脱离 GitHub 对话介质；不重建时间线 / mention / 验收机制。
