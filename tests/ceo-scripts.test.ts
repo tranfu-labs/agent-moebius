@@ -14,6 +14,7 @@ describe("CEO script library", () => {
       "milestone-spawn-child-issues",
       "plan-review",
       "post-implementation-retro",
+      "roundtable-plan-review",
     ]);
     expect(scripts.find((script) => script.id === "integration-acceptance")).toMatchObject({ action: "route" });
     expect(scripts.find((script) => script.id === "integration-repair-child-issues")).toMatchObject({
@@ -24,6 +25,7 @@ describe("CEO script library", () => {
     });
     expect(scripts.find((script) => script.id === "plan-review")).toMatchObject({ action: "route" });
     expect(scripts.find((script) => script.id === "post-implementation-retro")).toMatchObject({ action: "route" });
+    expect(scripts.find((script) => script.id === "roundtable-plan-review")).toMatchObject({ action: "roundtable" });
   });
 
   it("rejects missing required workflows when scripts are required", async () => {
@@ -72,6 +74,19 @@ template body`),
       action: "spawn_child_issues",
       title: "Spawn",
       body: "template body",
+    });
+
+    expect(
+      parseCeoScriptMarkdown(`---
+id: roundtable-plan-review
+action: roundtable
+---
+
+roundtable body`),
+    ).toMatchObject({
+      id: "roundtable-plan-review",
+      action: "roundtable",
+      body: "roundtable body",
     });
 
     expect(() =>

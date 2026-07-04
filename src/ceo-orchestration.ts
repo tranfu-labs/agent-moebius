@@ -7,6 +7,8 @@ import { parseTrailingStageMarker } from "./stages.js";
 
 export const CEO_ORCHESTRATION_STAGE = "in-progress";
 export const CEO_ORCHESTRATION_KEY_PREFIX = "agent-moebius-orchestration-key";
+export const CEO_ROUNDTABLE_KEY_PREFIX = "agent-moebius-roundtable-key";
+export const CEO_ROUNDTABLE_COMPLETION_KEY_PREFIX = "agent-moebius-roundtable-completion-key";
 
 export interface CeoOrchestrationGroup {
   id: string;
@@ -25,6 +27,13 @@ export interface CeoChildIssueDescriptor {
   provenance: string;
 }
 
+export interface CeoRoundtableContribution {
+  role: string;
+  position: string;
+  evidence: string;
+  disagreements: string[];
+}
+
 export type ParsedCeoOrchestration =
   | {
       action: "route";
@@ -41,6 +50,40 @@ export type ParsedCeoOrchestration =
       summary: string;
       groups: CeoOrchestrationGroup[];
       issues: CeoChildIssueDescriptor[];
+    }
+  | {
+      action: "roundtable";
+      workflowId: string;
+      mode: "start";
+      roundtableId: string;
+      ledgerTaskId: string;
+      title: string;
+      topic: string;
+      inputSummary: string;
+      participants: string[];
+      firstRole: string;
+      qualityBaseline: "demo" | "data-correct" | "production";
+      provenance: string;
+    }
+  | {
+      action: "roundtable";
+      workflowId: string;
+      mode: "route";
+      roundtableKey: string;
+      participants: string[];
+      nextRole: string;
+      body: string;
+    }
+  | {
+      action: "roundtable";
+      workflowId: string;
+      mode: "complete";
+      roundtableKey: string;
+      participants: string[];
+      summary: string;
+      contributions: CeoRoundtableContribution[];
+      decision: string;
+      provenance: string;
     };
 
 export type ParseCeoOrchestrationResult =
@@ -77,7 +120,7 @@ export function parseCeoOrchestrationOutput(input: {
     return { ok: true, value: { action, body: ensureInProgressStage(body.value) } };
   }
 
-  if (action !== "route" && action !== "spawn_child_issues") {
+  if (action !== "route" && action !== "spawn_child_issues" && action !== "roundtable") {
     return { ok: false, reason: `unknown-action:${String(action)}` };
   }
 
@@ -91,6 +134,15 @@ export function parseCeoOrchestrationOutput(input: {
   }
   if (script.action !== action) {
     return { ok: false, reason: `workflow-action-mismatch:${workflowId.value}` };
+  }
+
+  if (action === "roundtable") {
+    return parseRoundtableAction({
+      parsed,
+      workflowId: workflowId.value,
+      availableAgentNames: input.availableAgentNames,
+      visibleTaskIds: input.visibleTaskIds,
+    });
   }
 
   if (action === "route") {
@@ -148,11 +200,47 @@ export function buildCeoOrchestrationKey(input: {
   return `${CEO_ORCHESTRATION_KEY_PREFIX}:${digest}`;
 }
 
+export function buildCeoRoundtableKey(input: {
+  source: IssueSource;
+  workflowId: string;
+  roundtableId: string;
+}): string {
+  const material = `${input.source.owner}/${input.source.repo}#${String(input.source.issueNumber)}|${input.workflowId}|${input.roundtableId}`;
+  const digest = crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
+  return `${CEO_ROUNDTABLE_KEY_PREFIX}:${digest}`;
+}
+
+export function buildCeoRoundtableCompletionKey(input: {
+  roundtableKey: string;
+  participants: readonly string[];
+  participantMessageIndexes: readonly number[];
+}): string {
+  const material = `${input.roundtableKey}|${input.participants.join(",")}|${input.participantMessageIndexes.join(",")}`;
+  const digest = crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
+  return `${CEO_ROUNDTABLE_COMPLETION_KEY_PREFIX}:${digest}`;
+}
+
 export function extractCeoOrchestrationKeyFromNote(note: string | undefined): string | null {
   if (note === undefined) {
     return null;
   }
   const match = note.match(/agent-moebius-orchestration-key:[a-f0-9]{32}/u);
+  return match?.[0] ?? null;
+}
+
+export function extractCeoRoundtableKey(text: string | undefined): string | null {
+  if (text === undefined) {
+    return null;
+  }
+  const match = text.match(/agent-moebius-roundtable-key:[a-f0-9]{32}/u);
+  return match?.[0] ?? null;
+}
+
+export function extractCeoRoundtableCompletionKey(text: string | undefined): string | null {
+  if (text === undefined) {
+    return null;
+  }
+  const match = text.match(/agent-moebius-roundtable-completion-key:[a-f0-9]{32}/u);
   return match?.[0] ?? null;
 }
 
@@ -195,12 +283,267 @@ ${input.descriptor.provenance}
 <!-- ${input.orchestrationKey} -->`;
 }
 
+export function renderCeoRoundtableChildIssueBody(input: {
+  parentIssueUrl: string;
+  workflowId: string;
+  ledgerTaskId: string;
+  roundtableKey: string;
+  title: string;
+  topic: string;
+  inputSummary: string;
+  participants: readonly string[];
+  firstRole: string;
+  qualityBaseline: "demo" | "data-correct" | "production";
+  provenance: string;
+}): string {
+  return `${input.title}
+
+Parent issue: ${input.parentIssueUrl}
+Workflow id: ${input.workflowId}
+Ledger task id: ${input.ledgerTaskId}
+Roundtable key: ${input.roundtableKey}
+Quality baseline: ${input.qualityBaseline}
+
+Topic:
+${input.topic}
+
+Input summary:
+${input.inputSummary}
+
+Participants in order:
+${input.participants.map((participant, index) => `${String(index + 1)}. ${participant}`).join("\n")}
+
+Fixed one-round rule:
+Each participant speaks once in the listed order. After contributing, the participant must hand control back to CEO主持人. This roundtable contribution is not the formal plan-written qa gate or final acceptance gate.
+
+Initial handoff:
+@${input.firstRole} 请作为圆桌参与者给出有来源的评审意见；发言后把控制权交回 CEO 主持人。
+
+Provenance:
+${input.provenance}
+
+<!-- ${input.roundtableKey} -->`;
+}
+
+export function renderCeoRoundtableRouteBody(input: {
+  nextRole: string;
+  body: string;
+}): { ok: true; body: string } | { ok: false; reason: string } {
+  const body = `${input.body.trimEnd()}
+
+本轮是圆桌发言，不是正式验收裁决；发言后请把控制权交回 CEO 主持人，不能直接交给 dev 或 product-manager。
+
+<!-- agent-moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
+  const mentions = parseAgentMentions(body);
+  if (mentions.length !== 1 || mentions[0]?.name !== input.nextRole) {
+    return { ok: false, reason: `roundtable-route-invalid-mention:${mentions.map((mention) => mention.name).join(",")}` };
+  }
+  return { ok: true, body };
+}
+
+export function renderCeoRoundtableParentSummaryBody(input: {
+  childIssueUrl: string;
+  topic: string;
+  summary: string;
+  contributions: readonly CeoRoundtableContribution[];
+  decision: string;
+  provenance: string;
+  completionKey: string;
+}): string {
+  const contributionLines = input.contributions
+    .map((contribution) => {
+      const disagreements =
+        contribution.disagreements.length === 0 ? "none" : contribution.disagreements.map((item) => `  - ${item}`).join("\n");
+      return `### ${contribution.role}
+- Position: ${contribution.position}
+- Evidence: ${contribution.evidence}
+- Disagreements:
+${disagreements}`;
+    })
+    .join("\n\n");
+
+  return `圆桌汇总已完成。
+
+Child issue: ${input.childIssueUrl}
+Topic: ${input.topic}
+
+Summary:
+${input.summary}
+
+Contributions:
+${contributionLines}
+
+Decision / next step:
+${input.decision}
+
+Provenance:
+${input.provenance}
+
+<!-- ${input.completionKey} -->
+
+<!-- agent-moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
+}
+
 export function ensureInProgressStage(body: string): string {
   if (parseTrailingStageMarker(body, [CEO_ORCHESTRATION_STAGE]) === CEO_ORCHESTRATION_STAGE) {
     return body.trimEnd();
   }
 
   return `${body.trimEnd()}\n\n<!-- agent-moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
+}
+
+function parseRoundtableAction(input: {
+  parsed: Record<string, unknown>;
+  workflowId: string;
+  availableAgentNames: readonly string[];
+  visibleTaskIds: readonly string[];
+}): ParseCeoOrchestrationResult {
+  const mode = getNonEmptyString(input.parsed["mode"], "mode");
+  if (!mode.ok) {
+    return mode;
+  }
+  const participants = getNonEmptyStringArray(input.parsed["participants"], "participants");
+  if (!participants.ok) {
+    return participants;
+  }
+  const participantValidation = validateRoundtableParticipants(participants.value, input.availableAgentNames);
+  if (!participantValidation.ok) {
+    return participantValidation;
+  }
+
+  if (mode.value === "start") {
+    const roundtableId = getNonEmptyString(input.parsed["roundtableId"], "roundtableId");
+    const ledgerTaskId = getNonEmptyString(input.parsed["ledgerTaskId"], "ledgerTaskId");
+    const title = getNonEmptyString(input.parsed["title"], "title");
+    const topic = getNonEmptyString(input.parsed["topic"], "topic");
+    const inputSummary = getNonEmptyString(input.parsed["inputSummary"], "inputSummary");
+    const firstRole = getNonEmptyString(input.parsed["firstRole"], "firstRole");
+    const qualityBaseline = getNonEmptyString(input.parsed["qualityBaseline"], "qualityBaseline");
+    const provenance = getNonEmptyString(input.parsed["provenance"], "provenance");
+    if (!roundtableId.ok) {
+      return roundtableId;
+    }
+    if (!ledgerTaskId.ok) {
+      return ledgerTaskId;
+    }
+    if (!title.ok) {
+      return title;
+    }
+    if (!topic.ok) {
+      return topic;
+    }
+    if (!inputSummary.ok) {
+      return inputSummary;
+    }
+    if (!firstRole.ok) {
+      return firstRole;
+    }
+    if (!qualityBaseline.ok) {
+      return qualityBaseline;
+    }
+    if (!provenance.ok) {
+      return provenance;
+    }
+    if (!input.visibleTaskIds.includes(ledgerTaskId.value)) {
+      return { ok: false, reason: `unknown-ledger-task:${ledgerTaskId.value}` };
+    }
+    if (firstRole.value !== participants.value[0]) {
+      return { ok: false, reason: `roundtable-first-role-mismatch:${firstRole.value}` };
+    }
+    if (!isQualityBaseline(qualityBaseline.value)) {
+      return { ok: false, reason: `invalid-quality-baseline:${qualityBaseline.value}` };
+    }
+    return {
+      ok: true,
+      value: {
+        action: "roundtable",
+        workflowId: input.workflowId,
+        mode: "start",
+        roundtableId: roundtableId.value,
+        ledgerTaskId: ledgerTaskId.value,
+        title: title.value,
+        topic: topic.value,
+        inputSummary: inputSummary.value,
+        participants: participants.value,
+        firstRole: firstRole.value,
+        qualityBaseline: qualityBaseline.value,
+        provenance: provenance.value,
+      },
+    };
+  }
+
+  if (mode.value === "route") {
+    const roundtableKey = getNonEmptyString(input.parsed["roundtableKey"], "roundtableKey");
+    const nextRole = getNonEmptyString(input.parsed["nextRole"], "nextRole");
+    const body = getNonEmptyString(input.parsed["body"], "body");
+    if (!roundtableKey.ok) {
+      return roundtableKey;
+    }
+    if (!nextRole.ok) {
+      return nextRole;
+    }
+    if (!body.ok) {
+      return body;
+    }
+    if (!participants.value.includes(nextRole.value)) {
+      return { ok: false, reason: `roundtable-next-role-not-participant:${nextRole.value}` };
+    }
+    const mentions = parseAgentMentions(body.value);
+    if (mentions.length !== 1 || mentions[0]?.name !== nextRole.value) {
+      return { ok: false, reason: `roundtable-route-body-invalid-mention:${mentions.map((mention) => mention.name).join(",")}` };
+    }
+    return {
+      ok: true,
+      value: {
+        action: "roundtable",
+        workflowId: input.workflowId,
+        mode: "route",
+        roundtableKey: roundtableKey.value,
+        participants: participants.value,
+        nextRole: nextRole.value,
+        body: body.value,
+      },
+    };
+  }
+
+  if (mode.value === "complete") {
+    const roundtableKey = getNonEmptyString(input.parsed["roundtableKey"], "roundtableKey");
+    const summary = getNonEmptyString(input.parsed["summary"], "summary");
+    const decision = getNonEmptyString(input.parsed["decision"], "decision");
+    const provenance = getNonEmptyString(input.parsed["provenance"], "provenance");
+    if (!roundtableKey.ok) {
+      return roundtableKey;
+    }
+    if (!summary.ok) {
+      return summary;
+    }
+    if (!decision.ok) {
+      return decision;
+    }
+    if (!provenance.ok) {
+      return provenance;
+    }
+    const contributions = parseRoundtableContributions(input.parsed["contributions"], participants.value);
+    if (!contributions.ok) {
+      return contributions;
+    }
+    return {
+      ok: true,
+      value: {
+        action: "roundtable",
+        workflowId: input.workflowId,
+        mode: "complete",
+        roundtableKey: roundtableKey.value,
+        participants: participants.value,
+        summary: summary.value,
+        contributions: contributions.value,
+        decision: decision.value,
+        provenance: provenance.value,
+      },
+    };
+  }
+
+  return { ok: false, reason: `roundtable-unknown-mode:${mode.value}` };
 }
 
 function stripTrailingStageMarker(output: string): string {
@@ -333,6 +676,81 @@ function parseChildIssueDescriptors(input: {
     });
   }
 
+  return { ok: true, value: result };
+}
+
+function validateRoundtableParticipants(
+  participants: readonly string[],
+  availableAgentNames: readonly string[],
+): { ok: true } | { ok: false; reason: string } {
+  const available = new Set(availableAgentNames);
+  const seen = new Set<string>();
+  for (const participant of participants) {
+    if (!available.has(participant)) {
+      return { ok: false, reason: `roundtable-participant-unavailable:${participant}` };
+    }
+    if (seen.has(participant)) {
+      return { ok: false, reason: `roundtable-participant-duplicate:${participant}` };
+    }
+    seen.add(participant);
+  }
+  for (const required of ["qa", "dev-manager", "hermes-user"]) {
+    if (!seen.has(required)) {
+      return { ok: false, reason: `roundtable-required-participant-missing:${required}` };
+    }
+  }
+  return { ok: true };
+}
+
+function parseRoundtableContributions(
+  value: unknown,
+  participants: readonly string[],
+): { ok: true; value: CeoRoundtableContribution[] } | { ok: false; reason: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, reason: "contributions:invalid" };
+  }
+  const participantSet = new Set(participants);
+  const seen = new Set<string>();
+  const result: CeoRoundtableContribution[] = [];
+  for (const [index, contribution] of value.entries()) {
+    const path = `contributions.${String(index)}`;
+    if (!isPlainObject(contribution)) {
+      return { ok: false, reason: `${path}:not-object` };
+    }
+    const role = getNonEmptyString(contribution["role"], `${path}.role`);
+    const position = getNonEmptyString(contribution["position"], `${path}.position`);
+    const evidence = getNonEmptyString(contribution["evidence"], `${path}.evidence`);
+    const disagreements = getStringArray(contribution["disagreements"], `${path}.disagreements`);
+    if (!role.ok) {
+      return role;
+    }
+    if (!position.ok) {
+      return position;
+    }
+    if (!evidence.ok) {
+      return evidence;
+    }
+    if (!disagreements.ok) {
+      return disagreements;
+    }
+    if (!participantSet.has(role.value)) {
+      return { ok: false, reason: `contribution-role-not-participant:${role.value}` };
+    }
+    if (seen.has(role.value)) {
+      return { ok: false, reason: `contribution-role-duplicate:${role.value}` };
+    }
+    seen.add(role.value);
+    result.push({
+      role: role.value,
+      position: position.value,
+      evidence: evidence.value,
+      disagreements: disagreements.value,
+    });
+  }
+  const missing = participants.filter((participant) => !seen.has(participant));
+  if (missing.length > 0) {
+    return { ok: false, reason: `contribution-role-missing:${missing.join(",")}` };
+  }
   return { ok: true, value: result };
 }
 

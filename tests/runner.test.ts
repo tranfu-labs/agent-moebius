@@ -9,8 +9,14 @@ import {
 } from "../src/config.js";
 import { createDriverPool, type DriverPool } from "../src/driver-pool.js";
 import { CEO_CORRECTED_METADATA, type FormatCeoResult } from "../src/format-ceo.js";
-import { buildCeoOrchestrationKey } from "../src/ceo-orchestration.js";
+import {
+  buildCeoOrchestrationKey,
+  buildCeoRoundtableCompletionKey,
+  buildCeoRoundtableKey,
+  renderCeoRoundtableChildIssueBody,
+} from "../src/ceo-orchestration.js";
 import type { CeoScript } from "../src/ceo-scripts.js";
+import { parseAgentMentions } from "../src/conversation.js";
 import {
   createDefaultCodexDriverPool,
   formatDeadLetterComment,
@@ -1637,6 +1643,363 @@ CEO persona`,
     expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("agent-moebius-orchestration-key:");
   });
 
+  it("starts a CEO roundtable by creating a child issue and saving a bounded roundtable ref", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const qa = await makeAgentFile("qa", "QA persona");
+    const devManager = await makeAgentFile("dev-manager", "Dev manager persona");
+    const hermesUser = await makeAgentFile("hermes-user", "Hermes user persona");
+    const ledger = makeCeoLedgerState();
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 101,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+    }));
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+    const saveGoalLedgerEntry = vi.fn(ledgerSaveMutator(ledger));
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 请发起方案评审团。"),
+        agentFiles: [ceo, qa, devManager, hermesUser],
+      },
+      makeDependencies({
+        createIssue,
+        postComment,
+        saveGoalLedgerEntry,
+        saveRoleThreadStateEntry,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) => successfulCodexRunWithFinalText(options.runDir, makeCeoRoundtableStartFinalText()),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(createIssue).toHaveBeenCalledTimes(1);
+    expect(createIssue.mock.calls[0]?.[1]).toMatchObject({ title: "T6 plan review roundtable" });
+    const childBody = createIssue.mock.calls[0]?.[1].body ?? "";
+    expect(childBody).toContain("Parent issue: https://github.com/tranfu-labs/agent-moebius/issues/4");
+    expect(childBody).toContain("Workflow id: roundtable-plan-review");
+    expect(childBody).toContain("Ledger task id: task-1");
+    expect(childBody).toContain("Roundtable key: agent-moebius-roundtable-key:");
+    expect(childBody).toContain("Participants in order:");
+    expect(childBody).toContain("Fixed one-round rule:");
+    expect(childBody).toContain("Provenance:");
+    expect(parseAgentMentions(childBody).map((mention) => mention.name)).toEqual(["qa"]);
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]).toMatchObject({
+      owner: "tranfu-labs",
+      repo: "agent-moebius",
+      number: 101,
+      relation: "child",
+      status: "open",
+    });
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("agent-moebius-roundtable-key:");
+    expect(postComment.mock.calls[0]?.[1]).toContain("圆桌已启动");
+    expect(postComment.mock.calls[0]?.[1]).toContain("issues/101");
+    expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes the roundtable child URL when ledger ref saving times out after creation", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const qa = await makeAgentFile("qa", "QA persona");
+    const devManager = await makeAgentFile("dev-manager", "Dev manager persona");
+    const hermesUser = await makeAgentFile("hermes-user", "Hermes user persona");
+    const saveStarted = deferred<void>();
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+
+    vi.useFakeTimers();
+    try {
+      const outcomePromise = processIssueSource(
+        {
+          source,
+          issue: makeIssue("@ceo 请发起方案评审团。"),
+          agentFiles: [ceo, qa, devManager, hermesUser],
+        },
+        makeDependencies({
+          createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/agent-moebius/issues/101" }),
+          postComment,
+          saveRoleThreadStateEntry,
+          saveGoalLedgerEntry: async () =>
+            new Promise(() => {
+              saveStarted.resolve();
+            }),
+          loadCeoScripts: async () => ceoScriptsForRunner(),
+          loadGoalLedgerState: async () => makeCeoLedgerState(),
+          runCodex: async (options) => successfulCodexRunWithFinalText(options.runDir, makeCeoRoundtableStartFinalText()),
+        }),
+      );
+
+      await saveStarted.promise;
+      await vi.advanceTimersByTimeAsync(CEO_ORCHESTRATION_ACTION_TIMEOUT_MS);
+      await expect(outcomePromise).resolves.toBe("triggered-success");
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(postComment.mock.calls[0]?.[1]).toContain("saveGoalLedgerEntry-timeout");
+    expect(postComment.mock.calls[0]?.[1]).toContain("https://github.com/tranfu-labs/agent-moebius/issues/101");
+    expect(postComment.mock.calls[0]?.[1]).toContain("agent-moebius-roundtable-key:");
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+  });
+
+  it("bounds roundtable hidden-key lookup before creating a duplicate child issue", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const qa = await makeAgentFile("qa", "QA persona");
+    const devManager = await makeAgentFile("dev-manager", "Dev manager persona");
+    const hermesUser = await makeAgentFile("hermes-user", "Hermes user persona");
+    const lookupStarted = deferred<void>();
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 102,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/102",
+    }));
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+
+    vi.useFakeTimers();
+    try {
+      const outcomePromise = processIssueSource(
+        {
+          source,
+          issue: makeIssue("@ceo 请重试方案评审团。"),
+          agentFiles: [ceo, qa, devManager, hermesUser],
+        },
+        makeDependencies({
+          createIssue,
+          postComment,
+          findIssueByOrchestrationKey: async () =>
+            new Promise(() => {
+              lookupStarted.resolve();
+            }),
+          loadCeoScripts: async () => ceoScriptsForRunner(),
+          loadGoalLedgerState: async () => makeCeoLedgerState(),
+          runCodex: async (options) => successfulCodexRunWithFinalText(options.runDir, makeCeoRoundtableStartFinalText()),
+        }),
+      );
+
+      await lookupStarted.promise;
+      await vi.advanceTimersByTimeAsync(CEO_ORCHESTRATION_ACTION_TIMEOUT_MS);
+      await expect(outcomePromise).resolves.toBe("triggered-success");
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(createIssue).not.toHaveBeenCalled();
+    expect(postComment.mock.calls[0]?.[1]).toContain("findRoundtableIssueByKey-timeout");
+  });
+
+  it("routes the next roundtable participant with one handoff mention and a forced CEO-return instruction", async () => {
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const qa = await makeAgentFile("qa", "QA persona");
+    const devManager = await makeAgentFile("dev-manager", "Dev manager persona");
+    const hermesUser = await makeAgentFile("hermes-user", "Hermes user persona");
+    const roundtableKey = makeRoundtableKey();
+    const ledger = makeCeoLedgerState({
+      childIssueRefs: [{ owner: source.owner, repo: source.repo, number: 101, relation: "child", status: "open", note: roundtableKey }],
+    });
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue(makeRoundtableChildBody({ roundtableKey }), [
+          { id: "qa-comment", body: agentEnvelope("qa", "QA contribution.\n\n@ceo 请继续下一位。") },
+        ]),
+        agentFiles: [ceo, qa, devManager, hermesUser],
+      },
+      makeDependencies({
+        postComment,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(
+            options.runDir,
+            makeCeoRoundtableRouteFinalText({ roundtableKey, nextRole: "dev-manager" }),
+          ),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment).toHaveBeenCalledTimes(1);
+    expect(postComment.mock.calls[0]?.[0]).toEqual(childSource);
+    const routeBody = postComment.mock.calls[0]?.[1] ?? "";
+    expect(parseAgentMentions(routeBody).map((mention) => mention.name)).toEqual(["dev-manager"]);
+    expect(routeBody).toContain("发言后请把控制权交回 CEO 主持人");
+    expect(routeBody).toContain("不是正式验收裁决");
+  });
+
+  it("recovers a roundtable participant no-handoff once and suppresses duplicate recovery for the same comment", async () => {
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const qa = await makeAgentFile("qa", "QA persona");
+    const devManager = await makeAgentFile("dev-manager", "Dev manager persona");
+    const hermesUser = await makeAgentFile("hermes-user", "Hermes user persona");
+    const issue = makeIssue(makeRoundtableChildBody(), [
+      { id: "qa-comment", body: agentEnvelope("qa", "QA contribution without handoff.") },
+    ]);
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) => successfulCodexRun(options.runDir));
+
+    const firstOutcome = await processIssueSource(
+      {
+        source: childSource,
+        issue,
+        agentFiles: [ceo, qa, devManager, hermesUser],
+        intakeIssueState: activeIntakeIssueState(),
+      },
+      makeDependencies({ postComment, runCodex }),
+    );
+
+    expect(firstOutcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "triggered-success",
+      route: { commentId: "qa-comment", outcome: "append", targetRole: "ceo" },
+    });
+    expect(runCodex).not.toHaveBeenCalled();
+    expect(parseAgentMentions(postComment.mock.calls[0]?.[1] ?? "").map((mention) => mention.name)).toEqual(["ceo"]);
+
+    const secondOutcome = await processIssueSource(
+      {
+        source: childSource,
+        issue,
+        agentFiles: [ceo, qa, devManager, hermesUser],
+        intakeIssueState: {
+          ...activeIntakeIssueState(),
+          externalCommentFallbackRoutes: {
+            "qa-comment": {
+              commentId: "qa-comment",
+              outcome: "append",
+              targetRole: "ceo",
+              decidedAt: "2026-07-01T00:04:00.000Z",
+              reason: "roundtable participant qa spoke without handing control back to CEO",
+            },
+          },
+        },
+      },
+      makeDependencies({ postComment, runCodex }),
+    );
+
+    expect(secondOutcome).toBe("no-trigger");
+    expect(postComment).toHaveBeenCalledTimes(1);
+    expect(runCodex).not.toHaveBeenCalled();
+  });
+
+  it("intercepts a roundtable participant handoff to a non-CEO role before the target role runs", async () => {
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const qa = await makeAgentFile("qa", "QA persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const devManager = await makeAgentFile("dev-manager", "Dev manager persona");
+    const hermesUser = await makeAgentFile("hermes-user", "Hermes user persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) => successfulCodexRun(options.runDir));
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue(makeRoundtableChildBody(), [{ id: "qa-comment", body: agentEnvelope("qa", "@dev 请继续处理。") }]),
+        agentFiles: [ceo, qa, dev, devManager, hermesUser],
+        intakeIssueState: activeIntakeIssueState(),
+      },
+      makeDependencies({ postComment, runCodex }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "triggered-success",
+      route: { commentId: "qa-comment", outcome: "append", targetRole: "ceo" },
+    });
+    expect(runCodex).not.toHaveBeenCalled();
+    const correction = postComment.mock.calls[0]?.[1] ?? "";
+    expect(parseAgentMentions(correction).map((mention) => mention.name)).toEqual(["ceo"]);
+    expect(correction).toContain("拦截该错误 handoff");
+  });
+
+  it("fails closed instead of completing a roundtable before all participants have spoken", async () => {
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const qa = await makeAgentFile("qa", "QA persona");
+    const devManager = await makeAgentFile("dev-manager", "Dev manager persona");
+    const hermesUser = await makeAgentFile("hermes-user", "Hermes user persona");
+    const roundtableKey = makeRoundtableKey();
+    const ledger = makeCeoLedgerState({
+      childIssueRefs: [{ owner: source.owner, repo: source.repo, number: 101, relation: "child", status: "open", note: roundtableKey }],
+    });
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const fetchIssueWithComments = vi.fn<ProcessIssueSourceDependencies["fetchIssueWithComments"]>(async () => makeIssue("parent"));
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue(makeRoundtableChildBody({ roundtableKey }), [
+          { id: "qa-comment", body: agentEnvelope("qa", "QA contribution.\n\n@ceo 请继续。") },
+        ]),
+        agentFiles: [ceo, qa, devManager, hermesUser],
+      },
+      makeDependencies({
+        postComment,
+        fetchIssueWithComments,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(options.runDir, makeCeoRoundtableCompleteFinalText({ roundtableKey })),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(fetchIssueWithComments).not.toHaveBeenCalled();
+    expect(postComment.mock.calls[0]?.[0]).toEqual(childSource);
+    expect(postComment.mock.calls[0]?.[1]).toContain("roundtable-participants-missing:dev-manager,hermes-user");
+  });
+
+  it("dedupes parent roundtable summaries with a stable completion key when CEO retries with changed wording", async () => {
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const qa = await makeAgentFile("qa", "QA persona");
+    const devManager = await makeAgentFile("dev-manager", "Dev manager persona");
+    const hermesUser = await makeAgentFile("hermes-user", "Hermes user persona");
+    const roundtableKey = makeRoundtableKey();
+    const ledger = makeCeoLedgerState({
+      childIssueRefs: [{ owner: source.owner, repo: source.repo, number: 101, relation: "child", status: "open", note: roundtableKey }],
+    });
+    const completionKey = buildCeoRoundtableCompletionKey({
+      roundtableKey,
+      participants: roundtableParticipants,
+      participantMessageIndexes: [1, 2, 3],
+    });
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue(makeRoundtableChildBody({ roundtableKey }), [
+          { id: "qa-comment", body: agentEnvelope("qa", "QA contribution.\n\n@ceo 请继续。") },
+          { id: "dev-manager-comment", body: agentEnvelope("dev-manager", "Dev manager contribution.\n\n@ceo 请继续。") },
+          { id: "hermes-user-comment", body: agentEnvelope("hermes-user", "Hermes user contribution.\n\n@ceo 请汇总。") },
+        ]),
+        agentFiles: [ceo, qa, devManager, hermesUser],
+      },
+      makeDependencies({
+        postComment,
+        fetchIssueWithComments: async () =>
+          makeIssue("parent", [{ id: "parent-summary", body: `existing summary\n\n<!-- ${completionKey} -->` }]),
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(
+            options.runDir,
+            makeCeoRoundtableCompleteFinalText({ roundtableKey, summary: "retry wording changed" }),
+          ),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment).toHaveBeenCalledTimes(1);
+    expect(postComment.mock.calls[0]?.[0]).toEqual(childSource);
+    expect(postComment.mock.calls[0]?.[1]).toContain(completionKey);
+    expect(postComment.mock.calls[0]?.[1]).not.toContain("retry wording changed");
+  });
+
   it("integration acceptance prepass posts one parent request only after every ledger child has passed", async () => {
     const dev = await makeAgentFile("dev", "Dev persona");
     const productManager = await makeAgentFile("product-manager", "PM persona");
@@ -2507,6 +2870,12 @@ function ceoScriptsForRunner(): CeoScript[] {
       body: "spawn",
       fileName: "milestone-spawn-child-issues.md",
     },
+    {
+      id: "roundtable-plan-review",
+      action: "roundtable",
+      body: "roundtable",
+      fileName: "roundtable-plan-review.md",
+    },
   ];
 }
 
@@ -2532,6 +2901,83 @@ function makeCeoSpawnFinalText(input: { title: string }): string {
   })}
 
 <!-- agent-moebius:stage=in-progress -->`;
+}
+
+const roundtableParticipants = ["qa", "dev-manager", "hermes-user"] as const;
+
+function makeCeoRoundtableStartFinalText(
+  input: { roundtableId?: string; title?: string; topic?: string } = {},
+): string {
+  return `${JSON.stringify({
+    action: "roundtable",
+    workflowId: "roundtable-plan-review",
+    mode: "start",
+    roundtableId: input.roundtableId ?? "rt-1",
+    ledgerTaskId: "task-1",
+    title: input.title ?? "T6 plan review roundtable",
+    topic: input.topic ?? "Review T6 plan",
+    inputSummary: "dev plan-written proposal",
+    participants: roundtableParticipants,
+    firstRole: "qa",
+    qualityBaseline: "data-correct",
+    provenance: "parent issue",
+  })}
+
+<!-- agent-moebius:stage=in-progress -->`;
+}
+
+function makeCeoRoundtableRouteFinalText(input: { roundtableKey: string; nextRole: string; body?: string }): string {
+  return `${JSON.stringify({
+    action: "roundtable",
+    workflowId: "roundtable-plan-review",
+    mode: "route",
+    roundtableKey: input.roundtableKey,
+    participants: roundtableParticipants,
+    nextRole: input.nextRole,
+    body: input.body ?? `@${input.nextRole} 请给出圆桌评审意见。`,
+  })}
+
+<!-- agent-moebius:stage=in-progress -->`;
+}
+
+function makeCeoRoundtableCompleteFinalText(input: { roundtableKey: string; summary?: string; decision?: string }): string {
+  return `${JSON.stringify({
+    action: "roundtable",
+    workflowId: "roundtable-plan-review",
+    mode: "complete",
+    roundtableKey: input.roundtableKey,
+    participants: roundtableParticipants,
+    summary: input.summary ?? "三方评审完成。",
+    contributions: [
+      { role: "qa", position: "需要补充恢复测试。", evidence: "QA 发现 no-handoff 风险。", disagreements: ["恢复口径需可验证"] },
+      { role: "dev-manager", position: "架构边界可接受。", evidence: "runner 持有 GitHub 副作用。", disagreements: [] },
+      { role: "hermes-user", position: "用户需要保留分歧。", evidence: "评审意见不能压成共识。", disagreements: ["摘要必须标来源"] },
+    ],
+    decision: input.decision ?? "按 v0 串行圆桌实现。",
+    provenance: "child roundtable",
+  })}
+
+<!-- agent-moebius:stage=in-progress -->`;
+}
+
+function makeRoundtableKey(roundtableId = "rt-1"): string {
+  return buildCeoRoundtableKey({ source, workflowId: "roundtable-plan-review", roundtableId });
+}
+
+function makeRoundtableChildBody(input: { roundtableKey?: string } = {}): string {
+  return renderCeoRoundtableChildIssueBody({
+    parentIssueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+    workflowId: "roundtable-plan-review",
+    ledgerTaskId: "task-1",
+    roundtableKey: input.roundtableKey ?? makeRoundtableKey(),
+    title: "T6 plan review roundtable",
+    topic: "Review T6 plan",
+    inputSummary: "dev plan-written proposal",
+    participants: roundtableParticipants,
+    firstRole: "qa",
+    qualityBaseline: "data-correct",
+    provenance: "parent issue",
+  });
 }
 
 function makeCeoLedgerState(input: { childIssueRefs?: GoalLedgerState["tasks"][string]["childIssueRefs"] } = {}): GoalLedgerState {
@@ -2711,6 +3157,10 @@ function ledgerSaveMutator(ledger: GoalLedgerState): ProcessIssueSourceDependenc
 
 function pmEnvelope(body: string): string {
   return `&lt;product-manager&gt;:\n${body}\n\n<!-- agent-moebius:role=product-manager -->`;
+}
+
+function agentEnvelope(role: string, body: string): string {
+  return `&lt;${role}&gt;:\n${body}\n\n<!-- agent-moebius:role=${role} -->`;
 }
 
 function noChangeCeoResult(body: string): FormatCeoResult {

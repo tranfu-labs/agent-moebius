@@ -86,7 +86,19 @@ export function resolveUniqueIssueOwner(ledger: GoalLedgerState, source: IssueSo
   }
   for (const task of Object.values(ledger.tasks)) {
     const refs = [...(task.parentIssueRef === undefined ? [] : [task.parentIssueRef]), ...task.childIssueRefs];
-    addOwner({ kind: "task", id: task.id }, refs, task.provenance);
+    const taskOwner: PhaseOwner = { kind: "task", id: task.id };
+    const beforeSize = owners.size;
+    addOwner(taskOwner, refs, task.provenance);
+    if (owners.size !== beforeSize && owners.has(`${taskOwner.kind}:${taskOwner.id}`)) {
+      if (ledger.goals[task.goalId] !== undefined) {
+        owners.set(`goal:${task.goalId}`, { kind: "goal", id: task.goalId });
+      }
+      for (const milestone of Object.values(ledger.milestones)) {
+        if (milestone.taskIds.includes(task.id)) {
+          owners.set(`milestone:${milestone.id}`, { kind: "milestone", id: milestone.id });
+        }
+      }
+    }
   }
 
   const values = [...owners.values()];
