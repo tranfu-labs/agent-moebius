@@ -47,7 +47,7 @@
 - MUST 在处理失败且折叠后 `failureCount` 将达到 `FAILURE_RETRY_LIMIT` 时，于同轮先完成本次真实处理尝试、确认仍失败后，向该 issue 发布死信评论；死信评论发布成功 MUST 折叠为 `dead-lettered`（推进 `updatedAt`、`mode = idle`、清零计数、`nextPollAt = null`），发布失败 MUST 保持 `failed` 并在后续轮次继续「先处理、后死信」。MUST NOT 在本轮处理成功时发布死信。
 - MUST 让死信评论以系统身份发布、不包含任何 agent mention、携带机器可识别标记 `<!-- agent-moebius:dead-letter -->`，并包含目标 agent 名、`lastFailureReason`、累计失败次数与恢复提示（在 issue 发表任意新评论即可重新触发）。
 - MUST 在死信评论被后续扫描读到时按 `no-trigger` 吸收，MUST NOT 形成自触发循环。
-- MUST NOT 在 pre script 执行、Codex 执行或 GitHub comment 发布失败时推进 role-thread 状态；失败时仅更新 intake `failureCount` / `lastFailureReason` / `nextPollAt`，MUST NOT 推进 `updatedAt`，由重试预算与死信机制收敛。
+- MUST NOT 在 workspace capability、pre script、Codex 执行或 GitHub comment 发布失败时推进 role-thread 状态；失败时仅更新 intake `failureCount` / `lastFailureReason` / `nextPollAt`，MUST NOT 推进 `updatedAt`，由重试预算与死信机制收敛。
 - MUST keep an interrupted issue active and schedule a follow-up poll without advancing processing to the newly arrived message's `updatedAt`.
 - MUST 通过独立 driver pool 抽象执行可能调用本地 Codex driver 的 issue processing jobs；driver pool MUST NOT 依赖 GitHub issue domain types、trigger 规则、prompt 或 intake state。
 - MUST 在调度业务逻辑注入 Codex driver pool 时使用默认并发上限 `CODEX_DRIVER_POOL_MAX_CONCURRENT = 5`；`src/driver-pool.ts` 抽象本身仍允许 `undefined` 或 `null` 表示无限制，以便测试注入 fake pool。
@@ -66,7 +66,7 @@
 - MUST 为同一 runner 进程内每个本地 Codex driver run 生成唯一 run directory；即使并发 runs 拥有相同 message count 且在同一 timestamp interval 内启动，runDir 也 MUST 不相等。
 - MUST 在配置的目标 issue 暂不可解析时把本轮视为可恢复 skip，记录 `reason = "issue-not-found"` 与 `issueKey`，并等待后续轮询。
 - MUST 在目标 issue 不存在或已关闭时不调用 Codex、不发表评论，并从 intake active 状态中移除或降级该 issue。
-- MUST 把非 issue-not-found 的处理失败（含 GitHub CLI 失败、pre script 失败、Codex 失败、看门狗超时、thread 状态解析失败）统一折叠为携带失败原因的 `failed`，MUST NOT 在结局层按错误类型分类决定游标是否推进。`classifyGhError` 仅继续用于 gh 调用内同步重试的重试判定。
+- MUST 把非 issue-not-found 的处理失败（含 GitHub CLI 失败、workspace capability 失败、pre script 失败、Codex 失败、看门狗超时、thread 状态解析失败）统一折叠为携带失败原因的 `failed`，MUST NOT 在结局层按错误类型分类决定游标是否推进。`classifyGhError` 仅继续用于 gh 调用内同步重试的重试判定。
 - MUST 对 `gh` CLI 调用提供调用内同步重试（指数退避），只重试 `classifyGhError` 判定为 `transient` 的错误；判定为 `deterministic` 的错误（issue 不存在、`HTTP 40x/422`、`Bad credentials`、`gh auth login`、`ENOENT` 等）MUST 立即上抛不重试。重试参数集中在 `src/config.ts` 的 `GITHUB_CLI_RETRY_POLICY`，每次重试 MUST 记录 `event = "gh-retry-attempt"`（含 `label`、`attempt`、错误原因）。
 - MUST 为每次 `gh` CLI 子进程调用设置显式单次调用超时；超时后 MUST 终止对应子进程并让调用 promise settle，MUST NOT 让任何单个 `gh` 子进程永久挂起 runner 心跳或 issue job。
 - MUST 在调用方 `AbortSignal` 触发时终止正在执行的 `gh` CLI 子进程，并停止后续 retry / sleep。
@@ -127,7 +127,7 @@
 - MUST 仅当触发源的非代码文本区域包含至少一个已存在 agent mention 时启动本地 `codex`。
 - MUST 在触发源没有有效 trigger 时跳过，不调用 `codex`，不发表评论。
 - MUST 在同一条消息包含多个非代码文本区域的有效 agent mention 时选择文本中最早出现的一个；协议层仍要求每条消息最多一个 `@`，多 mention 由 CEO 纠偏而非运行时拒绝。
-- MUST 在选中 agent 且本轮需要调用 Codex 时先执行该 agent 声明的 pre script；pre script 失败时 MUST 跳过 Codex、跳过 GitHub 评论、保持 role thread 状态不变。
+- MUST 在选中 agent 且本轮需要调用 Codex 时先执行该 agent 声明的 workspace capability 与 pre script；workspace capability 或 pre script 失败时 MUST 跳过 Codex、跳过 GitHub 评论、保持 role thread 状态不变。
 - MUST 在 mention trigger 选中可运行 agent、prompt plan 需要执行、且该 agent 的 preScript 已成功完成后，在首次调用 Codex driver 前，为本轮触发 Codex 的最新消息添加 `eyes` reaction。
 - MUST 当触发源是 issue body 时，为当前 GitHub issue 添加 `eyes` reaction。
 - MUST 当触发源是 issue comment 时，为该 GitHub issue comment 添加 `eyes` reaction，而不是 fallback 到 issue body。
@@ -149,28 +149,35 @@
 - MUST 在 issue media 下载或校验失败时发布可见错误评论，MUST NOT 在媒体缺失时静默运行 Codex。
 - MUST 在 Codex 启动前的 issue media preparation 失败时保持 role thread 状态不变。
 - MUST 将确定性的 media-preparation 错误评论视为已处理本次触发 mention，避免同一个坏链接在 active poll 中重复刷错误评论。
-- MUST 支持 `dev` pre script 基于 runner 当前处理的 GitHub issue source（owner、repo、issueNumber）准备 Codex 工作目录，而不是解析 issue body/comment 中的链接。
-- MUST 为每个 source issue 创建并复用一个 `dev` issue 独占 worktree；不同 source issue 即使属于同一个 repo 也 MUST 使用不同 worktree。
-- MUST 允许同一 repository 的多个 issue worktree 复用本地 bare repo cache，但 MUST 保持 worktree 彼此隔离。
-- MUST 在新建或复用 `dev` issue worktree 前刷新目标仓库远端 `main` tracking ref。
-- MUST 从已刷新的远端 `main` tracking ref 创建新的 `dev` issue worktree；MUST NOT 依赖本地 bare repo 的 `HEAD` 作为新 worktree 基线。
-- MUST 在复用已有 `dev` context 时验证记录的 `worktreePath` 与当前 owner / repo / issue / role / workdir root 计算出的 issue 独占 worktree 路径完全一致；不一致时 MUST fail closed，且不得访问、删除或重建该路径。
-- MUST 在复用已有 `dev` issue worktree 前检查当前 worktree `HEAD` 是否包含最新远端 `main`。
-- MUST 在已有 `dev` issue worktree 落后最新远端 `main` 时先强制删除该 worktree（`git worktree remove --force`；失败时 fallback 到 `rm -rf` + `git worktree prune`），再从 `refs/remotes/origin/main` 重建；重建成功后继续以同一路径作为 Codex cwd，并保持原 agent context state。
-- MUST 在 stale worktree 重建过程任一步失败时 fail closed，不调用 Codex、不发表评论、不推进 role thread 状态，并返回 `stale-worktree-rebuild-failed:<detail>`。
-- MUST 在 stale worktree 自动重建过程中丢弃 worktree 内未推送的本地 commit；agent 产出的落地口径是 commit + push，未 push 的改动不属于要保护的运行时状态。
-- MUST 在已有 `dev` context 指向缺失或不可访问 worktree 时 fail closed，不自动重建。
-- MUST 让 `dev` pre script 的 git 调用在失败时携带 stderr 摘要（如 `git failed with exit-code-128: fatal: unable to access ...`），使 `lastFailureReason` 与死信评论可定位根因。
-- MUST 让 dev-workspace pre script 在为一个 issue 建立 worktree 时把 worktree checkout 到受控本地分支 `agent/<role>/<owner>__<repo>__<issue>`（`role` / `owner` / `repo` 经 `safePathSegment` 规范化，`issue` 为 `issueNumber` 十进制字符串），MUST NOT 让 worktree 停留在 detached HEAD 状态。新首建路径与 stale 重建路径 MUST 使用同一命名规则，MUST 使用 `git worktree add -B <localBranch> <worktreePath> refs/remotes/origin/main` 语义（分支不存在则创建、存在则强制 reset 到 `refs/remotes/origin/main`）。
-- MUST 让 dev-workspace pre script 对同一个 bare repository cache（同一 `repoCachePath`）的 `git clone --bare` / `git fetch --prune` / `git worktree add` / `git worktree remove` 操作按 `repoCachePath` 键值串行执行；跨不同 bare repository cache 的操作 MUST 保持并发不受限。串行化 MUST 在 `dev-workspace.ts` 模块内部完成，MUST NOT 依赖 runner 层派发聚合，MUST NOT 影响 `saveStateEntry` 与 `loadState` 等不接触 bare repository 的步骤的并发性。
+- MUST support agent Markdown frontmatter field `workspaceAccess` with exactly two valid values: `write` and `read-run`; this field selects the built-in issue worktree capability and MUST NOT be interpreted as a script path.
+- MUST preserve the existing trusted `preScript` registry for non-workspace deterministic setup such as current-repo workspace and CEO ledger context.
+- MUST grant issue workspace access to `dev` with `write`, and to `qa`, `product-manager`, and `hermes-user` with `read-run`; `dev-manager`, `ceo`, and `secretary` MUST NOT receive issue workspace access in T5.
+- MUST let all roles with workspace access in the same GitHub issue share the same issue worktree and Codex cwd.
+- MUST create new issue worktrees with role-free path and branch names derived only from owner, repo, and issue number.
+- MUST keep different GitHub issues isolated in different worktrees even when they target the same repository.
+- MUST allow same-repository issue worktrees to reuse the same local bare repo cache.
+- MUST create a first issue worktree from freshly fetched `refs/remotes/origin/main`; issue worktree creation MUST NOT rely on the local bare repo `HEAD`.
+- MUST lazily migrate legacy dev role context into issue workspace context by reusing the existing dev `worktreePath` when it matches the current issue and is accessible.
+- MUST NOT move, delete, recreate, merge, or rebase a legacy dev worktree during lazy migration.
+- MUST preserve legacy role context entries when adding issue workspace context.
+- MUST refresh remote main before reusing an existing issue workspace and detect whether latest main is contained by the current worktree `HEAD`.
+- MUST NOT automatically delete, rebuild, merge, or rebase an existing issue worktree merely because remote main has advanced.
+- MUST expose a main freshness status to logs and Codex prompt context when reusing an existing worktree.
+- MUST bound every git operation used by issue workspace preparation, including clone, fetch, worktree add/remove/prune, and merge-base checks.
+- MUST terminate or abort a timed-out workspace git child process and settle the prepare promise with a deterministic failure reason.
+- MUST release the repo cache keyed lock after a bounded workspace git operation fails, times out, or is aborted.
+- MUST fail closed when the issue workspace context points at a mismatched path, missing worktree, or missing repo cache; automatic recovery of missing worktrees remains out of scope.
+- MUST model `read-run` as a collaboration and prompt constraint rather than an OS-level read-only sandbox: read-run roles MUST NOT intentionally modify source, commit, or push, but MAY run tests, start services, create build caches, create test output, and create acceptance screenshots.
+- MUST keep issue workspace state under ignored `.state/agent-contexts.json` and MUST NOT write runtime workspace state under `agents/`.
+- MUST keep issue worktree provisioning out of `goal-ledger`, `conversation`, `github-response-intake`, trigger, driver-pool, observer, and pure business modules.
 - MUST support interrupting an in-flight `dev` Codex run when the source conversation receives a new message before Codex completes.
 - MUST model agent-run interruption through a driver-agnostic conversation snapshot abstraction, so drivers provide current conversation state instead of embedding GitHub-specific logic in the local script executor.
 - MUST use GitHub issue body + comments count as the GitHub conversation snapshot message count for new-comment interruption.
 - MUST 允许同一个 issue 中多个 role 参与对话，并为每个 role 维护独立 Codex thread。
 - MUST 把 role thread 状态保存在本地忽略目录 `.state/role-threads.json`，状态至少包含 issue 标识、role、threadId、lastSeenIndex。
 - MUST 按 issue + role entry 级别串行 merge 写入 `.state/role-threads.json`，锁作用域为目标 state file path，避免不同 issue 或 role 的并发 Codex 成功结果互相覆盖。
-- MUST 把 agent pre script 上下文保存在本地忽略目录 `.state/agent-contexts.json`，状态至少包含 issue、role、preScript、目标仓库、worktreePath、preparedFromMessageIndex。
-- MUST 按 issue + role entry 级别串行 merge 写入 `.state/agent-contexts.json`，锁作用域为目标 state file path，避免不同 issue 的并发 dev pre script context 互相覆盖。
+- MUST 把 agent context 保存在本地忽略目录 `.state/agent-contexts.json`；issue workspace context MUST 至少包含 issue、受控 capability 标识、目标仓库、worktreePath、workspaceAccess、mainStatus 与 preparedFromMessageIndex，legacy role preScript context MUST 继续兼容读取。
+- MUST 按 issue + entry 级别串行 merge 写入 `.state/agent-contexts.json`，锁作用域为目标 state file path，避免不同 issue 的并发 workspace / preScript context 互相覆盖。
 - MUST 在首次触发某个 role 时使用该 role persona 与当前共享时间线构造 full prompt，并从 Codex JSONL 的 `thread.started.thread_id` 记录该 role 的 thread id。
 - MUST NOT 使用 `--ephemeral` 执行首次 Codex run，因为 role thread 需要可 resume 的 Codex session。
 - MUST 在再次触发同一 role 时使用 `codex exec resume <thread_id>`，并只把该 role 上次处理后新增、且 speaker 不是该 role 自己的消息合并成 delta prompt。
@@ -179,7 +186,7 @@
 - MUST 从 Codex JSONL stdout 中提取最终 assistant 文本；当前已知格式包括顶层 `agent_message` / `assistant_message` / `message`，以及 `item.completed` 中嵌套的 `item.type=agent_message` / `item.text`。
 - MUST 从 Codex JSONL stdout 中提取 `thread.started.thread_id` 作为 role thread 句柄。
 - SHOULD 记录 Codex JSONL 中的 `turn.completed.usage.cached_input_tokens`，用于观察 Codex resume 与模型侧 prompt caching 的收益。
-- MUST 在 pre script 返回 Codex 工作目录时，以显式 `cwd` 调用 Codex。
+- MUST 在 workspace capability 或 pre script 返回 Codex 工作目录时，以显式 `cwd` 调用 Codex。
 - MUST 在发布 agent comment 前发现 Codex 本轮生成的受支持 SVG、图片与视频 artifact。
 - MUST NOT 为了让输出 artifact 在 GitHub comment 中可见而把生成产物提交到 source repository。
 - MUST 通过 artifact publisher 边界发布生成 artifact，并返回 GitHub comment 可直接查看的 Markdown 引用。
@@ -317,7 +324,7 @@
 - MUST 把 issue body / comment 内容当作不可信外部输入处理。
 - MUST 让 prompt 构造、speaker 归一化、触发判定、delta 消息选择、评论格式化与状态更新计算保持为可单元测试的业务数据操作，不依赖 GitHub、Codex CLI 或文件系统。
 - MUST NOT 把 GitHub token 或个人访问令牌写入仓库；当前实现复用本机 `gh auth login`。
-- 当前 watched repositories 来自 `config.toml` 与 `config.local.toml`；tick 间隔、idle repo scan 间隔、active issue poll 间隔、issue scan limit、active issue 上限、本地 agent Markdown 目录、临时目录、role thread 状态文件路径、agent context 状态文件路径、GitHub response intake 状态文件路径、默认 workdir root、issue media 大小上限、output artifact 大小上限与默认 artifact release tag 集中在 `src/config.ts`。
+- 当前 watched repositories 来自 `config.toml` 与 `config.local.toml`；tick 间隔、idle repo scan 间隔、active issue poll 间隔、issue scan limit、active issue 上限、本地 agent Markdown 目录、临时目录、role thread 状态文件路径、agent context 状态文件路径、GitHub response intake 状态文件路径、默认 workdir root、issue worktree git 超时、issue media 大小上限、output artifact 大小上限与默认 artifact release tag 集中在 `src/config.ts`。
 - MUST 在启动日志中打印 config path、local config path、resolved watched repositories、tick 间隔、idle/active 轮询参数、issue scan limit、active issue 上限与解析后的默认 workdir root。
 
 ## 场景
@@ -473,16 +480,26 @@ And 不调用 Codex
 And 不发表评论
 And 不更新本地状态
 
-### 场景 15：Dev agent — 首次触发创建 issue 独占 worktree
+### 场景 15：Workspace capability — 首次触发创建 issue 级共享 worktree
 Given 最新消息包含 `@dev`
-And `agents/dev.md` frontmatter 声明 `preScript: src/agent-prescripts/dev-workspace.ts`
-And `.state/agent-contexts.json` 中没有当前 issue + `dev` context
+And `agents/dev.md` frontmatter 声明 `workspaceAccess: write`
+And `.state/agent-contexts.json` 中没有当前 issue workspace context
 When 一次轮询取回该 issue
-Then 系统基于当前 issue source 计算 clone URL 与 issue 独占 worktree 路径
+Then 系统基于当前 issue source 计算 clone URL 与 issue 级 worktree 路径
 And 在 `<WORKDIR_ROOT>/repos/` 下准备 bare repo cache
-And 在 `<WORKDIR_ROOT>/worktrees/` 下创建当前 issue 的 `dev` worktree
+And 在 `<WORKDIR_ROOT>/worktrees/` 下创建当前 issue 的 role-free worktree
+And worktree 本地分支为 `agent/<owner>__<repo>__<issue>`
 And 以该 worktree 作为 Codex cwd 执行本轮
 And 保存 `.state/agent-contexts.json`
+
+### 场景 15.0：Workspace capability — qa 共享 dev issue worktree
+Given 当前 issue 已有 issue workspace context
+And 最新消息包含 `@qa`
+And `agents/qa.md` frontmatter 声明 `workspaceAccess: read-run`
+When 一次轮询取回该 issue
+Then qa 获得与 dev 同一个 `codexCwd`
+And prompt context 声明 `workspaceAccess = read-run`
+And 系统不创建 role-specific qa worktree
 
 ### 场景 15.1：Secretary agent — 触发后固定当前仓库工作目录
 Given 最新消息包含 `@secretary`
@@ -494,39 +511,55 @@ And 以 agent-moebius 当前仓库根目录作为 Codex cwd 执行本轮
 And 不创建 issue 独占 worktree
 And 不写入 `.state/agent-contexts.json`
 
-### 场景 16：Dev agent — 后续触发复用已有 worktree
-Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
+### 场景 16：Workspace capability — 后续触发复用已有 worktree
+Given `.state/agent-contexts.json` 中已有当前 issue workspace context
 And 该 context 的 worktreePath 可访问
-When 最新消息再次包含 `@dev`
+When 最新消息包含任一 workspace-capable role
 Then 系统不重复 clone，不重复创建 worktree
 And 以已记录 worktreePath 作为 Codex cwd 执行 resume 或 fallback full run
 
-### 场景 16.1：Dev agent — 已有 worktree 落后最新 main 时自动重建
-Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
+### 场景 16.1：Workspace capability — 已有 worktree 落后最新 main 时不重建
+Given `.state/agent-contexts.json` 中已有当前 issue workspace context
 And 该 context 的 worktreePath 可访问
 And 该 worktree 的 `HEAD` 不包含最新 `refs/remotes/origin/main`
-When 最新消息再次包含 `@dev`
-Then 系统先 `git worktree remove --force` 旧 worktree
-And 若 remove 失败则 fallback 到 `rm -rf` 旧路径并执行 `git worktree prune`
-And 系统从 `refs/remotes/origin/main` 重建同一路径 worktree
-And 返回 `{ ok: true, codexCwd: <worktreePath> }`
-And 保留原 agent context state
+When 最新消息包含任一 workspace-capable role
+Then 系统返回已有 worktreePath
+And 记录或提示 main 已前进
+And 不调用 `git worktree remove`
+And 不调用 `git worktree add`
+And 不执行 merge 或 rebase
 
-### 场景 16.2：Dev agent — stale worktree 重建失败时 fail closed
-Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
-And 该 context 的 worktreePath 可访问但落后最新 `refs/remotes/origin/main`
-And 删除旧 worktree、prune、重新 add worktree 或 access 断言任一步失败
-When 最新消息再次包含 `@dev`
-Then 系统返回 `{ ok: false, reason = "stale-worktree-rebuild-failed:<detail>" }`
+### 场景 16.2：Workspace capability — legacy dev context 懒迁移
+Given `.state/agent-contexts.json` 中只有当前 issue + `dev` legacy context
+And 该 legacy context 匹配当前 owner / repo / issueNumber
+And 该 legacy context 的 worktreePath 可访问
+When 最新消息包含任一 workspace-capable role
+Then 系统创建 issue workspace context 指向原 dev worktreePath
+And 不搬迁、不删除、不重建该 worktree
+And 保留原 dev context entry
+
+### 场景 16.3：Workspace capability — git fetch timeout 有界失败
+Given issue workspace preparation 正在刷新 remote main
+And 注入的 `git fetch` 永不 settle
+When workspace git timeout 到达
+Then 系统返回 failed processing outcome
 And 不调用 Codex
-And 不发表评论
-And 不更新 `.state/role-threads.json`
+And 不更新 role thread state
+And issue in-flight entry 通过正常 job settle 释放
 
-### 场景 17：Dev agent — worktree 缺失时 fail closed
-Given `.state/agent-contexts.json` 中已有当前 issue + `dev` context
+### 场景 16.4：Workspace capability — repo lock timeout 后释放
+Given issue A 和 issue B 指向同一个 repository
+And issue A 进入 repo cache lock
+And issue A 的 workspace git 调用永不 settle
+When issue A 到达 workspace git timeout
+Then issue A prepare 失败并释放 repo cache lock
+And issue B 随后可以继续 workspace prepare
+
+### 场景 17：Workspace capability — worktree 缺失时 fail closed
+Given `.state/agent-contexts.json` 中已有当前 issue workspace context
 And 该 context 的 worktreePath 不存在或不可访问
-When 最新消息包含 `@dev`
-Then 系统记录 pre script 失败
+When 最新消息包含任一 workspace-capable role
+Then 系统记录 workspace preparation 失败
 And 不调用 Codex
 And 不发表评论
 And 不更新 `.state/role-threads.json`
@@ -907,11 +940,11 @@ When 两者更新 `.state/role-threads.json`
 Then 写入通过 issue + role entry merge 串行完成
 And state file 同时包含 issue A + `dev` 的 thread state 与 issue B + `product-manager` 的 thread state
 
-### 场景 32.5：driver pool — 并发 dev pre script 不会覆盖 agent context state
-Given issue A 的 `dev` pre script 与 issue B 的 `dev` pre script 并发创建各自 worktree context
+### 场景 32.5：driver pool — 并发 workspace capability 不会覆盖 agent context state
+Given issue A 与 issue B 的 workspace capability 并发创建各自 issue worktree context
 When 两者更新 `.state/agent-contexts.json`
-Then 写入通过 issue + role entry merge 串行完成
-And state file 同时包含 issue A + `dev` 与 issue B + `dev` 的 context entry
+Then 写入通过 issue + entry merge 串行完成
+And state file 同时包含 issue A 与 issue B 的 issue workspace context entry
 
 ### 场景 32.6：driver pool — 并发 Codex run 不复用同一个 runDir
 Given issue A 与 issue B 在同一 runner 进程内并发启动 Codex

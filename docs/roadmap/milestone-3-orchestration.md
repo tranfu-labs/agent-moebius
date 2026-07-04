@@ -71,13 +71,25 @@
 - 验证命令：`pnpm typecheck`、`pnpm test`、`git diff --check` 均退出码 0。
 - 验收清单：需求持有者已确认正式验收语句 1-18 全部通过；实现证据覆盖 child pass 判定、ledger provenance、父 issue integration acceptance 路由、active phase acceptance 来源、父级失败 repair child 回流、修复后重新 join、幂等去重、缺目标验收 fail closed、scope 与真实角色边界，以及 QA 增补的 ledger save 失败、父 issue 发帖失败、重复 fact、带 handoff mention 的失败入账、缺 parent ref、repair 部分成功恢复、hidden key lookup timeout 和非目标边界。
 
-### - [ ] T5 · issue 级 worktree 资源化
+### - [x] T5 · issue 级 worktree 资源化
 
 worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capability：任意角色可在 frontmatter 声明访问模式（写 / 读 + 运行），分支命名去 role 化，context 状态随迁。**重建策略修订并入本任务**：修复"复用 worktree 时 main 已前进则强制重建"对并行任务与验收中场景的破坏（进行中工作不得因其他任务合入 main 而被摧毁），这是任务级并行（T3 编排产出并行子 issue）的硬前提。解锁场景：qa 在 worktree 内跑测试、验收角色在 worktree 内起服务亲自执行验收语句。
 
-**前置探针（【人工】spike，建议作为本任务第一步，风险优先）**：直接动因 tranfu-agents-app issue 96（评论 id 4882229942）——用户问 qa「/skills 页面有哪些问题」，预期发现真实问题，qa 因无 workspace、无运行能力、无走查剧本，只能输出 9 条假设清单。spike 回答本任务最大不确定点："非 dev 角色能否在 worktree 内起目标 app、实地走查并产出真实发现"。链路：`agents/qa.md` 声明 workspace prescript（先复用现有 dev-workspace 机制即可，role 独立 worktree）→ worktree 内起 tranfu-agents-app dev server → 按目标画像走查页面（可复用 `scripts/spike-preview-oracle/` 的 Playwright 手法）→ 产出锚定具体页面元素 / 路由的发现清单 + 截图 → 经 publisher 发布回 issue。
+**前置探针（【人工】spike，建议作为本任务第一步，风险优先）**：直接动因 tranfu-agents-app issue 96（评论 id 4882229942）——用户问 qa「/skills 页面有哪些问题」，预期发现真实问题，qa 因无 workspace、无运行能力、无走查剧本，只能输出 9 条假设清单。spike 回答本任务最大不确定点："非 dev 角色能否在 worktree 内起目标 app、实地走查并产出真实发现"。链路：`agents/qa.md` 声明 `workspaceAccess: read-run`，由 issue-worktree capability 切入同 issue 共享 worktree → worktree 内起 tranfu-agents-app dev server → 按目标画像走查页面（可复用 `scripts/spike-preview-oracle/` 的 Playwright 手法）→ 产出锚定具体页面元素 / 路由的发现清单 + 截图 → 经 publisher 发布回 issue。
 
 **验收场景（细化时保留）**：重演 issue 96——在 tranfu-agents-app 的 QA 走查 issue 上 mention qa → qa 评论应含 ≥3 条真实发现，每条锚定具体页面元素或路由、附截图链接、且可由人按"打开 X → 做 Y → 应看到 Z"复现，而非假设清单。链路断点（prescript 不适配非 dev 角色 / 目标 app 起不来 / 截图发布失败）记录为本任务方案输入。
+
+验收证据（2026-07-04）：
+- 方案与归档：`openspec/changes/archive/2026-07-04-issue-worktree-capability-t5/`
+- 行为事实源：`openspec/specs/github-issue-runner/spec.md`
+- 架构事实源：`docs/architecture/module-map.md`、`docs/architecture/runner-issue-processing.svg`
+- Persona：`agents/dev.md` 声明 `workspaceAccess: write`；`agents/qa.md`、`agents/product-manager.md`、`agents/hermes-user.md` 声明 `workspaceAccess: read-run`；`dev-manager`、`ceo`、`secretary` 未声明 issue workspace access。
+- 实现：`src/agent-manifest.ts`、`src/agent-context-state.ts`、`src/agent-prescripts/issue-worktree.ts`、`src/runner.ts`、`src/config.ts`
+- 测试：`tests/agent-manifest.test.ts`、`tests/agent-context-state.test.ts`、`tests/issue-worktree.test.ts`、`tests/runner.test.ts`
+- 验证命令：`pnpm test`（29 个 test files / 307 tests，退出码 0）、`pnpm typecheck`（退出码 0）、`git diff --check`（退出码 0）。
+- 聚焦验证：`pnpm vitest run tests/agent-context-state.test.ts tests/agent-manifest.test.ts tests/issue-worktree.test.ts tests/runner.test.ts --reporter=verbose`（4 个 test files / 81 tests，退出码 0）。
+- 外部 issue 96 前置探测：`gh issue view 96 --repo tranfu-labs/tranfu-agents-app --json number,title,state,url` 返回 `96 / QA: skills / OPEN / https://github.com/tranfu-labs/tranfu-agents-app/issues/96`；`git ls-remote https://github.com/tranfu-labs/tranfu-agents-app.git HEAD` 返回 `8d6731ecfd9079a2c9dd6c7fa738f2dc5bceeb93`；临时 clone 成功；`frontend/npm ci`、`frontend/npm run build` 均退出码 0；临时 Vite dev server 下 `curl http://127.0.0.1:4196/skills` 返回 HTTP 200。
+- 外部 issue 96 live-walkthrough 卡点：本实现阶段未在 tranfu-agents-app issue 96 上触发 qa 并发布含截图的真实评论，因为这会对外部产品 issue 产生真实 GitHub 副作用；因此未声称 QA live-walkthrough 已通过。后续产品验收需在 runner 监听 tranfu-agents-app 的真实环境中触发 qa，并按已确认验收语句核查至少 3 条锚定页面元素或路由的真实发现与截图链接。
 
 ### - [ ] T6 · 会话拓扑：扇出 + join 与主持人圆桌
 

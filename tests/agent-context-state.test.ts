@@ -50,6 +50,41 @@ describe("agent context state store", () => {
     await expect(loadAgentContextStateStore(filePath)).rejects.toThrow(/Invalid agent context state file/);
   });
 
+  it("loads issue workspace context fields and rejects invalid optional values", async () => {
+    const filePath = path.join(await makeTempDir(), ".state", "agent-contexts.json");
+    const validEntry = {
+      preScript: "workspaceAccess:issue-worktree",
+      owner: "tranfu-labs",
+      repo: "agent-moebius",
+      issueNumber: 4,
+      worktreePath: "/tmp/worktree",
+      preparedFromMessageIndex: 3,
+      workspaceAccess: "read-run",
+      migratedFromRole: "dev",
+      mainStatus: "behind-main",
+      lastCheckedAt: "2026-07-04T00:00:00.000Z",
+    } as const;
+    const validStore = withAgentContextState({}, "tranfu-labs/agent-moebius#4", "__issue-worktree", validEntry);
+
+    await saveAgentContextStateStore(validStore, filePath);
+
+    await expect(loadAgentContextStateStore(filePath)).resolves.toEqual(validStore);
+
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({
+        "tranfu-labs/agent-moebius#4": {
+          "__issue-worktree": {
+            ...validEntry,
+            workspaceAccess: "admin",
+          },
+        },
+      }),
+      "utf8",
+    );
+    await expect(loadAgentContextStateStore(filePath)).rejects.toThrow(/Invalid agent context state file/);
+  });
+
   it("merges concurrent entry saves without overwriting other issue contexts", async () => {
     const filePath = path.join(await makeTempDir(), ".state", "agent-contexts.json");
 

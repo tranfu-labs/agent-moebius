@@ -29,6 +29,7 @@ import {
 } from "./conversation-interrupt.js";
 import { parseAgentManifest } from "./agent-manifest.js";
 import { runAgentPreScript } from "./agent-prescripts/index.js";
+import { runIssueWorktreeCapability } from "./agent-prescripts/issue-worktree.js";
 import { formatCeoScriptsForPrompt, loadCeoScripts, type CeoScript } from "./ceo-scripts.js";
 import {
   buildCeoOrchestrationKey,
@@ -142,6 +143,7 @@ export interface AgentFile {
 }
 
 export interface ProcessIssueSourceDependencies {
+  runIssueWorktreeCapability: typeof runIssueWorktreeCapability;
   runAgentPreScript: typeof runAgentPreScript;
   runCodex: typeof runCodex;
   addReaction: typeof addReaction;
@@ -163,6 +165,7 @@ export interface ProcessIssueSourceDependencies {
 }
 
 const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies = {
+  runIssueWorktreeCapability,
   runAgentPreScript,
   runCodex,
   addReaction,
@@ -664,7 +667,45 @@ export async function processIssueSource(
     }
 
     let codexCwd: string | undefined;
-    let preScriptPromptContext: string | undefined;
+    const promptContexts: string[] = [];
+    if (agentManifest.workspaceAccess !== null) {
+      const workspaceResult = await dependencies.runIssueWorktreeCapability({
+        role: selectedAgent.name,
+        workspaceAccess: agentManifest.workspaceAccess,
+        latestIndex: plan.latestIndex,
+        issueSource: input.source,
+        workdirRoot: WORKDIR_ROOT,
+        contextStatePath: AGENT_CONTEXTS_STATE_PATH,
+      });
+
+      if (!workspaceResult.ok) {
+        log({
+          event: "agent-workspace-failed",
+          count,
+          runDir,
+          agent: selectedAgent.name,
+          workspaceAccess: agentManifest.workspaceAccess,
+          reason: workspaceResult.reason,
+          issueKey: input.source.issueKey,
+        });
+        return failedIssueProcessingOutcome({ reason: workspaceResult.reason, agent: selectedAgent.name });
+      }
+
+      codexCwd = workspaceResult.codexCwd;
+      if (workspaceResult.promptContext !== undefined) {
+        promptContexts.push(workspaceResult.promptContext);
+      }
+      log({
+        event: "agent-workspace-completed",
+        count,
+        runDir,
+        agent: selectedAgent.name,
+        workspaceAccess: agentManifest.workspaceAccess,
+        codexCwd,
+        issueKey: input.source.issueKey,
+      });
+    }
+
     if (agentManifest.preScript !== null) {
       const preScriptResult = await dependencies.runAgentPreScript({
         role: selectedAgent.name,
@@ -699,8 +740,24 @@ export async function processIssueSource(
         return failedIssueProcessingOutcome({ reason: preScriptResult.reason, agent: selectedAgent.name });
       }
 
-      codexCwd = preScriptResult.codexCwd;
-      preScriptPromptContext = preScriptResult.promptContext;
+      if (preScriptResult.codexCwd !== undefined && codexCwd !== undefined && preScriptResult.codexCwd !== codexCwd) {
+        const reason = `workspace-prescript-cwd-conflict:${codexCwd}:${preScriptResult.codexCwd}`;
+        log({
+          event: "agent-prescript-failed",
+          count,
+          runDir,
+          agent: selectedAgent.name,
+          preScript: agentManifest.preScript,
+          reason,
+          issueKey: input.source.issueKey,
+        });
+        return failedIssueProcessingOutcome({ reason, agent: selectedAgent.name });
+      }
+
+      codexCwd = preScriptResult.codexCwd ?? codexCwd;
+      if (preScriptResult.promptContext !== undefined) {
+        promptContexts.push(preScriptResult.promptContext);
+      }
       log({
         event: "agent-prescript-completed",
         count,
@@ -711,6 +768,7 @@ export async function processIssueSource(
         issueKey: input.source.issueKey,
       });
     }
+    const agentPromptContext = promptContexts.length === 0 ? undefined : promptContexts.join("\n\n");
 
     const initialMedia = await prepareMediaForPrompt({
       messages: plan.mode === "resume" ? plan.deltaMessages : timeline,
@@ -810,7 +868,7 @@ export async function processIssueSource(
     try {
       finalCodexStartedAtMs = Date.now();
       result = await runCodexWithWatchdog({
-        prompt: appendMediaManifest(appendPromptContext(plan.prompt, preScriptPromptContext), initialMedia.prepared),
+        prompt: appendMediaManifest(appendPromptContext(plan.prompt, agentPromptContext), initialMedia.prepared),
         runDir,
         cwd: codexCwd,
         signal: interruptController.signal,
@@ -856,7 +914,7 @@ export async function processIssueSource(
         finalCodexStartedAtMs = Date.now();
         result = await runCodexWithWatchdog({
           prompt: appendMediaManifest(
-            appendPromptContext(buildFallbackFullPrompt(agentManifest.body, timeline), preScriptPromptContext),
+            appendPromptContext(buildFallbackFullPrompt(agentManifest.body, timeline), agentPromptContext),
             fallbackMedia.prepared,
           ),
           runDir: finalRunDir,
@@ -2506,7 +2564,7 @@ function appendPromptContext(prompt: string, promptContext: string | undefined):
 
   return `${prompt.trimEnd()}
 
-## Agent PreScript Context
+## Agent Execution Context
 
 ${promptContext.trimEnd()}`;
 }

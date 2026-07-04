@@ -9,7 +9,7 @@
   </defs>
 
   <text x="480" y="30" text-anchor="middle" font-size="18" font-weight="700" fill="#0f172a">改造后 · 三条绿色破除路径</text>
-  <text x="480" y="52" text-anchor="middle" font-size="13" fill="#475569">A / B / C 分别在 intake / prescript / fetch 层收敛</text>
+  <text x="480" y="52" text-anchor="middle" font-size="13" fill="#475569">A / B / C 分别在 intake / workspace / fetch 层收敛</text>
 
   <!-- tick -->
   <rect x="410" y="80" width="140" height="44" rx="22" fill="#e0e7ff" stroke="#4338ca"/>
@@ -34,12 +34,12 @@
   <text x="820" y="356" text-anchor="middle" font-size="12" font-weight="700" fill="#065f46">outcome = "issue-closed"</text>
   <text x="820" y="374" text-anchor="middle" font-size="12" fill="#065f46">从 state.issues 移除 ★C</text>
 
-  <!-- processIssueSource with self-healing -->
+  <!-- processIssueSource with issue workspace -->
   <rect x="300" y="424" width="360" height="86" rx="6" fill="#ecfdf5" stroke="#059669"/>
-  <text x="480" y="450" text-anchor="middle" font-size="13" font-weight="700" fill="#065f46">processIssueSource → dev prescript</text>
-  <text x="480" y="470" text-anchor="middle" font-size="12" fill="#059669">★B · stale 分支 → removeWorktree + re-add origin/main</text>
+  <text x="480" y="450" text-anchor="middle" font-size="13" font-weight="700" fill="#065f46">processIssueSource → workspace capability</text>
+  <text x="480" y="470" text-anchor="middle" font-size="12" fill="#059669">★B · main 前进 → 只检测提示，不重建</text>
   <text x="480" y="488" text-anchor="middle" font-size="12" fill="#065f46">成功 → ok, codexCwd → Codex 正常跑</text>
-  <text x="480" y="504" text-anchor="middle" font-size="12" fill="#334155">重建失败才 fail closed</text>
+  <text x="480" y="504" text-anchor="middle" font-size="12" fill="#334155">workspace 缺失 / git 超时才 fail closed</text>
 
   <!-- record failed (A) -->
   <rect x="300" y="540" width="360" height="90" rx="6" fill="#ecfdf5" stroke="#059669"/>

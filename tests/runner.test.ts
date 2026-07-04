@@ -765,6 +765,79 @@ Secretary persona`,
     expect(runCodex.mock.calls[0]?.[0].cwd).toBe("/repo/agent-moebius");
   });
 
+  it("passes workspace Codex cwd and prompt context to a workspace-capable agent", async () => {
+    const dev = await makeAgentFile(
+      "dev",
+      `---
+workspaceAccess: write
+---
+Dev persona`,
+    );
+    const runIssueWorktreeCapability = vi.fn(async () => ({
+      ok: true as const,
+      codexCwd: "/worktrees/tranfu-labs__agent-moebius__4",
+      promptContext: "Issue workspace capability context:\n- workspaceAccess: write",
+    }));
+    const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) =>
+      successfulCodexRun(options.runDir),
+    );
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [dev],
+      },
+      makeDependencies({ runIssueWorktreeCapability, runCodex }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(runIssueWorktreeCapability).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "dev",
+        workspaceAccess: "write",
+        issueSource: source,
+      }),
+    );
+    expect(runCodex.mock.calls[0]?.[0].cwd).toBe("/worktrees/tranfu-labs__agent-moebius__4");
+    expect(runCodex.mock.calls[0]?.[0].prompt).toContain("Issue workspace capability context");
+  });
+
+  it("returns a failed outcome when workspace preparation fails before Codex", async () => {
+    const dev = await makeAgentFile(
+      "dev",
+      `---
+workspaceAccess: write
+---
+Dev persona`,
+    );
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) =>
+      successfulCodexRun(options.runDir),
+    );
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [dev],
+      },
+      makeDependencies({
+        postComment,
+        runCodex,
+        runIssueWorktreeCapability: async () => ({ ok: false, reason: "issue-worktree-error:timeout" }),
+      }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      agent: "dev",
+      reason: "issue-worktree-error:timeout",
+    });
+    expect(runCodex).not.toHaveBeenCalled();
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
   it("does not add a second reaction when resume falls back to a full Codex run", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
     const addReaction = vi.fn(async () => {});
@@ -2385,6 +2458,7 @@ async function expectNoReaction(input: {
 
 function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {}): ProcessIssueSourceDependencies {
   return {
+    runIssueWorktreeCapability: async () => ({ ok: true }),
     runAgentPreScript: async () => ({ ok: true }),
     runCodex: async (options) => successfulCodexRun(options.runDir),
     addReaction: async () => {},

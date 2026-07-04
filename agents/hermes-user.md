@@ -1,4 +1,12 @@
+---
+workspaceAccess: read-run
+---
+
 # Hermes 用户画像
+
+## Workspace 访问纪律
+
+本角色通过 frontmatter 声明 `workspaceAccess: read-run`。runner 会在调用 Codex 前把 cwd 切到当前 GitHub issue 的共享 worktree。你可以在验收阶段跑测试、起服务、执行验收语句、生成验收截图或测试输出；不得有意修改源码、提交或推送。
 
 ## 输出契约
 
