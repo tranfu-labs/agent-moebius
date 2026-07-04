@@ -67,6 +67,10 @@
 
 worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capability：任意角色可在 frontmatter 声明访问模式（写 / 读 + 运行），分支命名去 role 化，context 状态随迁。**重建策略修订并入本任务**：修复"复用 worktree 时 main 已前进则强制重建"对并行任务与验收中场景的破坏（进行中工作不得因其他任务合入 main 而被摧毁），这是任务级并行（T3 编排产出并行子 issue）的硬前提。解锁场景：qa 在 worktree 内跑测试、验收角色在 worktree 内起服务亲自执行验收语句。
 
+**前置探针（【人工】spike，建议作为本任务第一步，风险优先）**：直接动因 tranfu-agents-app issue 96（评论 id 4882229942）——用户问 qa「/skills 页面有哪些问题」，预期发现真实问题，qa 因无 workspace、无运行能力、无走查剧本，只能输出 9 条假设清单。spike 回答本任务最大不确定点："非 dev 角色能否在 worktree 内起目标 app、实地走查并产出真实发现"。链路：`agents/qa.md` 声明 workspace prescript（先复用现有 dev-workspace 机制即可，role 独立 worktree）→ worktree 内起 tranfu-agents-app dev server → 按目标画像走查页面（可复用 `scripts/spike-preview-oracle/` 的 Playwright 手法）→ 产出锚定具体页面元素 / 路由的发现清单 + 截图 → 经 publisher 发布回 issue。
+
+**验收场景（细化时保留）**：重演 issue 96——在 tranfu-agents-app 的 QA 走查 issue 上 mention qa → qa 评论应含 ≥3 条真实发现，每条锚定具体页面元素或路由、附截图链接、且可由人按"打开 X → 做 Y → 应看到 Z"复现，而非假设清单。链路断点（prescript 不适配非 dev 角色 / 目标 app 起不来 / 截图发布失败）记录为本任务方案输入。
+
 ### - [ ] T6 · 会话拓扑：扇出 + join 与主持人圆桌
 
 新增第二种会话拓扑。原语层：一条消息可触发 N 个 agent（扇出），全部响应后唤醒收口角色（join）——role thread 本就按 issue+role 独立，非 dev 角色无文件状态，机制可行。模式层：主持人角色主持圆桌——出题 → N 角色同轮并行发言 → 主持人汇总 → 下一轮或收口；圆桌落在独立（子）issue，结论回流父 issue，复用 T1/T3 的父子机制。实施分层：**v0 串行圆桌**（主持人一轮 @ 一人，现有机制即可跑，先验证模式价值）→ **v1 并行化**（扇出 + join 原语）。典型场景：方案评审团（qa + dev-manager + 用户画像并行评审，替代串行接力）、需求工作坊（PM 同时采访多个用户画像）、集成验收陪审团。
@@ -89,6 +93,7 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 
 以下条目是里程碑 2 运行期间 dogfood 观察到、尚未定型的 runner 稳定性 / 编排缺口，本文档启动时并入某个 T 或另起新 T：
 
+- **无匹配剧本时的固定结论行误用**（2026-07-04，tranfu-agents-app issue 96）：qa 被问页面走查问题（无匹配剧本的场景），误套方案审查剧本——开头声明「当前没有 plan-written 方案评论」、结尾仍输出固定结论行「QA 结论：通过」。缺规则：**无匹配剧本时不得套用任何固定结论行**，应说明能力边界并建议下一步（如指出需要 workspace 走查能力、建议等 T5）。落点：`agents/qa.md` 及 T3 剧本分发规则的负向约束；性质与 CEO 托举同源——识别不了场景时诚实说不知道，而不是套最近的模板。
 - **Codex CLI 额度失败识别与退避**（2026-07-04 首次命中）：codex CLI 返回 `You've hit your usage limit` 时 runner 只见 `exit-code-1`，与 gh EOF 等瞬断同等对待；约 5 分钟内失败预算耗尽 → dead-letter → 即便额度恢复也不再自动 pick up。缺口：(a) 从 codex stdout.jsonl 抽取错误类别（usage limit / rate limit / network），按类采用不同退避（usage-limit 应按 "try again at <time>" 直接退到目标时刻，不占失败预算）；(b) event 层暴露分类字段，loop watcher 不用 tail runDir 才知道根因；(c) dead-letter 之后额度恢复时可自动 recover 已 idle 的 issue。可能落在 T3（CEO 编排剧本库对失败的分场景处理）或与 T5 worktree 供给同批做 runner 侧改造。
 
 ## 启动条件
