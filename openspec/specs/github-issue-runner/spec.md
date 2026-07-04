@@ -79,15 +79,21 @@
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
 - MUST 将 agent 触发决策封装为独立触发器；runner 只消费触发器结果，不把具体触发方式写死在编排流程中。
 - MUST 提供 `docs/protocols/github-interaction.md` 作为 GitHub issue 共享时间线交互协议的单一事实源，适用于所有 agent 输出、CEO append、人类评论与 loop watcher 补发评论。
-- MUST 让全局 GitHub 交互协议至少覆盖四条规则：`@` 语义等于移交下一步控制权且每条消息最多一个合法 agent mention；裸 `#N` 只用于真实引用 GitHub issue / PR，任务编号、评论编号、验收语句编号与步骤编号不得写成裸 `#N`；runner 专属 role envelope（`<role>:` 可见前缀与 `<!-- agent-moebius:role=... -->` metadata）不得由人工或 loop watcher 手写伪装；带路由意图的人工评论必须显式包含一个合法 agent mention。
+- MUST 让全局 GitHub 交互协议至少覆盖六条规则：`@` 语义等于移交下一步控制权且每条消息最多一个合法 agent mention；裸 `#N` 只用于真实引用 GitHub issue / PR，任务编号、评论编号、验收语句编号与步骤编号不得写成裸 `#N`；runner 专属 role envelope（`<role>:` 可见前缀与 `<!-- agent-moebius:role=... -->` metadata）不得由人工或 loop watcher 手写伪装；带路由意图的人工评论必须显式包含一个合法 agent mention；验收截图必须按「验收证据」契约用 worktree 相对路径显式引用；验收语句变更、验收范围调整和验收结论 override 必须由需求持有者或真人用户确认，并清晰落在 issue 时间线。
 - MUST 让全局 GitHub 交互协议为每条规则提供正例、反例与合规改写；任务编号示例 MUST 使用 `T3` 等非 GitHub issue 引用形式，评论位置 MUST 使用「第 N 条评论」或完整评论 URL，验收编号 MUST 使用「验收语句 N」文字形式，避免制造真实 issue / PR 反向引用。
 - MUST 让所有 `agents/*.md` persona 引用并遵守 `docs/protocols/github-interaction.md`；persona 文件只做最小引用，MUST NOT 复制协议全文形成多事实源。
+- MUST 让全局 GitHub 交互协议覆盖验收治理规则：验收语句是需求侧资产，包含原始需求验收语句以及经需求持有者或真人用户确认并入的 QA 增补验收语句。
+- MUST 要求验收语句变更、验收范围缩小、验收范围扩大后自判通过、或覆盖验收角色不通过结论，只有在需求持有者或真人用户明确确认后才生效。
+- MUST 要求确认记录出现在 GitHub issue 时间线，且能让后来者直接看出谁确认、确认什么变更、适用于哪组验收语句或哪次验收结论。
+- MUST NOT 把沉默、继续执行、执行方自述、执行方转述或 loop watcher 代述视为验收语句变更或验收结论 override 的有效确认。
 - MUST 保留 mention trigger：最新消息的非代码文本区域包含已存在 agent mention 时，触发对应 agent；fenced code block 与 inline backtick 内的 mention 不参与触发。
 - MUST NOT 提供 `agents/reflector.md` 或任何 reflector stage trigger；`@reflector` 在当前系统中只是未知 mention，不触发任何执行或评论。
 - MUST 集中定义 stage 枚举于 `src/stages.ts`，供 CEO guardrail 与各 agent persona 契约测试共用；多处 MUST NOT 各自维护副本。
 - MUST 让 `AllStages = ["plan-written", "code-verified", "in-progress"]`。
 - MUST 让 CEO guardrail 承担阶段验收回流入口：当 Codex agent 的 `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified` 时，`agents/ceo.md` MUST 先查可用「验收语句」清单。`plan-written` 有可用清单时，CEO MUST `append as=ceo` mention `@qa` 要求按其测试设计流程审查本轮方案，MUST NOT 直接 mention 发起需求角色；不查历史 qa 结论——dev 每次重出 `plan-written` 都重审（幂等，防止拿旧结论放行新方案），qa 审查通过后由 qa 自行 mention 发起需求角色交棒。`code-verified` 有可用清单且发起本需求者是可达 agent 时，CEO MUST 返回 `append`，默认 `as=ceo`，正文 mention 发起需求角色并要求其按验收语句逐条验收实现证据。缺少可用验收语句时，CEO MUST `append as=ceo` mention `@dev` 要求补齐；`code-verified` 分支下若发起者是真人用户而非 agent，CEO MUST 输出 `no_change`，维持等真人用户验收。
 - MUST 让 `agents/ceo.md` 承载「qa 交棒兜底」识别场景：`agent = qa` 的 `latestResponse` 含固定结论行时，检查交棒 mention 是否完整——结论行为 `QA 结论：通过` 但正文未 mention 发起需求角色时，CEO MUST `append as=ceo` mention 发起需求角色（识别优先级沿用既有规则）要求按含 QA 增补的「验收语句」逐条验收；结论行为 `QA 结论：不通过` 但正文未 mention `@dev` 时，CEO MUST `append as=ceo` mention `@dev` 要求按 qa 列出的缺陷修正方案后重新输出 `plan-written`；交棒 mention 正常时 MUST 输出 `no_change`，不重复催办。
+- MUST 让 `agents/ceo.md` 承载验收治理违规识别场景：发现执行方或 loop watcher 未经确认改写验收语句、缩小验收范围、扩大验收范围后自判通过、未经确认把 QA 增补当作已生效清单、声称已确认但时间线没有可追溯确认记录、或覆盖验收角色不通过结论时，CEO MUST 输出 `append`、`as=ceo`，指出变更未经确认，并要求需求持有者或真人用户表态。
+- MUST 让 CEO 在验收治理违规场景中只要求补确认或请需求持有者表态，MUST NOT 直接替需求持有者改写新验收语句，MUST NOT 直接宣布未经确认的 override 生效。需求持有者或真人用户已在时间线明确确认且记录可追溯时，CEO MUST NOT 仅因该变更本身介入。
 - MUST 让 `agents/ceo.md` 在 `plan-written` 阶段判断本轮 `latestResponse` 是否包含「验收语句」小节且小节内有逐条、可机械执行的检查；在 `code-verified` 阶段优先使用历史有效 `plan-written` 方案中的「验收语句」进行验收回流，若完整公开 issue context 中找不到可用验收语句，则要求 `@dev` 补齐。
 - MUST 让 `agents/ceo.md` 按以下优先级识别发起本需求的 agent 角色：issue body 或后续明确流程说明中写明的需求持有者 / 发起者 / 发起需求角色；否则为时间线中最早提出本需求的合法 agent speaker；若发起者是真人用户而非 agent，CEO MUST 输出 `no_change`。
 - MUST NOT 让 `agents/ceo.md` 把转交或维护 CEO 规则的 `secretary` 评论、或 `dev` 的澄清 / 方案 / 实现评论误判为需求发起者；上下文明确写明发起者是 `product-manager` 或 `hermes-user` 时，MUST 以显式信息为准。
@@ -206,8 +212,13 @@
 - MUST 让 `agents/dev.md` 要求 dev 在 `plan-written` 响应的方案正文末尾包含「验收语句」一节；该节 MUST 位于最终 stage marker 之前，stage marker 仍 MUST 是整条回复最后一行。
 - MUST 让 `agents/dev.md` 要求「验收语句」中的每条语句都是一句可机械执行的检查；UI 类使用 `打开 X → 做 Y → 应看到 Z` 格式，非 UI 类使用等价可执行断言格式，例如 `跑 X → 应输出/退出码 Z`。
 - MUST 让 `agents/dev.md` 要求「验收语句」数量与方案的功能点一一对应。
+- MUST 让 `agents/dev.md` 要求 dev 在已有验收语句上只做机械可执行化细化并说明理由；dev MUST NOT 自行改变验收目标、删减范围、合并或替换验收语句。确需调整时，dev MUST 请求需求持有者或真人用户在 issue 时间线确认。
+- MUST 让 `agents/dev.md` 要求 dev 实现阶段只能基于已确认验收清单执行；QA 增补只有经需求持有者或真人用户明确接受后才并入清单，执行方自述、loop watcher 转述或沉默都不能作为确认依据。
 - MUST 让 `agents/hermes-user.md` 在被 mention 请求验收方案或代码结果时，按可用「验收语句」逐条走查并输出结构化结论。
 - MUST 让 `agents/product-manager.md` 在被 mention 请求验收方案或代码结果时，按可用「验收语句」逐条走查并输出结构化结论。
+- MUST 让 `agents/product-manager.md` 与 `agents/hermes-user.md` 在验收方案或代码结果时只按已确认验收语句、以及已确认并入的 QA 增补验收语句逐条走查。
+- MUST 让验收角色发现未经确认的 rescope 或 override 时，明确指出未经确认并要求回到需求持有者或真人用户确认。
+- MUST 让验收角色自身作为需求持有者调整验收语句、接受 QA 增补或确认 override 时，把明确确认记录写在 issue 时间线，且确认记录能看出谁确认、确认什么、适用于哪组验收语句或哪次验收结论。
 - MUST 让验收角色的每条验收结论对应一条验收语句，并包含 `通过` 或 `不通过` 与依据。
 - MUST 让验收角色在方案阶段基于阅读 dev 方案进行推演验收，在代码阶段基于 dev 提供的测试输出、截图 artifact、文件路径、命令输出等证据验收。
 - MUST 让验收角色在全部验收语句通过时声明验收通过，并说明下一步等待谁。
@@ -236,12 +247,14 @@
 - MUST 让 qa 对含运行时行为改动的 `plan-written` 方案执行四步审查：① 提取方案依赖的经验假设清单（外部行为事实性断言）并标注是否已验证；② 过故障矩阵（外部依赖 × {快速失败, 永久挂起, 慢成功, 状态丢失} × 流水线阶段），只列有问题的格；③ 用例二分——方案缺分支的静态可裁决缺陷当场判不通过、依赖经验假设的写成可机械执行的故障注入验收语句增补；④ 对抗性审查已有「验收语句」是否可机械执行、是否只覆盖 happy path。
 - MUST 让 qa 审查评论包含固定结论行 `QA 结论：通过` 或 `QA 结论：不通过`；不通过时每条缺陷 MUST 挂靠到具体故障矩阵格或 `invariants.md` 条目，未挂靠的泛化批评视为无效缺陷。
 - MUST 让 qa 按结论执行 mention 协议（一轮只一个 mention）：不通过 → mention `@dev` 逐条列缺陷与增补要求；通过 → mention 发起需求角色请其按含 QA 增补的「验收语句」逐条验收，并在正文注明增补部分。
+- MUST 让 `agents/qa.md` 明确 QA 增补验收语句属于测试设计建议；qa 通过交棒时 MUST 标注增补部分，且增补只有经需求持有者或真人用户明确接受后才并入验收清单。
+- MUST 让 qa 不得替需求持有者或真人用户确认验收语句调整；通过交棒时只请求发起需求角色按原验收语句加 QA 增补验收方案，并明确是否接受这些增补。
 - MUST 对不触碰运行时代码、外部依赖、状态机、agent 协作协议的纯文档 / 文案类方案豁免四步审查：qa MUST 输出一句话豁免（含理由）并直接 mention 发起需求角色。
 - MUST 让 `agents/qa.md` 每条响应末尾以 `<!-- agent-moebius:stage=in-progress -->` 结尾，阶段语义用正文结论行表达，MUST NOT 为 qa 新增注册 stage。
 - MUST 让 qa 对同一需求的方案最多判两轮不通过；第三轮仍有分歧时 MUST 列明分歧点、判"有保留通过"并交人类裁决，MUST NOT 与 dev 无限空转。
 - MUST 提供 `docs/architecture/invariants.md` 作为系统级不变量事实源，至少覆盖 liveness（任何单点故障不得使心跳循环或任一 issue 推进永久停转；每个外部调用必须有界时或有看门狗）、safety（intake 游标只在 GitHub 留下可见结果后推进）、visibility（放弃或降级任务必须留下可见痕迹，且痕迹发布路径本身受前两者约束）三类。qa 发现新故障类时 MUST 以补丁建议形式回流，经人类确认后合并，MUST NOT 直接修改该文件。
 - MUST 新增 `agents/ceo.md` 作为 CEO agent persona，承载触发范围、识别场景清单、输入契约、输出契约与修改红线；未来事故规则扩展 MUST 通过修改 `agents/ceo.md` 实现，NEVER 硬编码到 runner 或 `src/format-ceo.ts`。
-- MUST 让 `agents/ceo.md` 至少覆盖八类识别场景（append 场景保持 persona 层判断）：① `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified` 时的阶段验收回流 / 缺验收语句补齐；② 工作明显未完成、或已交付但不符合规范（持续推进）；③ 交付规范细则不满足（如 PR 缺 `Closes #N` 字样、评论中 PR 不是链接形式）；④ 死锁等待——agent 的最新响应在等待一个不存在或不会响应的对象（如把历史 reflector 评论当真人、等待系统中不存在的 reviewer / manager），CEO 追加评论纠正认知并直接裁决下一步；⑤ PR 冲突——按 PR 真实状态核实规则核实到 `state=OPEN` 且 `mergeable=CONFLICTING` 的 PR 时，`append` 一条 `@dev` 修复冲突的评论，merged / closed 的 PR MUST 跳过，MUST NOT 做去重（每次验收看到冲突即提醒）；⑥ 免确认操作放行——`dev` 的 `latestResponse` 在向用户征求免确认清单内操作的同意时，`append as=ceo` 直接授权继续；⑦ qa 交棒兜底——`agent = qa` 的 `latestResponse` 含固定结论行但交棒 mention 缺失时补交棒，正常时 `no_change`；⑧ GitHub 交互协议违规纠偏——`latestResponse` 误用 `@` 进行纯提及或多重控制权移交、用裸 `#N` 表达非 issue / PR 编号、试图手写 runner 专属 role envelope，或需要提醒人工路由必须显式带一个合法 mention 时，CEO SHOULD 输出 `append`、`as=ceo`，指出违规点并给出合规写法。
+- MUST 让 `agents/ceo.md` 至少覆盖九类识别场景（append 场景保持 persona 层判断）：① `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified` 时的阶段验收回流 / 缺验收语句补齐；② 工作明显未完成、或已交付但不符合规范（持续推进）；③ 交付规范细则不满足（如 PR 缺 `Closes #N` 字样、评论中 PR 不是链接形式）；④ 死锁等待——agent 的最新响应在等待一个不存在或不会响应的对象（如把历史 reflector 评论当真人、等待系统中不存在的 reviewer / manager），CEO 追加评论纠正认知并直接裁决下一步；⑤ PR 冲突——按 PR 真实状态核实规则核实到 `state=OPEN` 且 `mergeable=CONFLICTING` 的 PR 时，`append` 一条 `@dev` 修复冲突的评论，merged / closed 的 PR MUST 跳过，MUST NOT 做去重（每次验收看到冲突即提醒）；⑥ 免确认操作放行——`dev` 的 `latestResponse` 在向用户征求免确认清单内操作的同意时，`append as=ceo` 直接授权继续；⑦ qa 交棒兜底——`agent = qa` 的 `latestResponse` 含固定结论行但交棒 mention 缺失时补交棒，正常时 `no_change`；⑧ GitHub 交互协议违规纠偏——`latestResponse` 误用 `@` 进行纯提及或多重控制权移交、用裸 `#N` 表达非 issue / PR 编号、试图手写 runner 专属 role envelope，或需要提醒人工路由必须显式带一个合法 mention 时，CEO SHOULD 输出 `append`、`as=ceo`，指出违规点并给出合规写法；⑨ 验收治理违规——未经确认改写验收语句、调整验收范围、把 QA 增补当作已生效清单、或覆盖验收角色不通过结论时，CEO SHOULD 输出 `append`、`as=ceo`，要求需求持有者或真人用户确认。
 - MUST 让 CEO 的 GitHub 交互协议违规纠偏保持 append-only；`agents/ceo.md` MUST NOT 为本场景启用 `replace`，以保留违规原文作为审计证据。
 - MUST 让 `agents/ceo.md` 承载「PR 真实状态核实」要求：CEO 对 PR 下任何判断（交付规范细则、冲突、交付完成度）前，MUST 先对上下文中出现的完整 PR 链接 `https://github.com/<owner>/<repo>/pull/<n>` 在其 Codex 子进程内执行 `gh pr view <完整URL> --json title,body,state,mergeable,mergeStateStatus` 核实；MUST 使用完整 URL（CEO 运行目录不在目标仓库）；MUST NOT 仅凭评论文本猜测 PR 内容；`gh` 查询失败时 MUST NOT 基于猜测介入，保守输出 `no_change`（纯文本层即可确定的问题除外，如"评论中 PR 不是链接形式"）。PR 核实发生在 CEO Codex 子进程内部，属 persona 层行为，不经过 runner 的 GitHub adapter，不与"`src/format-ceo.ts` MUST NOT 自行调用 GitHub"红线冲突。
 - MUST 让交付规范中 `Closes #N` 的检查对象为核实到的 PR body，而非评论文本。
@@ -1093,10 +1106,11 @@ When runner 调用 CEO guardrail
 Then CEO MUST NOT 基于猜测对该 PR 下判断
 And 仅纯文本层可确定的问题（如评论中 PR 不是链接形式）仍可介入
 
-### 场景 56：协议文档包含四条核心规则与例子
+### 场景 56：协议文档包含核心规则与例子
 Given 开发者打开 `docs/protocols/github-interaction.md`
 Then 文档包含 `@` 控制权移交规则与 `#数字` 真实 issue / PR 引用规则
 And 文档包含 runner 专属 role envelope 规则与人工路由必须带合法 mention 规则
+And 文档包含验收截图引用契约与验收治理规则
 And 每条核心规则都包含正例、反例与合规改写
 
 ### 场景 57：所有 persona 引用全局协议
@@ -1118,6 +1132,85 @@ And 同一响应用 `#1` 指代验收语句编号
 When CEO guardrail 处理该响应
 Then CEO 输出 `append`、`as=ceo`
 And append 正文给出「第 6 条评论」与「验收语句 1」等文字形式改写
+
+### 场景 59.1：协议与 persona 包含验收治理规则
+Given 开发者打开 `docs/protocols/github-interaction.md`
+Then 文档包含验收语句变更须由需求持有者或真人用户确认的规则
+And 文档说明确认记录必须清晰落在 issue 时间线
+And 文档说明沉默、继续执行、执行方自述、执行方转述、loop watcher 代述都不是有效确认
+And 开发者打开 `agents/ceo.md`、`agents/dev.md`、`agents/product-manager.md`、`agents/hermes-user.md`、`agents/qa.md`
+Then persona 包含各自对验收治理的最小职责补充
+
+### 场景 59.2：CEO 介入未经确认的验收语句改写与自判通过
+Given 完整公开 issue context 中原始验收语句为“打开协议 / persona 文件 → 应看到验收语句变更须需求持有者或用户确认”
+And 需求持有者是 `product-manager`
+And `dev` 或 loop watcher 的最新响应把该验收语句改写为“打开协议文件即可”
+And 同一响应基于改写后的语句自判通过
+And issue 时间线中没有 product-manager 或真人用户对该改写的明确确认
+When CEO guardrail 处理该响应
+Then CEO 输出 `append`、`as=ceo`
+And append 正文指出验收语句变更未经需求持有者或用户确认
+And append 正文要求 `@product-manager` 表态是否接受该变更
+And CEO MUST NOT 直接替 product-manager 改写新验收语句
+
+### 场景 59.3：转述确认但时间线无确认记录时 CEO 介入
+Given 执行方声称“已确认调整验收语句”
+And 完整 issue 时间线中没有需求持有者或真人用户对该调整的明确确认记录
+When CEO guardrail 处理该响应
+Then CEO 输出 `append`、`as=ceo`
+And append 正文指出确认记录不可追溯
+And append 正文要求需求持有者或真人用户表态
+
+### 场景 59.4：loop watcher 未经确认缩小验收范围时 CEO 介入
+Given loop watcher 未经确认把验收范围从“协议 / persona 文件”缩小为“协议文件”
+And loop watcher 声明该缩小后范围可以放行
+When CEO guardrail 处理该响应
+Then CEO 输出 `append`、`as=ceo`
+And append 正文要求需求持有者或真人用户确认
+And CEO MUST NOT 直接替需求持有者改写新验收语句
+
+### 场景 59.5：未经确认扩大验收范围后自判通过时 CEO 介入
+Given 执行方未经确认新增一条验收语句
+And 执行方基于新增后的清单声明全部通过
+When CEO guardrail 处理该响应
+Then CEO 输出 `append`、`as=ceo`
+And append 正文指出新增验收语句未经确认
+And append 正文要求需求持有者表态
+
+### 场景 59.6：覆盖验收角色不通过结论需要确认
+Given product-manager 或 hermes-user 按已确认验收语句输出某条 `不通过` 结论
+And dev 或 loop watcher 后续声明“本次 override 该不通过结论，视为通过”
+And issue 时间线中没有 product-manager 或真人用户对该 override 的明确确认
+When CEO guardrail 处理该响应
+Then CEO 输出 `append`、`as=ceo`
+And append 正文指出 override 未经需求持有者或用户确认
+And append 正文要求需求持有者或用户明确表态
+
+### 场景 59.7：已确认的 QA 增补并入验收清单
+Given qa 对 dev 方案输出 `QA 结论：通过`
+And qa 正文标注 1 条验收语句增补
+And product-manager 随后在 issue 时间线明确写出“接受 QA 增补的验收语句……”
+When 后续验收角色按验收语句逐条验收
+Then 该 QA 增补视为已确认验收语句
+And 验收角色 MUST 对该增补输出通过 / 不通过结论与依据
+
+### 场景 59.8：未确认的 QA 增补不能被执行方直接当作生效清单
+Given qa 对 dev 方案输出 1 条验收语句增补
+And issue 时间线中没有需求持有者或真人用户明确接受该增补
+When dev 在实现或 code-verified 回复中把该增补作为已生效验收清单并自判通过
+Then CEO MUST 输出 `append`、`as=ceo`
+And append 正文要求需求持有者或用户确认是否接受该 QA 增补
+
+### 场景 59.9：需求持有者主动调整但仍需时间线记录
+Given product-manager 是本需求持有者
+When product-manager 在 issue 时间线明确写出“确认调整验收语句为……”
+Then 后续 dev 与验收角色可以基于调整后的验收语句推进
+And 该确认记录本身必须保留在 issue 时间线，不能只由 dev 或 loop watcher 转述
+
+### 场景 59.10：验收治理规则不改运行时代码路径
+Given 本次变更只要求协议、persona 与 OpenSpec 事实源更新
+When 实现完成后运行 `git diff --name-only`
+Then 输出中不包含 `src/` 运行时代码路径
 
 ### 场景 60：Observer — 白名单 issue 与阶段状态可见
 Given `config.local.toml` 包含 `tranfu-labs/agent-moebius`
