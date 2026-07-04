@@ -79,3 +79,14 @@ MUST：每次输出 `plan-written` 时，方案正文末尾必须包含「验收
 ```
 
 错误原因：缺少 stage marker，runner 无法判断是否需要 CEO guardrail 阶段介入。
+
+## 验收证据 artifact 引用
+
+实现完成时如果生成验收截图或其他验收媒体，MUST 放在当前 issue worktree 内，并在最终回复的「验收证据」小节用 worktree 相对路径显式引用，例如：
+
+```text
+## 验收证据
+- 验收截图：artifacts/acceptance/t3.png
+```
+
+只有最终回复显式引用且通过校验的文件才会被 runner 复制到 `output-artifacts/` 并发布成 GitHub 评论可查看链接。MUST NOT 引用越界路径、本机绝对路径或未打算发布的临时文件；未引用的 worktree 文件不会被主动发布。

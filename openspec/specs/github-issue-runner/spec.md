@@ -167,6 +167,17 @@
 - MUST 保留 output artifact 发布对 SVG 的支持；SVG 过滤仅适用于 issue 输入媒体引用，不适用于 Codex 生成产物发布。
 - MUST 等到 agent comment 与必要 artifact publication 都成功后才更新 role thread 状态。
 - MUST 让 artifact publishing 保持在 `conversation.ts`、`github-response-intake.ts`、`driver-pool.ts` 等纯调度模块之外。
+- MUST 把 agent final response 中显式引用的 worktree 相对 artifact 路径作为验收截图与生成媒体的主要发现契约。
+- MUST 按 Codex cwd 解析显式相对 artifact 路径，并拒绝绝对路径或解析后逃逸 cwd 的路径。
+- MUST NOT 主动发布 dev worktree 中未被 final response 显式引用的验收截图；mtime-based discovery 不得覆盖该验收截图契约。
+- MUST 在发布前把每个通过校验的 output artifact 复制到当前 run directory 的 `output-artifacts/` 目录。
+- MUST 在每轮完成的 Codex run 后 best-effort 追加 JSONL run manifest 到 `.state/run-manifests.jsonl`。
+- MUST 让每条 run manifest record 包含 `issue`、`role`、`stage`、`artifacts`、`startedAt` 与 `completedAt` 字段。
+- MUST 让 run manifest `stage` 来自原始 agent final response 尾部 stage marker，且 artifact markdown 追加与 CEO guardrail 处理不得影响该值。
+- MUST 在原始 final response 缺少合法 stage marker 时，把 manifest `stage` 写为 `unknown`；`unknown` 仅属于 manifest schema，MUST NOT 扩展 `src/stages.ts` 或 agent comment stage marker。
+- MUST 在无 output artifact 时记录空 `artifacts` 数组。
+- MUST 在 artifact publisher 成功时记录 artifact staged path 与 publisher URL；publisher 失败时记录 staged path 且 `publishedUrl = null`，并继续按既有语义发布 artifact 错误评论、不更新 role thread、不伪装成功。
+- MUST 把 run manifest writer failure 视为 best-effort observation failure：记录 `event = "run-manifest-write-failed"`，但不得改变成功 agent comment 发布、role thread 更新或 artifact 错误评论语义。
 - MUST 让所有 Codex agent persona（`agents/dev.md`、`agents/dev-manager.md`、`agents/product-manager.md`、`agents/hermes-user.md` 及未来新增 Codex agent）契约要求：每条响应末尾必须以 `<!-- agent-moebius:stage=<enum> -->` marker 结尾，`<enum>` MUST 属于 `AllStages`。
 - MUST 让 `agents/dev.md` 要求 dev 在 `plan-written` 响应的方案正文末尾包含「验收语句」一节；该节 MUST 位于最终 stage marker 之前，stage marker 仍 MUST 是整条回复最后一行。
 - MUST 让 `agents/dev.md` 要求「验收语句」中的每条语句都是一句可机械执行的检查；UI 类使用 `打开 X → 做 Y → 应看到 Z` 格式，非 UI 类使用等价可执行断言格式，例如 `跑 X → 应输出/退出码 Z`。

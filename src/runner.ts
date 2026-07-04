@@ -86,9 +86,12 @@ import {
   loadRoleThreadStateStore,
   saveRoleThreadStateEntry,
 } from "./state.js";
+import { parseTrailingStageMarker } from "./stages.js";
 import { resolveTrigger } from "./triggers/index.js";
 
 let runDirSequence = 0;
+
+const DEFAULT_RUN_MANIFEST_PATH = path.join(".state", "run-manifests.jsonl");
 
 export interface AgentFile {
   name: string;
@@ -107,6 +110,7 @@ export interface ProcessIssueSourceDependencies {
   loadRoleThreadStateStore: typeof loadRoleThreadStateStore;
   saveRoleThreadStateEntry: typeof saveRoleThreadStateEntry;
   formatCeoComment: typeof formatCeoComment;
+  writeRunManifest: typeof writeRunManifest;
 }
 
 const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies = {
@@ -121,7 +125,26 @@ const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies 
   loadRoleThreadStateStore,
   saveRoleThreadStateEntry,
   formatCeoComment,
+  writeRunManifest,
 };
+
+export type RunManifestStage = "plan-written" | "code-verified" | "in-progress" | "unknown";
+
+export interface RunManifestRecord {
+  issue: {
+    owner: string;
+    repo: string;
+    number: number;
+  };
+  role: string;
+  stage: RunManifestStage;
+  artifacts: Array<{
+    path: string;
+    publishedUrl: string | null;
+  }>;
+  startedAt: string;
+  completedAt: string;
+}
 
 export interface RunnerDependencies {
   watchRepositories: readonly RepositoryRef[];
@@ -149,6 +172,23 @@ export function createDefaultRunnerDependencies(): RunnerDependencies {
     postComment,
     saveGitHubResponseIntakeState,
   };
+}
+
+export async function writeRunManifest(input: {
+  record: RunManifestRecord;
+  runDir: string;
+  manifestPath?: string;
+}): Promise<void> {
+  const manifestPath = input.manifestPath ?? DEFAULT_RUN_MANIFEST_PATH;
+  await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+  await fs.appendFile(manifestPath, `${JSON.stringify(input.record)}\n`, "utf8");
+
+  try {
+    await fs.mkdir(input.runDir, { recursive: true });
+    await fs.writeFile(path.join(input.runDir, "run-manifest.json"), `${JSON.stringify(input.record, null, 2)}\n`, "utf8");
+  } catch {
+    // The runDir copy is only for debugging; the JSONL state file above is the contract source.
+  }
 }
 
 export interface Runner {
@@ -773,9 +813,31 @@ export async function processIssueSource(
       dependencies,
     });
     if (!publishableFinalText.ok) {
+      await writeRunManifestBestEffort({
+        record: buildRunManifestRecord({
+          source: input.source,
+          role: selectedAgent.name,
+          finalText: result.finalText,
+          artifacts: publishableFinalText.artifacts,
+          startedAtMs: finalCodexStartedAtMs,
+        }),
+        runDir: finalRunDir,
+        count,
+        agent: selectedAgent.name,
+        issueKey: input.source.issueKey,
+        dependencies,
+      });
       await postVisibleComment(formatAgentComment(selectedAgent.name, formatArtifactPublishingFailure(publishableFinalText.error)));
       return "triggered-success";
     }
+
+    const runManifestRecord = buildRunManifestRecord({
+      source: input.source,
+      role: selectedAgent.name,
+      finalText: result.finalText,
+      artifacts: publishableFinalText.artifacts,
+      startedAtMs: finalCodexStartedAtMs,
+    });
 
     const ceoResult = await dependencies.formatCeoComment({
       agent: selectedAgent.name,
@@ -794,6 +856,14 @@ export async function processIssueSource(
     if (ceoResult.action === "APPEND") {
       const originalBody = formatAgentComment(selectedAgent.name, publishableFinalText.body);
       await postVisibleComment(originalBody);
+      await writeRunManifestBestEffort({
+        record: runManifestRecord,
+        runDir: finalRunDir,
+        count,
+        agent: selectedAgent.name,
+        issueKey: input.source.issueKey,
+        dependencies,
+      });
       await dependencies.saveRoleThreadStateEntry(input.source.issueKey, selectedAgent.name, nextState);
 
       const ceoAppendBody = `${formatAgentComment(ceoResult.as, ceoResult.body)}\n\n${CEO_CORRECTED_METADATA}`;
@@ -801,6 +871,14 @@ export async function processIssueSource(
     } else {
       const postedBody = formatGuardedAgentComment(selectedAgent.name, ceoResult.body);
       await postVisibleComment(postedBody);
+      await writeRunManifestBestEffort({
+        record: runManifestRecord,
+        runDir: finalRunDir,
+        count,
+        agent: selectedAgent.name,
+        issueKey: input.source.issueKey,
+        dependencies,
+      });
       await dependencies.saveRoleThreadStateEntry(input.source.issueKey, selectedAgent.name, nextState);
     }
 
@@ -876,7 +954,7 @@ async function buildPublishableFinalText(input: {
   count: number;
   agent: string;
   dependencies: ProcessIssueSourceDependencies;
-}): Promise<{ ok: true; body: string } | { ok: false; error: unknown }> {
+}): Promise<{ ok: true; body: string; artifacts: RunManifestRecord["artifacts"] } | { ok: false; error: unknown; artifacts: RunManifestRecord["artifacts"] }> {
   const artifacts = await input.dependencies.discoverOutputArtifacts({
     cwd: input.cwd,
     runDir: input.runDir,
@@ -884,12 +962,21 @@ async function buildPublishableFinalText(input: {
     startedAtMs: input.startedAtMs,
   });
   if (artifacts.length === 0) {
-    return { ok: true, body: input.finalText };
+    return { ok: true, body: input.finalText, artifacts: [] };
   }
+
+  const stagedArtifacts = artifacts.map((artifact) => ({
+    path: toManifestArtifactPath(input.runDir, artifact.filePath),
+    publishedUrl: null,
+  }));
 
   try {
     const publishedArtifacts = await input.dependencies.publishArtifacts(input.source, artifacts);
     const artifactMarkdown = formatPublishedArtifactsMarkdown(publishedArtifacts);
+    const manifestArtifacts = stagedArtifacts.map((artifact, index) => ({
+      ...artifact,
+      publishedUrl: publishedArtifacts[index]?.url ?? null,
+    }));
     log({
       event: "output-artifacts-published",
       count: input.count,
@@ -901,6 +988,7 @@ async function buildPublishableFinalText(input: {
     return {
       ok: true,
       body: artifactMarkdown === "" ? input.finalText : `${input.finalText.trimEnd()}\n\n${artifactMarkdown}`,
+      artifacts: manifestArtifacts,
     };
   } catch (error) {
     log({
@@ -911,7 +999,7 @@ async function buildPublishableFinalText(input: {
       issueKey: input.source.issueKey,
       error: formatError(error),
     });
-    return { ok: false, error };
+    return { ok: false, error, artifacts: stagedArtifacts };
   }
 }
 
@@ -925,6 +1013,72 @@ function buildCeoIssueContext(source: IssueSource, issue: GitHubIssue): {
     issueBody: issue.body,
     comments: issue.comments.map((comment) => ({ body: comment.body })),
   };
+}
+
+function buildRunManifestRecord(input: {
+  source: IssueSource;
+  role: string;
+  finalText: string;
+  artifacts: RunManifestRecord["artifacts"];
+  startedAtMs: number;
+  completedAt?: Date;
+}): RunManifestRecord {
+  return {
+    issue: {
+      owner: input.source.owner,
+      repo: input.source.repo,
+      number: input.source.issueNumber,
+    },
+    role: input.role,
+    stage: resolveRunManifestStage(input.finalText),
+    artifacts: input.artifacts,
+    startedAt: new Date(input.startedAtMs).toISOString(),
+    completedAt: (input.completedAt ?? new Date()).toISOString(),
+  };
+}
+
+function resolveRunManifestStage(finalText: string): RunManifestStage {
+  return (parseTrailingStageMarker(finalText) as RunManifestStage | null) ?? "unknown";
+}
+
+function toManifestArtifactPath(runDir: string, filePath: string): string {
+  const relative = path.relative(path.resolve(runDir), path.resolve(filePath));
+  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return path.basename(filePath);
+  }
+
+  return relative.split(path.sep).join(path.posix.sep);
+}
+
+async function writeRunManifestBestEffort(input: {
+  record: RunManifestRecord;
+  runDir: string;
+  count: number;
+  agent: string;
+  issueKey: string;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<void> {
+  try {
+    await input.dependencies.writeRunManifest({ record: input.record, runDir: input.runDir });
+    log({
+      event: "run-manifest-written",
+      count: input.count,
+      runDir: input.runDir,
+      agent: input.agent,
+      issueKey: input.issueKey,
+      artifactCount: input.record.artifacts.length,
+      stage: input.record.stage,
+    });
+  } catch (error) {
+    log({
+      event: "run-manifest-write-failed",
+      count: input.count,
+      runDir: input.runDir,
+      agent: input.agent,
+      issueKey: input.issueKey,
+      error: formatError(error),
+    });
+  }
 }
 
 function logCeoGuardrailResult(input: {

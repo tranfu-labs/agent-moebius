@@ -12,6 +12,7 @@
 2. `#数字` 只用于真实引用 GitHub issue 或 PR。
 3. Runner 专属 role envelope 只能由 runner 发布。
 4. 带路由意图的人工评论必须显式带一个合法 agent mention。
+5. 验收截图必须在「验收证据」中用 worktree 相对路径显式引用。
 
 ## 1. `@` 是控制权移交
 
@@ -105,6 +106,32 @@ product-manager 请验收方案。
 ```text
 @product-manager 请验收方案。
 ```
+
+## 5. 验收截图引用契约
+
+dev 在 issue 独占 worktree 内生成验收截图或其他验收媒体时，必须把文件放在 worktree 内，并在最终回复的「验收证据」小节用相对路径显式引用。显式引用且通过 artifact 校验的文件会被复制到本轮 `output-artifacts/` 并通过 artifact publisher 发布为评论可查看链接；未引用的 worktree 文件不会因为 mtime 较新而主动发布。
+
+正例：
+
+```text
+## 验收证据
+- 验收截图：artifacts/acceptance/t3.png
+```
+
+反例：
+
+```text
+截图已生成在本机临时目录。
+```
+
+合规改写：
+
+```text
+## 验收证据
+- 验收截图：artifacts/acceptance/t3.png
+```
+
+不得引用越界路径、本机绝对路径或未打算发布的临时文件。
 
 ## 代码区域中的 mention
 

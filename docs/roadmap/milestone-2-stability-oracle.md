@@ -72,7 +72,7 @@
 - OpenSpec：本次 change 已归档到 `openspec/changes/archive/2026-07-04-global-github-interaction-protocol/`，并已合并 spec-delta 到 `openspec/specs/github-issue-runner/spec.md`。
 - 验证：`pnpm test` 通过（23 files / 206 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）。
 
-### - [ ] T3 · artifact publisher 发现 worktree 验收截图 + run manifest 契约
+### - [x] T3 · artifact publisher 发现 worktree 验收截图 + run manifest 契约
 
 **目标**：修复 T4 spike 定位的 gap：dev 在 issue 独占 worktree 内生成的验收截图，在最终回复按约定契约引用后，能被 `discoverOutputArtifacts` 稳定发现并经现有 artifact publisher 发布，评论含可查看链接。同时把每轮 run 的结构化记录落成 **run manifest**（issue、role、stage、产物路径、发布链接、时间），作为观察页（T4）与未来目标账本（里程碑 3）的数据契约。引用契约写入协议文档与 `agents/dev.md`。
 
@@ -84,6 +84,14 @@
 3. 打开 `agents/dev.md` → 应看到验收截图的引用契约（放哪、怎么引用、何时发布）。
 
 **依赖**：T1（发布链路依赖 gh 调用加固后的错误语义）。
+
+**阶段证据（2026-07-04，T3 已完成）**：
+- Artifact 发现与发布：`src/media-assets.ts` 仅发布最终回复显式引用的 worktree 相对产物路径，拒绝绝对路径与越界路径，不再主动扫描并发布未引用 worktree PNG；`tests/media-assets.test.ts` 覆盖 `artifacts/acceptance/t3.png` 显式引用进入 `output-artifacts/`、未引用 PNG 不发布、越界引用被拒绝。
+- Run manifest：`src/runner.ts` 在 Codex run 完成后记录 issue、role、原始 final response stage、artifacts、runDir、startedAt、completedAt，主源追加写入 `.state/run-manifests.jsonl`，runDir 写 `run-manifest.json` 排障副本；无产物时 `artifacts: []`，stage 缺失或非法时仅 manifest 写 `unknown`。
+- 失败语义：artifact publisher 失败时发 artifact 错误评论、不更新 role thread，manifest 仍记录 staged artifact path 且 `publishedUrl: null`；manifest writer 失败仅记录 `run-manifest-write-failed`，不阻断已成功的 agent 评论、role thread 更新或 artifact 错误评论。
+- 契约文档：`docs/protocols/github-interaction.md` 与 `agents/dev.md` 已写入验收截图放置、最终回复「验收证据」引用方式、越界拒绝，以及只有显式引用且校验通过才会发布。
+- OpenSpec：本次 change 已归档到 `openspec/changes/archive/2026-07-04-artifact-run-manifest-t3/`，并已合并 spec-delta 到 `openspec/specs/github-issue-runner/spec.md`。
+- 验证：`pnpm vitest run tests/media-assets.test.ts tests/runner.test.ts` 通过（2 files / 42 tests，exit 0）；`pnpm test` 通过（23 files / 211 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）。
 
 ### - [ ] T4 · 只读观察页 v0
 

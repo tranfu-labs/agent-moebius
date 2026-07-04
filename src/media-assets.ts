@@ -77,8 +77,6 @@ const EXTENSION_BY_CONTENT_TYPE = new Map<string, string>([
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg"]);
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm"]);
-const EXCLUDED_OUTPUT_DIRS = new Set([".git", ".state", "node_modules", "dist", "coverage"]);
-
 export async function prepareIssueMedia(input: {
   references: IssueMediaReference[];
   runDir: string;
@@ -168,7 +166,6 @@ export async function discoverOutputArtifacts(input: {
   }
 
   const cwd = path.resolve(input.cwd);
-  const runDir = path.resolve(input.runDir);
   const limits = input.limits ?? DEFAULT_OUTPUT_LIMITS;
   const candidates = new Map<string, string>();
 
@@ -177,10 +174,6 @@ export async function discoverOutputArtifacts(input: {
     if (resolved !== null) {
       candidates.set(resolved, path.basename(referencedPath));
     }
-  }
-
-  for (const scanned of await scanRecentMediaFiles(cwd, input.startedAtMs, runDir)) {
-    candidates.set(scanned, path.basename(scanned));
   }
 
   const outputDir = path.join(input.runDir, "output-artifacts");
@@ -316,7 +309,7 @@ function maxBytesForKind(kind: IssueMediaKind, limits: MediaLimits): number {
 
 function extractMediaPathsFromText(text: string): string[] {
   const paths: string[] = [];
-  const pattern = /(?:^|[\s('"`])((?:\.{1,2}\/|\/)?[A-Za-z0-9_.\-/ ]+\.(?:svg|png|jpe?g|gif|webp|avif|mp4|mov|m4v|webm))(?:$|[\s)'"`,])/gi;
+  const pattern = /(?:^|[\s('"`:：])((?:\.{1,2}\/|\/)?[A-Za-z0-9_.\-/ ]+\.(?:svg|png|jpe?g|gif|webp|avif|mp4|mov|m4v|webm))(?:$|[\s)'"`,])/gi;
   for (const match of text.matchAll(pattern)) {
     const value = match[1]?.trim();
     if (value !== undefined && value !== "") {
@@ -327,48 +320,11 @@ function extractMediaPathsFromText(text: string): string[] {
   return paths;
 }
 
-async function scanRecentMediaFiles(root: string, startedAtMs: number, runDir: string): Promise<string[]> {
-  const found: string[] = [];
-  await walk(root, async (filePath, directoryEntry) => {
-    if (directoryEntry.isDirectory()) {
-      return;
-    }
-
-    if (classifyPath(filePath) === null) {
-      return;
-    }
-
-    const stat = await safeStat(filePath);
-    if (stat !== null && stat.mtimeMs >= startedAtMs - 1_000 && !isSubpath(filePath, runDir)) {
-      found.push(filePath);
-    }
-  });
-
-  return found;
-}
-
-async function walk(root: string, visitor: (filePath: string, directoryEntry: { isDirectory(): boolean }) => Promise<void>): Promise<void> {
-  const entries = await fs.readdir(root, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.name.startsWith(".") && entry.name !== ".agent-moebius") {
-      if (entry.name !== ".state") {
-        continue;
-      }
-    }
-
-    if (EXCLUDED_OUTPUT_DIRS.has(entry.name)) {
-      continue;
-    }
-
-    const filePath = path.join(root, entry.name);
-    await visitor(filePath, entry);
-    if (entry.isDirectory()) {
-      await walk(filePath, visitor);
-    }
-  }
-}
-
 function resolveCandidatePath(cwd: string, candidatePath: string): string | null {
+  if (path.isAbsolute(candidatePath)) {
+    return null;
+  }
+
   const resolved = path.resolve(cwd, candidatePath);
   return isSubpath(resolved, cwd) ? resolved : null;
 }
