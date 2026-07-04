@@ -45,9 +45,19 @@
 - 测试：`tests/goal-ledger.test.ts`
 - 验证命令：`pnpm test -- goal-ledger --reporter=verbose`、`rg -n "node:fs|from 'fs'|child_process|src/github|src/codex|shell" src/goal-ledger.ts`（无匹配）、`pnpm test`、`pnpm typecheck`。
 
-### - [ ] T3 · CEO 升级为普通 agent（编排路径）
+### - [x] T3 · CEO 升级为普通 agent（编排路径）
 
 `@ceo` 进入 `availableAgentNames`，获得独立 role thread 与账本访问 prescript；编排职责：读账本、按 `milestone-standards.md` 拆解、冲突感知分组、spawn 子 issue、注入质量基准与验收语句；编排动作 fail-closed。**CEO 的工作模型是剧本库分发，不是即兴思考**：每次调用只做"识别场景 → 识别工作流 → 套对应模板 + `@` 对应角色"三步（里程碑 2 T9 的方案评审 / 执行后复盘模板是首批剧本）；剧本是数据（模板文件），新增工作流 = 新增剧本，不改 CEO 判断逻辑；只有剧本覆盖不到的场景才动用自由判断托举项目继续前进（T8 兜底路由即托举入口）。guardrail hook 路径保持无状态 fail-open 不变，两条路径共用 persona 素材但判据分节。防自激环：guardrail 对 CEO agent 评论的 append 必须有界；CEO agent 响应仍照常过 guardrail 格式红线。与里程碑 2 T8 汇合：无 mention 外部评论的兜底路由可实现为自动移交 `@ceo`，真人 / watcher 也可手动 `@ceo` 索取路由裁决。
+
+验收证据（2026-07-04）：
+- 方案与归档：`openspec/changes/archive/2026-07-04-ceo-agent-orchestration-t3/`
+- 行为事实源：`openspec/specs/github-issue-runner/spec.md`、`openspec/specs/goal-ledger/spec.md`
+- 架构事实源：`docs/architecture/ceo-agent-orchestration.svg`、`docs/architecture/module-map.md`
+- 剧本与 persona：`agents/ceo.md`、`agents/ceo-scripts/plan-review.md`、`agents/ceo-scripts/post-implementation-retro.md`、`agents/ceo-scripts/milestone-spawn-child-issues.md`
+- 实现：`src/ceo-scripts.ts`、`src/ceo-orchestration.ts`、`src/agent-prescripts/ceo-ledger-context.ts`、`src/runner.ts`、`src/github.ts`、`src/format-ceo.ts`、`src/triggers/mention-trigger.ts`、`src/goal-ledger.ts`
+- 测试：`tests/ceo-scripts.test.ts`、`tests/ceo-orchestration.test.ts`、`tests/runner.test.ts`、`tests/format-ceo.test.ts`、`tests/github.test.ts`、`tests/triggers.test.ts`
+- 验证命令：`pnpm test -- tests/runner.test.ts`、`pnpm test`、`pnpm typecheck` 均退出码 0。
+- 验收清单：需求持有者已确认最新落盘方案中的 23 条验收语句；实现证据覆盖 CEO 可触发、独立 role thread、ledger prescript fail-closed、剧本加载、三类剧本、真实子 issue adapter、质量基准 / 验收语句注入、guardrail fail-open、防自激、T8 汇合、非目标边界，以及 QA 增补的超时、部分成功重试、ledger 保存失败、JSON + stage marker、shell metacharacters、title drift 与 hidden key 找回故障注入场景。
 
 ### - [ ] T4 · 验收路由与集成验收点
 

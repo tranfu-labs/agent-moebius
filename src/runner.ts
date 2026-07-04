@@ -8,6 +8,7 @@ import {
   AGENTS_DIR,
   CODEX_DRIVER_POOL_MAX_CONCURRENT,
   CODEX_RUN_MAX_DURATION_MS,
+  CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
   CONFIG_LOG_FIELDS,
   FAILURE_RETRY_LIMIT,
   IDLE_REPOSITORY_SCAN_INTERVAL_MS,
@@ -28,6 +29,17 @@ import {
 } from "./conversation-interrupt.js";
 import { parseAgentManifest } from "./agent-manifest.js";
 import { runAgentPreScript } from "./agent-prescripts/index.js";
+import { formatCeoScriptsForPrompt, loadCeoScripts, type CeoScript } from "./ceo-scripts.js";
+import {
+  buildCeoOrchestrationKey,
+  ensureInProgressStage,
+  extractCeoOrchestrationKeyFromNote,
+  parseCeoOrchestrationOutput,
+  renderCeoChildIssueBody,
+  type CeoChildIssueDescriptor,
+  type CeoOrchestrationGroup,
+} from "./ceo-orchestration.js";
+import { resolveCeoLedgerPromptContext } from "./agent-prescripts/ceo-ledger-context.js";
 import {
   buildFallbackFullPrompt,
   buildRolePromptPlan,
@@ -60,15 +72,28 @@ import {
 } from "./format-ceo.js";
 import {
   addReaction,
+  createIssue,
   fetchIssueWithComments,
+  findIssueByOrchestrationKey,
   isGitHubIssueNotFoundError,
   listOpenIssueSummaries,
   postComment,
   publishReleaseArtifacts,
+  type CreatedIssue,
   type GitHubIssue,
   type IssueReactionContent,
   type ReactionTarget,
 } from "./github.js";
+import {
+  loadGoalLedgerState,
+  saveGoalLedgerEntry,
+} from "./goal-ledger-state.js";
+import type {
+  GoalLedgerEntry,
+  GoalLedgerState,
+  IssueReference,
+  TaskRecord,
+} from "./goal-ledger.js";
 import { appendMediaManifest, extractIssueMediaReferences, type MediaPromptEntry } from "./issue-media.js";
 import {
   discoverOutputArtifacts,
@@ -112,13 +137,18 @@ export interface ProcessIssueSourceDependencies {
   runAgentPreScript: typeof runAgentPreScript;
   runCodex: typeof runCodex;
   addReaction: typeof addReaction;
+  createIssue: typeof createIssue;
   fetchIssueWithComments: typeof fetchIssueWithComments;
+  findIssueByOrchestrationKey: typeof findIssueByOrchestrationKey;
   postComment: typeof postComment;
   prepareIssueMedia: typeof prepareIssueMedia;
   discoverOutputArtifacts: typeof discoverOutputArtifacts;
   publishArtifacts: typeof publishReleaseArtifacts;
   loadRoleThreadStateStore: typeof loadRoleThreadStateStore;
   saveRoleThreadStateEntry: typeof saveRoleThreadStateEntry;
+  loadCeoScripts: typeof loadCeoScripts;
+  loadGoalLedgerState: typeof loadGoalLedgerState;
+  saveGoalLedgerEntry: typeof saveGoalLedgerEntry;
   formatCeoComment: typeof formatCeoComment;
   formatExternalCommentRoute: typeof formatExternalCommentRoute;
   writeRunManifest: typeof writeRunManifest;
@@ -128,13 +158,18 @@ const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies 
   runAgentPreScript,
   runCodex,
   addReaction,
+  createIssue,
   fetchIssueWithComments,
+  findIssueByOrchestrationKey,
   postComment,
   prepareIssueMedia,
   discoverOutputArtifacts,
   publishArtifacts: publishReleaseArtifacts,
   loadRoleThreadStateStore,
   saveRoleThreadStateEntry,
+  loadCeoScripts,
+  loadGoalLedgerState,
+  saveGoalLedgerEntry,
   formatCeoComment,
   formatExternalCommentRoute,
   writeRunManifest,
@@ -608,6 +643,7 @@ export async function processIssueSource(
     }
 
     let codexCwd: string | undefined;
+    let preScriptPromptContext: string | undefined;
     if (agentManifest.preScript !== null) {
       const preScriptResult = await dependencies.runAgentPreScript({
         role: selectedAgent.name,
@@ -628,10 +664,22 @@ export async function processIssueSource(
           reason: preScriptResult.reason,
           issueKey: input.source.issueKey,
         });
+        if (selectedAgent.name === "ceo" && preScriptResult.visibleFailureBody !== undefined) {
+          await postVisibleComment(
+            formatBypassedAgentComment(
+              selectedAgent.name,
+              preScriptResult.visibleFailureBody,
+              "agent-prescript-failed",
+            ),
+          );
+          return "triggered-success";
+        }
+
         return failedIssueProcessingOutcome({ reason: preScriptResult.reason, agent: selectedAgent.name });
       }
 
       codexCwd = preScriptResult.codexCwd;
+      preScriptPromptContext = preScriptResult.promptContext;
       log({
         event: "agent-prescript-completed",
         count,
@@ -741,7 +789,7 @@ export async function processIssueSource(
     try {
       finalCodexStartedAtMs = Date.now();
       result = await runCodexWithWatchdog({
-        prompt: appendMediaManifest(plan.prompt, initialMedia.prepared),
+        prompt: appendMediaManifest(appendPromptContext(plan.prompt, preScriptPromptContext), initialMedia.prepared),
         runDir,
         cwd: codexCwd,
         signal: interruptController.signal,
@@ -786,7 +834,10 @@ export async function processIssueSource(
 
         finalCodexStartedAtMs = Date.now();
         result = await runCodexWithWatchdog({
-          prompt: appendMediaManifest(buildFallbackFullPrompt(agentManifest.body, timeline), fallbackMedia.prepared),
+          prompt: appendMediaManifest(
+            appendPromptContext(buildFallbackFullPrompt(agentManifest.body, timeline), preScriptPromptContext),
+            fallbackMedia.prepared,
+          ),
           runDir: finalRunDir,
           cwd: codexCwd,
           signal: interruptController.signal,
@@ -846,6 +897,22 @@ export async function processIssueSource(
     if (nextState === null) {
       log({ event: "codex-failed", count, runDir: result.runDir, reason: "no-thread-id", agent: selectedAgent.name });
       return failedIssueProcessingOutcome({ reason: "no-thread-id", agent: selectedAgent.name });
+    }
+
+    if (selectedAgent.name === "ceo") {
+      return await handleCeoAgentResult({
+        source: input.source,
+        issue: input.issue,
+        agentNames,
+        finalText: result.finalText,
+        resultThreadId: nextState.threadId,
+        nextState,
+        runDir: finalRunDir,
+        startedAtMs: finalCodexStartedAtMs,
+        count,
+        postVisibleComment,
+        dependencies,
+      });
     }
 
     const publishableFinalText = await buildPublishableFinalText({
@@ -1066,8 +1133,442 @@ async function maybeRouteExternalNoMentionComment(input: {
   });
 }
 
+async function handleCeoAgentResult(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  agentNames: string[];
+  finalText: string;
+  resultThreadId: string;
+  nextState: NonNullable<ReturnType<typeof resolveNextRoleThreadState>>;
+  runDir: string;
+  startedAtMs: number;
+  count: number;
+  postVisibleComment: (body: string) => Promise<void>;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<IssueProcessingOutcome> {
+  let scripts: CeoScript[];
+  let ledgerContext: ReturnType<typeof resolveCeoLedgerPromptContext>;
+  try {
+    scripts = await input.dependencies.loadCeoScripts({ required: true });
+    const ledger = await input.dependencies.loadGoalLedgerState();
+    ledgerContext = resolveCeoLedgerPromptContext({
+      ledger,
+      source: input.source,
+      scriptsPrompt: formatCeoScriptsForPrompt(scripts),
+    });
+  } catch (error) {
+    const failureBody = formatCeoOrchestrationFailureBody({
+      reason: formatFailureReason(error),
+      completed: [],
+      pending: [],
+    });
+    try {
+      await input.postVisibleComment(formatBypassedAgentComment("ceo", failureBody, "ceo-orchestration-failed"));
+      return "triggered-success";
+    } catch (postError) {
+      throw new Error(
+        `ceo-orchestration-failed:${formatFailureReason(error)}; fail-closed-comment-failed:${formatFailureReason(postError)}`,
+      );
+    }
+  }
+  const visibleTaskIds = ledgerContext.visibleTasks.map((task) => task.id);
+  const parsed = parseCeoOrchestrationOutput({
+    output: input.finalText,
+    scripts,
+    availableAgentNames: input.agentNames,
+    visibleTaskIds,
+  });
+
+  if (!parsed.ok) {
+    await input.postVisibleComment(
+      formatBypassedAgentComment(
+        "ceo",
+        formatCeoOrchestrationFailureBody({
+          reason: parsed.reason,
+          completed: [],
+          pending: [],
+        }),
+        "ceo-orchestration-failed",
+      ),
+    );
+    return "triggered-success";
+  }
+
+  if (parsed.value.action === "fail") {
+    await input.postVisibleComment(formatBypassedAgentComment("ceo", parsed.value.body, "ceo-orchestration-failed"));
+    return "triggered-success";
+  }
+
+  if (parsed.value.action === "route") {
+    await publishCeoVisibleResult({
+      source: input.source,
+      issue: input.issue,
+      body: parsed.value.body,
+      runDir: input.runDir,
+      startedAtMs: input.startedAtMs,
+      count: input.count,
+      nextState: input.nextState,
+      postVisibleComment: input.postVisibleComment,
+      dependencies: input.dependencies,
+    });
+    return "triggered-success";
+  }
+
+  const completed: CeoSpawnCompletedItem[] = [];
+  const pending = [...parsed.value.issues];
+  try {
+    for (const descriptor of parsed.value.issues) {
+      pending.shift();
+      const group = parsed.value.groups.find((candidate) => candidate.id === descriptor.groupId);
+      if (group === undefined) {
+        throw new Error(`missing-group:${descriptor.groupId}`);
+      }
+
+      const orchestrationKey = buildCeoOrchestrationKey({
+        source: input.source,
+        workflowId: parsed.value.workflowId,
+        ledgerTaskId: descriptor.ledgerTaskId,
+      });
+
+      const existingRef = findTaskChildIssueRefByOrchestrationKey(
+        await input.dependencies.loadGoalLedgerState(),
+        descriptor.ledgerTaskId,
+        orchestrationKey,
+      );
+      if (existingRef !== null) {
+        completed.push({
+          kind: "already-created",
+          descriptor,
+          issue: issueFromReference(existingRef),
+          orchestrationKey,
+        });
+        continue;
+      }
+
+      const lookup = await withTimeout(
+        input.dependencies.findIssueByOrchestrationKey(input.source, orchestrationKey),
+        CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+        "findIssueByOrchestrationKey",
+      );
+      if (lookup.kind === "multiple") {
+        throw new Error(
+          `orchestration-key-multiple-matches:${orchestrationKey}:${lookup.issues.map((issue) => issue.url).join(",")}`,
+        );
+      }
+      if (lookup.kind === "one") {
+        completed.push({
+          kind: "recovered-existing",
+          descriptor,
+          issue: lookup.issue,
+          orchestrationKey,
+        });
+        await saveTaskChildIssueRef({
+          dependencies: input.dependencies,
+          ledgerTaskId: descriptor.ledgerTaskId,
+          issue: lookup.issue,
+          orchestrationKey,
+          provenance: descriptor.provenance,
+        });
+        continue;
+      }
+
+      const body = renderCeoChildIssueBody({
+        source: input.source,
+        parentIssueUrl: issueUrl(input.source),
+        workflowId: parsed.value.workflowId,
+        group,
+        descriptor,
+        orchestrationKey,
+      });
+      const created = await withTimeout(
+        input.dependencies.createIssue(input.source, { title: descriptor.title, body }),
+        CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+        "createIssue",
+      );
+      completed.push({
+        kind: "created",
+        descriptor,
+        issue: created,
+        orchestrationKey,
+      });
+      await saveTaskChildIssueRef({
+        dependencies: input.dependencies,
+        ledgerTaskId: descriptor.ledgerTaskId,
+        issue: created,
+        orchestrationKey,
+        provenance: descriptor.provenance,
+      });
+    }
+  } catch (error) {
+    const failureBody = formatCeoOrchestrationFailureBody({
+      reason: formatFailureReason(error),
+      completed,
+      pending,
+    });
+    try {
+      await input.postVisibleComment(formatBypassedAgentComment("ceo", failureBody, "ceo-orchestration-failed"));
+      return "triggered-success";
+    } catch (postError) {
+      throw new Error(
+        `ceo-orchestration-failed:${formatFailureReason(error)}; fail-closed-comment-failed:${formatFailureReason(
+          postError,
+        )}; completed=${completed.map((item) => item.issue.url).join(",")}`,
+      );
+    }
+  }
+
+  const successBody = formatCeoSpawnSuccessBody({
+    summary: parsed.value.summary,
+    groups: parsed.value.groups,
+    completed,
+  });
+  await publishCeoVisibleResult({
+    source: input.source,
+    issue: input.issue,
+    body: successBody,
+    runDir: input.runDir,
+    startedAtMs: input.startedAtMs,
+    count: input.count,
+    nextState: input.nextState,
+    postVisibleComment: input.postVisibleComment,
+    dependencies: input.dependencies,
+  });
+  return "triggered-success";
+}
+
+async function publishCeoVisibleResult(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  body: string;
+  runDir: string;
+  startedAtMs: number;
+  count: number;
+  nextState: NonNullable<ReturnType<typeof resolveNextRoleThreadState>>;
+  postVisibleComment: (body: string) => Promise<void>;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<void> {
+  const body = ensureInProgressStage(input.body);
+  const runManifestRecord = buildRunManifestRecord({
+    source: input.source,
+    role: "ceo",
+    finalText: body,
+    artifacts: [],
+    startedAtMs: input.startedAtMs,
+  });
+  const ceoResult = await input.dependencies.formatCeoComment({
+    agent: "ceo",
+    issueContext: buildCeoIssueContext(input.source, input.issue),
+    latestResponse: body,
+    runDir: input.runDir,
+    runCodex: input.dependencies.runCodex,
+  });
+  logCeoGuardrailResult({
+    result: ceoResult,
+    count: input.count,
+    agent: "ceo",
+    issueKey: input.source.issueKey,
+  });
+
+  if (ceoResult.action === "APPEND") {
+    const originalBody = appendCeoReviewedMetadata(formatAgentComment("ceo", body), {
+      action: "append_original",
+    });
+    await input.postVisibleComment(originalBody);
+    const ceoAppendBody = `${appendCeoReviewedMetadata(formatAgentComment(ceoResult.as, ceoResult.body), {
+      action: "append_ceo",
+    })}\n\n${CEO_CORRECTED_METADATA}`;
+    await input.dependencies.postComment(input.source, ceoAppendBody);
+  } else {
+    await input.postVisibleComment(formatGuardedAgentComment("ceo", ceoResult.body, ceoResult));
+  }
+
+  await writeRunManifestBestEffort({
+    record: runManifestRecord,
+    runDir: input.runDir,
+    count: input.count,
+    agent: "ceo",
+    issueKey: input.source.issueKey,
+    dependencies: input.dependencies,
+  });
+  await input.dependencies.saveRoleThreadStateEntry(input.source.issueKey, "ceo", input.nextState);
+}
+
+interface CeoSpawnCompletedItem {
+  kind: "created" | "already-created" | "recovered-existing";
+  descriptor: CeoChildIssueDescriptor;
+  issue: CreatedIssue;
+  orchestrationKey: string;
+}
+
+function findTaskChildIssueRefByOrchestrationKey(
+  ledger: GoalLedgerState,
+  ledgerTaskId: string,
+  orchestrationKey: string,
+): IssueReference | null {
+  const task = ledger.tasks[ledgerTaskId];
+  if (task === undefined) {
+    return null;
+  }
+
+  return task.childIssueRefs.find((reference) => extractCeoOrchestrationKeyFromNote(reference.note) === orchestrationKey) ?? null;
+}
+
+async function saveTaskChildIssueRef(input: {
+  dependencies: ProcessIssueSourceDependencies;
+  ledgerTaskId: string;
+  issue: CreatedIssue;
+  orchestrationKey: string;
+  provenance: string;
+}): Promise<void> {
+  await withTimeout(
+    input.dependencies.saveGoalLedgerEntry(
+      "tasks",
+      input.ledgerTaskId,
+      (entry) => {
+        if (entry === null || !isTaskRecord(entry)) {
+          throw new Error(`missing-ledger-task:${input.ledgerTaskId}`);
+        }
+        if (entry.childIssueRefs.some((reference) => extractCeoOrchestrationKeyFromNote(reference.note) === input.orchestrationKey)) {
+          return entry;
+        }
+
+        const note = truncateForComment(
+          `${input.orchestrationKey}; provenance=${input.provenance.replace(/\s+/g, " ").trim()}`,
+          500,
+        );
+        const repo = parseIssueUrl(input.issue.url);
+        return {
+          ...entry,
+          childIssueRefs: [
+            ...entry.childIssueRefs,
+            {
+              owner: repo.owner,
+              repo: repo.repo,
+              number: input.issue.number,
+              relation: "child",
+              status: "open",
+              note,
+            },
+          ],
+          updatedAt: new Date().toISOString(),
+        };
+      },
+      undefined,
+      { timeoutMs: CEO_ORCHESTRATION_ACTION_TIMEOUT_MS },
+    ),
+    CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+    "saveGoalLedgerEntry",
+  );
+}
+
+function formatCeoSpawnSuccessBody(input: {
+  summary: string;
+  groups: CeoOrchestrationGroup[];
+  completed: CeoSpawnCompletedItem[];
+}): string {
+  const issueLines =
+    input.completed.length === 0
+      ? "- none"
+      : input.completed
+          .map((item) => `- ${item.kind}: ${item.descriptor.ledgerTaskId} -> ${item.issue.url}`)
+          .join("\n");
+  const groupLines = input.groups.map((group) => `- ${group.id}: ${group.reason}`).join("\n");
+
+  return `CEO 编排完成。
+
+${input.summary}
+
+子 issue：
+${issueLines}
+
+冲突分组：
+${groupLines}
+
+<!-- agent-moebius:stage=in-progress -->`;
+}
+
+function formatCeoOrchestrationFailureBody(input: {
+  reason: string;
+  completed: CeoSpawnCompletedItem[];
+  pending: CeoChildIssueDescriptor[];
+}): string {
+  const completed =
+    input.completed.length === 0
+      ? "- none"
+      : input.completed
+          .map((item) => `- ${item.kind}: ${item.descriptor.ledgerTaskId} -> ${item.issue.url}`)
+          .join("\n");
+  const pending =
+    input.pending.length === 0
+      ? "- none"
+      : input.pending.map((descriptor) => `- ${descriptor.ledgerTaskId}: ${descriptor.title}`).join("\n");
+
+  return `CEO 编排路径 fail-closed：${input.reason}
+
+已创建或已找回：
+${completed}
+
+未创建：
+${pending}
+
+本轮不会继续创建后续 issue，也不会更新 ceo role thread。下一轮会先按稳定 orchestration key 查 ledger 和 GitHub，避免重复创建。
+
+<!-- agent-moebius:stage=in-progress -->`;
+}
+
+function issueFromReference(reference: IssueReference): CreatedIssue {
+  return {
+    number: reference.number,
+    url: `https://github.com/${reference.owner}/${reference.repo}/issues/${String(reference.number)}`,
+  };
+}
+
+function parseIssueUrl(url: string): { owner: string; repo: string } {
+  const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/\d+$/u);
+  if (match?.[1] === undefined || match[2] === undefined) {
+    throw new Error(`invalid-created-issue-url:${url}`);
+  }
+  return { owner: match[1], repo: match[2] };
+}
+
+function issueUrl(source: IssueSource): string {
+  return `https://github.com/${source.owner}/${source.repo}/issues/${String(source.issueNumber)}`;
+}
+
+function isTaskRecord(entry: GoalLedgerEntry): entry is TaskRecord {
+  return "childIssueRefs" in entry && "runManifestRefs" in entry;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label}-timeout:${String(timeoutMs)}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 function hasAgentMoebiusMetadata(body: string): boolean {
   return /<!--\s*agent-moebius:/u.test(body);
+}
+
+function appendPromptContext(prompt: string, promptContext: string | undefined): string {
+  if (promptContext === undefined || promptContext.trim() === "") {
+    return prompt;
+  }
+
+  return `${prompt.trimEnd()}
+
+## Agent PreScript Context
+
+${promptContext.trimEnd()}`;
 }
 
 async function prepareMediaForPrompt(input: {

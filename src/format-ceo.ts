@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AGENTS_DIR } from "./config.js";
+import { parseAgentManifest } from "./agent-manifest.js";
+import { formatCeoScriptsForPrompt, loadCeoScripts } from "./ceo-scripts.js";
 import { parseAgentMentions } from "./conversation.js";
 import { run as runCodex, type CodexRunResult } from "./codex.js";
 import { ALL_STAGES, parseTrailingStageMarker } from "./stages.js";
@@ -108,7 +110,7 @@ export async function formatCeoComment(input: FormatCeoInput): Promise<FormatCeo
 
   let persona: string;
   try {
-    persona = await fs.readFile(path.join(input.agentsDir ?? AGENTS_DIR, "ceo.md"), "utf8");
+    persona = await loadCeoPersonaWithScripts(input.agentsDir);
   } catch (error) {
     return {
       action: "FAIL_OPEN",
@@ -187,6 +189,9 @@ export async function formatCeoComment(input: FormatCeoInput): Promise<FormatCeo
   if (parsed.body.trim() === "") {
     return { action: "FAIL_OPEN", body: input.latestResponse, reason: "empty-body" };
   }
+  if (input.agent === "ceo" && (parsed.as === "ceo" || parseAgentMentions(parsed.body).some((mention) => mention.name === "ceo"))) {
+    return { action: "FAIL_OPEN", body: input.latestResponse, reason: "post-validate-failed", detail: "ceo-self-loop-append" };
+  }
   return { action: "APPEND", body: parsed.body, as: parsed.as, reason: "appended" };
 }
 
@@ -195,7 +200,7 @@ export async function formatExternalCommentRoute(
 ): Promise<FormatExternalCommentRouteResult> {
   let persona: string;
   try {
-    persona = await fs.readFile(path.join(input.agentsDir ?? AGENTS_DIR, "ceo.md"), "utf8");
+    persona = await loadCeoPersonaWithScripts(input.agentsDir);
   } catch (error) {
     return {
       action: "FAIL_OPEN",
@@ -414,7 +419,7 @@ function buildExternalCommentRoutePrompt(input: {
   latestComment: string;
   availableAgentNames: string[];
 }): string {
-  const triggerableAgents = input.availableAgentNames.filter((name) => name !== "ceo");
+  const triggerableAgents = input.availableAgentNames;
   return `${input.persona.trimEnd()}
 
 请根据以下完整公开 issue 上下文，对最新外部无 mention 评论做一次轻量路由判定。
@@ -473,12 +478,23 @@ function validateExternalRouteAppendBody(
   }
 
   const targetRole = mentions[0]?.name;
-  const triggerableAgents = new Set(availableAgentNames.filter((name) => name !== "ceo"));
+  const triggerableAgents = new Set(availableAgentNames);
   if (targetRole === undefined || !triggerableAgents.has(targetRole)) {
     return { ok: false, reason: "unknown-mention", detail: targetRole };
   }
 
   return { ok: true, targetRole };
+}
+
+async function loadCeoPersonaWithScripts(agentsDir = AGENTS_DIR): Promise<string> {
+  const raw = await fs.readFile(path.join(agentsDir, "ceo.md"), "utf8");
+  const persona = parseAgentManifest(raw).body;
+  const scripts = await loadCeoScripts({ agentsDir, required: false });
+  return `${persona.trimEnd()}
+
+## CEO 剧本库
+
+${formatCeoScriptsForPrompt(scripts)}`;
 }
 
 function sanitizeMetadataValue(value: string): string {

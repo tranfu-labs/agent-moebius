@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildAddReactionArgs,
   buildAddIssueReactionArgs,
+  buildCreateIssueArgs,
   buildFetchIssueWithCommentsArgs,
+  buildFindIssueByOrchestrationKeyArgs,
   buildListOpenIssueSummariesArgs,
   buildPostCommentArgs,
   GitHubIssueNotFoundError,
@@ -68,6 +70,28 @@ describe("github issue errors", () => {
       "tranfu-labs/agent-moebius",
       "--body-file",
       "-",
+    ]);
+    expect(buildCreateIssueArgs(source, "title with $(rm -rf /)\nand newline")).toEqual([
+      "issue",
+      "create",
+      "--repo",
+      "tranfu-labs/agent-moebius",
+      "--title",
+      "title with $(rm -rf /)\nand newline",
+      "--body-file",
+      "-",
+    ]);
+    expect(buildFindIssueByOrchestrationKeyArgs(source, "agent-moebius-orchestration-key:abc")).toEqual([
+      "issue",
+      "list",
+      "--repo",
+      "tranfu-labs/agent-moebius",
+      "--state",
+      "all",
+      "--search",
+      "agent-moebius-orchestration-key:abc",
+      "--json",
+      "number,url",
     ]);
     expect(buildAddIssueReactionArgs(source, "eyes")).toEqual([
       "api",

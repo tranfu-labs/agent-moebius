@@ -2,9 +2,15 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { CODEX_DRIVER_POOL_MAX_CONCURRENT, CODEX_RUN_MAX_DURATION_MS } from "../src/config.js";
+import {
+  CODEX_DRIVER_POOL_MAX_CONCURRENT,
+  CODEX_RUN_MAX_DURATION_MS,
+  CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+} from "../src/config.js";
 import { createDriverPool, type DriverPool } from "../src/driver-pool.js";
 import { CEO_CORRECTED_METADATA, type FormatCeoResult } from "../src/format-ceo.js";
+import { buildCeoOrchestrationKey } from "../src/ceo-orchestration.js";
+import type { CeoScript } from "../src/ceo-scripts.js";
 import {
   createDefaultCodexDriverPool,
   formatDeadLetterComment,
@@ -17,6 +23,7 @@ import {
 } from "../src/runner.js";
 import { failedIssueProcessingOutcome, type GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import { CommandFailedError, type GitHubIssue } from "../src/github.js";
+import type { GoalLedgerState } from "../src/goal-ledger.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
 const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
@@ -1210,6 +1217,353 @@ Dev persona`,
     });
   });
 
+  it("posts a visible fail-closed comment when the CEO ledger prescript fails", async () => {
+    const ceo = await makeAgentFile(
+      "ceo",
+      `---
+preScript: src/agent-prescripts/ceo-ledger-context.ts
+---
+CEO persona`,
+    );
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) =>
+      successfulCodexRun(options.runDir),
+    );
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 请拆解。"),
+        agentFiles: [ceo],
+      },
+      makeDependencies({
+        runCodex,
+        postComment,
+        saveRoleThreadStateEntry,
+        runAgentPreScript: async () => ({
+          ok: false,
+          reason: "ceo-ledger-context-error:missing-ledger",
+          visibleFailureBody:
+            "CEO 编排路径 fail-closed：missing-ledger\n\n<!-- agent-moebius:stage=in-progress -->",
+        }),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(runCodex).not.toHaveBeenCalled();
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+    expect(postComment.mock.calls[0]?.[1]).toContain("CEO 编排路径 fail-closed");
+    expect(postComment.mock.calls[0]?.[1]).toContain(
+      "<!-- agent-moebius:ceo-reviewed action=bypass reason=agent-prescript-failed -->",
+    );
+  });
+
+  it("posts a visible fail-closed comment when CEO orchestration context reload fails after Codex", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 请按账本拆解。"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        postComment,
+        saveRoleThreadStateEntry,
+        loadCeoScripts: async () => {
+          throw new Error("missing script");
+        },
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(options.runDir, makeCeoSpawnFinalText({ title: "T3 child" })),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment.mock.calls[0]?.[1]).toContain("CEO 编排路径 fail-closed");
+    expect(postComment.mock.calls[0]?.[1]).toContain("missing script");
+    expect(postComment.mock.calls[0]?.[1]).toContain("ceo-orchestration-failed");
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+  });
+
+  it("runs CEO spawn orchestration through the GitHub adapter and writes a child ledger ref", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const ledger = makeCeoLedgerState();
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 101,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+    }));
+    const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async (kind, id, mutate) => {
+      expect(kind).toBe("tasks");
+      const next = mutate(ledger.tasks[id] ?? null, ledger);
+      if (next !== null) {
+        ledger.tasks[id] = next as GoalLedgerState["tasks"][string];
+      }
+    });
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 请按账本拆解。"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        createIssue,
+        postComment,
+        saveGoalLedgerEntry,
+        saveRoleThreadStateEntry,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(options.runDir, makeCeoSpawnFinalText({ title: "T3 child" })),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(createIssue).toHaveBeenCalledTimes(1);
+    expect(createIssue.mock.calls[0]?.[1].title).toBe("T3 child");
+    expect(createIssue.mock.calls[0]?.[1].body).toContain("Parent issue: https://github.com/tranfu-labs/agent-moebius/issues/4");
+    expect(createIssue.mock.calls[0]?.[1].body).toContain("Quality baseline: data-correct");
+    expect(createIssue.mock.calls[0]?.[1].body).toContain("@dev 请按本子 issue");
+    expect(saveGoalLedgerEntry).toHaveBeenCalledTimes(1);
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]).toMatchObject({
+      owner: "tranfu-labs",
+      repo: "agent-moebius",
+      number: 101,
+      relation: "child",
+      status: "open",
+    });
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("agent-moebius-orchestration-key:");
+    expect(postComment.mock.calls[0]?.[1]).toContain("CEO 编排完成");
+    expect(postComment.mock.calls[0]?.[1]).toContain("issues/101");
+    expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles with a visible fail-closed comment when createIssue never settles", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const createStarted = deferred<void>();
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(
+      async () =>
+        new Promise(() => {
+          createStarted.resolve();
+        }),
+    );
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+
+    vi.useFakeTimers();
+    try {
+      const outcomePromise = processIssueSource(
+        {
+          source,
+          issue: makeIssue("@ceo 请按账本拆解。"),
+          agentFiles: [ceo, dev],
+        },
+        makeDependencies({
+          createIssue,
+          postComment,
+          saveRoleThreadStateEntry,
+          loadCeoScripts: async () => ceoScriptsForRunner(),
+          loadGoalLedgerState: async () => makeCeoLedgerState(),
+          runCodex: async (options) =>
+            successfulCodexRunWithFinalText(options.runDir, makeCeoSpawnFinalText({ title: "T3 child" })),
+        }),
+      );
+
+      await createStarted.promise;
+      await vi.advanceTimersByTimeAsync(CEO_ORCHESTRATION_ACTION_TIMEOUT_MS);
+      await expect(outcomePromise).resolves.toBe("triggered-success");
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(postComment.mock.calls[0]?.[1]).toContain("createIssue-timeout");
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+  });
+
+  it("includes the created issue URL when ledger child ref saving times out", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const saveStarted = deferred<void>();
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+
+    vi.useFakeTimers();
+    try {
+      const outcomePromise = processIssueSource(
+        {
+          source,
+          issue: makeIssue("@ceo 请按账本拆解。"),
+          agentFiles: [ceo, dev],
+        },
+        makeDependencies({
+          createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/agent-moebius/issues/101" }),
+          postComment,
+          saveRoleThreadStateEntry,
+          saveGoalLedgerEntry: async () =>
+            new Promise(() => {
+              saveStarted.resolve();
+            }),
+          loadCeoScripts: async () => ceoScriptsForRunner(),
+          loadGoalLedgerState: async () => makeCeoLedgerState(),
+          runCodex: async (options) =>
+            successfulCodexRunWithFinalText(options.runDir, makeCeoSpawnFinalText({ title: "T3 child" })),
+        }),
+      );
+
+      await saveStarted.promise;
+      await vi.advanceTimersByTimeAsync(CEO_ORCHESTRATION_ACTION_TIMEOUT_MS);
+      await expect(outcomePromise).resolves.toBe("triggered-success");
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(postComment.mock.calls[0]?.[1]).toContain("saveGoalLedgerEntry-timeout");
+    expect(postComment.mock.calls[0]?.[1]).toContain("https://github.com/tranfu-labs/agent-moebius/issues/101");
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+  });
+
+  it("returns failed when fail-closed comment publishing also fails and preserves created URLs in the reason", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 请按账本拆解。"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/agent-moebius/issues/101" }),
+        postComment: async () => {
+          throw new Error("comment failed");
+        },
+        saveGoalLedgerEntry: async () => {
+          throw new Error("ledger write failed");
+        },
+        saveRoleThreadStateEntry,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => makeCeoLedgerState(),
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(options.runDir, makeCeoSpawnFinalText({ title: "T3 child" })),
+      }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      agent: "ceo",
+      reason: expect.stringContaining("https://github.com/tranfu-labs/agent-moebius/issues/101"),
+    });
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
+  });
+
+  it("does not create a duplicate child issue when the ledger already has the orchestration key", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const key = buildCeoOrchestrationKey({ source, workflowId: "milestone-spawn-child-issues", ledgerTaskId: "task-1" });
+    const ledger = makeCeoLedgerState({
+      childIssueRefs: [
+        {
+          owner: "tranfu-labs",
+          repo: "agent-moebius",
+          number: 101,
+          relation: "child",
+          status: "open",
+          note: `${key}; provenance=previous`,
+        },
+      ],
+    });
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 102,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/102",
+    }));
+    const findIssueByOrchestrationKey = vi.fn<ProcessIssueSourceDependencies["findIssueByOrchestrationKey"]>(async () => ({
+      kind: "none",
+    }));
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 请重试编排。"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        createIssue,
+        findIssueByOrchestrationKey,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(options.runDir, makeCeoSpawnFinalText({ title: "T3 child renamed" })),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(createIssue).not.toHaveBeenCalled();
+    expect(findIssueByOrchestrationKey).not.toHaveBeenCalled();
+  });
+
+  it("recovers an existing child issue by hidden orchestration key before creating a duplicate", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const ledger = makeCeoLedgerState();
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 102,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/102",
+    }));
+    const findIssueByOrchestrationKey = vi.fn<ProcessIssueSourceDependencies["findIssueByOrchestrationKey"]>(async () => ({
+      kind: "one",
+      issue: {
+        number: 101,
+        url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+      },
+    }));
+    const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async (kind, id, mutate) => {
+      expect(kind).toBe("tasks");
+      const next = mutate(ledger.tasks[id] ?? null, ledger);
+      if (next !== null) {
+        ledger.tasks[id] = next as GoalLedgerState["tasks"][string];
+      }
+    });
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 请重试编排。"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        createIssue,
+        findIssueByOrchestrationKey,
+        saveGoalLedgerEntry,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(options.runDir, makeCeoSpawnFinalText({ title: "T3 child renamed" })),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(findIssueByOrchestrationKey).toHaveBeenCalledTimes(1);
+    expect(createIssue).not.toHaveBeenCalled();
+    expect(saveGoalLedgerEntry).toHaveBeenCalledTimes(1);
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]).toMatchObject({
+      owner: "tranfu-labs",
+      repo: "agent-moebius",
+      number: 101,
+      relation: "child",
+      status: "open",
+    });
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("agent-moebius-orchestration-key:");
+  });
+
   it("routes the latest external no-mention comment on active issues with a CEO append envelope", async () => {
     const dev = await makeAgentFile("dev", "Dev persona");
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
@@ -1768,7 +2122,9 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
     runAgentPreScript: async () => ({ ok: true }),
     runCodex: async (options) => successfulCodexRun(options.runDir),
     addReaction: async () => {},
+    createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/agent-moebius/issues/101" }),
     fetchIssueWithComments: async () => makeIssue("@dev please run"),
+    findIssueByOrchestrationKey: async () => ({ kind: "none" }),
     postComment: async () => {},
     prepareIssueMedia: async () => ({ ok: true, prepared: [], imagePaths: [] }),
     discoverOutputArtifacts: async () => [],
@@ -1777,13 +2133,121 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
         displayName: file.displayName,
         kind: file.kind,
         url: `https://example.test/${file.assetName}`,
-      })),
+    })),
     loadRoleThreadStateStore: async () => ({}),
     saveRoleThreadStateEntry: async () => {},
+    loadCeoScripts: async () => [],
+    loadGoalLedgerState: async () => ({
+      schemaVersion: 1,
+      goals: {},
+      milestones: {},
+      tasks: {},
+      phases: {},
+    }),
+    saveGoalLedgerEntry: async () => {},
     formatCeoComment: async (input) => noChangeCeoResult(input.latestResponse),
     formatExternalCommentRoute: async () => ({ action: "NO_ACTION", reason: "ceo-no-action" }),
     writeRunManifest: async () => {},
     ...overrides,
+  };
+}
+
+function ceoScriptsForRunner(): CeoScript[] {
+  return [
+    { id: "plan-review", action: "route", body: "plan review", fileName: "plan-review.md" },
+    {
+      id: "post-implementation-retro",
+      action: "route",
+      body: "retro",
+      fileName: "post-implementation-retro.md",
+    },
+    {
+      id: "milestone-spawn-child-issues",
+      action: "spawn_child_issues",
+      body: "spawn",
+      fileName: "milestone-spawn-child-issues.md",
+    },
+  ];
+}
+
+function makeCeoSpawnFinalText(input: { title: string }): string {
+  return `${JSON.stringify({
+    action: "spawn_child_issues",
+    workflowId: "milestone-spawn-child-issues",
+    summary: "按当前阶段拆解完成。",
+    groups: [{ id: "g1", reason: "同一 runner 模块，串行。" }],
+    issues: [
+      {
+        ledgerTaskId: "task-1",
+        groupId: "g1",
+        title: input.title,
+        description: "实现 CEO 编排路径。",
+        initialRole: "dev",
+        qualityBaseline: "data-correct",
+        acceptanceStatements: ["跑 pnpm test → 应退出码 0"],
+        dependencies: [],
+        provenance: "来自当前阶段 projection",
+      },
+    ],
+  })}
+
+<!-- agent-moebius:stage=in-progress -->`;
+}
+
+function makeCeoLedgerState(input: { childIssueRefs?: GoalLedgerState["tasks"][string]["childIssueRefs"] } = {}): GoalLedgerState {
+  const now = "2026-07-04T00:00:00.000Z";
+  return {
+    schemaVersion: 1,
+    goals: {
+      "goal-1": {
+        id: "goal-1",
+        title: "CEO 编排",
+        status: "ready",
+        scope: "CEO 编排路径",
+        acceptanceStatements: ["跑 pnpm test → 应退出码 0"],
+        dependencies: [],
+        qualityBaseline: "data-correct",
+        issueRefs: [{ owner: source.owner, repo: source.repo, number: source.issueNumber, relation: "source", status: "open" }],
+        milestoneIds: [],
+        provenance: [{ issue: { owner: source.owner, repo: source.repo, number: source.issueNumber }, messageIndex: 0, capturedAt: now }],
+        missingFields: [],
+        nextQuestions: [],
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+    milestones: {},
+    tasks: {
+      "task-1": {
+        id: "task-1",
+        goalId: "goal-1",
+        title: "T3 child",
+        status: "ready",
+        scope: "spawn",
+        acceptanceStatements: ["跑 pnpm test → 应退出码 0"],
+        dependencies: [],
+        qualityBaseline: "data-correct",
+        phaseIds: [],
+        childIssueRefs: input.childIssueRefs ?? [],
+        runManifestRefs: [],
+        provenance: [{ issue: { owner: source.owner, repo: source.repo, number: source.issueNumber }, messageIndex: 0, capturedAt: now }],
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+    phases: {
+      "phase-1": {
+        id: "phase-1",
+        owner: { kind: "goal", id: "goal-1" },
+        name: "orchestration",
+        status: "active",
+        qualityBaseline: "data-correct",
+        objective: "拆解并创建子 issue",
+        acceptanceStatements: ["跑 pnpm test → 应退出码 0"],
+        dependencies: [],
+        provenance: [{ issue: { owner: source.owner, repo: source.repo, number: source.issueNumber }, messageIndex: 0, capturedAt: now }],
+      },
+    },
   };
 }
 

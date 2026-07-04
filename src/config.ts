@@ -25,6 +25,7 @@ export const GITHUB_CLI_RETRY_POLICY = {
   factor: 2,
 } as const;
 export const CODEX_RUN_MAX_DURATION_MS = 30 * 60 * 1000;
+export const CEO_ORCHESTRATION_ACTION_TIMEOUT_MS = 2 * 60 * 1000;
 export const ISSUE_MEDIA_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const ISSUE_MEDIA_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 export const OUTPUT_ARTIFACT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -68,6 +69,7 @@ export const CONFIG_LOG_FIELDS = {
   codexDriverPoolMaxConcurrent: CODEX_DRIVER_POOL_MAX_CONCURRENT,
   githubCliRetry: GITHUB_CLI_RETRY_POLICY,
   codexRunMaxDurationMs: CODEX_RUN_MAX_DURATION_MS,
+  ceoOrchestrationActionTimeoutMs: CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
   issueMediaImageMaxBytes: ISSUE_MEDIA_IMAGE_MAX_BYTES,
   issueMediaVideoMaxBytes: ISSUE_MEDIA_VIDEO_MAX_BYTES,
   outputArtifactImageMaxBytes: OUTPUT_ARTIFACT_IMAGE_MAX_BYTES,

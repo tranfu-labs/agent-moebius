@@ -12,6 +12,7 @@ import {
   type FormatExternalCommentRouteInput,
 } from "../src/format-ceo.js";
 import { parseAgentMentions } from "../src/conversation.js";
+import { loadCeoScripts } from "../src/ceo-scripts.js";
 
 const PLAN_REVIEW_TEMPLATE_ITEMS = [
   "对其他模块的影响",
@@ -116,8 +117,7 @@ describe("formatExternalCommentRoute", () => {
     const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
     expect(prompt).toContain("最新外部无 mention 评论");
     expect(prompt).toContain("可触发 agent:");
-    expect(prompt).toContain("dev, product-manager");
-    expect(prompt).not.toContain("ceo,");
+    expect(prompt).toContain("dev, product-manager, ceo");
     expect(prompt).toContain("latestExternalComment:");
     expect(prompt).toContain(routeBaseInput.latestComment);
   });
@@ -130,7 +130,6 @@ describe("formatExternalCommentRoute", () => {
     ["append without mention", '{"action":"append","body":"请继续实现。"}', "missing-mention"],
     ["append with multiple mentions", '{"action":"append","body":"@dev 和 @product-manager 请处理。"}', "multiple-mentions"],
     ["append with unknown mention", '{"action":"append","body":"@unknown 请处理。"}', "unknown-mention"],
-    ["append with ceo mention", '{"action":"append","body":"@ceo 请处理。"}', "unknown-mention"],
     ["append with fenced-code-only mention", '{"action":"append","body":"```md\\n@dev\\n```"}', "missing-mention"],
     ["append with inline-code-only mention", '{"action":"append","body":"`@dev`"}', "missing-mention"],
   ])("fail-opens for %s", async (_name, output, reason) => {
@@ -142,6 +141,21 @@ describe("formatExternalCommentRoute", () => {
     await expect(formatExternalCommentRoute({ ...routeBaseInput, agentsDir, runCodex })).resolves.toMatchObject({
       action: "FAIL_OPEN",
       reason,
+    });
+  });
+
+  it("returns APPEND when an unclear external route is handed to CEO", async () => {
+    const agentsDir = await makeAgentsDir();
+    const body = "@ceo 请裁决下一步路由。";
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatExternalCommentRouteInput["runCodex"]>>[0]) =>
+      successfulCodexRun(options.runDir, JSON.stringify({ action: "append", body })),
+    );
+
+    await expect(formatExternalCommentRoute({ ...routeBaseInput, agentsDir, runCodex })).resolves.toEqual({
+      action: "APPEND",
+      body,
+      targetRole: "ceo",
+      reason: "appended",
     });
   });
 
@@ -223,23 +237,25 @@ describe("formatCeoComment", () => {
     }
   });
 
-  it("documents CEO stage acceptance routing in the persona", async () => {
+  it("loads CEO stage acceptance routing templates from the script library", async () => {
     const persona = await fs.readFile(path.resolve("agents", "ceo.md"), "utf8");
+    const scripts = await loadCeoScripts({ agentsDir: path.resolve("agents"), required: true });
+    const planReview = scripts.find((script) => script.id === "plan-review");
+    const retro = scripts.find((script) => script.id === "post-implementation-retro");
 
     expect(persona).toContain("识别场景 -> 套模板 -> @角色");
-    expect(persona).toContain("方案评审模板");
-    expect(persona).toContain("执行后复盘模板");
+    expect(persona).toContain("agents/ceo-scripts/");
+    expect(persona).toContain("plan-review");
+    expect(persona).toContain("post-implementation-retro");
     expect(persona).toContain("回流给发起需求角色验收");
     expect(persona).toContain("缺验收语句时要求补齐");
     expect(persona).toContain("mention `@dev`");
     expect(persona).toContain("唯一合法 mention 指向该发起角色");
 
-    expectItemsInOrder(extractTemplateSection(persona, "方案评审模板固定包含六项", "输出示例："), [
-      ...PLAN_REVIEW_TEMPLATE_ITEMS,
-    ]);
-    expectItemsInOrder(extractTemplateSection(persona, "执行后复盘模板固定包含三问", "输出示例"), [
-      ...CODE_VERIFIED_RETRO_TEMPLATE_ITEMS,
-    ]);
+    expect(planReview).toBeDefined();
+    expect(retro).toBeDefined();
+    expectItemsInOrder(planReview?.body ?? "", PLAN_REVIEW_TEMPLATE_ITEMS);
+    expectItemsInOrder(retro?.body ?? "", CODE_VERIFIED_RETRO_TEMPLATE_ITEMS);
   });
 
   it("documents GitHub interaction protocol corrections in the persona", async () => {
@@ -510,6 +526,41 @@ describe("formatCeoComment", () => {
     expect(result).toMatchObject({
       action: "APPEND",
       as: "secretary",
+    });
+  });
+
+  it("fail-opens CEO self-loop append decisions for CEO agent responses", async () => {
+    const agentsDir = await makeAgentsDir();
+    const appendAsCeo = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: JSON.stringify({ action: "append", as: "ceo", body: "@dev 这里不是正文回交 CEO。" }),
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    await expect(formatCeoComment({ ...baseInput, agent: "ceo", agentsDir, runCodex: appendAsCeo })).resolves.toMatchObject({
+      action: "FAIL_OPEN",
+      reason: "post-validate-failed",
+    });
+
+    const appendMentionCeo = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: JSON.stringify({ action: "append", as: "qa", body: "@ceo 请继续。" }),
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    await expect(
+      formatCeoComment({ ...baseInput, agent: "ceo", agentsDir, runCodex: appendMentionCeo }),
+    ).resolves.toMatchObject({
+      action: "FAIL_OPEN",
+      reason: "post-validate-failed",
     });
   });
 

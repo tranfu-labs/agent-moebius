@@ -9,9 +9,9 @@
 ![project-layer-overview](project-layer-overview.svg)
 
 ### agents
-- 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是发布前 guardrail persona，只承载校正规则，不作为普通 mention Codex agent 运行；`agents/secretary.md` 是 CEO guardrail 规则维护入口，作为普通 mention agent 运行但只维护当前仓库的 CEO 规则与相关事实源。
+- 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是 CEO 的共享身份素材：发布前 guardrail 路径只读取 persona body 并保持无状态 fail-open，普通 `@ceo` agent 路径执行 frontmatter prescript 并进入 fail-closed 编排。`agents/ceo-scripts/` 存放 CEO 剧本数据，不作为可 mention agent。`agents/secretary.md` 是 CEO 规则维护入口，作为普通 mention agent 运行但只维护当前仓库的 CEO 规则与相关事实源。
 - 入口：`agents/product-manager.md`、`agents/hermes-user.md`、`agents/dev.md`、`agents/dev-manager.md`、`agents/secretary.md`、`agents/ceo.md`
-- 上游：`src/runner.ts` 扫描 `agents/*.md`；最新 issue body/comment 中的 `@<name>` 命中可交互 agent 时读取对应 Markdown 作为 system/persona 素材；`src/format-ceo.ts` 按需读取 `agents/ceo.md` 作为 CEO guardrail persona。
+- 上游：`src/runner.ts` 扫描 `agents/*.md`；最新 issue body/comment 中的 `@<name>` 命中可交互 agent 时读取对应 Markdown 作为 system/persona 素材；`src/format-ceo.ts` 按需读取 `agents/ceo.md` 作为 CEO guardrail persona；`src/ceo-scripts.ts` 读取 `agents/ceo-scripts/*.md` 作为剧本数据。
 - 下游：frontmatter 中的 `preScript` 只能指向 `src/agent-prescripts/` 下的受信任脚本；agent persona 可声明 runner 可解析的 stage metadata 枚举契约。
 - 禁止依赖：MUST NOT 依赖运行时状态文件、GitHub token 或本地脚本输出。
 
@@ -23,13 +23,29 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 依赖 runner 状态；MUST NOT 把 stage 白名单复制到触发器或 CEO 模块里各自维护。
 
 ### ceo-format-guardrail
-- 职责边界：在 GitHub 评论发布前，用 `agents/ceo.md` persona 和完整公开 issue context 校正 Codex agent 输出；负责组装 `issueContext`（issue 链接、issue body、所有 comment body 原文）、`latestResponse`、`agent`、`allowedStages` prompt，解析 JSON 输出，对修正版做尾部 stage marker 后置验证，并在异常 / 超时 / 非法输出时 fail-open 返回原文。它还提供 active issue 最新外部无 mention 评论的轻量路由判定包装：复用 CEO persona，解析 `no_action` / `append` JSON，并只做结构、单 mention、可触发 agent 白名单与代码区域过滤校验；业务判据仍在 `agents/ceo.md`。不维护 role thread，不推进 issue 状态。
+- 职责边界：在 GitHub 评论发布前，用 `agents/ceo.md` persona body、CEO 剧本摘要和完整公开 issue context 校正 Codex agent 输出；负责组装 `issueContext`（issue 链接、issue body、所有 comment body 原文）、`latestResponse`、`agent`、`allowedStages` prompt，解析 JSON 输出，对修正版做尾部 stage marker 后置验证，并在异常 / 超时 / 非法输出时 fail-open 返回原文。它还提供 active issue 最新外部无 mention 评论的轻量路由判定包装：复用 CEO persona，解析 `no_action` / `append` JSON，并只做结构、单 mention、可触发 agent 白名单与代码区域过滤校验；目标不清或需要编排裁决时可接受单个 `@ceo`。业务判据仍在 `agents/ceo.md` 与剧本数据。处理 `agent=ceo` 时阻断 `append as=ceo` 或正文回交 `@ceo` 的自激环。它不维护 role thread，不推进 issue 状态，不执行 `agents/ceo.md` 的 frontmatter prescript。
 - 入口：`src/format-ceo.ts`
 - 上游：`src/runner.ts` 在 mention Codex 分支、`postComment` 前调用；也在 active no-trigger 兜底分支中调用外部评论路由判定。
-- 下游：`src/codex.ts` 的受控 Codex 调用、`src/stages.ts` 的 stage 验证、`src/conversation.ts` 的 mention 解析、`agents/ceo.md` persona。
+- 下游：`src/codex.ts` 的受控 Codex 调用、`src/stages.ts` 的 stage 验证、`src/conversation.ts` 的 mention 解析、`src/ceo-scripts.ts` 的只读剧本加载、`agents/ceo.md` persona。
 - 禁止依赖：MUST NOT 调用 GitHub；MUST NOT 更新 `.state/*`；MUST NOT 复用 dev / 其他 role thread；MUST NOT 把事故处理规则硬编码到 TypeScript 里；MUST NOT 因 CEO 失败阻断原 agent 评论发布。
 
 ![ceo-stage-reflection](ceo-stage-reflection.svg)
+
+### ceo-scripts
+- 职责边界：读取并校验 `agents/ceo-scripts/*.md` 剧本数据。剧本通过 frontmatter 声明 workflow id 与 action；首批数据包含方案评审、执行后复盘、里程碑拆解 / 子 issue 创建模板。该模块只负责解析、唯一性校验、必需剧本存在校验和 prompt 格式化，不判断业务场景，不执行 GitHub 或 Codex。
+- 入口：`src/ceo-scripts.ts`
+- 上游：`src/format-ceo.ts` 为 guardrail prompt 附带剧本摘要；`src/agent-prescripts/ceo-ledger-context.ts` 与 `src/runner.ts` 为 CEO agent 编排加载必需剧本。
+- 下游：Node 文件系统只读 API、`agents/ceo-scripts/*.md`。
+- 禁止依赖：MUST NOT 调用 GitHub / Codex；MUST NOT 写文件；MUST NOT 把剧本文件当作可 mention agent。
+
+### ceo-orchestration
+- 职责边界：处理 CEO 普通 agent 的结构化编排输出：解析 fenced JSON + `in-progress` stage marker，校验 workflow id、action、ledger task id、分组、初始交棒角色、质量基准、验收语句与子 issue 字段，生成稳定 orchestration key，并渲染受控 child issue body。它不执行 GitHub 创建、不读写账本、不更新 role thread。
+- 入口：`src/ceo-orchestration.ts`
+- 上游：`src/runner.ts` 在 `agent=ceo` 的 Codex run 成功后调用。
+- 下游：`src/issue-source.ts`、`src/conversation.ts` 的 mention 解析约束、`src/stages.ts` 的 stage marker 解析。
+- 禁止依赖：MUST NOT 调用 GitHub / Codex / 文件系统 / shell；MUST NOT 直接持久化状态。
+
+![ceo-agent-orchestration](ceo-agent-orchestration.svg)
 
 ### triggers
 - 职责边界：把最新共享时间线消息解析成触发结果；当前只包含普通 mention trigger。可返回运行某个 Codex agent 或跳过。
@@ -39,10 +55,10 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 把 issue 内容拼成 shell 命令；MUST NOT 把 stage / CEO guardrail 业务规则写进 trigger。
 
 ### agent-prescripts
-- 职责边界：在 Codex 执行前为特定 agent 准备确定性运行上下文；`dev-workspace` 基于 runner 正在处理的 GitHub issue source 创建 / 复用 issue 独占 worktree，刷新远端 `main` 基线，复用时检测 worktree 是否已包含最新 `main`，并返回 Codex cwd；`current-repo-workspace` 返回 agent-moebius 当前仓库根目录，供 `@secretary` 维护 CEO 规则时使用，不创建 worktree、不读写状态。
-- 入口：`src/agent-manifest.ts` 解析 `agents/*.md` frontmatter；`src/agent-prescripts/index.ts` 通过静态 registry 执行受信任脚本；`src/agent-prescripts/dev-workspace.ts` 实现 `@dev` 工作目录准备；`src/agent-prescripts/current-repo-workspace.ts` 实现 `@secretary` 当前仓库工作目录准备。
+- 职责边界：在 Codex 执行前为特定 agent 准备确定性运行上下文；`dev-workspace` 基于 runner 正在处理的 GitHub issue source 创建 / 复用 issue 独占 worktree，刷新远端 `main` 基线，复用时检测 worktree 是否已包含最新 `main`，并返回 Codex cwd；`current-repo-workspace` 返回 agent-moebius 当前仓库根目录，供 `@secretary` 维护 CEO 规则时使用，不创建 worktree、不读写状态；`ceo-ledger-context` 为普通 `@ceo` agent fail-closed 校验目标账本、剧本与唯一 active projection，并返回确定性 prompt context。
+- 入口：`src/agent-manifest.ts` 解析 `agents/*.md` frontmatter；`src/agent-prescripts/index.ts` 通过静态 registry 执行受信任脚本；`src/agent-prescripts/dev-workspace.ts` 实现 `@dev` 工作目录准备；`src/agent-prescripts/current-repo-workspace.ts` 实现 `@secretary` 当前仓库工作目录准备；`src/agent-prescripts/ceo-ledger-context.ts` 实现 `@ceo` 编排上下文准备。
 - 上游：`src/runner.ts` 在选中 agent 且需要调用 Codex 前执行。
-- 下游：本地 `git` CLI、`src/agent-context-state.ts`、`src/config.ts` 的 workdir root 与 issue source。
+- 下游：本地 `git` CLI、`src/agent-context-state.ts`、`src/goal-ledger-state.ts`、`src/goal-ledger.ts`、`src/ceo-scripts.ts`、`src/config.ts` 的 workdir root、goal ledger state path 与 issue source。
 - 禁止依赖：MUST NOT 执行 issue body/comment 中声明的任意脚本路径；MUST NOT 用 shell 拼接外部输入；MUST NOT 把运行状态写入 `agents/`。
 
 ### github-response-intake
@@ -74,10 +90,10 @@
 - 禁止依赖：MUST NOT 被 `runner.ts`、scanner、dispatcher、state persister 或任何 GitHub / Codex 主链路模块依赖；MUST NOT 调用 `gh` / `codex` / artifact publisher；MUST NOT 写 `.state/*`、run manifest、release asset、worktree 文件或运行时状态；MUST NOT 提供重跑、ack、发布、同步等操作能力。
 
 ### github-issue-runner
-- 职责边界：常驻运行，每分钟一轮心跳：按 `config.toml` / `config.local.toml` 解析出的白名单扫描 GitHub repositories，把 changed / due active 的 issue 转成 issue processing jobs，批内按 issueKey 去重后交给 issue-dispatcher，**不等待任何 job 执行完成**（心跳防重入仅覆盖秒级扫描派发阶段）；runner 包装 job 结果，在失败达 `FAILURE_RETRY_LIMIT` 时尝试发布无 agent mention 的死信评论，发布成功后把结局改判为 `dead-lettered`，发布失败则保持 `failed` 继续重试；每个 issue 的 body + comments 会归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 mention trigger 解析结果要求运行 agent 时，进入该 issue + role 独立 Codex thread，先准备本轮 prompt 范围内的 issue 图片 / 视频输入媒体，再在真正调用 Codex driver 前通过 GitHub client 为本轮触发源消息添加 `eyes` reaction（issue body 触发则打到 issue，comment 触发则打到该 comment），并在 Codex 完成、且最终确认未被新 comment 打断后发布生成 artifact、走 CEO guardrail、再回评 GitHub issue；当 active issue 的最新外部 user comment 无合法 mention 且该 comment id 未判定过时，runner 在 no-trigger 分支执行一次有界 CEO 式兜底路由判定，发布 `ceo` role envelope append 或记录 no_action / fail_open；当 `@dev` 运行期间检测到新 comment 时中断本轮 Codex 并保持 issue active。
+- 职责边界：常驻运行，每分钟一轮心跳：按 `config.toml` / `config.local.toml` 解析出的白名单扫描 GitHub repositories，把 changed / due active 的 issue 转成 issue processing jobs，批内按 issueKey 去重后交给 issue-dispatcher，**不等待任何 job 执行完成**（心跳防重入仅覆盖秒级扫描派发阶段）；runner 包装 job 结果，在失败达 `FAILURE_RETRY_LIMIT` 时尝试发布无 agent mention 的死信评论，发布成功后把结局改判为 `dead-lettered`，发布失败则保持 `failed` 继续重试；每个 issue 的 body + comments 会归一化为带 speaker 的共享时间线；目标 issue 暂不存在时记录 skip 并等待后续轮询；当 mention trigger 解析结果要求运行 agent 时，进入该 issue + role 独立 Codex thread，先准备本轮 prompt 范围内的 issue 图片 / 视频输入媒体，再在真正调用 Codex driver 前通过 GitHub client 为本轮触发源消息添加 `eyes` reaction（issue body 触发则打到 issue，comment 触发则打到该 comment），并在 Codex 完成、且最终确认未被新 comment 打断后发布生成 artifact、走 CEO guardrail、再回评 GitHub issue；当 `agent=ceo` 时进入受控编排路径，解析 CEO 结构化输出，通过 GitHub adapter 串行创建或按 hidden orchestration key 找回同仓库子 issue，写回 ledger child refs，全部副作用成功后才保存 ceo role thread，失败则发布可见 fail-closed 评论或进入既有 retry / dead-letter；当 active issue 的最新外部 user comment 无合法 mention 且该 comment id 未判定过时，runner 在 no-trigger 分支执行一次有界 CEO 式兜底路由判定，发布 `ceo` role envelope append 或记录 no_action / fail_open；当 `@dev` 运行期间检测到新 comment 时中断本轮 Codex 并保持 issue active。
 - 入口：`pnpm start` → `src/runner.ts`
 - 上游：进程启动命令、本机 `gh auth login`、本机 `codex` CLI。
-- 下游：`src/scanner.ts`、`src/issue-dispatcher.ts`、`src/state-persister.ts`、`src/github-response-intake.ts`、`src/driver-pool.ts`、`src/github-intake-state.ts`、`src/github.ts`、`src/conversation.ts`、`src/conversation-interrupt.ts`、`src/issue-media.ts`、`src/media-assets.ts`、`src/triggers/*`、`src/codex.ts`、`src/format-ceo.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
+- 下游：`src/scanner.ts`、`src/issue-dispatcher.ts`、`src/state-persister.ts`、`src/github-response-intake.ts`、`src/driver-pool.ts`、`src/github-intake-state.ts`、`src/github.ts`、`src/conversation.ts`、`src/conversation-interrupt.ts`、`src/issue-media.ts`、`src/media-assets.ts`、`src/triggers/*`、`src/codex.ts`、`src/format-ceo.ts`、`src/ceo-scripts.ts`、`src/ceo-orchestration.ts`、`src/goal-ledger.ts`、`src/goal-ledger-state.ts`、`src/state.ts`、`src/agent-manifest.ts`、`src/agent-prescripts/*`、`agents/*.md`。
 - 禁止依赖：MUST NOT 依赖 `agents/` 作为运行状态；MUST NOT 直接拼接 issue 内容为 shell 命令；MUST NOT 在 codex 失败时发评论。
 
 ![runner-heartbeat-dispatch](runner-heartbeat-dispatch.svg)
@@ -142,9 +158,9 @@
 - 禁止依赖：MUST NOT 执行来自 issue body / comment 的任意命令；MUST NOT 在日志中输出敏感配置。
 
 ### goal-ledger
-- 职责边界：目标账本事实源的本地 schema 与状态 adapter。`src/goal-ledger.ts` 只做目标 / 里程碑 / 任务 / 阶段 / 质量基准 / 验收语句 / 依赖 / provenance / 父子 issue reference / run manifest reference / 阶段归档引用的纯业务建模、部分入账、缺字段计算、ready gate、阶段切换、当前阶段上下文投影与归档引用回查；`src/goal-ledger-state.ts` 只负责 `.state/goal-ledger.json` 缺失加载、shape 校验、临时文件 + rename 原子保存、entry-level merge、同文件写串行化、可注入 IO 与 timeout / AbortSignal 包装。不接 runner 心跳、不创建 GitHub issue、不解析或修复 run manifest。
+- 职责边界：目标账本事实源的本地 schema 与状态 adapter。`src/goal-ledger.ts` 只做目标 / 里程碑 / 任务 / 阶段 / 质量基准 / 验收语句 / 依赖 / provenance / 父子 issue reference（含有界 note）/ run manifest reference / 阶段归档引用的纯业务建模、部分入账、缺字段计算、ready gate、阶段切换、当前阶段上下文投影与归档引用回查；`src/goal-ledger-state.ts` 只负责 `.state/goal-ledger.json` 缺失加载、shape 校验、临时文件 + rename 原子保存、entry-level merge、同文件写串行化、可注入 IO 与 timeout / AbortSignal 包装。CEO 编排可通过 runner 显式读取 projection、写入 child issue ref 与 orchestration key；账本模块自身不创建 GitHub issue、不解析或修复 run manifest。
 - 入口：`src/goal-ledger.ts`、`src/goal-ledger-state.ts`
-- 上游：当前无 runner 主链路依赖；未来编排者或 agent pre script 可显式调用 adapter。
+- 上游：`src/agent-prescripts/ceo-ledger-context.ts` 读取当前 active phase projection；`src/runner.ts` 在 CEO 编排成功创建或找回子 issue 后显式写入 task child refs。
 - 下游：本地 `.state/goal-ledger.json`；`src/config.ts` 的 `GOAL_LEDGER_STATE_PATH`。
 - 禁止依赖：`src/goal-ledger.ts` MUST NOT 调用 GitHub / Codex / 文件系统 / shell；`src/goal-ledger-state.ts` MUST NOT 调用 GitHub / Codex 或执行 issue 内容；MUST NOT 存放在 `agents/`；MUST NOT 把 run manifest 当成目标账本唯一事实源；MUST NOT 被 `observer` 或 runner 主链路隐式依赖。
 
@@ -170,8 +186,8 @@
 - 禁止依赖：MUST NOT 存放在 `agents/`；MUST NOT 存 GitHub token、prompt 全文、comment 正文或 codex 执行日志。
 
 ### github-client
-- 职责边界：通过 `gh` CLI 拉取 repository open issue summaries、读取指定 issue body/comments/updatedAt/comment node id，通过 stdin 向指定 issue 发布评论，通过 `gh api` argv 参数数组为指定 issue 或 issue comment 添加受控 reaction，并通过同仓库 GitHub release asset 上传把本地输出 artifact 转成 GitHub comment 可引用 URL；不负责对话触发规则或 active/idle 调度规则。
+- 职责边界：通过 `gh` CLI 拉取 repository open issue summaries、读取指定 issue body/comments/updatedAt/comment node id，通过 stdin 向指定 issue 发布评论，通过 `gh api` argv 参数数组为指定 issue 或 issue comment 添加受控 reaction，通过 `gh issue create` 在父 issue 同仓库创建 CEO 编排子 issue，通过 `gh issue list --search` 按 hidden orchestration key 查找既有子 issue，并通过同仓库 GitHub release asset 上传把本地输出 artifact 转成 GitHub comment 可引用 URL；不负责对话触发规则或 active/idle 调度规则。
 - 入口：`src/github.ts`
 - 上游：`github-issue-runner`
 - 下游：本机 `gh` CLI。
-- 禁止依赖：MUST NOT 在命令参数中拼接 shell 字符串；评论正文 MUST 通过 `--body-file -` 从 stdin 传入；reaction target 与 content MUST 来自受控枚举 / adapter shape；artifact asset 名称 MUST 来自已校验 / 清洗后的本地 artifact 数据。
+- 禁止依赖：MUST NOT 在命令参数中拼接 shell 字符串；评论正文和 issue body MUST 通过 `--body-file -` 从 stdin 传入；reaction target 与 content MUST 来自受控枚举 / adapter shape；artifact asset 名称 MUST 来自已校验 / 清洗后的本地 artifact 数据；可见写操作 MUST 保持无自动重试。

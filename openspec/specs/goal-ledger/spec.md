@@ -27,6 +27,7 @@
 - MUST require a goal or task marked `ready` to have scope, acceptance statements, dependencies, quality baseline, and provenance.
 - MUST model quality baselines explicitly as one of `demo`, `data-correct`, or `production`.
 - MUST model parent/child issue relationships as local references and intent/status only; the ledger MUST NOT create GitHub issues or synchronize GitHub issue state.
+- MUST allow parent/child issue references to carry a bounded note for local provenance such as CEO orchestration keys; callers MUST keep that note bounded and MUST NOT store full issue bodies in it.
 - MUST model phases as explicit ledger entries.
 - MUST keep ledger phases separate from agent execution stage markers such as `plan-written`, `code-verified`, and `in-progress`.
 - MUST NOT modify `src/stages.ts` or reuse execution stage marker semantics for ledger phase switching.
@@ -58,7 +59,7 @@
 - MUST NOT make run manifest the only source of truth for goals, milestones, tasks, phases, quality baselines, or parent/child issue relationships.
 - MUST NOT store goal ledger state under `agents/`.
 - MUST NOT execute or shell-interpolate issue body/comment content as part of goal ledger logic.
-- MUST NOT integrate the ledger into runner heartbeat, mention trigger, observer UI, GitHub issue creation, worktree management, fan-out/join topology, or CEO orchestration in T1.
+- MUST NOT integrate the ledger into runner heartbeat, mention trigger, observer UI, GitHub issue creation, worktree management, fan-out/join topology, or CEO orchestration as part of T1 phase and intake helpers; later callers such as bounded CEO orchestration may use the ledger through explicit state adapters without moving GitHub side effects into this domain.
 
 ## 场景
 ### 场景 T1.1：部分目标可先入账
@@ -222,3 +223,39 @@ Given a phase artifact reference has a bounded summary and safe locator
 When the ledger validates the phase
 Then the reference is accepted
 But empty locators, workspace-escaping paths, full run manifest bodies, or full comment bodies in the generic fallback are rejected
+
+## T3 CEO orchestration ledger writes
+- MUST allow a bounded CEO orchestration caller to append child issue references to task entries after the corresponding GitHub child issue has been created or uniquely recovered by the runner.
+- MUST keep T3 ledger writes limited to child issue reference, intent/status, bounded note, and provenance fields; T3 MUST NOT synchronize GitHub issue lifecycle state back into the ledger.
+- MUST keep goal-ledger pure business helpers free of GitHub, Codex, shell, and file-system calls; runner and state adapter remain responsible for side effects and persistence.
+- MUST let CEO ledger context projection reuse active phase projection semantics: current context contains only current phase objective, quality baseline, acceptance statements, dependencies, phase identity, and owner identity.
+- MUST fail closed when a CEO orchestration caller attempts to write a child issue reference for a missing task, an invalid task, or a task outside the current projection scope.
+- MUST allow a child issue reference recorded by CEO orchestration to carry a bounded orchestration key for idempotent retry detection.
+- MUST keep the orchestration key stable across CEO retry wording changes by deriving it outside title, description, or other free-text fields.
+- MUST let callers detect an existing child issue reference by orchestration key without calling GitHub.
+
+### 场景 T3.GL1：CEO orchestration 追加 task child issue reference
+Given a task exists in the ledger
+And runner has created or uniquely recovered a child GitHub issue for that task
+When the bounded CEO orchestration helper appends the child issue reference
+Then the task records the child issue reference with relation `child` and status `open`
+And the task records provenance for the parent issue and CEO orchestration run
+
+### 场景 T3.GL2：CEO orchestration 不同步 GitHub 状态
+Given a task has a child issue reference recorded by CEO orchestration
+When the GitHub child issue is later closed or edited
+Then goal-ledger does not automatically change that reference status
+And no GitHub adapter is called from goal-ledger business logic
+
+### 场景 T3.GL3：越界 task id 写入被拒绝
+Given current CEO projection contains task `task-a`
+And CEO orchestration output attempts to write child refs for `task-b`
+When runner validates the ledger write
+Then the write fails closed
+And the ledger is not updated for `task-b`
+
+### 场景 T3.GL4：按 orchestration key 检测已创建 child
+Given a task has a child issue reference with orchestration key `key-1`
+When CEO orchestration retry checks the task for `key-1`
+Then the existing child issue reference is returned
+And no GitHub adapter is called by goal-ledger business logic

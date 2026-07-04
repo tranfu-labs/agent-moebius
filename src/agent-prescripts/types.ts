@@ -15,10 +15,12 @@ export type AgentPreScriptResult =
   | {
       ok: true;
       codexCwd?: string;
+      promptContext?: string;
     }
   | {
       ok: false;
       reason: string;
+      visibleFailureBody?: string;
     };
 
 export type AgentPreScript = (input: AgentPreScriptInput) => Promise<AgentPreScriptResult>;
