@@ -832,6 +832,7 @@ Secretary persona`,
       noChangeCeoResult(input.latestResponse),
     );
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const writeRunManifest = vi.fn<ProcessIssueSourceDependencies["writeRunManifest"]>(async () => {});
 
     const outcome = await processIssueSource(
       {
@@ -840,9 +841,9 @@ Secretary persona`,
         agentFiles: [agent],
       },
       makeDependencies({
-        discoverOutputArtifacts: async () => [
+        discoverOutputArtifacts: async (input) => [
           {
-            filePath: "/tmp/run/output-artifacts/diagram.svg",
+            filePath: path.join(input.runDir, "output-artifacts", "diagram.svg"),
             assetName: "diagram.svg",
             displayName: "diagram.svg",
             kind: "image",
@@ -852,6 +853,12 @@ Secretary persona`,
         publishArtifacts: async () => [{ displayName: "diagram.svg", kind: "image", url: "https://example.test/diagram.svg" }],
         formatCeoComment,
         postComment,
+        writeRunManifest,
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(
+            options.runDir,
+            "done\n<!-- agent-moebius:stage=code-verified -->",
+          ),
       }),
     );
 
@@ -860,12 +867,42 @@ Secretary persona`,
       "![diagram.svg](https://example.test/diagram.svg)",
     );
     expect(postComment.mock.calls[0]?.[1]).toContain("![diagram.svg](https://example.test/diagram.svg)");
+    expect(writeRunManifest).toHaveBeenCalledTimes(1);
+    expect(writeRunManifest.mock.calls[0]?.[0].record).toMatchObject({
+      issue: { owner: source.owner, repo: source.repo, number: source.issueNumber },
+      role: "dev",
+      stage: "code-verified",
+      artifacts: [{ path: "output-artifacts/diagram.svg", publishedUrl: "https://example.test/diagram.svg" }],
+    });
+  });
+
+  it("writes a run manifest with an empty artifacts array when no artifacts are discovered", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const writeRunManifest = vi.fn<ProcessIssueSourceDependencies["writeRunManifest"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({ writeRunManifest }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(writeRunManifest).toHaveBeenCalledTimes(1);
+    expect(writeRunManifest.mock.calls[0]?.[0].record).toMatchObject({
+      role: "dev",
+      stage: "unknown",
+      artifacts: [],
+    });
   });
 
   it("posts an artifact publishing error without saving role state", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
     const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+    const writeRunManifest = vi.fn<ProcessIssueSourceDependencies["writeRunManifest"]>(async () => {});
     const formatCeoComment = vi.fn(async (input: Parameters<ProcessIssueSourceDependencies["formatCeoComment"]>[0]) =>
       noChangeCeoResult(input.latestResponse),
     );
@@ -877,9 +914,9 @@ Secretary persona`,
         agentFiles: [agent],
       },
       makeDependencies({
-        discoverOutputArtifacts: async () => [
+        discoverOutputArtifacts: async (input) => [
           {
-            filePath: "/tmp/run/output-artifacts/diagram.svg",
+            filePath: path.join(input.runDir, "output-artifacts", "diagram.svg"),
             assetName: "diagram.svg",
             displayName: "diagram.svg",
             kind: "image",
@@ -892,6 +929,7 @@ Secretary persona`,
         postComment,
         saveRoleThreadStateEntry,
         formatCeoComment,
+        writeRunManifest,
       }),
     );
 
@@ -899,6 +937,70 @@ Secretary persona`,
     expect(formatCeoComment).not.toHaveBeenCalled();
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
     expect(postComment.mock.calls[0]?.[1]).toContain("无法发布生成产物");
+    expect(writeRunManifest).toHaveBeenCalledTimes(1);
+    expect(writeRunManifest.mock.calls[0]?.[0].record.artifacts).toEqual([
+      { path: "output-artifacts/diagram.svg", publishedUrl: null },
+    ]);
+  });
+
+  it("does not let manifest writer failures block comments or role state", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+    const writeRunManifest = vi.fn<ProcessIssueSourceDependencies["writeRunManifest"]>(async () => {
+      throw new Error("manifest unavailable");
+    });
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({ postComment, saveRoleThreadStateEntry, writeRunManifest }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment).toHaveBeenCalledTimes(1);
+    expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let manifest writer failures block artifact error comments", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+    const writeRunManifest = vi.fn<ProcessIssueSourceDependencies["writeRunManifest"]>(async () => {
+      throw new Error("manifest unavailable");
+    });
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev generate an svg"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        discoverOutputArtifacts: async (input) => [
+          {
+            filePath: path.join(input.runDir, "output-artifacts", "diagram.svg"),
+            assetName: "diagram.svg",
+            displayName: "diagram.svg",
+            kind: "image",
+            byteLength: 11,
+          },
+        ],
+        publishArtifacts: async () => {
+          throw new Error("upload failed");
+        },
+        postComment,
+        saveRoleThreadStateEntry,
+        writeRunManifest,
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment.mock.calls[0]?.[1]).toContain("无法发布生成产物");
+    expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
   });
 
   it("returns a failed outcome with the pre script reason before any comment is posted", async () => {
@@ -1297,6 +1399,7 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
     loadRoleThreadStateStore: async () => ({}),
     saveRoleThreadStateEntry: async () => {},
     formatCeoComment: async (input) => noChangeCeoResult(input.latestResponse),
+    writeRunManifest: async () => {},
     ...overrides,
   };
 }
@@ -1404,9 +1507,13 @@ async function makeAgentFile(name: string, markdown: string): Promise<{ name: st
 }
 
 function successfulCodexRun(runDir: string) {
+  return successfulCodexRunWithFinalText(runDir, "done");
+}
+
+function successfulCodexRunWithFinalText(runDir: string, finalText: string) {
   return {
     ok: true as const,
-    finalText: "done",
+    finalText,
     threadId: "thread-1",
     cachedInputTokens: null,
     runDir,
