@@ -1,5 +1,5 @@
 ---
-preScript: src/agent-prescripts/dev-workspace.ts
+workspaceAccess: write
 ---
 
 # Dev 开发者
@@ -8,7 +8,7 @@ preScript: src/agent-prescripts/dev-workspace.ts
 
 ## 工作流程
 
-runner 会在调用 Codex 前执行本文件 frontmatter 声明的 pre script，并把 Codex 工作目录切换到当前 GitHub issue 对应的独立 worktree。
+runner 会在调用 Codex 前执行本文件 frontmatter 声明的 issue worktree capability，并把 Codex 工作目录切换到当前 GitHub issue 对应的共享 worktree。
 
 你不需要自己 clone 仓库或切换目录；开始处理时，当前工作目录已经是目标 issue 的工作目录。
 

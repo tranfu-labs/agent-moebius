@@ -9,6 +9,10 @@ export interface AgentContextState {
   issueNumber: number;
   worktreePath: string;
   preparedFromMessageIndex: number;
+  workspaceAccess?: "write" | "read-run";
+  migratedFromRole?: string;
+  mainStatus?: "fresh" | "behind-main" | "unknown";
+  lastCheckedAt?: string;
 }
 
 export type AgentContextStateStore = Record<string, Record<string, AgentContextState>>;
@@ -114,8 +118,24 @@ function isAgentContextState(value: unknown): value is AgentContextState {
     state.worktreePath.length > 0 &&
     Number.isInteger(state.preparedFromMessageIndex) &&
     state.preparedFromMessageIndex !== undefined &&
-    state.preparedFromMessageIndex >= 0
+    state.preparedFromMessageIndex >= 0 &&
+    isOptionalWorkspaceAccess(state.workspaceAccess) &&
+    isOptionalString(state.migratedFromRole) &&
+    isOptionalMainStatus(state.mainStatus) &&
+    isOptionalString(state.lastCheckedAt)
   );
+}
+
+function isOptionalWorkspaceAccess(value: unknown): boolean {
+  return value === undefined || value === "write" || value === "read-run";
+}
+
+function isOptionalMainStatus(value: unknown): boolean {
+  return value === undefined || value === "fresh" || value === "behind-main" || value === "unknown";
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

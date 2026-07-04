@@ -9,10 +9,10 @@
 ![project-layer-overview](project-layer-overview.svg)
 
 ### agents
-- 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是 CEO 的共享身份素材：发布前 guardrail 路径只读取 persona body 并保持无状态 fail-open，普通 `@ceo` agent 路径执行 frontmatter prescript 并进入 fail-closed 编排。`agents/ceo-scripts/` 存放 CEO 剧本数据，不作为可 mention agent。`agents/secretary.md` 是 CEO 规则维护入口，作为普通 mention agent 运行但只维护当前仓库的 CEO 规则与相关事实源。
+- 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，或通过 `workspaceAccess: write | read-run` 选择内置 issue worktree capability，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是 CEO 的共享身份素材：发布前 guardrail 路径只读取 persona body 并保持无状态 fail-open，普通 `@ceo` agent 路径执行 frontmatter prescript 并进入 fail-closed 编排。`agents/ceo-scripts/` 存放 CEO 剧本数据，不作为可 mention agent。`agents/secretary.md` 是 CEO 规则维护入口，作为普通 mention agent 运行但只维护当前仓库的 CEO 规则与相关事实源。
 - 入口：`agents/product-manager.md`、`agents/hermes-user.md`、`agents/dev.md`、`agents/dev-manager.md`、`agents/secretary.md`、`agents/ceo.md`
 - 上游：`src/runner.ts` 扫描 `agents/*.md`；最新 issue body/comment 中的 `@<name>` 命中可交互 agent 时读取对应 Markdown 作为 system/persona 素材；`src/format-ceo.ts` 按需读取 `agents/ceo.md` 作为 CEO guardrail persona；`src/ceo-scripts.ts` 读取 `agents/ceo-scripts/*.md` 作为剧本数据。
-- 下游：frontmatter 中的 `preScript` 只能指向 `src/agent-prescripts/` 下的受信任脚本；agent persona 可声明 runner 可解析的 stage metadata 枚举契约。
+- 下游：frontmatter 中的 `preScript` 只能指向 `src/agent-prescripts/` 下的受信任脚本；`workspaceAccess` 只允许 `write` / `read-run` 并由 runner 解释为内置 issue workspace capability，不是脚本路径；agent persona 可声明 runner 可解析的 stage metadata 枚举契约。
 - 禁止依赖：MUST NOT 依赖运行时状态文件、GitHub token 或本地脚本输出。
 
 ### stages
@@ -55,8 +55,8 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 把 issue 内容拼成 shell 命令；MUST NOT 把 stage / CEO guardrail 业务规则写进 trigger。
 
 ### agent-prescripts
-- 职责边界：在 Codex 执行前为特定 agent 准备确定性运行上下文；`dev-workspace` 基于 runner 正在处理的 GitHub issue source 创建 / 复用 issue 独占 worktree，刷新远端 `main` 基线，复用时检测 worktree 是否已包含最新 `main`，并返回 Codex cwd；`current-repo-workspace` 返回 agent-moebius 当前仓库根目录，供 `@secretary` 维护 CEO 规则时使用，不创建 worktree、不读写状态；`ceo-ledger-context` 为普通 `@ceo` agent fail-closed 校验目标账本、剧本与唯一 active projection，并返回确定性 prompt context。
-- 入口：`src/agent-manifest.ts` 解析 `agents/*.md` frontmatter；`src/agent-prescripts/index.ts` 通过静态 registry 执行受信任脚本；`src/agent-prescripts/dev-workspace.ts` 实现 `@dev` 工作目录准备；`src/agent-prescripts/current-repo-workspace.ts` 实现 `@secretary` 当前仓库工作目录准备；`src/agent-prescripts/ceo-ledger-context.ts` 实现 `@ceo` 编排上下文准备。
+- 职责边界：在 Codex 执行前为 agent 准备确定性运行上下文；`issue-worktree` 是 runner 内置 issue 级 workspace capability，基于 runner 正在处理的 GitHub issue source 创建 / 复用共享 worktree，首建从最新 `origin/main` 建立，复用时只检测并提示 main 是否前进，不自动删除 / 重建 / merge / rebase，并通过有界 git 调用与 repo cache keyed mutex 避免 workspace prepare 永久挂起；`current-repo-workspace` 返回 agent-moebius 当前仓库根目录，供 `@secretary` 维护 CEO 规则时使用，不创建 worktree、不读写状态；`ceo-ledger-context` 为普通 `@ceo` agent fail-closed 校验目标账本、剧本与唯一 active projection，并返回确定性 prompt context。
+- 入口：`src/agent-manifest.ts` 解析 `agents/*.md` frontmatter 的 `preScript` 与 `workspaceAccess`；`src/runner.ts` 对 `workspaceAccess` 调用内置 `src/agent-prescripts/issue-worktree.ts`；`src/agent-prescripts/index.ts` 通过静态 registry 执行受信任 `preScript`；`src/agent-prescripts/current-repo-workspace.ts` 实现 `@secretary` 当前仓库工作目录准备；`src/agent-prescripts/ceo-ledger-context.ts` 实现 `@ceo` 编排上下文准备；`src/agent-prescripts/dev-workspace.ts` 保留用于 legacy context 兼容和旧测试覆盖。
 - 上游：`src/runner.ts` 在选中 agent 且需要调用 Codex 前执行。
 - 下游：本地 `git` CLI、`src/agent-context-state.ts`、`src/goal-ledger-state.ts`、`src/goal-ledger.ts`、`src/ceo-scripts.ts`、`src/config.ts` 的 workdir root、goal ledger state path 与 issue source。
 - 禁止依赖：MUST NOT 执行 issue body/comment 中声明的任意脚本路径；MUST NOT 用 shell 拼接外部输入；MUST NOT 把运行状态写入 `agents/`。
@@ -172,7 +172,7 @@
 - 禁止依赖：MUST NOT 存放在 `agents/`；MUST NOT 存 GitHub token、prompt 全文或 codex 执行日志。
 
 ### agent-context-state
-- 职责边界：读取与写入本地 `.state/agent-contexts.json`，保存 issue + role 到 agent pre script 上下文的映射；当前用于记录 `@dev` 的 issue 独占 worktree；提供按 issue + role entry 级别 merge 保存的串行写入 helper，避免并发 dev pre script context 覆盖彼此。
+- 职责边界：读取与写入本地 `.state/agent-contexts.json`，保存 issue + role 到 legacy agent pre script 上下文的映射，并用受控保留 entry 保存 issue 级 workspace context；当前用于记录 issue 共享 worktree、legacy dev context 懒迁移来源、workspace access 与 main freshness 状态；提供按 issue + entry 级别 merge 保存的串行写入 helper，避免并发 context 覆盖彼此。
 - 入口：`src/agent-context-state.ts`
 - 上游：`agent-prescripts`
 - 下游：本地 `.state/agent-contexts.json`。

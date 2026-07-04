@@ -3,7 +3,10 @@ import path from "node:path";
 export interface AgentManifest {
   body: string;
   preScript: string | null;
+  workspaceAccess: WorkspaceAccess | null;
 }
+
+export type WorkspaceAccess = "write" | "read-run";
 
 export function parseAgentManifest(markdown: string): AgentManifest {
   const parsed = splitFrontmatter(markdown);
@@ -11,12 +14,14 @@ export function parseAgentManifest(markdown: string): AgentManifest {
     return {
       body: markdown,
       preScript: null,
+      workspaceAccess: null,
     };
   }
 
   return {
     body: parsed.body,
     preScript: parsePreScript(parsed.frontmatter),
+    workspaceAccess: parseWorkspaceAccess(parsed.frontmatter),
   };
 }
 
@@ -53,6 +58,29 @@ function parsePreScript(frontmatter: string): string | null {
     }
 
     return validatePreScriptPath(value);
+  }
+
+  return null;
+}
+
+function parseWorkspaceAccess(frontmatter: string): WorkspaceAccess | null {
+  for (const line of frontmatter.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const match = trimmed.match(/^workspaceAccess:\s*(.+)$/);
+    if (match === null) {
+      continue;
+    }
+
+    const value = match[1]?.trim().replace(/^['"]|['"]$/g, "");
+    if (value === "write" || value === "read-run") {
+      return value;
+    }
+
+    throw new Error(`Invalid agent workspaceAccess value: ${String(value)}`);
   }
 
   return null;
