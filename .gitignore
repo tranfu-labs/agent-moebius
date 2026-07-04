@@ -6,7 +6,7 @@
 ._*
 
 # Custom folder icons
-Icon
+Icon
 
 # Volume root files
 .DocumentRevisions-V100
@@ -23,3 +23,4 @@ node_modules/
 ### Runtime state
 .state/
 config.local.toml
+.loop-logs/
