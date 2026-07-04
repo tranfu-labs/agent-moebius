@@ -91,9 +91,17 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - 外部 issue 96 前置探测：`gh issue view 96 --repo tranfu-labs/tranfu-agents-app --json number,title,state,url` 返回 `96 / QA: skills / OPEN / https://github.com/tranfu-labs/tranfu-agents-app/issues/96`；`git ls-remote https://github.com/tranfu-labs/tranfu-agents-app.git HEAD` 返回 `8d6731ecfd9079a2c9dd6c7fa738f2dc5bceeb93`；临时 clone 成功；`frontend/npm ci`、`frontend/npm run build` 均退出码 0；临时 Vite dev server 下 `curl http://127.0.0.1:4196/skills` 返回 HTTP 200。
 - 外部 issue 96 live-walkthrough 卡点：本实现阶段未在 tranfu-agents-app issue 96 上触发 qa 并发布含截图的真实评论，因为这会对外部产品 issue 产生真实 GitHub 副作用；因此未声称 QA live-walkthrough 已通过。后续产品验收需在 runner 监听 tranfu-agents-app 的真实环境中触发 qa，并按已确认验收语句核查至少 3 条锚定页面元素或路由的真实发现与截图链接。
 
-### - [ ] T6 · 会话拓扑：扇出 + join 与主持人圆桌
+### - [x] T6 · 会话拓扑：扇出 + join 与主持人圆桌
 
 新增第二种会话拓扑。原语层：一条消息可触发 N 个 agent（扇出），全部响应后唤醒收口角色（join）——role thread 本就按 issue+role 独立，非 dev 角色无文件状态，机制可行。模式层：主持人角色主持圆桌——出题 → N 角色同轮并行发言 → 主持人汇总 → 下一轮或收口；圆桌落在独立（子）issue，结论回流父 issue，复用 T1/T3 的父子机制。实施分层：**v0 串行圆桌**（主持人一轮 @ 一人，现有机制即可跑，先验证模式价值）→ **v1 并行化**（扇出 + join 原语）。典型场景：方案评审团（qa + dev-manager + 用户画像并行评审，替代串行接力）、需求工作坊（PM 同时采访多个用户画像）、集成验收陪审团。
+
+验收证据（2026-07-05）：
+- 方案与归档：`openspec/changes/archive/2026-07-05-session-topology-roundtable-t6/`
+- 剧本：`agents/ceo-scripts/roundtable-plan-review.md`
+- 实现：`src/ceo-orchestration.ts`、`src/ceo-scripts.ts`、`src/runner.ts`、`src/agent-prescripts/ceo-ledger-context.ts`、`agents/ceo.md`
+- 测试：`tests/ceo-orchestration.test.ts`、`tests/ceo-scripts.test.ts`、`tests/runner.test.ts`
+- 验证命令：`pnpm test -- ceo-scripts ceo-orchestration runner`、`pnpm typecheck`、`git diff --check` 均退出码 0。
+- 验收清单：product-manager 17/17 通过（复验版）；关键交付项：v0 串行主持人圆桌（无独立 moderator agent）、参与者响应缺 handoff 由 runner 拦截 + 发布纠偏、fault injection 覆盖错误 handoff 目标 / completion key idempotent / 参与者失联恢复；v1 扇出 + join 原语只写 spec-delta。
 
 ### - [ ] T7 · 观察页升级为账本 UI
 
