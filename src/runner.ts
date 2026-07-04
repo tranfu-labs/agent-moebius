@@ -607,9 +607,26 @@ export async function processIssueSource(
 
     // 看门狗：单次 codex run 的总时长上限，兜底 in-flight job 永不返回导致的 skip-inflight 死锁。
     const codexWatchdog = { fired: false };
+    let currentCodexRunDir = runDir;
+    let resolveWatchdogResult: (result: Awaited<ReturnType<ProcessIssueSourceDependencies["runCodex"]>>) => void = () => {};
+    const watchdogResult = new Promise<Awaited<ReturnType<ProcessIssueSourceDependencies["runCodex"]>>>((resolve) => {
+      resolveWatchdogResult = resolve;
+    });
+    const runCodexWithWatchdog = (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) => {
+      currentCodexRunDir = options.runDir;
+      return Promise.race([dependencies.runCodex(options), watchdogResult]);
+    };
     const watchdogTimer = setTimeout(() => {
       codexWatchdog.fired = true;
-      interruptController.abort(`codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`);
+      const reason = `codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`;
+      interruptController.abort(reason);
+      resolveWatchdogResult({
+        ok: false,
+        reason: `interrupted:${reason}`,
+        runDir: currentCodexRunDir,
+        stdoutPath: path.join(currentCodexRunDir, "stdout.jsonl"),
+        stderrPath: path.join(currentCodexRunDir, "stderr.log"),
+      });
     }, CODEX_RUN_MAX_DURATION_MS);
     watchdogTimer.unref();
 
@@ -643,7 +660,7 @@ export async function processIssueSource(
     let result: Awaited<ReturnType<ProcessIssueSourceDependencies["runCodex"]>>;
     try {
       finalCodexStartedAtMs = Date.now();
-      result = await dependencies.runCodex({
+      result = await runCodexWithWatchdog({
         prompt: appendMediaManifest(plan.prompt, initialMedia.prepared),
         runDir,
         cwd: codexCwd,
@@ -682,7 +699,7 @@ export async function processIssueSource(
         }
 
         finalCodexStartedAtMs = Date.now();
-        result = await dependencies.runCodex({
+        result = await runCodexWithWatchdog({
           prompt: appendMediaManifest(buildFallbackFullPrompt(agentManifest.body, timeline), fallbackMedia.prepared),
           runDir: finalRunDir,
           cwd: codexCwd,

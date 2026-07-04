@@ -14,6 +14,8 @@ export interface CodexRunOptions {
   cwd?: string;
   signal?: AbortSignal;
   imagePaths?: string[];
+  interruptTerminationDelayMs?: number;
+  interruptKillDelayMs?: number;
 }
 
 export type CodexRunResult =
@@ -35,6 +37,7 @@ export type CodexRunResult =
     };
 
 const INTERRUPT_TERMINATION_DELAY_MS = 5_000;
+const INTERRUPT_KILL_DELAY_MS = 5_000;
 
 export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   const { prompt, runDir, mode = { kind: "full" }, cwd, signal, imagePaths = [] } = options;
@@ -60,12 +63,19 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   });
   let abortReason: string | null = null;
   let terminationTimer: NodeJS.Timeout | null = null;
+  let killTimer: NodeJS.Timeout | null = null;
+  const terminationDelayMs = options.interruptTerminationDelayMs ?? INTERRUPT_TERMINATION_DELAY_MS;
+  const killDelayMs = options.interruptKillDelayMs ?? INTERRUPT_KILL_DELAY_MS;
   const handleAbort = () => {
     abortReason = interruptedReason(signal?.reason);
     child.kill("SIGINT");
     terminationTimer = setTimeout(() => {
       child.kill("SIGTERM");
-    }, INTERRUPT_TERMINATION_DELAY_MS);
+      killTimer = setTimeout(() => {
+        child.kill("SIGKILL");
+      }, killDelayMs);
+      killTimer.unref();
+    }, terminationDelayMs);
     terminationTimer.unref();
   };
 
@@ -82,6 +92,9 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   signal?.removeEventListener("abort", handleAbort);
   if (terminationTimer !== null) {
     clearTimeout(terminationTimer);
+  }
+  if (killTimer !== null) {
+    clearTimeout(killTimer);
   }
 
   await Promise.all([finishWritable(stdoutFile), finishWritable(stderrFile)]);

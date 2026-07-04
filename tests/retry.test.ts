@@ -9,6 +9,7 @@ describe("classifyGhError", () => {
     expect(classifyGhError(new Error("read tcp: connection reset by peer (ECONNRESET)"))).toBe("transient");
     expect(classifyGhError({ stderr: "HTTP 502: Bad Gateway" })).toBe("transient");
     expect(classifyGhError({ stderr: "You have exceeded a secondary rate limit" })).toBe("transient");
+    expect(classifyGhError(new Error("gh failed with unknown exit: timed out after 120000ms"))).toBe("transient");
   });
 
   it("classifies client-side and auth failures as deterministic", () => {
