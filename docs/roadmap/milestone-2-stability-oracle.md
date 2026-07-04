@@ -147,7 +147,7 @@
 - 验证：`git diff --check` 通过（exit 0）；`pnpm test` 通过（24 files / 216 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；内容检查 `rg` 覆盖四原则、正反例、三档质量基准、worked example 和模板引用。
 - 产品验收：product-manager 已实读 worktree 文件，并按三条正式验收语句逐条验收通过；QA 本轮无增补验收语句。
 
-### - [ ] T7 ·【人工】端到端演练
+### - [x] T7 ·【人工】端到端演练
 
 **目标**：在一个真实 issue 上验证本里程碑成果协同生效：dev 按契约在 worktree 生成验收截图 → publisher 自动发布 → 验收角色引用截图证据完成走查 → 用户在观察页核对该 issue 全景；演练期间注入一次 gh 故障（如临时断网）验证自愈。记录卡点，规则缺陷回流为新任务，不现场改规则。
 
@@ -159,6 +159,25 @@
 3. 本文件应追记演练记录，含故障注入的自愈观察与卡点清单（可为空）。
 
 **依赖**：T1、T2、T3、T4。
+
+**阶段证据（2026-07-04，T7 演练已执行）**：
+- 主演练对象：当前 T7 issue `https://github.com/tranfu-labs/agent-moebius/issues/56`。issue 48 仅作为历史协同证据引用，不作为本轮主验收线程。
+- OpenSpec：本次演练方案已归档到 `openspec/changes/archive/2026-07-04-e2e-milestone-2-t7/`；无行为 spec delta、无线框或架构图回流。
+- 截图 artifact：worktree 内已生成并刷新 `artifacts/acceptance/m2-t7-observer.png`，用于最终 `code-verified` 评论的「验收证据」引用。新版截图来自本地 `pnpm observer`，展示临时本机白名单 `tranfu-labs/agent-moebius` 下的 issue 56：issue 左栏 latest run 为后续 product-manager `in-progress`，Runs 区域明确包含 dev `code-verified` run（completed `2026-07-04T07:28:57.398Z`）与发布后的截图 artifact 链接 `https://github.com/tranfu-labs/agent-moebius/releases/download/agent-moebius-artifacts/m2-t7-observer-845e8357a5.png`。
+- 故障注入（快速失败）：临时 PATH mask 下的 fake `gh` 在 repo scan 阶段返回 `EOF`，runner 记录 4 次 `gh-retry-attempt` 后记录 `repo-scan-failed`；此阶段未生成 `.state/github-response-intake.json` 或 `.state/run-manifests.jsonl`，未进入 Codex，也没有半成品 agent 评论。
+- 故障注入（issue 级快速失败）：在已有 baseline state 上，fake `gh issue list` 返回 issue 56 的较新 `updatedAt`，fake `gh issue view` 返回 `EOF`。runner 记录 `repo-scanned`（`changedIssueCount = 1`）、4 次 `gh-retry-attempt`、`issue-fetch-failed` 与 `issue-retry-scheduled`；本地 intake 中 issue 56 的 `updatedAt` 保持旧值 `2026-07-04T07:19:54Z`，`failureCount = 1`，未生成 role thread 或 run manifest，说明未推进游标、未发布半成品 agent 评论。
+- Dead-letter：按 product-manager 第 17 条指示，本轮已走放弃路径。预置本地 active state 至 failureCount 4 后，fake `gh issue view` 继续返回 `EOF`，`gh issue comment` 透传真实 CLI；runner 记录 4 次 `gh-retry-attempt`、`active-issue-fetch-failed`，随后在 issue 56 时间线发布无 agent mention 的 dead-letter 评论（`https://github.com/tranfu-labs/agent-moebius/issues/56#issuecomment-4881150003`，created `2026-07-04T07:34:13Z`），日志记录 `dead-letter-posted` 且 failureCount = 5。
+- 非阻断观察项：QA 增补 1（永久挂起 fake `gh`）本轮未执行。当前 `gh` 单次调用 timeout 预算为 120 秒，低收益且会显著拉长人工演练；记录为 M3 候选，不阻止 T7。
+- 验证：`git diff --check` 通过（exit 0）；`pnpm test` 通过（24 files / 216 tests，exit 0）；`pnpm typecheck` 通过（exit 0）。
+- 卡点清单：
+  - 本机原始状态缺少 `config.local.toml` 与 `.state/run-manifests.jsonl`，需要临时本机白名单才能让 observer 展示当前 issue；该配置不入库。
+  - 当前 worktree 的 observer 依赖从中心仓库真实 `.state/run-manifests.jsonl` 复制 issue 56 记录到本地忽略目录；该 state 不入库。
+  - 本轮选择 dead-letter 放弃路径闭环，未再运行 live recovery heartbeat，避免重复触发当前最新 dev 路由。
+  - T5 在本文中仍未勾选；按产品确认，本任务不修正 T5 状态，只把不一致风险留作后续梳理。
+- M3 候选：
+  - 提供安全的单次 runner heartbeat 演练模式，能在不触发真实 Codex driver 的情况下验证 active issue 恢复。
+  - 提供 observer 演练 fixture 或只读导入能力，减少依赖本机 `config.local.toml` 与中心 `.state`。
+  - 补充永久挂起 `gh` 的低成本演练入口，避免人工等待完整 120 秒 timeout。
 
 ### - [ ] T8 · 外部评论兜底路由与 CEO 覆盖率
 
