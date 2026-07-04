@@ -37,6 +37,34 @@ describe("conversation", () => {
     expect(selectMentionedAgent("@dev-manager please decide", ["dev-manager"])).toBe("dev-manager");
   });
 
+  it("ignores agent mentions inside inline code", () => {
+    const text = "请看 `@dev` 示例，@product-manager 继续";
+
+    expect(parseAgentMentions(text)).toEqual([{ name: "product-manager", index: text.indexOf("@product-manager") }]);
+    expect(selectMentionedAgent(text, ["dev", "product-manager"])).toBe("product-manager");
+  });
+
+  it("ignores agent mentions inside fenced code blocks", () => {
+    const text = "```md\n@dev 请继续\n```";
+
+    expect(parseAgentMentions(text)).toEqual([]);
+    expect(selectMentionedAgent(text, ["dev"])).toBeNull();
+  });
+
+  it("keeps original indexes for mentions after fenced code blocks", () => {
+    const text = "```md\n@product-manager 示例\n```\n@dev 请继续";
+
+    expect(parseAgentMentions(text)).toEqual([{ name: "dev", index: text.indexOf("@dev") }]);
+    expect(selectMentionedAgent(text, ["dev", "product-manager"])).toBe("dev");
+  });
+
+  it("ignores agent mentions in unclosed fenced code blocks", () => {
+    const text = "before\n```\n@dev";
+
+    expect(parseAgentMentions(text)).toEqual([]);
+    expect(selectMentionedAgent(text, ["dev"])).toBeNull();
+  });
+
   it("normalizes dev-manager comments into speaker=dev-manager", () => {
     const timeline = buildTimeline(
       "initial",

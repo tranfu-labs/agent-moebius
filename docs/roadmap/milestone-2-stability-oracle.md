@@ -49,7 +49,7 @@
 - OpenSpec：本次 change 已归档到 `openspec/changes/archive/2026-07-04-harden-runner-stability-t1/`，并已合并 spec-delta 到 `openspec/specs/github-issue-runner/spec.md`。
 - 验证：`pnpm test` 通过（23 files / 198 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）。
 
-### - [ ] T2 · 全局 GitHub 交互协议
+### - [x] T2 · 全局 GitHub 交互协议
 
 **目标**：制定单一事实源的 GitHub 交互协议并让所有角色遵守，CEO 发布前兜底。协议至少覆盖：**`@` 语义 = 移交控制权**——每条消息最多一个 `@`，只在明确移交下一步时使用，纯提及一律裸写角色名（触发器只认最新消息第一个合法 mention，误 `@` 会真实移交控制权并占用 driver 名额）；**`#数字` 只用于真实引用 issue / PR**——GitHub 把一切 `#N` 渲染为 issue/PR 链接并在被引用 issue 生成反向引用，因此任何非 issue/PR 编号都禁止写成 `#N`：任务编号用 `T3` 类前缀；时间线评论指代用完整评论 URL 或「第 N 条评论」文字形式；验收语句编号用「验收语句 N」文字形式（实测案例，T2 实施期间发现：issue 45 的 qa 审查评论用 `#6` 指代第 6 条评论、`#1`/`#3`/`#4` 指代验收语句编号，评论 id 4880506810——该评论恰是 T2 方案的审查评论，违反了它正在审查的规则）；**发言者身份约束**——role envelope（`<role>:` 前缀 + `<!-- agent-moebius:role=... -->` metadata）为 runner 发布专属，loop watcher / 真人补发评论必须以自己身份平文发言、不得伪装 agent 格式（所有评论出自同一 gh 账号，metadata 是时间线 speaker 归一化的唯一依据，伪装会污染各 role thread 的对话事实）；**带路由意图的人工评论必须显式带一个 `@`**，否则触发器不会唤醒任何角色（见 T8 死锁背景）；每条规则附正例与反例。各 persona 同步该协议；`agents/ceo.md` 增加违规纠正规则（用 append 要求改正，或经方案论证后启用 replace 直接纠正——执行方决策并记录理由）。
 
@@ -63,6 +63,14 @@
 5. （若做运行时加固）构造代码块内 `@dev` 的时间线 → 不应触发 dev。
 
 **依赖**：无。
+
+**阶段证据（2026-07-04，T2 已完成）**：
+- 协议事实源：`docs/protocols/github-interaction.md` 覆盖控制权移交、真实 issue / PR 引用、runner 专属 role envelope、人工路由必须带合法 mention 四条核心规则；每条均含正例、反例与合规改写，并记录 inline code / fenced code block 中 mention 不触发。
+- Persona 同步：`rg -l "github-interaction|交互协议" agents/` 命中 8 个 persona：`ceo`、`dev`、`dev-manager`、`hermes-user`、`product-manager`、`qa`、`secretary`、`tranfu-agents-manager`。
+- CEO 兜底：`tests/format-ceo.test.ts` 覆盖 `agents/ceo.md` 含协议 append-only 纠偏规则，并构造纯提及误写、任务编号误写、评论编号 / 验收编号误写的 `latestResponse`，验证 CEO 走 `APPEND` 且给出 `T3`、「第 6 条评论」、「验收语句 1」等合规写法。
+- 运行时加固：`tests/conversation.test.ts` 覆盖 inline code、fenced code block、未闭合 fenced code block 与代码块后普通 mention 的 index；`tests/triggers.test.ts` 覆盖最新消息仅含代码区域 mention 时 no-trigger。
+- OpenSpec：本次 change 已归档到 `openspec/changes/archive/2026-07-04-global-github-interaction-protocol/`，并已合并 spec-delta 到 `openspec/specs/github-issue-runner/spec.md`。
+- 验证：`pnpm test` 通过（23 files / 206 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）。
 
 ### - [ ] T3 · artifact publisher 发现 worktree 验收截图 + run manifest 契约
 

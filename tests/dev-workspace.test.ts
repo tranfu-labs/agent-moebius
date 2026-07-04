@@ -444,7 +444,16 @@ describe("dev workspace pre script", () => {
     await waitUntil(() => events.includes("A:worktree:add:enter"));
     await new Promise((resolve) => setTimeout(resolve, 30));
 
-    expect(events.filter((event) => event.startsWith("B:"))).toEqual([]);
+    const aEnterBeforeRelease = events.indexOf("A:worktree:add:enter");
+    const bEnterBeforeRelease = events.findIndex((event) => event.startsWith("B:") && event.endsWith(":enter"));
+    const bExitBeforeRelease = events.findIndex((event) => event.startsWith("B:") && event.endsWith(":exit"));
+
+    if (bEnterBeforeRelease > aEnterBeforeRelease) {
+      expect(events.filter((event) => event.startsWith("B:"))).toEqual([]);
+    } else if (bEnterBeforeRelease >= 0) {
+      expect(bExitBeforeRelease).toBeGreaterThan(bEnterBeforeRelease);
+      expect(bExitBeforeRelease).toBeLessThan(aEnterBeforeRelease);
+    }
     expect(events.filter((event) => event.startsWith("A:"))).not.toContain("A:worktree:add:exit");
 
     releaseAWorktreeAdd();
@@ -454,8 +463,19 @@ describe("dev workspace pre script", () => {
     expect(resultB.ok).toBe(true);
     const aExit = events.indexOf("A:worktree:add:exit");
     const bFirst = events.findIndex((event) => event.startsWith("B:") && event.endsWith(":enter"));
+    let bLastExit = -1;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      if (events[index]?.startsWith("B:") && events[index]?.endsWith(":exit")) {
+        bLastExit = index;
+        break;
+      }
+    }
     expect(aExit).toBeGreaterThanOrEqual(0);
-    expect(bFirst).toBeGreaterThan(aExit);
+    if (bFirst > aEnterBeforeRelease) {
+      expect(bFirst).toBeGreaterThan(aExit);
+    } else {
+      expect(bLastExit).toBeLessThan(aEnterBeforeRelease);
+    }
   });
 
   it("runs different repo cache keys in parallel", async () => {

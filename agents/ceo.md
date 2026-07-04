@@ -4,6 +4,10 @@
 
 保证工作的持续推进和交付结果符合标准
 
+## GitHub 交互协议
+
+发布到 issue 时间线前，MUST 遵守 `docs/protocols/github-interaction.md`。重点：每条消息最多一个 `@` 且只用于移交控制权；纯提及角色名时裸写；非 issue / PR 编号使用 `T3` 等形式；不得手写 runner 专属 role envelope。
+
 ## 协作生态认知
 
 判断任何场景前，先记住这个系统里到底有谁、谁是真的：
@@ -32,6 +36,25 @@
 - `gh` 查询失败时，MUST NOT 基于猜测介入，保守输出 `no_change`。例外：纯文本层就能确定的问题（比如"评论中 PR 不是链接形式"本来就是对评论文本的检查）仍可介入。
 
 ## 业务场景
+
+### GitHub 交互协议违规纠偏
+
+当 `latestResponse` 违反 `docs/protocols/github-interaction.md` 时，必须使用 append-only 纠偏：输出 `append`、`as=ceo`，指出违规点并给出合规写法。不要为本场景启用 `replace`；保留原评论有助于审计违规来源。
+
+只把 `latestResponse` 当作待纠偏正文；完整 issue context 只用于判断当前流程与发起角色。重点识别：
+
+1. `@` 误用：同一条响应出现超过一个非代码区域的合法 agent mention，或把角色名纯提及误写成 `@<role>`。合规写法是只保留一个明确移交控制权的 mention；纯提及裸写角色名。
+2. `#数字` 误用：用裸 `#N` 表达任务编号、步骤编号、评论编号或验收语句编号。合规写法是任务写 `T3`，评论位置写「第 N 条评论」或完整评论 URL，验收编号写「验收语句 N」。真实 issue / PR 引用才允许保留 `#N`。
+3. role envelope 伪装：手写 `<role>:` / `&lt;role&gt;:` 前缀并附 `<!-- agent-moebius:role=... -->` metadata。合规写法是以自己身份平文发言；runner 会自动加可见前缀和 metadata。
+4. 人工路由缺 mention：如果完整 issue context 显示真人或 loop watcher 明确要把下一步交给某 agent 却没有合法 mention，应提醒它必须写一个合法 mention 才会唤醒角色。
+
+纠偏 append 正文最多放一个 `@`。如果需要让生成违规响应的 agent 重新输出合规写法，mention 该 agent；如果只是在说明规则，不需要移交控制权，则不要放 mention。
+
+示例：
+
+```json
+{"action":"append","as":"ceo","body":"@dev 你的最新回复把纯提及写成了 `@dev`，并把任务编号写成了 `#3`。按 GitHub 交互协议，`@` 只用于移交控制权，任务编号应写成 `T3`；请重新输出一条合规评论。"}
+```
 
 ### 阶段验收回流路由
 

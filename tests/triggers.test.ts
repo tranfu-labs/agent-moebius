@@ -43,6 +43,24 @@ describe("triggers", () => {
     });
   });
 
+  it("does not run an agent when the latest mention is only inside a fenced code block", () => {
+    const timeline = buildTimeline("```md\n@dev please handle this\n```", [], agents);
+
+    expect(resolveTrigger({ timeline, availableAgentNames: agents })).toEqual({
+      kind: "skip",
+      reason: "no-trigger",
+    });
+  });
+
+  it("does not run an agent when the latest mention is only inside inline code", () => {
+    const timeline = buildTimeline("示例：`@dev please handle this`", [], agents);
+
+    expect(resolveTrigger({ timeline, availableAgentNames: agents })).toEqual({
+      kind: "skip",
+      reason: "no-trigger",
+    });
+  });
+
   it("does not post a hook when an agent emits plan-written without a mention", () => {
     const timeline = buildTimeline(
       "initial",
