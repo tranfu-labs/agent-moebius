@@ -242,6 +242,62 @@ export interface GoalIntakeDraftResult {
   missingFields: MissingGoalField[];
 }
 
+export interface GoalIntakeProposalLedgerInput {
+  proposalKey: string;
+  sourceIssue: LedgerProvenance["issue"];
+  messageIndex: number;
+  commentId?: string;
+  capturedAt: string;
+  provenanceNote: string;
+  goal: {
+    id: string;
+    title: string;
+    summary: string;
+    scope: string;
+    acceptanceStatements: string[];
+    dependencies: string[];
+    qualityBaseline: QualityBaseline;
+  };
+  milestones: Array<{
+    id: string;
+    title: string;
+    qualityBaseline: QualityBaseline;
+  }>;
+  phaseOne: {
+    id: string;
+    name: string;
+    objective: string;
+    acceptanceStatements: string[];
+    dependencies: string[];
+    qualityBaseline: QualityBaseline;
+  };
+  tasks: Array<{
+    id: string;
+    milestoneId: string;
+    title: string;
+    scope: string;
+    acceptanceStatements: string[];
+    dependencies: string[];
+    qualityBaseline: QualityBaseline;
+    provenance: string;
+  }>;
+}
+
+export interface GoalIntakeConfirmLedgerInput {
+  proposalKey: string;
+  taskIds: string[];
+  now: string;
+  provenance: LedgerProvenance;
+}
+
+export interface GoalIntakeProposalBundle {
+  proposalKey: string;
+  goal: GoalRecord;
+  milestones: MilestoneRecord[];
+  phase: PhaseRecord;
+  tasks: TaskRecord[];
+}
+
 export interface SwitchActivePhaseInput {
   owner: PhaseOwner;
   targetPhaseId: string;
@@ -384,6 +440,187 @@ export function upsertGoalIntakeDraft(state: GoalLedgerState, input: GoalIntakeD
   const nextState = withGoalLedgerEntry(state, "goals", merged.id, merged);
   assertGoalLedgerState(nextState);
   return { state: nextState, goal: merged, missingFields };
+}
+
+export function applyGoalIntakeProposal(state: GoalLedgerState, input: GoalIntakeProposalLedgerInput): GoalLedgerState {
+  assertGoalLedgerState(state);
+  assertGoalIntakeProposalInput(input);
+
+  const provenance = goalIntakeLedgerProvenance(input, input.provenanceNote);
+  const issueRef: IssueReference = {
+    owner: input.sourceIssue.owner,
+    repo: input.sourceIssue.repo,
+    number: input.sourceIssue.number,
+    relation: "source",
+    status: "open",
+    note: input.proposalKey,
+  };
+  const parentRef: IssueReference = {
+    ...issueRef,
+    relation: "parent",
+  };
+
+  let nextState = state;
+  const goal: GoalRecord = {
+    id: input.goal.id,
+    title: input.goal.title,
+    status: "pending",
+    summary: input.goal.summary,
+    scope: input.goal.scope,
+    acceptanceStatements: input.goal.acceptanceStatements,
+    dependencies: input.goal.dependencies,
+    qualityBaseline: input.goal.qualityBaseline,
+    issueRefs: [issueRef],
+    milestoneIds: input.milestones.map((milestone) => milestone.id),
+    provenance: [provenance],
+    missingFields: [],
+    nextQuestions: [],
+    createdAt: input.capturedAt,
+    updatedAt: input.capturedAt,
+  };
+  goal.missingFields = computeReadyMissingFields(goal);
+  nextState = upsertGoalIntakeProposalEntry(nextState, "goals", goal.id, goal, input.proposalKey);
+
+  for (const milestoneInput of input.milestones) {
+    const taskIds = input.tasks.filter((task) => task.milestoneId === milestoneInput.id).map((task) => task.id);
+    const milestone: MilestoneRecord = {
+      id: milestoneInput.id,
+      goalId: input.goal.id,
+      title: milestoneInput.title,
+      qualityBaseline: milestoneInput.qualityBaseline,
+      taskIds,
+      phaseIds: [input.phaseOne.id],
+      issueRefs: [issueRef],
+      provenance: [provenance],
+      createdAt: input.capturedAt,
+      updatedAt: input.capturedAt,
+    };
+    nextState = upsertGoalIntakeProposalEntry(nextState, "milestones", milestone.id, milestone, input.proposalKey);
+  }
+
+  for (const taskInput of input.tasks) {
+    const taskProvenance = goalIntakeLedgerProvenance(input, taskInput.provenance);
+    const task: TaskRecord = {
+      id: taskInput.id,
+      goalId: input.goal.id,
+      milestoneId: taskInput.milestoneId,
+      title: taskInput.title,
+      status: "pending",
+      scope: taskInput.scope,
+      acceptanceStatements: taskInput.acceptanceStatements,
+      dependencies: taskInput.dependencies,
+      qualityBaseline: taskInput.qualityBaseline,
+      phaseIds: [input.phaseOne.id],
+      parentIssueRef: parentRef,
+      childIssueRefs: [],
+      runManifestRefs: [],
+      provenance: [taskProvenance],
+      createdAt: input.capturedAt,
+      updatedAt: input.capturedAt,
+    };
+    nextState = upsertGoalIntakeProposalEntry(nextState, "tasks", task.id, task, input.proposalKey);
+  }
+
+  const phase: PhaseRecord = {
+    id: input.phaseOne.id,
+    owner: { kind: "goal", id: input.goal.id },
+    name: input.phaseOne.name,
+    status: "pending",
+    qualityBaseline: input.phaseOne.qualityBaseline,
+    objective: input.phaseOne.objective,
+    acceptanceStatements: input.phaseOne.acceptanceStatements,
+    dependencies: input.phaseOne.dependencies,
+    provenance: [provenance],
+  };
+  nextState = upsertGoalIntakeProposalEntry(nextState, "phases", phase.id, phase, input.proposalKey);
+
+  assertGoalLedgerState(nextState);
+  return nextState;
+}
+
+export function confirmGoalIntakeProposal(state: GoalLedgerState, input: GoalIntakeConfirmLedgerInput): GoalLedgerState {
+  assertGoalLedgerState(state);
+  assertGoalIntakeProposalKey(input.proposalKey, "proposalKey");
+  assertStringArray(input.taskIds, "taskIds");
+  if (input.taskIds.length === 0 || !input.taskIds.every(isNonEmptyString)) {
+    throw new Error("Invalid goal intake confirm: taskIds invalid");
+  }
+  assertIsoLikeString(input.now, "now");
+  assertLedgerProvenance(input.provenance, "provenance");
+
+  const bundle = resolveGoalIntakeProposal(state, input.proposalKey);
+  if (bundle === null) {
+    throw new Error(`Invalid goal intake confirm: missing proposal ${input.proposalKey}`);
+  }
+  const expectedTaskIds = bundle.tasks.map((task) => task.id).sort();
+  const providedTaskIds = [...new Set(input.taskIds)].sort();
+  if (expectedTaskIds.join("\n") !== providedTaskIds.join("\n")) {
+    throw new Error(`Invalid goal intake confirm: task mismatch expected=${expectedTaskIds.join(",")} actual=${providedTaskIds.join(",")}`);
+  }
+  if (!(bundle.goal.status === "pending" || bundle.goal.status === "ready")) {
+    throw new Error(`Invalid goal intake confirm: goal status ${bundle.goal.status}`);
+  }
+  if (!(bundle.phase.status === "pending" || bundle.phase.status === "active")) {
+    throw new Error(`Invalid goal intake confirm: phase status ${bundle.phase.status}`);
+  }
+
+  let nextState = state;
+  if (bundle.goal.status !== "ready") {
+    nextState = markGoalReady(nextState, bundle.goal.id, input.now);
+  }
+  for (const task of bundle.tasks) {
+    const current = nextState.tasks[task.id];
+    if (current === undefined) {
+      throw new Error(`Invalid goal intake confirm: missing task ${task.id}`);
+    }
+    const missing = computeReadyMissingFields(current);
+    if (missing.length > 0) {
+      throw new Error(`Invalid goal intake confirm: task ${task.id} missing ${missing.join(",")}`);
+    }
+    if (current.status !== "ready") {
+      nextState = withGoalLedgerEntry(nextState, "tasks", task.id, {
+        ...current,
+        status: "ready",
+        updatedAt: input.now,
+      });
+    }
+  }
+
+  nextState = switchActivePhase(nextState, {
+    owner: bundle.phase.owner,
+    targetPhaseId: bundle.phase.id,
+    now: input.now,
+    provenance: input.provenance,
+  });
+  assertGoalLedgerState(nextState);
+  return nextState;
+}
+
+export function resolveGoalIntakeProposal(state: GoalLedgerState, proposalKey: string): GoalIntakeProposalBundle | null {
+  assertGoalLedgerState(state);
+  assertGoalIntakeProposalKey(proposalKey, "proposalKey");
+  const goals = Object.values(state.goals).filter((goal) => goalLedgerEntryHasNote(goal, proposalKey));
+  const phases = Object.values(state.phases).filter((phase) => goalLedgerEntryHasNote(phase, proposalKey));
+  if (goals.length !== 1 || phases.length !== 1) {
+    return null;
+  }
+  const goal = goals[0]!;
+  const phase = phases[0]!;
+  if (phase.owner.kind !== "goal" || phase.owner.id !== goal.id) {
+    return null;
+  }
+  const tasks = Object.values(state.tasks).filter((task) => goalLedgerEntryHasNote(task, proposalKey) && task.goalId === goal.id);
+  const milestones = Object.values(state.milestones).filter((milestone) => goalLedgerEntryHasNote(milestone, proposalKey) && milestone.goalId === goal.id);
+  if (tasks.length === 0 || milestones.length === 0) {
+    return null;
+  }
+  return {
+    proposalKey,
+    goal,
+    milestones: milestones.sort((left, right) => left.id.localeCompare(right.id)),
+    phase,
+    tasks: tasks.sort((left, right) => left.id.localeCompare(right.id)),
+  };
 }
 
 export function markGoalReady(state: GoalLedgerState, goalId: string, now: string): GoalLedgerState {
@@ -805,6 +1042,198 @@ export function buildAcceptanceStatementsDigest(statements: string[]): string {
     throw new Error("Invalid acceptance statements digest: contains empty statement");
   }
   return digestStrings(statements);
+}
+
+function upsertGoalIntakeProposalEntry<T extends GoalLedgerEntry>(
+  state: GoalLedgerState,
+  kind: GoalLedgerEntryKind,
+  id: string,
+  candidate: T,
+  proposalKey: string,
+): GoalLedgerState {
+  const existing = state[kind][id] as T | undefined;
+  if (existing !== undefined) {
+    if (!goalLedgerEntryHasNote(existing, proposalKey)) {
+      throw new Error(`Invalid goal intake proposal: ${kind}/${id} already exists`);
+    }
+    assertGoalIntakeProposalEntryMatches(existing, candidate, proposalKey, `${kind}/${id}`);
+    return state;
+  }
+  return withGoalLedgerEntry(state, kind, id, candidate);
+}
+
+function assertGoalIntakeProposalInput(input: GoalIntakeProposalLedgerInput): void {
+  assertGoalIntakeProposalKey(input.proposalKey, "proposalKey");
+  assertIssueLike(input.sourceIssue, "sourceIssue");
+  if (!isNonNegativeInteger(input.messageIndex)) {
+    throw new Error("Invalid goal intake proposal: messageIndex invalid");
+  }
+  assertOptionalNonEmptyString(input.commentId, "commentId");
+  assertIsoLikeString(input.capturedAt, "capturedAt");
+  assertNonEmptyString(input.provenanceNote, "provenanceNote");
+  assertNonEmptyString(input.goal.id, "goal.id");
+  assertNonEmptyString(input.goal.title, "goal.title");
+  assertNonEmptyString(input.goal.summary, "goal.summary");
+  assertNonEmptyString(input.goal.scope, "goal.scope");
+  assertStringArray(input.goal.acceptanceStatements, "goal.acceptanceStatements");
+  if (!input.goal.acceptanceStatements.every(isNonEmptyString)) {
+    throw new Error("Invalid goal intake proposal: goal acceptance invalid");
+  }
+  assertStringArray(input.goal.dependencies, "goal.dependencies");
+  assertQualityBaseline(input.goal.qualityBaseline, "goal.qualityBaseline");
+  if (input.milestones.length < 2 || input.milestones.length > 5) {
+    throw new Error(`Invalid goal intake proposal: milestone count ${String(input.milestones.length)}`);
+  }
+  const milestoneIds = new Set<string>();
+  for (const milestone of input.milestones) {
+    assertNonEmptyString(milestone.id, "milestone.id");
+    assertNonEmptyString(milestone.title, "milestone.title");
+    assertQualityBaseline(milestone.qualityBaseline, "milestone.qualityBaseline");
+    if (milestoneIds.has(milestone.id)) {
+      throw new Error(`Invalid goal intake proposal: duplicate milestone ${milestone.id}`);
+    }
+    milestoneIds.add(milestone.id);
+  }
+  assertNonEmptyString(input.phaseOne.id, "phaseOne.id");
+  assertNonEmptyString(input.phaseOne.name, "phaseOne.name");
+  assertNonEmptyString(input.phaseOne.objective, "phaseOne.objective");
+  assertStringArray(input.phaseOne.acceptanceStatements, "phaseOne.acceptanceStatements");
+  if (!input.phaseOne.acceptanceStatements.every(isNonEmptyString)) {
+    throw new Error("Invalid goal intake proposal: phase acceptance invalid");
+  }
+  assertStringArray(input.phaseOne.dependencies, "phaseOne.dependencies");
+  assertQualityBaseline(input.phaseOne.qualityBaseline, "phaseOne.qualityBaseline");
+  if (input.tasks.length < 3 || input.tasks.length > 7) {
+    throw new Error(`Invalid goal intake proposal: task count ${String(input.tasks.length)}`);
+  }
+  const taskIds = new Set<string>();
+  for (const task of input.tasks) {
+    assertNonEmptyString(task.id, "task.id");
+    assertNonEmptyString(task.milestoneId, "task.milestoneId");
+    if (!milestoneIds.has(task.milestoneId)) {
+      throw new Error(`Invalid goal intake proposal: unknown milestone ${task.milestoneId}`);
+    }
+    assertNonEmptyString(task.title, "task.title");
+    assertNonEmptyString(task.scope, "task.scope");
+    assertStringArray(task.acceptanceStatements, "task.acceptanceStatements");
+    if (task.acceptanceStatements.length < 1 || task.acceptanceStatements.length > 3 || !task.acceptanceStatements.every(isNonEmptyString)) {
+      throw new Error(`Invalid goal intake proposal: task ${task.id} acceptance invalid`);
+    }
+    assertStringArray(task.dependencies, "task.dependencies");
+    assertQualityBaseline(task.qualityBaseline, "task.qualityBaseline");
+    assertNonEmptyString(task.provenance, "task.provenance");
+    if (taskIds.has(task.id)) {
+      throw new Error(`Invalid goal intake proposal: duplicate task ${task.id}`);
+    }
+    taskIds.add(task.id);
+  }
+}
+
+function assertGoalIntakeProposalEntryMatches(
+  existing: GoalLedgerEntry,
+  candidate: GoalLedgerEntry,
+  proposalKey: string,
+  path: string,
+): void {
+  const existingComparable = normalizeGoalIntakeProposalEntry(existing, proposalKey);
+  const candidateComparable = normalizeGoalIntakeProposalEntry(candidate, proposalKey);
+  if (JSON.stringify(existingComparable) !== JSON.stringify(candidateComparable)) {
+    throw new Error(`Invalid goal intake proposal: conflicting ${path}`);
+  }
+}
+
+function normalizeGoalIntakeProposalEntry(entry: GoalLedgerEntry, proposalKey: string): unknown {
+  if ("milestoneIds" in entry) {
+    return {
+      id: entry.id,
+      title: entry.title,
+      status: entry.status,
+      summary: entry.summary,
+      scope: entry.scope,
+      acceptanceStatements: entry.acceptanceStatements ?? [],
+      dependencies: entry.dependencies ?? [],
+      qualityBaseline: entry.qualityBaseline,
+      milestoneIds: entry.milestoneIds,
+      issueRefs: normalizeIssueRefs(entry.issueRefs, proposalKey),
+    };
+  }
+  if ("taskIds" in entry) {
+    return {
+      id: entry.id,
+      goalId: entry.goalId,
+      title: entry.title,
+      qualityBaseline: entry.qualityBaseline,
+      taskIds: entry.taskIds,
+      phaseIds: entry.phaseIds,
+      issueRefs: normalizeIssueRefs(entry.issueRefs, proposalKey),
+    };
+  }
+  if ("owner" in entry) {
+    return {
+      id: entry.id,
+      owner: entry.owner,
+      name: entry.name,
+      status: entry.status,
+      qualityBaseline: entry.qualityBaseline,
+      objective: entry.objective,
+      acceptanceStatements: entry.acceptanceStatements ?? [],
+      dependencies: entry.dependencies ?? [],
+    };
+  }
+  return {
+    id: entry.id,
+    goalId: entry.goalId,
+    milestoneId: entry.milestoneId,
+    title: entry.title,
+    status: entry.status,
+    scope: entry.scope,
+    acceptanceStatements: entry.acceptanceStatements ?? [],
+    dependencies: entry.dependencies ?? [],
+    qualityBaseline: entry.qualityBaseline,
+    phaseIds: entry.phaseIds,
+    parentIssueRef: entry.parentIssueRef === undefined ? undefined : normalizeIssueReference(entry.parentIssueRef, proposalKey),
+  };
+}
+
+function normalizeIssueRefs(refs: readonly IssueReference[], proposalKey: string): IssueReference[] {
+  return refs.map((reference) => normalizeIssueReference(reference, proposalKey));
+}
+
+function normalizeIssueReference(reference: IssueReference, proposalKey: string): IssueReference {
+  return reference.note === proposalKey ? { ...reference, note: proposalKey } : reference;
+}
+
+function goalIntakeLedgerProvenance(input: GoalIntakeProposalLedgerInput, note: string): LedgerProvenance {
+  return {
+    issue: input.sourceIssue,
+    messageIndex: input.messageIndex,
+    ...(input.commentId === undefined ? {} : { commentId: input.commentId }),
+    capturedAt: input.capturedAt,
+    note: truncateText(`${input.proposalKey}; ${note.replace(/\s+/g, " ").trim()}`, MAX_ISSUE_REFERENCE_NOTE_LENGTH),
+  };
+}
+
+function goalLedgerEntryHasNote(entry: GoalLedgerEntry, proposalKey: string): boolean {
+  if (entry.provenance.some((item) => item.note?.includes(proposalKey))) {
+    return true;
+  }
+  if ("issueRefs" in entry && entry.issueRefs.some((reference) => reference.note?.includes(proposalKey))) {
+    return true;
+  }
+  if ("parentIssueRef" in entry && entry.parentIssueRef?.note?.includes(proposalKey)) {
+    return true;
+  }
+  return false;
+}
+
+function assertGoalIntakeProposalKey(value: unknown, path: string): asserts value is string {
+  if (typeof value !== "string" || !/^agent-moebius-goal-intake-proposal-key:[a-f0-9]{32}$/u.test(value)) {
+    throw new Error(`Invalid goal intake proposal: ${path} invalid`);
+  }
+}
+
+function truncateText(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : value.slice(0, maxLength - 1).trimEnd();
 }
 
 export function parseGoalLedgerState(value: unknown): GoalLedgerState {

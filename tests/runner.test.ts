@@ -13,6 +13,7 @@ import {
   buildCeoOrchestrationKey,
   buildCeoRoundtableCompletionKey,
   buildCeoRoundtableKey,
+  buildGoalIntakeProposalKey,
   renderCeoRoundtableChildIssueBody,
 } from "../src/ceo-orchestration.js";
 import type { CeoScript } from "../src/ceo-scripts.js";
@@ -29,7 +30,12 @@ import {
 } from "../src/runner.js";
 import { failedIssueProcessingOutcome, type GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import { CommandFailedError, type GitHubIssue } from "../src/github.js";
-import type { GoalLedgerEntry, GoalLedgerState } from "../src/goal-ledger.js";
+import {
+  applyGoalIntakeProposal,
+  confirmGoalIntakeProposal,
+  type GoalLedgerEntry,
+  type GoalLedgerState,
+} from "../src/goal-ledger.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
 const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
@@ -1424,6 +1430,93 @@ CEO persona`,
     expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
   });
 
+  it("runs goal-intake propose by writing pending ledger and publishing a hidden proposal key", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const ledger = emptyLedgerState();
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 101,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+    }));
+    const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
+    const saveGoalLedgerEntry = makeLedgerEntrySaver(ledger);
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 请启动目标入账。"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        createIssue,
+        postComment,
+        saveGoalLedgerEntry,
+        saveRoleThreadStateEntry,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(options.runDir, makeGoalIntakeProposeFinalText()),
+      }),
+    );
+
+    const proposalKey = buildGoalIntakeProposalKey({ source, proposalId: "proposal-1" });
+    expect(outcome).toBe("triggered-success");
+    expect(ledger.goals["goal-pay-demo"]?.status).toBe("pending");
+    expect(ledger.phases["phase-1"]?.status).toBe("pending");
+    expect(ledger.tasks["task-1"]?.status).toBe("pending");
+    expect(postComment.mock.calls[0]?.[1]).toContain(proposalKey);
+    expect(postComment.mock.calls[0]?.[1]).toContain("不承诺真实资金");
+    expect(createIssue).not.toHaveBeenCalled();
+    expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers goal-intake confirm from an active phase with missing child refs by hidden key", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const ledger = makeConfirmedGoalIntakeLedgerWithoutChildRefs();
+    const proposalKey = buildGoalIntakeProposalKey({ source, proposalId: "proposal-1" });
+    const recoveredKey = buildCeoOrchestrationKey({ source, workflowId: "goal-intake", ledgerTaskId: "task-1" });
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async (_source, issue) => ({
+      number: issue.title.includes("task-2") ? 202 : 203,
+      url: `https://github.com/tranfu-labs/agent-moebius/issues/${issue.title.includes("task-2") ? "202" : "203"}`,
+    }));
+    const findIssueByOrchestrationKey = vi.fn<ProcessIssueSourceDependencies["findIssueByOrchestrationKey"]>(
+      async (_source, key) =>
+        key === recoveredKey
+          ? { kind: "one", issue: { number: 201, url: "https://github.com/tranfu-labs/agent-moebius/issues/201" } }
+          : { kind: "none" },
+    );
+    const saveGoalLedgerEntry = makeLedgerEntrySaver(ledger);
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 用户确认提案。"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        createIssue,
+        findIssueByOrchestrationKey,
+        postComment,
+        saveGoalLedgerEntry,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) =>
+          successfulCodexRunWithFinalText(options.runDir, makeGoalIntakeConfirmFinalText(proposalKey)),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(ledger.phases["phase-1"]?.status).toBe("active");
+    expect(Object.values(ledger.phases).filter((phase) => phase.status === "active")).toHaveLength(1);
+    expect(findIssueByOrchestrationKey).toHaveBeenCalledWith(source, recoveredKey);
+    expect(createIssue).toHaveBeenCalledTimes(2);
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]).toMatchObject({ number: 201, relation: "child" });
+    expect(postComment.mock.calls.at(-1)?.[1]).toContain("CEO 编排完成");
+  });
+
   it("settles with a visible fail-closed comment when createIssue never settles", async () => {
     const ceo = await makeAgentFile("ceo", "CEO persona");
     const dev = await makeAgentFile("dev", "Dev persona");
@@ -2348,6 +2441,67 @@ CEO persona`,
     expect(postComment).not.toHaveBeenCalled();
   });
 
+  it("routes an obvious no-mention issue body goal with a bounded body digest key", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(async () => ({
+      action: "APPEND",
+      body: "@ceo 请启动目标入账。",
+      targetRole: "ceo",
+      reason: "appended",
+    }));
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("我想要做一个支付宝"),
+        agentFiles: [ceo],
+      },
+      makeDependencies({ formatExternalCommentRoute, postComment }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "triggered-success",
+      route: {
+        outcome: "append",
+        targetRole: "ceo",
+      },
+    });
+    expect(outcome).toMatchObject({
+      route: {
+        commentId: expect.stringMatching(/^issue-body:[a-f0-9]{32}$/),
+      },
+    });
+    expect(JSON.stringify(outcome)).not.toContain("我想要做一个支付宝");
+    expect(postComment.mock.calls[0]?.[1]).toContain("@ceo");
+  });
+
+  it("returns failed when target handoff publishing fails before recording a route decision", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {
+      throw new Error("comment timeout");
+    });
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(async () => ({
+      action: "APPEND",
+      body: "@ceo 请启动目标入账。",
+      targetRole: "ceo",
+      reason: "appended",
+    }));
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("我想要做一个支付宝"),
+        agentFiles: [ceo],
+      },
+      makeDependencies({ formatExternalCommentRoute, postComment }),
+    );
+
+    expect(outcome).toMatchObject({ kind: "failed", reason: expect.stringContaining("comment timeout") });
+    expect(postComment).toHaveBeenCalledTimes(1);
+  });
+
   it("records fail_open fallback routing without posting a comment", async () => {
     const dev = await makeAgentFile("dev", "Dev persona");
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
@@ -2876,6 +3030,12 @@ function ceoScriptsForRunner(): CeoScript[] {
       body: "roundtable",
       fileName: "roundtable-plan-review.md",
     },
+    {
+      id: "goal-intake",
+      action: "goal_intake",
+      body: "goal intake",
+      fileName: "goal-intake.md",
+    },
   ];
 }
 
@@ -2901,6 +3061,89 @@ function makeCeoSpawnFinalText(input: { title: string }): string {
   })}
 
 <!-- agent-moebius:stage=in-progress -->`;
+}
+
+function makeGoalIntakeProposeFinalText(): string {
+  return `${JSON.stringify({
+    action: "goal_intake",
+    workflowId: "goal-intake",
+    mode: "propose",
+    proposalId: "proposal-1",
+    assumptions: ["质量基准默认为 demo。"],
+    goal: {
+      id: "goal-pay-demo",
+      title: "支付宝 demo",
+      summary: "做一个支付宝风格 demo。",
+      scope: "只做演示闭环。",
+      acceptanceStatements: ["跑 pnpm test -- goal-intake → 应退出码 0"],
+      dependencies: [],
+      qualityBaseline: "demo",
+    },
+    milestones: [
+      { id: "ms-1", title: "阶段一", qualityBaseline: "demo" },
+      { id: "ms-2", title: "阶段二", qualityBaseline: "demo" },
+    ],
+    phaseOne: {
+      id: "phase-1",
+      name: "阶段一",
+      objective: "完成 demo 入口。",
+      acceptanceStatements: ["跑 pnpm test -- goal-intake → 应退出码 0"],
+      dependencies: [],
+      qualityBaseline: "demo",
+    },
+    tasks: [makeGoalIntakeTaskPayload("task-1"), makeGoalIntakeTaskPayload("task-2"), makeGoalIntakeTaskPayload("task-3")],
+    confirmationBody: "请确认支付宝 demo 提案；本 demo 不承诺真实资金处理、金融牌照、清结算或结算能力。",
+    provenance: "issue body goal intake",
+  })}
+
+<!-- agent-moebius:stage=in-progress -->`;
+}
+
+function makeGoalIntakeConfirmFinalText(proposalKey: string): string {
+  return `${JSON.stringify({
+    action: "goal_intake",
+    workflowId: "goal-intake",
+    mode: "confirm",
+    proposalKey,
+    summary: "用户确认阶段一。",
+    groups: [{ id: "g1", reason: "阶段一任务串行推进。" }],
+    issues: [
+      makeGoalIntakeConfirmIssuePayload("task-1"),
+      makeGoalIntakeConfirmIssuePayload("task-2"),
+      makeGoalIntakeConfirmIssuePayload("task-3"),
+    ],
+    provenance: "user confirmed proposal",
+  })}
+
+<!-- agent-moebius:stage=in-progress -->`;
+}
+
+function makeGoalIntakeTaskPayload(id: string) {
+  return {
+    id,
+    milestoneId: "ms-1",
+    title: `任务 ${id}`,
+    scope: `实现 ${id}`,
+    initialRole: "dev",
+    qualityBaseline: "demo",
+    acceptanceStatements: [`跑 pnpm test -- ${id} → 应退出码 0`],
+    dependencies: [],
+    provenance: "phase-one proposal",
+  };
+}
+
+function makeGoalIntakeConfirmIssuePayload(id: string) {
+  return {
+    ledgerTaskId: id,
+    groupId: "g1",
+    title: `任务 ${id}`,
+    description: `实现 ${id}`,
+    initialRole: "dev",
+    qualityBaseline: "demo",
+    acceptanceStatements: [`跑 pnpm test -- ${id} → 应退出码 0`],
+    dependencies: [],
+    provenance: "confirmed proposal",
+  };
 }
 
 const roundtableParticipants = ["qa", "dev-manager", "hermes-user"] as const;
@@ -3035,6 +3278,87 @@ function makeCeoLedgerState(input: { childIssueRefs?: GoalLedgerState["tasks"][s
       },
     },
   };
+}
+
+function emptyLedgerState(): GoalLedgerState {
+  return {
+    schemaVersion: 1,
+    goals: {},
+    milestones: {},
+    tasks: {},
+    phases: {},
+  };
+}
+
+function makeLedgerEntrySaver(ledger: GoalLedgerState): ProcessIssueSourceDependencies["saveGoalLedgerEntry"] {
+  return async (kind, id, mutate) => {
+    const next = mutate(ledger[kind][id] ?? null, ledger);
+    if (next === null) {
+      delete ledger[kind][id];
+      return;
+    }
+    ledger[kind][id] = next as GoalLedgerEntry & never;
+  };
+}
+
+function makeGoalIntakeProposalLedgerInput(): Parameters<typeof applyGoalIntakeProposal>[1] {
+  return {
+    proposalKey: buildGoalIntakeProposalKey({ source, proposalId: "proposal-1" }),
+    sourceIssue: { owner: source.owner, repo: source.repo, number: source.issueNumber },
+    messageIndex: 1,
+    commentId: "comment-1",
+    capturedAt: "2026-07-04T00:00:00.000Z",
+    provenanceNote: "goal intake proposal",
+    goal: {
+      id: "goal-pay-demo",
+      title: "支付宝 demo",
+      summary: "做一个支付宝风格 demo。",
+      scope: "只做演示闭环。",
+      acceptanceStatements: ["跑 pnpm test -- goal-intake → 应退出码 0"],
+      dependencies: [],
+      qualityBaseline: "demo",
+    },
+    milestones: [
+      { id: "ms-1", title: "阶段一", qualityBaseline: "demo" },
+      { id: "ms-2", title: "阶段二", qualityBaseline: "demo" },
+    ],
+    phaseOne: {
+      id: "phase-1",
+      name: "阶段一",
+      objective: "完成 demo 入口。",
+      acceptanceStatements: ["跑 pnpm test -- goal-intake → 应退出码 0"],
+      dependencies: [],
+      qualityBaseline: "demo",
+    },
+    tasks: [makeGoalIntakeTaskPayload("task-1"), makeGoalIntakeTaskPayload("task-2"), makeGoalIntakeTaskPayload("task-3")].map(
+      (task) => ({
+        id: task.id,
+        milestoneId: task.milestoneId,
+        title: task.title,
+        scope: task.scope,
+        acceptanceStatements: task.acceptanceStatements,
+        dependencies: task.dependencies,
+        qualityBaseline: task.qualityBaseline as "demo",
+        provenance: task.provenance,
+      }),
+    ),
+  };
+}
+
+function makeConfirmedGoalIntakeLedgerWithoutChildRefs(): GoalLedgerState {
+  const proposed = applyGoalIntakeProposal(emptyLedgerState(), makeGoalIntakeProposalLedgerInput());
+  return confirmGoalIntakeProposal(proposed, {
+    proposalKey: buildGoalIntakeProposalKey({ source, proposalId: "proposal-1" }),
+    taskIds: ["task-1", "task-2", "task-3"],
+    now: "2026-07-04T00:10:00.000Z",
+    provenance: {
+      issue: { owner: source.owner, repo: source.repo, number: source.issueNumber },
+      messageIndex: 2,
+      commentId: "comment-2",
+      capturedAt: "2026-07-04T00:10:00.000Z",
+      note: "confirmed",
+    },
+  });
 }
 
 function makeIntegrationLedgerState(input: {

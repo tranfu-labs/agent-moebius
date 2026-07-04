@@ -10,9 +10,10 @@ export const REQUIRED_CEO_SCRIPT_IDS = [
   "integration-acceptance",
   "integration-repair-child-issues",
   "roundtable-plan-review",
+  "goal-intake",
 ] as const;
 
-export type CeoScriptAction = "route" | "spawn_child_issues" | "roundtable";
+export type CeoScriptAction = "route" | "spawn_child_issues" | "roundtable" | "goal_intake";
 
 export interface CeoScript {
   id: string;
@@ -144,7 +145,7 @@ function isValidWorkflowId(value: string): boolean {
 }
 
 function isCeoScriptAction(value: string): value is CeoScriptAction {
-  return value === "route" || value === "spawn_child_issues" || value === "roundtable";
+  return value === "route" || value === "spawn_child_issues" || value === "roundtable" || value === "goal_intake";
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   assertGoalLedgerState,
+  applyGoalIntakeProposal,
   buildTaskAcceptanceFactKey,
+  confirmGoalIntakeProposal,
   computeReadyMissingFields,
   createEmptyGoalLedgerState,
   evaluateIntegrationAcceptanceJoin,
@@ -11,6 +13,7 @@ import {
   projectActivePhaseContext,
   recordIntegrationAcceptanceEvent,
   recordTaskAcceptanceFact,
+  resolveGoalIntakeProposal,
   switchActivePhase,
   upsertGoalIntakeDraft,
   withGoalLedgerEntry,
@@ -66,6 +69,66 @@ describe("goal ledger", () => {
     expect(ready.goals["goal-1"]?.status).toBe("ready");
     expect(ready.goals["goal-1"]?.missingFields).toEqual([]);
     expect(ready.goals["goal-1"]?.nextQuestions).toEqual([]);
+  });
+
+  it("writes a pending goal-intake bundle without exposing active phase context", () => {
+    const state = applyGoalIntakeProposal(createEmptyGoalLedgerState(), makeGoalIntakeProposalInput());
+
+    expect(state.goals["goal-intake"]?.status).toBe("pending");
+    expect(state.tasks["task-1"]?.status).toBe("pending");
+    expect(state.phases["phase-1"]?.status).toBe("pending");
+    expect(projectActivePhaseContext(state, { kind: "goal", id: "goal-intake" })).toEqual({
+      status: "no-active",
+      owner: { kind: "goal", id: "goal-intake" },
+    });
+    expect(resolveGoalIntakeProposal(state, "agent-moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")?.tasks).toHaveLength(3);
+  });
+
+  it("treats identical goal-intake proposals as idempotent and conflicts as fail-closed", () => {
+    const input = makeGoalIntakeProposalInput();
+    const first = applyGoalIntakeProposal(createEmptyGoalLedgerState(), input);
+    const second = applyGoalIntakeProposal(first, input);
+
+    expect(second).toBe(first);
+    expect(() =>
+      applyGoalIntakeProposal(first, {
+        ...input,
+        goal: { ...input.goal, title: "冲突标题" },
+      }),
+    ).toThrow(/conflicting goals\/goal-intake/);
+  });
+
+  it("confirms a goal-intake proposal into ready entries and a single active phase", () => {
+    const proposed = applyGoalIntakeProposal(createEmptyGoalLedgerState(), makeGoalIntakeProposalInput());
+    const confirmed = confirmGoalIntakeProposal(proposed, {
+      proposalKey: "agent-moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      taskIds: ["task-1", "task-2", "task-3"],
+      now: "2026-07-04T00:10:00.000Z",
+      provenance: { ...makeProvenance(), note: "confirmed" },
+    });
+
+    expect(confirmed.goals["goal-intake"]?.status).toBe("ready");
+    expect(confirmed.tasks["task-1"]?.status).toBe("ready");
+    expect(confirmed.phases["phase-1"]).toMatchObject({
+      status: "active",
+      startedAt: "2026-07-04T00:10:00.000Z",
+    });
+    expect(projectActivePhaseContext(confirmed, { kind: "goal", id: "goal-intake" })).toMatchObject({
+      status: "active",
+      current: {
+        phaseId: "phase-1",
+        qualityBaseline: "demo",
+      },
+    });
+
+    const repeated = confirmGoalIntakeProposal(confirmed, {
+      proposalKey: "agent-moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      taskIds: ["task-1", "task-2", "task-3"],
+      now: "2026-07-04T00:20:00.000Z",
+      provenance: { ...makeProvenance(), note: "confirmed again" },
+    });
+    expect(repeated.phases["phase-1"]?.startedAt).toBe("2026-07-04T00:10:00.000Z");
+    expect(Object.values(repeated.phases).filter((phase) => phase.status === "active")).toHaveLength(1);
   });
 
   it("validates entity references and ready invariants", () => {
@@ -660,6 +723,48 @@ function makeIssueReference(relation: IssueReference["relation"]): IssueReferenc
     number: 63,
     relation,
     status: "open",
+  };
+}
+
+function makeGoalIntakeProposalInput(): Parameters<typeof applyGoalIntakeProposal>[1] {
+  return {
+    proposalKey: "agent-moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    sourceIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+    messageIndex: 1,
+    commentId: "comment-1",
+    capturedAt: NOW,
+    provenanceNote: "goal-intake proposal",
+    goal: {
+      id: "goal-intake",
+      title: "支付宝 demo",
+      summary: "做一个支付宝风格 demo",
+      scope: "只做演示闭环",
+      acceptanceStatements: ["跑 pnpm test -- goal-intake → 应退出码 0"],
+      dependencies: [],
+      qualityBaseline: "demo",
+    },
+    milestones: [
+      { id: "ms-1", title: "阶段一", qualityBaseline: "demo" },
+      { id: "ms-2", title: "阶段二", qualityBaseline: "demo" },
+    ],
+    phaseOne: {
+      id: "phase-1",
+      name: "阶段一",
+      objective: "完成 demo 入口",
+      acceptanceStatements: ["跑 pnpm test -- goal-intake → 应退出码 0"],
+      dependencies: [],
+      qualityBaseline: "demo",
+    },
+    tasks: ["task-1", "task-2", "task-3"].map((id) => ({
+      id,
+      milestoneId: "ms-1",
+      title: `任务 ${id}`,
+      scope: `实现 ${id}`,
+      acceptanceStatements: [`跑 pnpm test -- ${id} → 应退出码 0`],
+      dependencies: [],
+      qualityBaseline: "demo" as const,
+      provenance: "phase-one task",
+    })),
   };
 }
 
