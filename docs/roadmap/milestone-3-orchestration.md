@@ -117,7 +117,7 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - 验证命令：`pnpm vitest run tests/observer.test.ts --reporter=verbose`（10 tests，退出码 0）、`pnpm test`（29 个 test files / 323 tests，退出码 0）、`pnpm typecheck`（退出码 0）、`git diff --check`（退出码 0）。
 - 验收清单：product-manager 已确认正式验收口径，含 QA 增补 3 条；实现证据覆盖 ledger-first goal -> milestone -> task 树、未归属任务、owner phase active / no-active / multiple-active 局部错误、watchlist 过滤、非白名单 ref 标注、task detail、只读 gate 可见化、缺 refs 闸口诊断、显式 `TaskRecord.runManifestRefs` evidence、unlinked local runs、坏 ledger fallback、read timeout fallback、roundtable hidden key / 普通 provenance / near-miss 负例、roundtable 不计入验收通过、fake `gh` / `codex` 零调用与文件哈希不变。
 
-### - [ ] T8 · 目标入账剧本（goal-intake）
+### - [x] T8 · 目标入账剧本（goal-intake）
 
 补齐账本写路径的用户侧入口，设计原则：**用户只表达目标，不需要知道"拆解"这个概念**。"我想要做一个 X"是目标形状的话——识别它是 CEO 的场景识别职责，不是用户的请求义务；无 mention 时由里程碑 2 T8 兜底路由移交 `@ceo`。剧本四步（goal-driven-decomposition 哲学的组织层移植：先验推断、按需拆解）：
 
@@ -127,6 +127,16 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 4. **阶段到期回访**：阶段 1 集成验收通过后 CEO 回访——`switch_phase`（强制归档旧阶段）+ 采访阶段 2 口径，此时才细化阶段 2。这是 T2 阶段隔离语义的第一个真实消费场景。
 
 验收场景（细化时保留）：在 issue 里只写「我想要做一个支付宝」（不带任何 `@`）→ 应看到 CEO 被兜底路由唤醒、给出假设清单与 ≤4 个分叉问题 → 用户一句话回答后 → 应看到账本含目标 + 粗里程碑 + 细化的阶段 1，以及待确认的拆解提案评论；确认后 spawn 的子 issue 均带阶段 1 的质量基准与验收语句。
+
+验收证据（2026-07-05）：
+- 方案与归档：`openspec/changes/archive/2026-07-05-goal-intake-t8/`
+- 行为事实源：`openspec/specs/github-issue-runner/spec.md`、`openspec/specs/goal-ledger/spec.md`
+- 架构事实源：`docs/architecture/module-map.md`、`docs/architecture/goal-intake.svg`
+- 剧本与 persona：`agents/ceo.md`、`agents/ceo-scripts/goal-intake.md`
+- 实现：`src/ceo-scripts.ts`、`src/ceo-orchestration.ts`、`src/agent-prescripts/ceo-ledger-context.ts`、`src/goal-ledger.ts`、`src/runner.ts`
+- 测试：`tests/ceo-scripts.test.ts`、`tests/ceo-orchestration.test.ts`、`tests/ceo-ledger-context.test.ts`、`tests/goal-ledger.test.ts`、`tests/runner.test.ts`
+- 验证命令：`pnpm typecheck`（退出码 0）、`pnpm test -- --run`（30 个 test files / 334 tests，退出码 0）、`git diff --check`（退出码 0）。
+- 验收清单：product-manager 已确认第 11 条方案中的 14 条验收语句为正式实现清单，并明确接受 QA 增补；实现证据覆盖 issue body/comment 路由 key 分离、无 mention 目标兜底只 handoff CEO、有界采访 ≤4 问、pending ledger 不暴露 active projection、提案评论 hidden proposal key、确认后复用既有 spawn executor、幂等重试不重复创建 child、ledger child-ref save timeout 后 hidden key 恢复、ledger save fail-closed、fail-closed 评论发布失败仍保持 failed、可见写有界、支付宝 demo 不触发真实 dogfood、不承诺真实资金/牌照/清结算，以及 issue 文本不进入 shell。
 
 ### - [ ] T9 ·【人工】多任务目标端到端 dogfood
 

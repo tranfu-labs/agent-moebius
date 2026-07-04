@@ -39,11 +39,12 @@
 - MUST 在 `no-trigger` 后推进 intake `updatedAt`；`failed` 后 MUST 更新 `failureCount` / `lastFailureReason` / `nextPollAt` 但 MUST NOT 推进 `updatedAt`，重试节奏由既有 poll / scan 间隔约束，MUST NOT 每 tick 刷屏。
 - MUST 在单 issue 处理返回 `failed` 时保留既有 `updatedAt`、`failureCount` 累加 1（此前 idle 或缺失状态从 1 开始）、记录 `lastFailureReason`、`activeNoChangeCount` 保持不变、`mode = active`、`nextPollAt` 设为处理时间后 `activeIssuePollIntervalMs`。失败 MUST NOT 消耗安静降级预算（`activeNoChangeCount`），安静轮询 MUST NOT 消耗失败预算（`failureCount`）。
 - MUST 在 `triggered-success` / `no-trigger` / `dead-lettered` 结局折叠时清零 `failureCount` 与 `lastFailureReason`。存量状态文件（无新字段）MUST 可直接加载。
-- MUST 在 active issue 的最新外部 comment 归一化为 `speaker=user`、不带任何 `agent-moebius:*` runner 机器 metadata、且该 comment 没有合法 agent mention 时，执行一次 CEO 式无状态兜底路由判定；idle issue、issue body、runner metadata comment、已有合法 agent mention 的 comment MUST NOT 进入该兜底路由。
-- MUST 让外部 comment 兜底路由只输出两类业务结果：`no_action`（无需行动）或 `append`（一条以 `ceo` role envelope 发布的追加评论）。append 正文 MUST 且只能包含一个代码区域外的合法可触发 agent mention；TypeScript 层 MUST 校验 JSON shape、非空 body、单 mention 和白名单。目标不清或需要编排裁决时可 append `@ceo`，目标明确时可 append 对应目标角色；具体路由判据 MUST 放在 `agents/ceo.md`。
-- MUST 按 GitHub comment id 记录每次外部 comment 兜底路由判定结果，至少包含 comment id、`outcome`（`no_action` / `append` / `fail_open`）、判定时间，以及可用时的失败原因或目标角色；同一 comment id 已有记录时 MUST NOT 再次调用兜底路由判定。
-- MUST 在兜底路由判定失败、超时、非法 JSON、非法 append body 或 persona 加载失败时 fail-open：不发布评论，保持现有 no-trigger 语义，并记录 `outcome = fail_open`，避免同一 comment 重复消耗成本。
-- MUST 在兜底路由发布 append 成功后，让该 comment 成为下一轮 active poll 的最新消息，并由普通 mention trigger 在下一轮选择目标 agent；本轮 MUST NOT 直接运行 append 中 mention 的目标 agent。
+- MUST 在可处理的最新外部无 mention 消息归一化为 `speaker=user`、不带任何 `agent-moebius:*` runner 机器 metadata、且没有合法 agent mention 时，执行一次 CEO 式无状态兜底路由判定；该消息可以是 active issue 最新外部 comment，也可以是当前 processing cycle 正在处理且具备明显目标形状的 issue body。
+- MUST 让外部无 mention 兜底路由只输出两类业务结果：`no_action`（无需行动）或 `append`（一条以 `ceo` role envelope 发布的追加评论）。append 正文 MUST 且只能包含一个代码区域外的合法可触发 agent mention；TypeScript 层 MUST 校验 JSON shape、非空 body、单 mention 和白名单。目标不清或需要编排裁决时可 append `@ceo`，目标明确时可 append 对应目标角色；具体路由判据 MUST 放在 `agents/ceo.md`。
+- MUST 按互不混淆的有界 key 记录每次外部无 mention 兜底路由判定结果：comment 使用 GitHub comment id；issue body 使用 `issue-body:<digest>` 形式的有界 digest key；intake state MUST NOT 保存完整 issue body 或 comment 正文。同一 key 已有记录时 MUST NOT 再次调用兜底路由判定。
+- MUST 在兜底路由判定失败、超时、非法 JSON、非法 append body 或 persona 加载失败时 fail-open：不发布评论，保持现有 no-trigger 语义，并记录 `outcome = fail_open`，避免同一 route key 重复消耗成本。
+- MUST 在兜底路由发布 append 成功后，让该 route comment 成为下一轮 active poll 的最新消息，并由普通 mention trigger 在下一轮选择目标 agent；本轮 MUST NOT 直接运行 append 中 mention 的目标 agent。
+- MUST 将目标 handoff append 的可见发布作为可推进边界：若兜底路由决定 `append` 但发布 route comment 失败或超时，runner MUST 返回 `failed`，MUST NOT 推进 intake `updatedAt`，MUST NOT 保存成功 append route decision，并让后续 retry / dead-letter 仍能留下可见结果。
 - MUST 在处理失败且折叠后 `failureCount` 将达到 `FAILURE_RETRY_LIMIT` 时，于同轮先完成本次真实处理尝试、确认仍失败后，向该 issue 发布死信评论；死信评论发布成功 MUST 折叠为 `dead-lettered`（推进 `updatedAt`、`mode = idle`、清零计数、`nextPollAt = null`），发布失败 MUST 保持 `failed` 并在后续轮次继续「先处理、后死信」。MUST NOT 在本轮处理成功时发布死信。
 - MUST 让死信评论以系统身份发布、不包含任何 agent mention、携带机器可识别标记 `<!-- agent-moebius:dead-letter -->`，并包含目标 agent 名、`lastFailureReason`、累计失败次数与恢复提示（在 issue 发表任意新评论即可重新触发）。
 - MUST 在死信评论被后续扫描读到时按 `no-trigger` 吸收，MUST NOT 形成自触发循环。
@@ -790,6 +791,15 @@ When runner 处理该 issue
 Then runner MUST 调用 CEO 式 external comment route 判定一次
 And 判定结果 MUST 记录到 intake state，key 为该 comment id
 
+### 场景 22.5a：GitHub response intake — 目标形状 issue body 用 digest key 触发兜底
+Given issue body says “我想要做一个支付宝”
+And issue body contains no legal agent mention
+And the issue body is the message currently being processed
+When runner processes that issue
+Then runner MAY call CEO-style fallback routing once
+And the route decision key is a bounded `issue-body:<digest>` key
+And intake state does not store the full issue body text
+
 ### 场景 22.6：GitHub response intake — 兜底路由 no_action 不发评论且不重复
 Given active issue 最新外部无 mention comment 已触发兜底路由
 And CEO 式路由返回 `{"action":"no_action"}`
@@ -811,6 +821,15 @@ And intake state MUST 记录该 comment id 的 `outcome = append` 与 `targetRol
 And 本轮 MUST NOT 直接运行 dev
 When 下一轮 active poll 读取到该 CEO comment
 Then 普通 mention trigger MUST 选择 `dev`
+
+### 场景 22.7a：GitHub response intake — 目标 handoff 发布失败不得 no-trigger 吞掉
+Given fallback routing decided to append a route comment for a target-shaped no-mention message
+And posting that route comment times out or fails
+When runner finishes the issue processing attempt
+Then the outcome is `failed`
+And intake `updatedAt` is not advanced
+And no successful append route decision is recorded
+And later retry or dead-letter handling remains available
 
 ### 场景 22.8：GitHub response intake — 兜底路由 fail-open 记录失败并保持现状
 Given active issue 最新外部无 mention comment 尚未判定
@@ -1749,9 +1768,10 @@ And fake invocation logs are empty
 - MUST give CEO agent runs an independent issue + role thread using the existing role-thread state store.
 - MUST let `agents/ceo.md` use frontmatter `preScript: src/agent-prescripts/ceo-ledger-context.ts` for the normal agent path only; guardrail calls MUST parse and use the persona body without executing that preScript.
 - MUST keep CEO agent visible responses at `in-progress`; CEO agent MUST NOT use `plan-written` or `code-verified`.
-- MUST store CEO scripts as independent data files outside top-level `agents/*.md`; the first script set MUST include `plan-review`, `post-implementation-retro`, and `milestone-spawn-child-issues`.
+- MUST store CEO scripts as independent data files outside top-level `agents/*.md`; the required script set MUST include `plan-review`, `post-implementation-retro`, `milestone-spawn-child-issues`, `integration-acceptance-request`, `integration-repair-child`, `roundtable-plan-review`, and `goal-intake`.
 - MUST validate CEO workflow id and template existence at runtime before performing orchestration side effects.
-- MUST fail closed, with a visible `<ceo>:` `in-progress` failure comment, when CEO agent ledger context loading fails, the ledger file is missing, ledger schema is invalid, no unique current projection can be derived, a required script is missing, orchestration JSON is invalid, issue creation fails, or ledger child-ref writing fails.
+- MUST fail closed, with a visible `<ceo>:` `in-progress` failure comment, when CEO agent ledger context loading fails, ledger schema is invalid, multiple active projections can be derived, a required script is missing, orchestration JSON is invalid, issue creation fails, or ledger child-ref writing fails.
+- MUST let CEO ledger context return a bounded intake bootstrap context when the ledger is loadable or missing and the current issue has no unique active ledger owner; bootstrap context MAY be used for `goal_intake` only and MUST NOT make `spawn_child_issues` or `roundtable` valid without visible task ids.
 - MUST NOT update the CEO role thread after a fail-closed CEO orchestration failure.
 - MUST update the CEO role thread only after all required orchestration side effects have completed and the final CEO comment has been posted successfully.
 - MUST support agent preScripts returning deterministic prompt context; runner MUST append that context to the selected agent prompt before Codex execution.
@@ -1791,14 +1811,22 @@ Then runner 执行 `ceo-ledger-context` prescript
 And Codex prompt 包含当前 phase objective、quality baseline、acceptance statements、dependencies、owner/task identity 和可用 workflow id
 And prompt 不包含已归档阶段 artifact body
 
-### 场景 T3.3：账本缺失时 CEO 编排 fail closed
+### 场景 T3.3：账本损坏时 CEO 编排 fail closed
 Given 最新消息包含 `@ceo`
-And `.state/goal-ledger.json` 不存在
+And `.state/goal-ledger.json` 存在但 JSON 损坏或 schema 不合法
 When runner 准备 CEO agent
 Then runner 不调用 Codex
 And runner 不创建任何 issue
 And runner 发布一条 `<ceo>:` 可见失败评论，末尾为 `<!-- agent-moebius:stage=in-progress -->`
 And runner 不更新 ceo role thread
+
+### 场景 T3.3a：无 active owner 时 CEO 注入 intake bootstrap context
+Given 最新消息包含 `@ceo`
+And `.state/goal-ledger.json` 不存在或为空账本
+When runner 准备 CEO agent
+Then runner 执行 `ceo-ledger-context` prescript
+And Codex prompt 包含 goal-intake bootstrap context 与可用 `goal-intake` workflow
+And prompt 不伪造 active phase projection 或 visible task ids
 
 ### 场景 T3.4：剧本缺失时不创建 issue
 Given CEO agent 输出 `workflowId = "milestone-spawn-child-issues"`
@@ -1971,9 +1999,138 @@ Given T4 is implemented
 When tests inspect runner and ledger behavior
 Then worktree provisioning, observer writes, fixed phase names, issue lifecycle sync, cross-repo join, and round-table topology are not introduced
 
+## T8 goal-intake runtime
+- MUST support a new required CEO script `goal-intake` whose action is `goal_intake`.
+- MUST keep `goal_intake` as a normal CEO ordinary-agent workflow with fail-closed side effects; it MUST NOT run through the stateless guardrail path.
+- MUST keep no-mention target routing as a two-step process: publish the route append first, then let the next active poll trigger CEO through the normal mention trigger.
+- MUST NOT let fallback routing directly write the ledger, create child issues, or run goal-intake in the same processing cycle.
+- MUST parse CEO `goal_intake` output only when the output is valid JSON followed by a valid `in-progress` stage marker.
+- MUST support `goal_intake.interview` as a visible CEO comment with no ledger writes and no child issue creation.
+- MUST require `goal_intake.interview` to contain 2-4 concrete questions when questions are present, and MUST reject more than 4 interview questions.
+- MUST support `goal_intake.propose` by validating the proposed goal bundle, writing pending ledger state, and publishing a pending proposal comment that contains a hidden goal-intake proposal key.
+- MUST require `goal_intake.propose` to include 2-5 coarse milestones, exactly one phase-one proposal, 3-7 phase-one tasks, 1-3 acceptance statements per task, valid quality baseline, valid initial role per task, and bounded provenance.
+- MUST return `failed` without saving the CEO role thread when a pending ledger proposal save succeeds but publishing the visible proposal comment fails or times out; retry MUST recover the existing pending proposal by proposal key and attempt to publish the proposal comment again.
+- MUST require payment-product examples such as “支付宝” to be represented as demo/data-correct/production scope without claiming real funds handling, financial licenses, or clearing/settlement capability unless the user explicitly confirms those are in scope in a future task.
+- MUST support `goal_intake.confirm` by validating the pending proposal key, marking ledger entries ready/active, and then reusing the existing CEO child issue spawn executor for phase-one task child issues.
+- MUST require `goal_intake.confirm` spawn descriptors to exactly match the confirmed pending phase-one tasks by task id, quality baseline, acceptance statements, and dependencies.
+- MUST derive child issue orchestration keys for goal-intake confirmation from parent issue source, workflow id, and ledger task id, and MUST NOT include free text.
+- MUST make `goal_intake.confirm` idempotent: retrying after a role-thread save failure, ledger child-ref save failure, or fail-closed comment failure MUST not create duplicate child issues when hidden keys or ledger refs already exist.
+- MUST recover a `goal_intake.confirm` retry when ledger already has phase one active but one or more task child refs are missing: runner MUST not create another active phase, MUST search by hidden orchestration key before creating any child issue, and MUST write missing child refs for uniquely recovered children.
+- MUST fail closed with a visible CEO comment and without saving the CEO role thread when goal-intake JSON is invalid, a required script is missing, proposal key conflicts, ledger proposal save fails, confirmation validation fails, child issue lookup/create fails, or child-ref save fails.
+- MUST include already-created or recovered child issue URLs in fail-closed details when later goal-intake confirmation work fails.
+- MUST return `failed` when publishing the visible goal-intake fail-closed comment itself fails or times out; in that case intake MUST NOT advance `updatedAt`, and existing failureCount / retry / dead-letter behavior remains responsible for visibility.
+- MUST keep all GitHub visible writes bounded by existing timeout behavior and no automatic retry rules for visible writes.
+- MUST use `child_process.spawn(cmd, args[])` only through existing adapters; issue title/body/comment text MUST NOT be interpolated into shell commands.
+- MUST document `switch_phase` as a future contract for post-phase-one integrated acceptance follow-up, but T8 MUST NOT add an automatic phase-switch pre-pass, observer UI operation, or T9/T10 dogfood runner.
+
+### 场景 T8.1：无 mention 目标兜底到 CEO
+Given an issue body says “我想要做一个支付宝”
+And it contains no legal agent mention
+When runner processes that message
+Then fallback routing may publish one CEO role comment containing exactly one legal `@ceo`
+And the same processing cycle does not write the ledger or create child issues
+And the route decision is keyed by a bounded issue-body digest, not by storing the issue body text
+
+### 场景 T8.1a：comment 兜底按 comment id 去重
+Given the latest external comment says “我想要做一个支付宝”
+And it contains no legal agent mention
+When runner processes that message
+Then fallback routing may publish one CEO role comment containing exactly one legal `@ceo`
+And the route decision is keyed by the GitHub comment id
+And reprocessing the same comment id does not call fallback routing again
+
+### 场景 T8.1b：目标 handoff 发布失败不得 no-trigger 吸收
+Given fallback routing decided to append a `@ceo` route comment for a target-shaped no-mention message
+And posting that route comment times out
+When runner finishes the issue processing attempt
+Then the outcome is `failed`
+And intake `updatedAt` is not advanced
+And no successful append route decision is recorded
+And later retry or dead-letter handling can still leave a visible result
+
+### 场景 T8.2：采访问题有界
+Given CEO outputs `goal_intake.interview`
+When the output contains 5 interview questions
+Then parser rejects it
+And runner publishes a fail-closed CEO explanation
+And no ledger entry is saved
+
+### 场景 T8.3：propose 写 pending 并发待确认提案
+Given CEO outputs a valid `goal_intake.propose`
+When runner executes it
+Then runner saves a pending goal-intake ledger bundle
+And runner publishes a visible proposal comment containing the hidden proposal key
+And runner saves the CEO role thread only after ledger save and proposal comment succeed
+
+### 场景 T8.3a：pending 已保存但提案评论失败可重试
+Given CEO outputs a valid `goal_intake.propose`
+And runner saves the pending ledger bundle
+And publishing the visible proposal comment fails
+When runner returns from the attempt
+Then the outcome is `failed`
+And the CEO role thread is not saved
+When the same proposal is retried
+Then runner recognizes the existing pending proposal by proposal key
+And attempts to publish the proposal comment without creating duplicate ledger entities
+
+### 场景 T8.4：confirm 后复用 spawn
+Given the ledger contains a pending goal-intake proposal
+And the user confirms that proposal
+When CEO outputs a valid `goal_intake.confirm`
+Then runner marks the goal and phase-one tasks ready
+And runner activates phase one
+And runner creates or recovers one same-repository child issue per phase-one task through the existing spawn executor
+And each child body contains parent reference, ledger task id, quality baseline, acceptance statements, dependencies, initial handoff role, provenance, and hidden orchestration key
+
+### 场景 T8.5：confirm 重试不重复创建 child
+Given `goal_intake.confirm` created a child issue whose body contains a hidden orchestration key
+And saving the CEO role thread failed
+When the same confirmation is retried with changed CEO wording
+Then runner recovers the existing child issue by key or ledger child ref
+And does not call GitHub create issue for that task again
+
+### 场景 T8.5a：active phase 已存在但 child ref 缺失时恢复
+Given `goal_intake.confirm` already marked phase one active
+And one child issue was created with the hidden orchestration key
+And saving that task child ref timed out
+When the same proposal confirmation is retried
+Then phase one remains the single active phase with its original startedAt
+And runner searches by hidden key before creating a child issue
+And runner writes the missing child ref for the recovered child
+And runner does not create a duplicate child issue
+
+### 场景 T8.6：ledger proposal 保存失败 fail closed
+Given CEO outputs a valid `goal_intake.propose`
+And saving the goal ledger entry times out
+When runner handles the failure
+Then runner publishes a visible fail-closed CEO comment if possible
+And runner does not save the CEO role thread
+And intake does not advance unless that visible failure comment posts successfully
+
+### 场景 T8.6a：fail-closed 评论发布失败保持 failed
+Given goal-intake validation or side-effect execution fails before a successful visible comment
+And publishing the visible fail-closed CEO explanation also times out
+When runner finishes the issue processing attempt
+Then the outcome is `failed`
+And intake `updatedAt` is not advanced
+And the existing failureCount / retry / dead-letter path remains available
+
+### 场景 T8.7：支付宝文本不触发真实 dogfood
+Given a unit or runner test uses the simulated issue text “我想要做一个支付宝”
+When T8 tests execute
+Then no real external GitHub issue is created
+And fake adapters observe only bounded runner calls
+And the proposal / child issue text explicitly states that the demo does not cover real funds, financial licenses, clearing, or settlement
+
+### 场景 T8.8：issue 文本不进入 shell
+Given an issue goal title contains shell metacharacters
+When no-mention routing, goal-intake proposal, confirmation, and spawn rendering run
+Then no code path passes issue text through `exec`, `execSync`, or `shell: true`
+And any child process invocation uses controlled argv through existing adapters
+
 ## 可验证行为
 - `pnpm vitest run tests/observer.test.ts` MUST 通过，覆盖 observer 的白名单聚合、状态来源标注、artifact 发布链接 / 图片预览、未发布 artifact 路径、缺 `.state` 文件、坏 state JSON、坏 JSONL、JSONL 尾行截断、manifest 缺字段、损坏 config 诊断、无写入边界、fake `gh` / `codex` 零调用，以及 observer 被强杀后 runner 测试不受影响。
-- `pnpm vitest run tests/runner.test.ts tests/format-ceo.test.ts tests/github-response-intake.test.ts tests/conversation.test.ts` MUST 通过，覆盖外部无 mention 兜底路由、route parser 负例、comment id ledger 防重、CEO 审阅 metadata 覆盖、旧 intake state 兼容与 speaker 归一化边界。
+- `pnpm vitest run tests/runner.test.ts tests/format-ceo.test.ts tests/github-response-intake.test.ts tests/conversation.test.ts` MUST 通过，覆盖外部无 mention 兜底路由、route parser 负例、comment id ledger 防重、issue-body digest key 防重、目标 handoff 发布失败不推进、CEO 审阅 metadata 覆盖、旧 intake state 兼容与 speaker 归一化边界。
 - `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed 保留 `updatedAt` 并更新 `failureCount` / `lastFailureReason` / `nextPollAt`、`dead-lettered` 清零失败状态并降级 idle、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、Codex watchdog 超时后 failed 折叠并释放 queued driver pool 名额、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` 不触发 Codex、`@ceo` 普通 mention 触发 Codex、`@secretary` 普通 mention 触发 Codex、secretary speaker 归一化、secretary current repo preScript cwd 传递、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO `append.as=secretary` 合法、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、CEO script 文件加载、CEO agent 账本 prescript fail-closed、CEO orchestration JSON + stage marker 解析、真实 createIssue adapter argv/stdin、稳定 orchestration key、child issue ledger ref、按 hidden key 找回已创建 child、防自激环、外部 route append `@ceo`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、dev workspace git 失败 stderr 摘要、dev workspace 本地分支名与 repo cache 串行化、codex jsonl 最终消息解析、thread id 解析、cached token 解析、Codex AbortSignal 中断与忽略温和信号时的强杀兜底、issue media 纯提取 / prompt manifest、SVG issue 输入过滤、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`gh` 子进程挂起 timeout、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、死信发布成功 / 失败 / 故障恢复不误发死信、持续 GitHub fetch 故障达到预算后死信、以及收尾中断检查抛错时 fail-open 照常发布。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。

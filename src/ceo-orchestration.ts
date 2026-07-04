@@ -9,6 +9,7 @@ export const CEO_ORCHESTRATION_STAGE = "in-progress";
 export const CEO_ORCHESTRATION_KEY_PREFIX = "agent-moebius-orchestration-key";
 export const CEO_ROUNDTABLE_KEY_PREFIX = "agent-moebius-roundtable-key";
 export const CEO_ROUNDTABLE_COMPLETION_KEY_PREFIX = "agent-moebius-roundtable-completion-key";
+export const GOAL_INTAKE_PROPOSAL_KEY_PREFIX = "agent-moebius-goal-intake-proposal-key";
 
 export interface CeoOrchestrationGroup {
   id: string;
@@ -20,6 +21,43 @@ export interface CeoChildIssueDescriptor {
   groupId: string;
   title: string;
   description: string;
+  initialRole: string;
+  qualityBaseline: "demo" | "data-correct" | "production";
+  acceptanceStatements: string[];
+  dependencies: string[];
+  provenance: string;
+}
+
+export interface GoalIntakeGoalDescriptor {
+  id: string;
+  title: string;
+  summary: string;
+  scope: string;
+  acceptanceStatements: string[];
+  dependencies: string[];
+  qualityBaseline: "demo" | "data-correct" | "production";
+}
+
+export interface GoalIntakeMilestoneDescriptor {
+  id: string;
+  title: string;
+  qualityBaseline: "demo" | "data-correct" | "production";
+}
+
+export interface GoalIntakePhaseDescriptor {
+  id: string;
+  name: string;
+  objective: string;
+  acceptanceStatements: string[];
+  dependencies: string[];
+  qualityBaseline: "demo" | "data-correct" | "production";
+}
+
+export interface GoalIntakeTaskDescriptor {
+  id: string;
+  milestoneId: string;
+  title: string;
+  scope: string;
   initialRole: string;
   qualityBaseline: "demo" | "data-correct" | "production";
   acceptanceStatements: string[];
@@ -50,6 +88,36 @@ export type ParsedCeoOrchestration =
       summary: string;
       groups: CeoOrchestrationGroup[];
       issues: CeoChildIssueDescriptor[];
+    }
+  | {
+      action: "goal_intake";
+      workflowId: string;
+      mode: "interview";
+      body: string;
+      questions: string[];
+    }
+  | {
+      action: "goal_intake";
+      workflowId: string;
+      mode: "propose";
+      proposalId: string;
+      assumptions: string[];
+      goal: GoalIntakeGoalDescriptor;
+      milestones: GoalIntakeMilestoneDescriptor[];
+      phaseOne: GoalIntakePhaseDescriptor;
+      tasks: GoalIntakeTaskDescriptor[];
+      confirmationBody: string;
+      provenance: string;
+    }
+  | {
+      action: "goal_intake";
+      workflowId: string;
+      mode: "confirm";
+      proposalKey: string;
+      summary: string;
+      groups: CeoOrchestrationGroup[];
+      issues: CeoChildIssueDescriptor[];
+      provenance: string;
     }
   | {
       action: "roundtable";
@@ -120,7 +188,7 @@ export function parseCeoOrchestrationOutput(input: {
     return { ok: true, value: { action, body: ensureInProgressStage(body.value) } };
   }
 
-  if (action !== "route" && action !== "spawn_child_issues" && action !== "roundtable") {
+  if (action !== "route" && action !== "spawn_child_issues" && action !== "roundtable" && action !== "goal_intake") {
     return { ok: false, reason: `unknown-action:${String(action)}` };
   }
 
@@ -142,6 +210,14 @@ export function parseCeoOrchestrationOutput(input: {
       workflowId: workflowId.value,
       availableAgentNames: input.availableAgentNames,
       visibleTaskIds: input.visibleTaskIds,
+    });
+  }
+
+  if (action === "goal_intake") {
+    return parseGoalIntakeAction({
+      parsed,
+      workflowId: workflowId.value,
+      availableAgentNames: input.availableAgentNames,
     });
   }
 
@@ -173,6 +249,7 @@ export function parseCeoOrchestrationOutput(input: {
     groups: groups.value,
     availableAgentNames: input.availableAgentNames,
     visibleTaskIds: input.visibleTaskIds,
+    requireVisibleTaskIds: true,
   });
   if (!issues.ok) {
     return issues;
@@ -220,6 +297,15 @@ export function buildCeoRoundtableCompletionKey(input: {
   return `${CEO_ROUNDTABLE_COMPLETION_KEY_PREFIX}:${digest}`;
 }
 
+export function buildGoalIntakeProposalKey(input: {
+  source: IssueSource;
+  proposalId: string;
+}): string {
+  const material = `${input.source.owner}/${input.source.repo}#${String(input.source.issueNumber)}|${input.proposalId}`;
+  const digest = crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
+  return `${GOAL_INTAKE_PROPOSAL_KEY_PREFIX}:${digest}`;
+}
+
 export function extractCeoOrchestrationKeyFromNote(note: string | undefined): string | null {
   if (note === undefined) {
     return null;
@@ -242,6 +328,24 @@ export function extractCeoRoundtableCompletionKey(text: string | undefined): str
   }
   const match = text.match(/agent-moebius-roundtable-completion-key:[a-f0-9]{32}/u);
   return match?.[0] ?? null;
+}
+
+export function extractGoalIntakeProposalKey(text: string | undefined): string | null {
+  if (text === undefined) {
+    return null;
+  }
+  const match = text.match(/agent-moebius-goal-intake-proposal-key:[a-f0-9]{32}/u);
+  return match?.[0] ?? null;
+}
+
+export function renderGoalIntakeProposalBody(input: {
+  confirmationBody: string;
+  proposalKey: string;
+}): string {
+  const body = input.confirmationBody.includes(input.proposalKey)
+    ? input.confirmationBody.trimEnd()
+    : `${input.confirmationBody.trimEnd()}\n\n<!-- ${input.proposalKey} -->`;
+  return ensureInProgressStage(body);
 }
 
 export function renderCeoChildIssueBody(input: {
@@ -546,6 +650,160 @@ function parseRoundtableAction(input: {
   return { ok: false, reason: `roundtable-unknown-mode:${mode.value}` };
 }
 
+function parseGoalIntakeAction(input: {
+  parsed: Record<string, unknown>;
+  workflowId: string;
+  availableAgentNames: readonly string[];
+}): ParseCeoOrchestrationResult {
+  const mode = getNonEmptyString(input.parsed["mode"], "mode");
+  if (!mode.ok) {
+    return mode;
+  }
+
+  if (mode.value === "interview") {
+    const body = getNonEmptyString(input.parsed["body"], "body");
+    if (!body.ok) {
+      return body;
+    }
+    const questions = getNonEmptyStringArray(input.parsed["questions"], "questions");
+    if (!questions.ok) {
+      return questions;
+    }
+    if (questions.value.length < 2 || questions.value.length > 4) {
+      return { ok: false, reason: `goal-intake-interview-question-count:${String(questions.value.length)}` };
+    }
+    const mentions = parseAgentMentions(body.value);
+    if (mentions.length > 1) {
+      return { ok: false, reason: "goal-intake-interview-body-multiple-mentions" };
+    }
+    if (mentions[0] !== undefined && !input.availableAgentNames.includes(mentions[0].name)) {
+      return { ok: false, reason: `goal-intake-interview-body-unknown-mention:${mentions[0].name}` };
+    }
+    return {
+      ok: true,
+      value: {
+        action: "goal_intake",
+        workflowId: input.workflowId,
+        mode: "interview",
+        body: ensureInProgressStage(body.value),
+        questions: questions.value,
+      },
+    };
+  }
+
+  if (mode.value === "propose") {
+    const proposalId = getNonEmptyString(input.parsed["proposalId"], "proposalId");
+    const assumptions = getStringArray(input.parsed["assumptions"], "assumptions");
+    const goal = parseGoalIntakeGoal(input.parsed["goal"]);
+    const milestones = parseGoalIntakeMilestones(input.parsed["milestones"]);
+    const phaseOne = parseGoalIntakePhase(input.parsed["phaseOne"]);
+    const tasks = parseGoalIntakeTasks(input.parsed["tasks"], {
+      availableAgentNames: input.availableAgentNames,
+      milestoneIds: milestones.ok ? milestones.value.map((milestone) => milestone.id) : [],
+    });
+    const confirmationBody = getNonEmptyString(input.parsed["confirmationBody"], "confirmationBody");
+    const provenance = getNonEmptyString(input.parsed["provenance"], "provenance");
+    if (!proposalId.ok) {
+      return proposalId;
+    }
+    if (!assumptions.ok) {
+      return assumptions;
+    }
+    if (!goal.ok) {
+      return goal;
+    }
+    if (!milestones.ok) {
+      return milestones;
+    }
+    if (!phaseOne.ok) {
+      return phaseOne;
+    }
+    if (!tasks.ok) {
+      return tasks;
+    }
+    if (!confirmationBody.ok) {
+      return confirmationBody;
+    }
+    if (!provenance.ok) {
+      return provenance;
+    }
+    if (milestones.value.length < 2 || milestones.value.length > 5) {
+      return { ok: false, reason: `goal-intake-milestone-count:${String(milestones.value.length)}` };
+    }
+    if (tasks.value.length < 3 || tasks.value.length > 7) {
+      return { ok: false, reason: `goal-intake-task-count:${String(tasks.value.length)}` };
+    }
+    if (!containsPaymentDisclaimer(JSON.stringify(input.parsed))) {
+      return { ok: false, reason: "goal-intake-payment-disclaimer-missing" };
+    }
+
+    return {
+      ok: true,
+      value: {
+        action: "goal_intake",
+        workflowId: input.workflowId,
+        mode: "propose",
+        proposalId: proposalId.value,
+        assumptions: assumptions.value,
+        goal: goal.value,
+        milestones: milestones.value,
+        phaseOne: phaseOne.value,
+        tasks: tasks.value,
+        confirmationBody: confirmationBody.value,
+        provenance: provenance.value,
+      },
+    };
+  }
+
+  if (mode.value === "confirm") {
+    const proposalKey = getNonEmptyString(input.parsed["proposalKey"], "proposalKey");
+    const summary = getNonEmptyString(input.parsed["summary"], "summary");
+    const provenance = getNonEmptyString(input.parsed["provenance"], "provenance");
+    if (!proposalKey.ok) {
+      return proposalKey;
+    }
+    if (!summary.ok) {
+      return summary;
+    }
+    if (!provenance.ok) {
+      return provenance;
+    }
+    if (extractGoalIntakeProposalKey(proposalKey.value) !== proposalKey.value) {
+      return { ok: false, reason: `invalid-goal-intake-proposal-key:${proposalKey.value}` };
+    }
+    const groups = parseGroups(input.parsed["groups"]);
+    if (!groups.ok) {
+      return groups;
+    }
+    const issues = parseChildIssueDescriptors({
+      value: input.parsed["issues"],
+      groups: groups.value,
+      availableAgentNames: input.availableAgentNames,
+      visibleTaskIds: [],
+      requireVisibleTaskIds: false,
+      acceptanceCount: { min: 1, max: 3 },
+    });
+    if (!issues.ok) {
+      return issues;
+    }
+    return {
+      ok: true,
+      value: {
+        action: "goal_intake",
+        workflowId: input.workflowId,
+        mode: "confirm",
+        proposalKey: proposalKey.value,
+        summary: summary.value,
+        groups: groups.value,
+        issues: issues.value,
+        provenance: provenance.value,
+      },
+    };
+  }
+
+  return { ok: false, reason: `goal-intake-unknown-mode:${mode.value}` };
+}
+
 function stripTrailingStageMarker(output: string): string {
   return output.replace(/\s*<!--\s*agent-moebius:stage=in-progress\s*-->\s*$/u, "");
 }
@@ -582,11 +840,220 @@ function parseGroups(value: unknown): { ok: true; value: CeoOrchestrationGroup[]
   return { ok: true, value: result };
 }
 
+function parseGoalIntakeGoal(value: unknown): { ok: true; value: GoalIntakeGoalDescriptor } | { ok: false; reason: string } {
+  if (!isPlainObject(value)) {
+    return { ok: false, reason: "goal:not-object" };
+  }
+  const id = getNonEmptyString(value["id"], "goal.id");
+  const title = getNonEmptyString(value["title"], "goal.title");
+  const summary = getNonEmptyString(value["summary"], "goal.summary");
+  const scope = getNonEmptyString(value["scope"], "goal.scope");
+  const acceptanceStatements = getBoundedNonEmptyStringArray(value["acceptanceStatements"], "goal.acceptanceStatements", 1, 5);
+  const dependencies = getStringArray(value["dependencies"], "goal.dependencies");
+  const qualityBaseline = getNonEmptyString(value["qualityBaseline"], "goal.qualityBaseline");
+  if (!id.ok) {
+    return id;
+  }
+  if (!title.ok) {
+    return title;
+  }
+  if (!summary.ok) {
+    return summary;
+  }
+  if (!scope.ok) {
+    return scope;
+  }
+  if (!acceptanceStatements.ok) {
+    return acceptanceStatements;
+  }
+  if (!dependencies.ok) {
+    return dependencies;
+  }
+  if (!qualityBaseline.ok) {
+    return qualityBaseline;
+  }
+  if (!isQualityBaseline(qualityBaseline.value)) {
+    return { ok: false, reason: `invalid-quality-baseline:${qualityBaseline.value}` };
+  }
+  return {
+    ok: true,
+    value: {
+      id: id.value,
+      title: title.value,
+      summary: summary.value,
+      scope: scope.value,
+      acceptanceStatements: acceptanceStatements.value,
+      dependencies: dependencies.value,
+      qualityBaseline: qualityBaseline.value,
+    },
+  };
+}
+
+function parseGoalIntakeMilestones(value: unknown): { ok: true; value: GoalIntakeMilestoneDescriptor[] } | { ok: false; reason: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, reason: "milestones:invalid" };
+  }
+  const result: GoalIntakeMilestoneDescriptor[] = [];
+  const seen = new Set<string>();
+  for (const [index, milestone] of value.entries()) {
+    const path = `milestones.${String(index)}`;
+    if (!isPlainObject(milestone)) {
+      return { ok: false, reason: `${path}:not-object` };
+    }
+    const id = getNonEmptyString(milestone["id"], `${path}.id`);
+    const title = getNonEmptyString(milestone["title"], `${path}.title`);
+    const qualityBaseline = getNonEmptyString(milestone["qualityBaseline"], `${path}.qualityBaseline`);
+    if (!id.ok) {
+      return id;
+    }
+    if (!title.ok) {
+      return title;
+    }
+    if (!qualityBaseline.ok) {
+      return qualityBaseline;
+    }
+    if (seen.has(id.value)) {
+      return { ok: false, reason: `duplicate-milestone:${id.value}` };
+    }
+    if (!isQualityBaseline(qualityBaseline.value)) {
+      return { ok: false, reason: `invalid-quality-baseline:${qualityBaseline.value}` };
+    }
+    seen.add(id.value);
+    result.push({ id: id.value, title: title.value, qualityBaseline: qualityBaseline.value });
+  }
+  return { ok: true, value: result };
+}
+
+function parseGoalIntakePhase(value: unknown): { ok: true; value: GoalIntakePhaseDescriptor } | { ok: false; reason: string } {
+  if (!isPlainObject(value)) {
+    return { ok: false, reason: "phaseOne:not-object" };
+  }
+  const id = getNonEmptyString(value["id"], "phaseOne.id");
+  const name = getNonEmptyString(value["name"], "phaseOne.name");
+  const objective = getNonEmptyString(value["objective"], "phaseOne.objective");
+  const acceptanceStatements = getBoundedNonEmptyStringArray(value["acceptanceStatements"], "phaseOne.acceptanceStatements", 1, 5);
+  const dependencies = getStringArray(value["dependencies"], "phaseOne.dependencies");
+  const qualityBaseline = getNonEmptyString(value["qualityBaseline"], "phaseOne.qualityBaseline");
+  if (!id.ok) {
+    return id;
+  }
+  if (!name.ok) {
+    return name;
+  }
+  if (!objective.ok) {
+    return objective;
+  }
+  if (!acceptanceStatements.ok) {
+    return acceptanceStatements;
+  }
+  if (!dependencies.ok) {
+    return dependencies;
+  }
+  if (!qualityBaseline.ok) {
+    return qualityBaseline;
+  }
+  if (!isQualityBaseline(qualityBaseline.value)) {
+    return { ok: false, reason: `invalid-quality-baseline:${qualityBaseline.value}` };
+  }
+  return {
+    ok: true,
+    value: {
+      id: id.value,
+      name: name.value,
+      objective: objective.value,
+      acceptanceStatements: acceptanceStatements.value,
+      dependencies: dependencies.value,
+      qualityBaseline: qualityBaseline.value,
+    },
+  };
+}
+
+function parseGoalIntakeTasks(
+  value: unknown,
+  options: { availableAgentNames: readonly string[]; milestoneIds: readonly string[] },
+): { ok: true; value: GoalIntakeTaskDescriptor[] } | { ok: false; reason: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, reason: "tasks:invalid" };
+  }
+  const milestoneIds = new Set(options.milestoneIds);
+  const seen = new Set<string>();
+  const result: GoalIntakeTaskDescriptor[] = [];
+  for (const [index, task] of value.entries()) {
+    const path = `tasks.${String(index)}`;
+    if (!isPlainObject(task)) {
+      return { ok: false, reason: `${path}:not-object` };
+    }
+    const id = getNonEmptyString(task["id"] ?? task["ledgerTaskId"], `${path}.id`);
+    const milestoneId = getNonEmptyString(task["milestoneId"], `${path}.milestoneId`);
+    const title = getNonEmptyString(task["title"], `${path}.title`);
+    const scope = getNonEmptyString(task["scope"] ?? task["description"], `${path}.scope`);
+    const initialRole = getNonEmptyString(task["initialRole"], `${path}.initialRole`);
+    const qualityBaseline = getNonEmptyString(task["qualityBaseline"], `${path}.qualityBaseline`);
+    const acceptanceStatements = getBoundedNonEmptyStringArray(task["acceptanceStatements"], `${path}.acceptanceStatements`, 1, 3);
+    const dependencies = getStringArray(task["dependencies"], `${path}.dependencies`);
+    const provenance = getNonEmptyString(task["provenance"], `${path}.provenance`);
+    if (!id.ok) {
+      return id;
+    }
+    if (!milestoneId.ok) {
+      return milestoneId;
+    }
+    if (!title.ok) {
+      return title;
+    }
+    if (!scope.ok) {
+      return scope;
+    }
+    if (!initialRole.ok) {
+      return initialRole;
+    }
+    if (!qualityBaseline.ok) {
+      return qualityBaseline;
+    }
+    if (!acceptanceStatements.ok) {
+      return acceptanceStatements;
+    }
+    if (!dependencies.ok) {
+      return dependencies;
+    }
+    if (!provenance.ok) {
+      return provenance;
+    }
+    if (seen.has(id.value)) {
+      return { ok: false, reason: `duplicate-goal-intake-task:${id.value}` };
+    }
+    if (!milestoneIds.has(milestoneId.value)) {
+      return { ok: false, reason: `unknown-goal-intake-milestone:${milestoneId.value}` };
+    }
+    if (!options.availableAgentNames.includes(initialRole.value)) {
+      return { ok: false, reason: `invalid-initial-role:${initialRole.value}` };
+    }
+    if (!isQualityBaseline(qualityBaseline.value)) {
+      return { ok: false, reason: `invalid-quality-baseline:${qualityBaseline.value}` };
+    }
+    seen.add(id.value);
+    result.push({
+      id: id.value,
+      milestoneId: milestoneId.value,
+      title: title.value,
+      scope: scope.value,
+      initialRole: initialRole.value,
+      qualityBaseline: qualityBaseline.value,
+      acceptanceStatements: acceptanceStatements.value,
+      dependencies: dependencies.value,
+      provenance: provenance.value,
+    });
+  }
+  return { ok: true, value: result };
+}
+
 function parseChildIssueDescriptors(input: {
   value: unknown;
   groups: readonly CeoOrchestrationGroup[];
   availableAgentNames: readonly string[];
   visibleTaskIds: readonly string[];
+  requireVisibleTaskIds: boolean;
+  acceptanceCount?: { min: number; max: number };
 }): { ok: true; value: CeoChildIssueDescriptor[] } | { ok: false; reason: string } {
   if (!Array.isArray(input.value) || input.value.length === 0) {
     return { ok: false, reason: "issues-empty" };
@@ -606,7 +1073,7 @@ function parseChildIssueDescriptors(input: {
     if (!ledgerTaskId.ok) {
       return ledgerTaskId;
     }
-    if (!taskIds.has(ledgerTaskId.value)) {
+    if (input.requireVisibleTaskIds && !taskIds.has(ledgerTaskId.value)) {
       return { ok: false, reason: `unknown-ledger-task:${ledgerTaskId.value}` };
     }
     if (seenTaskIds.has(ledgerTaskId.value)) {
@@ -657,6 +1124,16 @@ function parseChildIssueDescriptors(input: {
     );
     if (!acceptanceStatements.ok) {
       return acceptanceStatements;
+    }
+    if (
+      input.acceptanceCount !== undefined &&
+      (acceptanceStatements.value.length < input.acceptanceCount.min ||
+        acceptanceStatements.value.length > input.acceptanceCount.max)
+    ) {
+      return {
+        ok: false,
+        reason: `${path}.acceptanceStatements:count:${String(acceptanceStatements.value.length)}`,
+      };
     }
     const dependencies = getStringArray(descriptor["dependencies"], `${path}.dependencies`);
     if (!dependencies.ok) {
@@ -780,6 +1257,34 @@ function getNonEmptyStringArray(
     return { ok: false, reason: `${path}:empty` };
   }
   return parsed;
+}
+
+function getBoundedNonEmptyStringArray(
+  value: unknown,
+  path: string,
+  min: number,
+  max: number,
+): { ok: true; value: string[] } | { ok: false; reason: string } {
+  const parsed = getNonEmptyStringArray(value, path);
+  if (!parsed.ok) {
+    return parsed;
+  }
+  if (parsed.value.length < min || parsed.value.length > max) {
+    return { ok: false, reason: `${path}:count:${String(parsed.value.length)}` };
+  }
+  return parsed;
+}
+
+function containsPaymentDisclaimer(text: string): boolean {
+  const normalized = text.replace(/\s+/gu, "");
+  if (!/(支付宝|支付|真实资金|清结算|清算|结算|牌照)/u.test(normalized)) {
+    return true;
+  }
+  const hasNegativeScope = /(不承诺|不覆盖|不包含|不处理|不做|不支持|不涉及|不代表)/u.test(normalized);
+  const hasRealFunds = /真实资金/u.test(normalized);
+  const hasLicense = /牌照/u.test(normalized);
+  const hasClearing = /(清结算|清算|结算)/u.test(normalized);
+  return hasNegativeScope && hasRealFunds && hasLicense && hasClearing;
 }
 
 function isQualityBaseline(value: string): value is "demo" | "data-correct" | "production" {

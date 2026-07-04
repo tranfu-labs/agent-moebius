@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -35,18 +36,22 @@ import {
   buildCeoOrchestrationKey,
   buildCeoRoundtableCompletionKey,
   buildCeoRoundtableKey,
+  buildGoalIntakeProposalKey,
   ensureInProgressStage,
   extractCeoOrchestrationKeyFromNote,
   extractCeoRoundtableCompletionKey,
   extractCeoRoundtableKey,
+  extractGoalIntakeProposalKey,
   parseCeoOrchestrationOutput,
   renderCeoChildIssueBody,
   renderCeoRoundtableChildIssueBody,
   renderCeoRoundtableParentSummaryBody,
   renderCeoRoundtableRouteBody,
+  renderGoalIntakeProposalBody,
   type CeoChildIssueDescriptor,
   type CeoOrchestrationGroup,
   type CeoRoundtableContribution,
+  type GoalIntakeTaskDescriptor,
   type ParsedCeoOrchestration,
 } from "./ceo-orchestration.js";
 import { resolveCeoLedgerPromptContext } from "./agent-prescripts/ceo-ledger-context.js";
@@ -102,13 +107,17 @@ import {
 import {
   buildAcceptanceStatementsDigest,
   buildIntegrationAcceptanceJoinKey,
+  applyGoalIntakeProposal,
+  confirmGoalIntakeProposal,
   evaluateIntegrationAcceptanceJoin,
   recordIntegrationAcceptanceEvent,
   recordTaskAcceptanceFact,
+  resolveGoalIntakeProposal,
   type AcceptanceStatementResult,
   GoalLedgerEntry,
   GoalLedgerState,
   IssueReference,
+  type MilestoneRecord,
   type PhaseOwner,
   type PhaseRecord,
   TaskRecord,
@@ -2059,30 +2068,30 @@ async function maybeRouteExternalNoMentionComment(input: {
   postVisibleComment: (body: string) => Promise<void>;
   dependencies: ProcessIssueSourceDependencies;
 }): Promise<IssueProcessingOutcome | null> {
-  if (input.intakeIssueState?.mode !== "active") {
-    return null;
-  }
-
   const latestMessage = getLatestTimelineMessage(input.timeline);
-  if (latestMessage === null || latestMessage.source !== "comment" || latestMessage.speaker !== "user") {
+  if (latestMessage === null || latestMessage.speaker !== "user") {
     return null;
   }
 
-  const latestComment = input.issue.comments[latestMessage.index - 1];
-  if (latestComment === undefined) {
+  const routeTarget = resolveExternalNoMentionRouteTarget(input.issue, latestMessage);
+  if (routeTarget === null) {
     return null;
   }
 
-  if (hasAgentMoebiusMetadata(latestComment.body)) {
+  if (latestMessage.source === "comment" && input.intakeIssueState?.mode !== "active") {
     return null;
   }
 
-  if (input.intakeIssueState.externalCommentFallbackRoutes?.[latestComment.id] !== undefined) {
+  if (hasAgentMoebiusMetadata(routeTarget.body)) {
+    return null;
+  }
+
+  if (input.intakeIssueState?.externalCommentFallbackRoutes?.[routeTarget.routeKey] !== undefined) {
     log({
       event: "external-comment-route-skip",
       reason: "already-routed",
       issueKey: input.source.issueKey,
-      commentId: latestComment.id,
+      commentId: routeTarget.routeKey,
     });
     return null;
   }
@@ -2093,12 +2102,12 @@ async function maybeRouteExternalNoMentionComment(input: {
     count: input.count,
     runDir,
     issueKey: input.source.issueKey,
-    commentId: latestComment.id,
+    commentId: routeTarget.routeKey,
   });
 
   const routeResult = await input.dependencies.formatExternalCommentRoute({
     issueContext: buildCeoIssueContext(input.source, input.issue),
-    latestComment: latestMessage.body,
+    latestComment: routeTarget.body,
     availableAgentNames: input.agentNames,
     runDir,
     runCodex: input.dependencies.runCodex,
@@ -2108,7 +2117,7 @@ async function maybeRouteExternalNoMentionComment(input: {
     result: routeResult,
     count: input.count,
     issueKey: input.source.issueKey,
-    commentId: latestComment.id,
+    commentId: routeTarget.routeKey,
   });
 
   const decidedAt = new Date().toISOString();
@@ -2121,7 +2130,7 @@ async function maybeRouteExternalNoMentionComment(input: {
     return externalCommentFallbackRouteProcessingOutcome({
       result: "triggered-success",
       route: {
-        commentId: latestComment.id,
+        commentId: routeTarget.routeKey,
         outcome: "append",
         decidedAt,
         targetRole: routeResult.targetRole,
@@ -2133,7 +2142,7 @@ async function maybeRouteExternalNoMentionComment(input: {
     return externalCommentFallbackRouteProcessingOutcome({
       result: "no-trigger",
       route: {
-        commentId: latestComment.id,
+        commentId: routeTarget.routeKey,
         outcome: "no_action",
         decidedAt,
         reason: routeResult.reason,
@@ -2144,12 +2153,46 @@ async function maybeRouteExternalNoMentionComment(input: {
   return externalCommentFallbackRouteProcessingOutcome({
     result: "no-trigger",
     route: {
-      commentId: latestComment.id,
+      commentId: routeTarget.routeKey,
       outcome: "fail_open",
       decidedAt,
       reason: routeResult.reason,
     },
   });
+}
+
+function resolveExternalNoMentionRouteTarget(
+  issue: GitHubIssue,
+  latestMessage: TimelineMessage,
+): { routeKey: string; body: string } | null {
+  if (latestMessage.source === "issue-body") {
+    if (!isLikelyGoalShapeMessage(latestMessage.body)) {
+      return null;
+    }
+    return {
+      routeKey: `issue-body:${digestRouteMessage(latestMessage.body)}`,
+      body: latestMessage.body,
+    };
+  }
+  if (latestMessage.source !== "comment") {
+    return null;
+  }
+  const latestComment = issue.comments[latestMessage.index - 1];
+  if (latestComment === undefined) {
+    return null;
+  }
+  return {
+    routeKey: latestComment.id,
+    body: latestComment.body,
+  };
+}
+
+function digestRouteMessage(body: string): string {
+  return crypto.createHash("sha256").update(body).digest("hex").slice(0, 32);
+}
+
+function isLikelyGoalShapeMessage(body: string): boolean {
+  return /(?:我想(?:要)?(?:做|做一个|开发|实现|启动|构建)|帮我(?:做|启动|开发|构建)|请(?:做|启动|开发|构建)|I\s+want\s+to\s+(?:build|make|create|start)|help\s+me\s+(?:build|make|create|start))/iu.test(body);
 }
 
 async function maybeRecoverRoundtableNoHandoff(input: {
@@ -2295,6 +2338,20 @@ async function handleCeoAgentResult(input: {
     return "triggered-success";
   }
 
+  if (parsed.value.action === "goal_intake") {
+    return await handleCeoGoalIntakeResult({
+      source: input.source,
+      issue: input.issue,
+      parsed: parsed.value,
+      nextState: input.nextState,
+      runDir: input.runDir,
+      startedAtMs: input.startedAtMs,
+      count: input.count,
+      postVisibleComment: input.postVisibleComment,
+      dependencies: input.dependencies,
+    });
+  }
+
   if (parsed.value.action === "roundtable") {
     return await handleCeoRoundtableResult({
       source: input.source,
@@ -2309,90 +2366,149 @@ async function handleCeoAgentResult(input: {
     });
   }
 
-  const completed: CeoSpawnCompletedItem[] = [];
-  const pending = [...parsed.value.issues];
-  try {
-    for (const descriptor of parsed.value.issues) {
-      pending.shift();
-      const group = parsed.value.groups.find((candidate) => candidate.id === descriptor.groupId);
-      if (group === undefined) {
-        throw new Error(`missing-group:${descriptor.groupId}`);
-      }
+  const spawnResult = await executeCeoSpawnChildIssues({
+    source: input.source,
+    workflowId: parsed.value.workflowId,
+    groups: parsed.value.groups,
+    issues: parsed.value.issues,
+    dependencies: input.dependencies,
+  });
+  if (!spawnResult.ok) {
+    const failureBody = formatCeoOrchestrationFailureBody({
+      reason: spawnResult.reason,
+      completed: spawnResult.completed,
+      pending: spawnResult.pending,
+    });
+    try {
+      await input.postVisibleComment(formatBypassedAgentComment("ceo", failureBody, "ceo-orchestration-failed"));
+      return "triggered-success";
+    } catch (postError) {
+      throw new Error(
+        `ceo-orchestration-failed:${spawnResult.reason}; fail-closed-comment-failed:${formatFailureReason(
+          postError,
+        )}; completed=${spawnResult.completed.map((item) => item.issue.url).join(",")}`,
+      );
+    }
+  }
 
-      const orchestrationKey = buildCeoOrchestrationKey({
+  const successBody = formatCeoSpawnSuccessBody({
+    summary: parsed.value.summary,
+    groups: parsed.value.groups,
+    completed: spawnResult.completed,
+  });
+  await publishCeoVisibleResult({
+    source: input.source,
+    issue: input.issue,
+    body: successBody,
+    runDir: input.runDir,
+    startedAtMs: input.startedAtMs,
+    count: input.count,
+    nextState: input.nextState,
+    postVisibleComment: input.postVisibleComment,
+    dependencies: input.dependencies,
+  });
+  return "triggered-success";
+}
+
+type ParsedCeoGoalIntake = Extract<ParsedCeoOrchestration, { action: "goal_intake" }>;
+
+async function handleCeoGoalIntakeResult(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  parsed: ParsedCeoGoalIntake;
+  nextState: NonNullable<ReturnType<typeof resolveNextRoleThreadState>>;
+  runDir: string;
+  startedAtMs: number;
+  count: number;
+  postVisibleComment: (body: string) => Promise<void>;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<IssueProcessingOutcome> {
+  if (input.parsed.mode === "interview") {
+    await publishCeoVisibleResult({
+      source: input.source,
+      issue: input.issue,
+      body: input.parsed.body,
+      runDir: input.runDir,
+      startedAtMs: input.startedAtMs,
+      count: input.count,
+      nextState: input.nextState,
+      postVisibleComment: input.postVisibleComment,
+      dependencies: input.dependencies,
+    });
+    return "triggered-success";
+  }
+
+  if (input.parsed.mode === "propose") {
+    const proposalKey = buildGoalIntakeProposalKey({
+      source: input.source,
+      proposalId: input.parsed.proposalId,
+    });
+    try {
+      await saveGoalIntakeProposalEntries({
         source: input.source,
-        workflowId: parsed.value.workflowId,
-        ledgerTaskId: descriptor.ledgerTaskId,
+        issue: input.issue,
+        parsed: input.parsed,
+        proposalKey,
+        dependencies: input.dependencies,
       });
-
-      const existingRef = findTaskChildIssueRefByOrchestrationKey(
-        await input.dependencies.loadGoalLedgerState(),
-        descriptor.ledgerTaskId,
-        orchestrationKey,
-      );
-      if (existingRef !== null) {
-        completed.push({
-          kind: "already-created",
-          descriptor,
-          issue: issueFromReference(existingRef),
-          orchestrationKey,
-        });
-        continue;
-      }
-
-      const lookup = await withTimeout(
-        input.dependencies.findIssueByOrchestrationKey(input.source, orchestrationKey),
-        CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
-        "findIssueByOrchestrationKey",
-      );
-      if (lookup.kind === "multiple") {
+    } catch (error) {
+      try {
+        await input.postVisibleComment(
+          formatBypassedAgentComment(
+            "ceo",
+            formatCeoOrchestrationFailureBody({
+              reason: formatFailureReason(error),
+              completed: [],
+              pending: [],
+            }),
+            "goal-intake-failed",
+          ),
+        );
+        return "triggered-success";
+      } catch (postError) {
         throw new Error(
-          `orchestration-key-multiple-matches:${orchestrationKey}:${lookup.issues.map((issue) => issue.url).join(",")}`,
+          `goal-intake-failed:${formatFailureReason(error)}; fail-closed-comment-failed:${formatFailureReason(postError)}`,
         );
       }
-      if (lookup.kind === "one") {
-        completed.push({
-          kind: "recovered-existing",
-          descriptor,
-          issue: lookup.issue,
-          orchestrationKey,
-        });
-        await saveTaskChildIssueRef({
-          dependencies: input.dependencies,
-          ledgerTaskId: descriptor.ledgerTaskId,
-          issue: lookup.issue,
-          orchestrationKey,
-          provenance: descriptor.provenance,
-        });
-        continue;
-      }
+    }
 
-      const body = renderCeoChildIssueBody({
-        source: input.source,
-        parentIssueUrl: issueUrl(input.source),
-        workflowId: parsed.value.workflowId,
-        group,
-        descriptor,
-        orchestrationKey,
-      });
-      const created = await withTimeout(
-        input.dependencies.createIssue(input.source, { title: descriptor.title, body }),
-        CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
-        "createIssue",
-      );
-      completed.push({
-        kind: "created",
-        descriptor,
-        issue: created,
-        orchestrationKey,
-      });
-      await saveTaskChildIssueRef({
-        dependencies: input.dependencies,
-        ledgerTaskId: descriptor.ledgerTaskId,
-        issue: created,
-        orchestrationKey,
-        provenance: descriptor.provenance,
-      });
+    await publishCeoVisibleResult({
+      source: input.source,
+      issue: input.issue,
+      body: renderGoalIntakeProposalBody({
+        confirmationBody: input.parsed.confirmationBody,
+        proposalKey,
+      }),
+      runDir: input.runDir,
+      startedAtMs: input.startedAtMs,
+      count: input.count,
+      nextState: input.nextState,
+      postVisibleComment: input.postVisibleComment,
+      dependencies: input.dependencies,
+    });
+    return "triggered-success";
+  }
+
+  const completed: CeoSpawnCompletedItem[] = [];
+  let pending = [...input.parsed.issues];
+  try {
+    await confirmGoalIntakeLedgerEntries({
+      source: input.source,
+      issue: input.issue,
+      parsed: input.parsed,
+      dependencies: input.dependencies,
+    });
+    const spawnResult = await executeCeoSpawnChildIssues({
+      source: input.source,
+      workflowId: input.parsed.workflowId,
+      groups: input.parsed.groups,
+      issues: input.parsed.issues,
+      dependencies: input.dependencies,
+    });
+    completed.push(...spawnResult.completed);
+    pending = spawnResult.ok ? [] : spawnResult.pending;
+    if (!spawnResult.ok) {
+      throw new Error(spawnResult.reason);
     }
   } catch (error) {
     const failureBody = formatCeoOrchestrationFailureBody({
@@ -2401,26 +2517,25 @@ async function handleCeoAgentResult(input: {
       pending,
     });
     try {
-      await input.postVisibleComment(formatBypassedAgentComment("ceo", failureBody, "ceo-orchestration-failed"));
+      await input.postVisibleComment(formatBypassedAgentComment("ceo", failureBody, "goal-intake-failed"));
       return "triggered-success";
     } catch (postError) {
       throw new Error(
-        `ceo-orchestration-failed:${formatFailureReason(error)}; fail-closed-comment-failed:${formatFailureReason(
+        `goal-intake-failed:${formatFailureReason(error)}; fail-closed-comment-failed:${formatFailureReason(
           postError,
         )}; completed=${completed.map((item) => item.issue.url).join(",")}`,
       );
     }
   }
 
-  const successBody = formatCeoSpawnSuccessBody({
-    summary: parsed.value.summary,
-    groups: parsed.value.groups,
-    completed,
-  });
   await publishCeoVisibleResult({
     source: input.source,
     issue: input.issue,
-    body: successBody,
+    body: formatCeoSpawnSuccessBody({
+      summary: input.parsed.summary,
+      groups: input.parsed.groups,
+      completed,
+    }),
     runDir: input.runDir,
     startedAtMs: input.startedAtMs,
     count: input.count,
@@ -2756,6 +2871,270 @@ interface CeoSpawnCompletedItem {
   descriptor: CeoChildIssueDescriptor;
   issue: CreatedIssue;
   orchestrationKey: string;
+}
+
+type ExecuteCeoSpawnChildIssuesResult =
+  | { ok: true; completed: CeoSpawnCompletedItem[] }
+  | { ok: false; reason: string; completed: CeoSpawnCompletedItem[]; pending: CeoChildIssueDescriptor[] };
+
+async function executeCeoSpawnChildIssues(input: {
+  source: IssueSource;
+  workflowId: string;
+  groups: CeoOrchestrationGroup[];
+  issues: CeoChildIssueDescriptor[];
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<ExecuteCeoSpawnChildIssuesResult> {
+  const completed: CeoSpawnCompletedItem[] = [];
+  const pending = [...input.issues];
+  try {
+    for (const descriptor of input.issues) {
+      pending.shift();
+      const group = input.groups.find((candidate) => candidate.id === descriptor.groupId);
+      if (group === undefined) {
+        throw new Error(`missing-group:${descriptor.groupId}`);
+      }
+
+      const orchestrationKey = buildCeoOrchestrationKey({
+        source: input.source,
+        workflowId: input.workflowId,
+        ledgerTaskId: descriptor.ledgerTaskId,
+      });
+
+      const existingRef = findTaskChildIssueRefByOrchestrationKey(
+        await input.dependencies.loadGoalLedgerState(),
+        descriptor.ledgerTaskId,
+        orchestrationKey,
+      );
+      if (existingRef !== null) {
+        completed.push({
+          kind: "already-created",
+          descriptor,
+          issue: issueFromReference(existingRef),
+          orchestrationKey,
+        });
+        continue;
+      }
+
+      const lookup = await withTimeout(
+        input.dependencies.findIssueByOrchestrationKey(input.source, orchestrationKey),
+        CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+        "findIssueByOrchestrationKey",
+      );
+      if (lookup.kind === "multiple") {
+        throw new Error(
+          `orchestration-key-multiple-matches:${orchestrationKey}:${lookup.issues.map((issue) => issue.url).join(",")}`,
+        );
+      }
+      if (lookup.kind === "one") {
+        completed.push({
+          kind: "recovered-existing",
+          descriptor,
+          issue: lookup.issue,
+          orchestrationKey,
+        });
+        await saveTaskChildIssueRef({
+          dependencies: input.dependencies,
+          ledgerTaskId: descriptor.ledgerTaskId,
+          issue: lookup.issue,
+          orchestrationKey,
+          provenance: descriptor.provenance,
+        });
+        continue;
+      }
+
+      const body = renderCeoChildIssueBody({
+        source: input.source,
+        parentIssueUrl: issueUrl(input.source),
+        workflowId: input.workflowId,
+        group,
+        descriptor,
+        orchestrationKey,
+      });
+      const created = await withTimeout(
+        input.dependencies.createIssue(input.source, { title: descriptor.title, body }),
+        CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+        "createIssue",
+      );
+      completed.push({
+        kind: "created",
+        descriptor,
+        issue: created,
+        orchestrationKey,
+      });
+      await saveTaskChildIssueRef({
+        dependencies: input.dependencies,
+        ledgerTaskId: descriptor.ledgerTaskId,
+        issue: created,
+        orchestrationKey,
+        provenance: descriptor.provenance,
+      });
+    }
+    return { ok: true, completed };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: formatFailureReason(error),
+      completed,
+      pending,
+    };
+  }
+}
+
+async function saveGoalIntakeProposalEntries(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  parsed: Extract<ParsedCeoGoalIntake, { mode: "propose" }>;
+  proposalKey: string;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<void> {
+  const ledgerInput = goalIntakeProposalLedgerInput(input);
+  const entryIds: Array<{ kind: "goals" | "milestones" | "tasks" | "phases"; id: string }> = [
+    { kind: "goals", id: input.parsed.goal.id },
+    ...input.parsed.milestones.map((milestone) => ({ kind: "milestones" as const, id: milestone.id })),
+    ...input.parsed.tasks.map((task) => ({ kind: "tasks" as const, id: task.id })),
+    { kind: "phases", id: input.parsed.phaseOne.id },
+  ];
+
+  for (const entryId of entryIds) {
+    await withTimeout(
+      input.dependencies.saveGoalLedgerEntry(
+        entryId.kind,
+        entryId.id,
+        (_entry, state) => {
+          const nextState = applyGoalIntakeProposal(state, ledgerInput);
+          return nextState[entryId.kind][entryId.id] ?? null;
+        },
+        undefined,
+        { timeoutMs: CEO_ORCHESTRATION_ACTION_TIMEOUT_MS },
+      ),
+      CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+      "saveGoalLedgerEntry",
+    );
+  }
+}
+
+async function confirmGoalIntakeLedgerEntries(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  parsed: Extract<ParsedCeoGoalIntake, { mode: "confirm" }>;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<void> {
+  const loaded = await withTimeout(
+    input.dependencies.loadGoalLedgerState(),
+    CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+    "loadGoalLedgerState",
+  );
+  validateGoalIntakeConfirmAgainstLedger(loaded, input.parsed);
+  const now = new Date().toISOString();
+  const confirmInput = {
+    proposalKey: input.parsed.proposalKey,
+    taskIds: input.parsed.issues.map((issue) => issue.ledgerTaskId),
+    now,
+    provenance: {
+      issue: {
+        owner: input.source.owner,
+        repo: input.source.repo,
+        number: input.source.issueNumber,
+      },
+      messageIndex: countMessages(input.issue.comments.length),
+      ...(input.issue.comments.at(-1)?.id === undefined ? {} : { commentId: input.issue.comments.at(-1)!.id }),
+      capturedAt: now,
+      note: truncateForComment(`${input.parsed.proposalKey}; ${input.parsed.provenance.replace(/\s+/g, " ").trim()}`, 500),
+    },
+  };
+  const bundle = resolveGoalIntakeProposal(loaded, input.parsed.proposalKey);
+  if (bundle === null) {
+    throw new Error(`missing-goal-intake-proposal:${input.parsed.proposalKey}`);
+  }
+  const entryIds: Array<{ kind: "goals" | "tasks" | "phases"; id: string }> = [
+    { kind: "goals", id: bundle.goal.id },
+    ...bundle.tasks.map((task) => ({ kind: "tasks" as const, id: task.id })),
+    { kind: "phases", id: bundle.phase.id },
+  ];
+  for (const entryId of entryIds) {
+    await withTimeout(
+      input.dependencies.saveGoalLedgerEntry(
+        entryId.kind,
+        entryId.id,
+        (_entry, state) => {
+          const nextState = confirmGoalIntakeProposal(state, confirmInput);
+          return nextState[entryId.kind][entryId.id] ?? null;
+        },
+        undefined,
+        { timeoutMs: CEO_ORCHESTRATION_ACTION_TIMEOUT_MS },
+      ),
+      CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+      "saveGoalLedgerEntry",
+    );
+  }
+}
+
+function goalIntakeProposalLedgerInput(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  parsed: Extract<ParsedCeoGoalIntake, { mode: "propose" }>;
+  proposalKey: string;
+}): Parameters<typeof applyGoalIntakeProposal>[1] {
+  const capturedAt = new Date().toISOString();
+  const latestComment = input.issue.comments.at(-1);
+  return {
+    proposalKey: input.proposalKey,
+    sourceIssue: {
+      owner: input.source.owner,
+      repo: input.source.repo,
+      number: input.source.issueNumber,
+    },
+    messageIndex: countMessages(input.issue.comments.length),
+    ...(latestComment?.id === undefined ? {} : { commentId: latestComment.id }),
+    capturedAt,
+    provenanceNote: input.parsed.provenance,
+    goal: input.parsed.goal,
+    milestones: input.parsed.milestones,
+    phaseOne: input.parsed.phaseOne,
+    tasks: input.parsed.tasks.map((task) => ({
+      id: task.id,
+      milestoneId: task.milestoneId,
+      title: task.title,
+      scope: task.scope,
+      acceptanceStatements: task.acceptanceStatements,
+      dependencies: task.dependencies,
+      qualityBaseline: task.qualityBaseline,
+      provenance: task.provenance,
+    })),
+  };
+}
+
+function validateGoalIntakeConfirmAgainstLedger(
+  ledger: GoalLedgerState,
+  parsed: Extract<ParsedCeoGoalIntake, { mode: "confirm" }>,
+): void {
+  if (extractGoalIntakeProposalKey(parsed.proposalKey) !== parsed.proposalKey) {
+    throw new Error(`invalid-goal-intake-proposal-key:${parsed.proposalKey}`);
+  }
+  const bundle = resolveGoalIntakeProposal(ledger, parsed.proposalKey);
+  if (bundle === null) {
+    throw new Error(`missing-goal-intake-proposal:${parsed.proposalKey}`);
+  }
+  const pendingTaskIds = new Set(bundle.tasks.map((task) => task.id));
+  const issueTaskIds = new Set(parsed.issues.map((issue) => issue.ledgerTaskId));
+  if (pendingTaskIds.size !== issueTaskIds.size || [...pendingTaskIds].some((taskId) => !issueTaskIds.has(taskId))) {
+    throw new Error(`goal-intake-confirm-task-mismatch:${[...pendingTaskIds].sort().join(",")}:${[...issueTaskIds].sort().join(",")}`);
+  }
+  for (const descriptor of parsed.issues) {
+    const task = bundle.tasks.find((candidate) => candidate.id === descriptor.ledgerTaskId);
+    if (task === undefined) {
+      throw new Error(`goal-intake-confirm-task-missing:${descriptor.ledgerTaskId}`);
+    }
+    if (task.qualityBaseline !== descriptor.qualityBaseline) {
+      throw new Error(`goal-intake-confirm-quality-baseline-mismatch:${descriptor.ledgerTaskId}`);
+    }
+    if (JSON.stringify(task.acceptanceStatements ?? []) !== JSON.stringify(descriptor.acceptanceStatements)) {
+      throw new Error(`goal-intake-confirm-acceptance-mismatch:${descriptor.ledgerTaskId}`);
+    }
+    if (JSON.stringify(task.dependencies ?? []) !== JSON.stringify(descriptor.dependencies)) {
+      throw new Error(`goal-intake-confirm-dependencies-mismatch:${descriptor.ledgerTaskId}`);
+    }
+  }
 }
 
 function findTaskChildIssueRefByOrchestrationKey(

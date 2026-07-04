@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420" role="img" aria-labelledby="title desc">
+  <title id="title">Before goal-intake T8</title>
+  <desc id="desc">Before T8, CEO ordinary-agent orchestration requires an existing active ledger projection before spawn.</desc>
+  <style>
+    text { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 14px; fill: #17212b; }
+    .box { fill: #f7f9fb; stroke: #627386; stroke-width: 1.5; rx: 6; }
+    .blocked { fill: #fff4f0; stroke: #c45f3b; stroke-width: 1.5; rx: 6; }
+    .arrow { stroke: #485867; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+    .label { font-size: 12px; fill: #52616f; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#485867"/>
+    </marker>
+  </defs>
+  <rect class="box" x="40" y="55" width="190" height="82"/>
+  <text x="62" y="90">GitHub timeline</text>
+  <text class="label" x="62" y="112">latest message has @ceo</text>
+  <rect class="box" x="285" y="55" width="210" height="82"/>
+  <text x="307" y="90">ceo-ledger-context</text>
+  <text class="label" x="307" y="112">requires active owner</text>
+  <rect class="blocked" x="550" y="55" width="250" height="82"/>
+  <text x="572" y="90">No active ledger owner</text>
+  <text class="label" x="572" y="112">fail-closed before Codex</text>
+  <rect class="box" x="285" y="230" width="210" height="82"/>
+  <text x="307" y="265">Active phase projection</text>
+  <text class="label" x="307" y="287">visible ledger tasks</text>
+  <rect class="box" x="550" y="230" width="250" height="82"/>
+  <text x="572" y="265">spawn_child_issues</text>
+  <text class="label" x="572" y="287">create child issues</text>
+  <path class="arrow" d="M230 96 H285"/>
+  <path class="arrow" d="M495 96 H550"/>
+  <path class="arrow" d="M390 137 V230"/>
+  <path class="arrow" d="M495 271 H550"/>
+</svg>

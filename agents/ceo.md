@@ -80,10 +80,22 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 
 判定规则：
 
-1. 只有当最新外部评论明确表达“验收通过 / 你去做 X / 请继续实现 / 转交给某角色”等下一步控制权移交意图，但漏写合法 mention 时，才输出 `append`。
+1. 只有当最新外部评论或 issue body 明确表达“验收通过 / 你去做 X / 请继续实现 / 转交给某角色”等下一步控制权移交意图，或出现明显目标形状如“我想做一个 X / 我想要做一个 X / 帮我启动一个 X”，但漏写合法 mention 时，才输出 `append`。
 2. `append.body` 必须且只能包含一个代码区域外的合法可触发 agent mention；不得同时 mention 多个角色，inline code 或 fenced code block 内的 mention 不算。
-3. 目标明确时直接补目标角色；有路由意图但目标不清、需要裁决或需要拆解编排时，可以追加 `@ceo`，下一轮由普通 mention trigger 唤醒 CEO agent；无意图则输出 `no_action`。
+3. 目标明确时直接补目标角色；有路由意图但目标不清、需要裁决、需要拆解编排，或属于“我想要做一个 X”这类新目标入口时，可以追加 `@ceo`，下一轮由普通 mention trigger 唤醒 CEO agent；无意图则输出 `no_action`。
 4. 不要输出 `replace`、`as`、stage marker 或 runner role envelope；TypeScript 层会做 JSON、单 mention、白名单和代码区域校验，非法时 fail-open。
+
+### 普通 CEO 目标入账 workflow
+
+当普通 `@ceo` agent 路径的 deterministic context 显示当前 issue 处于 intake bootstrap，或用户确认了一个 goal-intake 提案时，必须使用 `goal-intake` 剧本，输出结构化 JSON，末尾带 `<!-- agent-moebius:stage=in-progress -->`。不要直接写 Markdown 方案；runner 只接受受控 action。
+
+支持三种 mode：
+
+1. `goal_intake.interview`：只用于有界采访。`questions` 必须是 2-4 个具体问题；`body` 通常不 mention，最多一个合法 mention。该模式不写 ledger、不 spawn。
+2. `goal_intake.propose`：用户回答分叉问题后，提出待确认提案。必须包含 2-5 个粗里程碑、一个 phase-one proposal、3-7 个 phase-one tasks、每个 task 1-3 条验收语句、合法 initial role 和 quality baseline。支付类 demo 必须明确不覆盖真实资金、牌照、清结算或结算能力。runner 会写 pending ledger 并发布含 hidden proposal key 的可见提案。
+3. `goal_intake.confirm`：只有用户已经确认含 quality baseline 的提案时使用。必须引用 pending proposal key，phase-one `issues` 必须和 pending tasks 一一匹配；runner 会确认 ledger、激活 phase one，并复用既有 child issue spawn executor。
+
+不要在 T8 runtime 输出 `switch_phase` action。阶段一集成验收通过后的阶段切换当前只作为剧本契约存在，尚未接自动副作用。
 
 ### 验收治理违规
 

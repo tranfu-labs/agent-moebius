@@ -4,11 +4,13 @@ import {
   buildCeoOrchestrationKey,
   buildCeoRoundtableCompletionKey,
   buildCeoRoundtableKey,
+  buildGoalIntakeProposalKey,
   parseCeoOrchestrationOutput,
   renderCeoChildIssueBody,
   renderCeoRoundtableChildIssueBody,
   renderCeoRoundtableParentSummaryBody,
   renderCeoRoundtableRouteBody,
+  renderGoalIntakeProposalBody,
   type CeoChildIssueDescriptor,
   type CeoOrchestrationGroup,
 } from "../src/ceo-orchestration.js";
@@ -29,6 +31,12 @@ const scripts: CeoScript[] = [
     action: "roundtable",
     body: "roundtable",
     fileName: "roundtable-plan-review.md",
+  },
+  {
+    id: "goal-intake",
+    action: "goal_intake",
+    body: "goal intake",
+    fileName: "goal-intake.md",
   },
 ];
 const descriptor: CeoChildIssueDescriptor = {
@@ -267,6 +275,89 @@ ${JSON.stringify({
     ).toMatchObject({ ok: false, reason: "contribution-role-missing:hermes-user" });
   });
 
+  it("parses goal-intake interview, propose, and confirm payloads", () => {
+    const parse = (payload: unknown) =>
+      parseCeoOrchestrationOutput({
+        output: `${JSON.stringify(payload)}\n\n<!-- agent-moebius:stage=in-progress -->`,
+        scripts,
+        availableAgentNames: ["ceo", "dev", "qa", "product-manager"],
+        visibleTaskIds: [],
+      });
+    const proposalKey = buildGoalIntakeProposalKey({ source, proposalId: "proposal-1" });
+
+    expect(
+      parse({
+        action: "goal_intake",
+        workflowId: "goal-intake",
+        mode: "interview",
+        body: "请先回答几个问题。",
+        questions: ["目标用户是谁？", "第一阶段希望验收什么？"],
+      }),
+    ).toMatchObject({ ok: true, value: { action: "goal_intake", mode: "interview" } });
+
+    expect(parse(makeGoalIntakeProposePayload())).toMatchObject({
+      ok: true,
+      value: { action: "goal_intake", mode: "propose", proposalId: "proposal-1" },
+    });
+
+    expect(
+      parse({
+        action: "goal_intake",
+        workflowId: "goal-intake",
+        mode: "confirm",
+        proposalKey,
+        summary: "用户确认阶段一。",
+        groups: [{ id: "g1", reason: "阶段一串行推进。" }],
+        issues: [
+          makeGoalIntakeConfirmIssue("task-1"),
+          makeGoalIntakeConfirmIssue("task-2"),
+          makeGoalIntakeConfirmIssue("task-3"),
+        ],
+        provenance: "user confirmed proposal",
+      }),
+    ).toMatchObject({ ok: true, value: { action: "goal_intake", mode: "confirm", proposalKey } });
+
+    expect(renderGoalIntakeProposalBody({ confirmationBody: "请确认。", proposalKey })).toContain(proposalKey);
+  });
+
+  it("rejects unbounded goal-intake interviews, oversized task acceptance, and missing payment disclaimers", () => {
+    const parse = (payload: unknown) =>
+      parseCeoOrchestrationOutput({
+        output: `${JSON.stringify(payload)}\n\n<!-- agent-moebius:stage=in-progress -->`,
+        scripts,
+        availableAgentNames: ["ceo", "dev", "qa", "product-manager"],
+        visibleTaskIds: [],
+      });
+
+    expect(
+      parse({
+        action: "goal_intake",
+        workflowId: "goal-intake",
+        mode: "interview",
+        body: "请回答。",
+        questions: ["1", "2", "3", "4", "5"],
+      }),
+    ).toMatchObject({ ok: false, reason: "goal-intake-interview-question-count:5" });
+
+    expect(
+      parse({
+        ...makeGoalIntakeProposePayload(),
+        tasks: [
+          makeGoalIntakeTask("task-1"),
+          makeGoalIntakeTask("task-2"),
+          { ...makeGoalIntakeTask("task-3"), acceptanceStatements: ["a", "b", "c", "d"] },
+        ],
+      }),
+    ).toMatchObject({ ok: false, reason: "tasks.2.acceptanceStatements:count:4" });
+
+    expect(
+      parse({
+        ...makeGoalIntakeProposePayload(),
+        confirmationBody: "支付宝 demo 提案。",
+      }),
+    ).toMatchObject({ ok: false, reason: "goal-intake-payment-disclaimer-missing" });
+  });
+
   it("renders roundtable child, route, and parent summary bodies with stable keys", () => {
     const participants = ["qa", "dev-manager", "hermes-user"];
     const roundtableKey = buildCeoRoundtableKey({ source, workflowId: "roundtable-plan-review", roundtableId: "rt-1" });
@@ -331,3 +422,65 @@ ${JSON.stringify({
     expect(summary).toContain(firstCompletionKey);
   });
 });
+
+function makeGoalIntakeProposePayload() {
+  return {
+    action: "goal_intake",
+    workflowId: "goal-intake",
+    mode: "propose",
+    proposalId: "proposal-1",
+    assumptions: ["质量基准默认为 demo，用户确认提案即接受。"],
+    goal: {
+      id: "goal-pay-demo",
+      title: "支付宝 demo",
+      summary: "做一个支付宝风格 demo。",
+      scope: "只做演示闭环。",
+      acceptanceStatements: ["跑 pnpm test -- goal-intake → 应退出码 0"],
+      dependencies: [],
+      qualityBaseline: "demo",
+    },
+    milestones: [
+      { id: "ms-1", title: "阶段一", qualityBaseline: "demo" },
+      { id: "ms-2", title: "阶段二", qualityBaseline: "demo" },
+    ],
+    phaseOne: {
+      id: "phase-1",
+      name: "阶段一",
+      objective: "完成 demo 入口。",
+      acceptanceStatements: ["跑 pnpm test -- goal-intake → 应退出码 0"],
+      dependencies: [],
+      qualityBaseline: "demo",
+    },
+    tasks: [makeGoalIntakeTask("task-1"), makeGoalIntakeTask("task-2"), makeGoalIntakeTask("task-3")],
+    confirmationBody: "这是支付宝 demo 提案；不承诺真实资金处理、金融牌照、清结算或结算能力。",
+    provenance: "issue body goal intake",
+  };
+}
+
+function makeGoalIntakeTask(id: string) {
+  return {
+    id,
+    milestoneId: "ms-1",
+    title: `任务 ${id}`,
+    scope: `实现 ${id}`,
+    initialRole: "dev",
+    qualityBaseline: "demo",
+    acceptanceStatements: [`跑 pnpm test -- ${id} → 应退出码 0`],
+    dependencies: [],
+    provenance: "phase-one proposal",
+  };
+}
+
+function makeGoalIntakeConfirmIssue(taskId: string): CeoChildIssueDescriptor {
+  return {
+    ledgerTaskId: taskId,
+    groupId: "g1",
+    title: `任务 ${taskId}`,
+    description: `实现 ${taskId}`,
+    initialRole: "dev",
+    qualityBaseline: "demo",
+    acceptanceStatements: [`跑 pnpm test -- ${taskId} → 应退出码 0`],
+    dependencies: [],
+    provenance: "confirmed proposal",
+  };
+}

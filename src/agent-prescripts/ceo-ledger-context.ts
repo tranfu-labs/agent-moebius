@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { AGENTS_DIR, GOAL_LEDGER_STATE_PATH } from "../config.js";
 import { formatCeoScriptsForPrompt, loadCeoScripts } from "../ceo-scripts.js";
@@ -17,13 +16,28 @@ import type { AgentPreScriptInput, AgentPreScriptResult } from "./types.js";
 
 export const CEO_LEDGER_CONTEXT_PRE_SCRIPT_PATH = "src/agent-prescripts/ceo-ledger-context.ts";
 
+export type CeoLedgerPromptContext =
+  | {
+      mode: "active";
+      owner: PhaseOwner;
+      projection: ActivePhaseContextProjection;
+      visibleTasks: TaskRecord[];
+      promptContext: string;
+    }
+  | {
+      mode: "intakeBootstrap";
+      owner?: undefined;
+      projection?: undefined;
+      visibleTasks: [];
+      promptContext: string;
+    };
+
 export async function runCeoLedgerContextPreScript(
   input: AgentPreScriptInput,
 ): Promise<AgentPreScriptResult> {
   try {
     const repoRoot = resolveCurrentRepoRoot();
     const ledgerPath = path.join(repoRoot, GOAL_LEDGER_STATE_PATH);
-    await fs.access(ledgerPath);
     const ledger = await loadGoalLedgerState(ledgerPath);
     const scripts = await loadCeoScripts({ agentsDir: path.join(repoRoot, AGENTS_DIR), required: true });
     const context = resolveCeoLedgerPromptContext({
@@ -51,11 +65,35 @@ export function resolveCeoLedgerPromptContext(input: {
   ledger: GoalLedgerState;
   source: IssueSource;
   scriptsPrompt: string;
-}): { owner: PhaseOwner; projection: ActivePhaseContextProjection; visibleTasks: TaskRecord[]; promptContext: string } {
-  const owner = resolveUniqueIssueOwner(input.ledger, input.source);
+}): CeoLedgerPromptContext {
+  let owner: PhaseOwner;
+  try {
+    owner = resolveUniqueIssueOwner(input.ledger, input.source);
+  } catch (error) {
+    if (isBootstrapEligibleOwnerResolutionError(error)) {
+      return {
+        mode: "intakeBootstrap",
+        visibleTasks: [],
+        promptContext: formatIntakeBootstrapPromptContext({
+          source: input.source,
+          scriptsPrompt: input.scriptsPrompt,
+          reason: formatError(error),
+        }),
+      };
+    }
+    throw error;
+  }
   const projection = projectActivePhaseContext(input.ledger, owner);
   if (projection.status !== "active") {
-    throw new Error(`no-active-phase:${owner.kind}:${owner.id}`);
+    return {
+      mode: "intakeBootstrap",
+      visibleTasks: [],
+      promptContext: formatIntakeBootstrapPromptContext({
+        source: input.source,
+        scriptsPrompt: input.scriptsPrompt,
+        reason: `no-active-phase:${owner.kind}:${owner.id}`,
+      }),
+    };
   }
   const visibleTasks = resolveVisibleTasks(input.ledger, owner);
   if (visibleTasks.length === 0) {
@@ -63,6 +101,7 @@ export function resolveCeoLedgerPromptContext(input: {
   }
 
   return {
+    mode: "active",
     owner,
     projection,
     visibleTasks,
@@ -175,6 +214,37 @@ ${JSON.stringify(tasks, null, 2)}
 ${input.scriptsPrompt}
 
 Milestone standards reference: docs/roadmap/milestone-standards.md`;
+}
+
+function formatIntakeBootstrapPromptContext(input: {
+  source: IssueSource;
+  scriptsPrompt: string;
+  reason: string;
+}): string {
+  return `CEO agent deterministic context:
+
+Mode: intake bootstrap
+Reason: ${input.reason}
+
+Current issue source:
+${JSON.stringify({ owner: input.source.owner, repo: input.source.repo, number: input.source.issueNumber }, null, 2)}
+
+There is no current active phase projection for this issue. You may only use the goal-intake workflow:
+- goal_intake.interview for bounded questions.
+- goal_intake.propose for pending ledger proposal.
+- goal_intake.confirm for a user-confirmed pending proposal.
+
+Do not emit spawn_child_issues or roundtable from this bootstrap context; TypeScript validation will reject them without visible task ids.
+
+${input.scriptsPrompt}
+
+Milestone standards reference: docs/roadmap/milestone-standards.md`;
+}
+
+function isBootstrapEligibleOwnerResolutionError(error: unknown): boolean {
+  const message = formatError(error);
+  const match = message.match(/expected-one-ledger-owner:(\d+); active-candidates=(\d+)/u);
+  return match?.[2] === "0";
 }
 
 interface IssueSourceLike {
