@@ -44,7 +44,7 @@
 
 ### - [ ] T2 · 全局 GitHub 交互协议
 
-**目标**：制定单一事实源的 GitHub 交互协议并让所有角色遵守，CEO 发布前兜底。协议至少覆盖：**`@` 语义 = 移交控制权**——每条消息最多一个 `@`，只在明确移交下一步时使用，纯提及一律裸写角色名（触发器只认最新消息第一个合法 mention，误 `@` 会真实移交控制权并占用 driver 名额）；**`#数字` 只用于真实引用 issue**——任务编号用 `T3` 类前缀形式，禁止裸 `#N` 表达非 issue 编号（GitHub 会在被引用 issue 生成反向引用，制造通知噪音与假关联）；每条规则附正例与反例。各 persona 同步该协议；`agents/ceo.md` 增加违规纠正规则（用 append 要求改正，或经方案论证后启用 replace 直接纠正——执行方决策并记录理由）。
+**目标**：制定单一事实源的 GitHub 交互协议并让所有角色遵守，CEO 发布前兜底。协议至少覆盖：**`@` 语义 = 移交控制权**——每条消息最多一个 `@`，只在明确移交下一步时使用，纯提及一律裸写角色名（触发器只认最新消息第一个合法 mention，误 `@` 会真实移交控制权并占用 driver 名额）；**`#数字` 只用于真实引用 issue**——任务编号用 `T3` 类前缀形式，禁止裸 `#N` 表达非 issue 编号（GitHub 会在被引用 issue 生成反向引用，制造通知噪音与假关联）；**发言者身份约束**——role envelope（`<role>:` 前缀 + `<!-- agent-moebius:role=... -->` metadata）为 runner 发布专属，loop watcher / 真人补发评论必须以自己身份平文发言、不得伪装 agent 格式（所有评论出自同一 gh 账号，metadata 是时间线 speaker 归一化的唯一依据，伪装会污染各 role thread 的对话事实）；**带路由意图的人工评论必须显式带一个 `@`**，否则触发器不会唤醒任何角色（见 T8 死锁背景）；每条规则附正例与反例。各 persona 同步该协议；`agents/ceo.md` 增加违规纠正规则（用 append 要求改正，或经方案论证后启用 replace 直接纠正——执行方决策并记录理由）。
 
 **范围**：新增 `docs/protocols/github-interaction.md`；`agents/*.md` 同步；可选运行时加固：mention 解析忽略反引号 / 代码块内的 `@`（`src/conversation.ts` + 测试），做不做由方案阶段论证。
 
@@ -120,6 +120,22 @@
 
 **依赖**：T1、T2、T3、T4。
 
+### - [ ] T8 · 外部评论兜底路由与 CEO 覆盖率
+
+**目标**：消除"对话级死锁"与"guardrail 盲区"（M1 dogfood 实测卡点，#41 上 loop watcher 曾手动补 ping 打补丁）。三个子目标：
+1. **无 mention 外部评论兜底路由**：active issue 上出现外部新评论且无任何合法 mention 时，不再静默 `no-trigger` 跳过——引入一次轻量无状态路由判定（CEO 式：输出"无需行动"或一条带单个 `@` 的 append），让"验收通过 / 你去做 X"这类有路由意图但没带 `@` 的真人评论不再使整个闭环停摆。需设防重与成本控制：同一评论只判定一次，判定失败 fail-open 保持现状。
+2. **CEO 覆盖可审计**：当前只有被纠正的评论带 `ceo-corrected` 标记，无法从评论本身判断它是否经过 CEO 审阅。所有经 runner 发布路径的评论应带可审计的 CEO 审阅标记；据此可发现绕过 guardrail 入场的 envelope 格式评论。
+3. **矛盾结论对取证（方案阶段先做）**：#41 上存在相隔 19–44 秒、结论相反的 PM 结论对（如"不通过"后 44 秒"通过"），且这些评论均带完整 runner metadata，而 loop watcher 声称对应时段 runner 日志无 PM 运行。方案阶段先做日志取证定性：双 runner 实例并发？补发进程伪装 envelope？还是日志误读？取证结论决定本任务的修复范围，可能回灌 T1（进程级防重）或 T2（协议约束）。
+
+**范围**：`src/github-response-intake.ts` / `src/triggers/` 的无 mention 分支、`src/format-ceo.ts` 与发布路径的审阅标记、`agents/ceo.md` 路由判据；取证只读日志与 issue 数据。
+
+**验收语句**：
+1. 构造 active issue 上无 mention 的外部评论（含明确路由意图文案）→ 跑一轮 intake → 应看到一次路由判定被执行，产出"无需行动"记录或一条带单个 `@` 的 append 评论；同一评论第二轮不再重复判定。
+2. 任取一条 runner 新发布的评论 → 检查 body → 应看到 CEO 审阅标记（含未被纠正的评论）。
+3. 打开本任务的 openspec change → 应看到矛盾结论对的取证结论与定性（双实例 / 伪装 / 误读三选一或其他），及据此裁剪的修复范围说明。
+
+**依赖**：T2（发言者身份与 `@` 语义先定），取证子项无依赖可先行。
+
 ## 非目标
 
 - **不做目标账本 / 编排者 / issue 拆解**：里程碑 3 主题；本里程碑只交付其数据地基（run manifest）与决策尺子（milestone-standards）。
@@ -129,4 +145,4 @@
 
 ## 里程碑收尾
 
-T1–T7 全部勾选后：把成功标准达成证据（演练 issue 链接、故障注入测试输出）写入本文件头部；依据 run manifest 实际形态与 milestone-standards，细化 `docs/roadmap/milestone-3-orchestration.md` 的任务验收语句，等用户裁决后启动。
+T1–T8 全部勾选后：把成功标准达成证据（演练 issue 链接、故障注入测试输出）写入本文件头部；依据 run manifest 实际形态与 milestone-standards，细化 `docs/roadmap/milestone-3-orchestration.md` 的任务验收语句，等用户裁决后启动。
