@@ -3,9 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildObserverModel } from "./model.js";
 import { readObserverState } from "./read-state.js";
+import type { ReadObserverStateInput } from "./read-state.js";
 import { renderObserverPage } from "./render.js";
 
-export interface ObserverServerOptions {
+export interface ObserverServerOptions extends Pick<ReadObserverStateInput, "goalLedgerReadTimeoutMs" | "readGoalLedgerFile"> {
   projectRoot?: string;
   host?: string;
   port?: number;
@@ -37,7 +38,11 @@ export function createObserverServer(options: ObserverServerOptions = {}): http.
     }
 
     try {
-      const snapshot = await readObserverState({ projectRoot });
+      const snapshot = await readObserverState({
+        projectRoot,
+        goalLedgerReadTimeoutMs: options.goalLedgerReadTimeoutMs,
+        readGoalLedgerFile: options.readGoalLedgerFile,
+      });
       const body = renderObserverPage(buildObserverModel(snapshot));
       response.writeHead(200, {
         "content-type": "text/html; charset=utf-8",

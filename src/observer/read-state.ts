@@ -1,9 +1,31 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type {
+  AcceptanceFactStatus,
+  AcceptanceStatementResult,
+  GoalLedgerState,
+  GoalRecord,
+  IntegrationAcceptanceRecord,
+  IntegrationAcceptanceStatus,
+  IssueReference,
+  IssueReferenceStatus,
+  LedgerProvenance,
+  LedgerReadinessStatus,
+  MilestoneRecord,
+  MissingGoalField,
+  PhaseOwner,
+  PhaseRecord,
+  PhaseStatus,
+  QualityBaseline,
+  RunManifestReference,
+  RunManifestStage,
+  TaskAcceptanceRecord,
+  TaskRecord,
+} from "../goal-ledger.js";
 import { parseLocalConfig } from "../local-config.js";
 import type { RepositoryRef } from "../issue-source.js";
 
-export type ObserverSourceStatus = "ok" | "missing" | "error" | "partial";
+export type ObserverSourceStatus = "ok" | "missing" | "error" | "partial" | "timeout";
 
 export interface ObserverDiagnostic {
   source: string;
@@ -54,6 +76,7 @@ export interface ObserverRunManifestRecord {
     repo: string;
     number: number;
   };
+  lineNumber?: number;
   role: string;
   stage: ObserverRunManifestStage;
   artifacts: Array<{
@@ -64,10 +87,14 @@ export interface ObserverRunManifestRecord {
   completedAt: string;
 }
 
+export type ObserverGoalLedgerStatus = "ok" | "missing" | "timeout" | "error";
+
 export interface ObserverStateSnapshot {
   projectRoot: string;
   watchRepositories: RepositoryRef[];
   configUsable: boolean;
+  goalLedgerStatus: ObserverGoalLedgerStatus;
+  goalLedger: GoalLedgerState;
   intakeState: ObserverIntakeState;
   roleThreads: ObserverRoleThreadStore;
   agentContexts: ObserverAgentContextStore;
@@ -75,8 +102,10 @@ export interface ObserverStateSnapshot {
   diagnostics: ObserverDiagnostic[];
 }
 
-interface ReadObserverStateInput {
+export interface ReadObserverStateInput {
   projectRoot?: string;
+  goalLedgerReadTimeoutMs?: number;
+  readGoalLedgerFile?: (filePath: string) => Promise<string>;
 }
 
 interface ValidationResult<T> {
@@ -95,16 +124,47 @@ const EMPTY_INTAKE_STATE: ObserverIntakeState = { issues: {} };
 const EMPTY_ROLE_THREADS: ObserverRoleThreadStore = {};
 const EMPTY_AGENT_CONTEXTS: ObserverAgentContextStore = {};
 const EMPTY_RUN_MANIFESTS: ObserverRunManifestRecord[] = [];
+const EMPTY_GOAL_LEDGER: GoalLedgerState = {
+  schemaVersion: 1,
+  goals: {},
+  milestones: {},
+  tasks: {},
+  phases: {},
+};
+const DEFAULT_GOAL_LEDGER_READ_TIMEOUT_MS = 1_000;
 const RUN_MANIFEST_STAGES = new Set<ObserverRunManifestStage>([
   "plan-written",
   "code-verified",
   "in-progress",
   "unknown",
 ]);
+const QUALITY_BASELINES = new Set<QualityBaseline>(["demo", "data-correct", "production"]);
+const READINESS_STATUSES = new Set<LedgerReadinessStatus>(["draft", "pending", "ready"]);
+const ISSUE_REFERENCE_STATUSES = new Set<IssueReferenceStatus>(["planned", "open", "closed", "unknown"]);
+const ISSUE_RELATIONS = new Set(["source", "parent", "child", "acceptance", "implementation"]);
+const MISSING_GOAL_FIELDS = new Set<MissingGoalField>([
+  "scope",
+  "acceptanceStatements",
+  "dependencies",
+  "qualityBaseline",
+]);
+const PHASE_STATUSES = new Set<PhaseStatus>(["pending", "active", "completed"]);
+const ACCEPTANCE_FACT_STATUSES = new Set<AcceptanceFactStatus>(["passed", "failed"]);
+const INTEGRATION_ACCEPTANCE_STATUSES = new Set<IntegrationAcceptanceStatus>([
+  "requested",
+  "passed",
+  "failed",
+  "blocked",
+]);
 
 export async function readObserverState(input: ReadObserverStateInput = {}): Promise<ObserverStateSnapshot> {
   const projectRoot = path.resolve(input.projectRoot ?? process.cwd());
   const config = await readObserverConfig(projectRoot);
+  const goalLedger = await readGoalLedgerState({
+    filePath: path.join(projectRoot, ".state", "goal-ledger.json"),
+    timeoutMs: input.goalLedgerReadTimeoutMs ?? DEFAULT_GOAL_LEDGER_READ_TIMEOUT_MS,
+    readFile: input.readGoalLedgerFile ?? ((filePath) => fs.readFile(filePath, "utf8")),
+  });
   const intake = await readJsonState({
     source: ".state/github-response-intake.json",
     filePath: path.join(projectRoot, ".state", "github-response-intake.json"),
@@ -129,18 +189,109 @@ export async function readObserverState(input: ReadObserverStateInput = {}): Pro
     projectRoot,
     watchRepositories: config.repositories,
     configUsable: config.configUsable,
+    goalLedgerStatus: goalLedger.status,
+    goalLedger: goalLedger.data,
     intakeState: intake.data,
     roleThreads: roleThreads.data,
     agentContexts: agentContexts.data,
     runManifests: runManifests.data,
     diagnostics: [
       ...config.diagnostics,
+      ...goalLedger.diagnostics,
       ...intake.diagnostics,
       ...roleThreads.diagnostics,
       ...agentContexts.diagnostics,
       ...runManifests.diagnostics,
     ],
   };
+}
+
+async function readGoalLedgerState(input: {
+  filePath: string;
+  timeoutMs: number;
+  readFile: (filePath: string) => Promise<string>;
+}): Promise<{ status: ObserverGoalLedgerStatus; data: GoalLedgerState; diagnostics: ObserverDiagnostic[] }> {
+  const source = ".state/goal-ledger.json";
+  let raw: string;
+  try {
+    raw = await withTimeout(input.readFile(input.filePath), input.timeoutMs);
+  } catch (error) {
+    if (error instanceof TimeoutError) {
+      return {
+        status: "timeout",
+        data: EMPTY_GOAL_LEDGER,
+        diagnostics: [{ source, status: "timeout", message: `读取超时：超过 ${input.timeoutMs}ms` }],
+      };
+    }
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return {
+        status: "missing",
+        data: EMPTY_GOAL_LEDGER,
+        diagnostics: [{ source, status: "missing", message: "目标账本缺失" }],
+      };
+    }
+
+    return {
+      status: "error",
+      data: EMPTY_GOAL_LEDGER,
+      diagnostics: [{ source, status: "error", message: `读取失败：${formatError(error)}` }],
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    return {
+      status: "error",
+      data: EMPTY_GOAL_LEDGER,
+      diagnostics: [{ source, status: "error", message: `读取失败：JSON 解析失败：${formatError(error)}` }],
+    };
+  }
+
+  const validated = validateGoalLedgerState(parsed, source);
+  if (validated.fatal !== undefined) {
+    return {
+      status: "error",
+      data: EMPTY_GOAL_LEDGER,
+      diagnostics: [{ source, status: "error", message: `读取失败：${validated.fatal}` }],
+    };
+  }
+
+  return {
+    status: "ok",
+    data: validated.data,
+    diagnostics:
+      validated.diagnostics.length === 0
+        ? [{ source, status: "ok", message: "目标账本读取成功" }]
+        : validated.diagnostics,
+  };
+}
+
+class TimeoutError extends Error {
+  constructor() {
+    super("timeout");
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    return promise;
+  }
+
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new TimeoutError()), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 async function readObserverConfig(projectRoot: string): Promise<ConfigReadResult> {
@@ -297,7 +448,7 @@ async function readRunManifestJsonl(
       return;
     }
 
-    const manifest = validateRunManifestRecord(parsed);
+    const manifest = validateRunManifestRecord(parsed, lineNumber);
     if (!manifest.ok) {
       diagnostics.push({
         source,
@@ -345,6 +496,95 @@ function validateIntakeState(value: unknown, source: string): ValidationResult<O
   }
 
   return { data: { issues }, diagnostics };
+}
+
+function validateGoalLedgerState(value: unknown, source: string): ValidationResult<GoalLedgerState> {
+  if (!isPlainObject(value)) {
+    return { data: EMPTY_GOAL_LEDGER, diagnostics: [], fatal: "顶层不是对象" };
+  }
+  if (value.schemaVersion !== 1) {
+    return { data: EMPTY_GOAL_LEDGER, diagnostics: [], fatal: "schemaVersion 不支持" };
+  }
+  if (!isPlainObject(value.goals) || !isPlainObject(value.milestones) || !isPlainObject(value.tasks) || !isPlainObject(value.phases)) {
+    return { data: EMPTY_GOAL_LEDGER, diagnostics: [], fatal: "缺少实体集合" };
+  }
+
+  const diagnostics: ObserverDiagnostic[] = [];
+  const goals = collectRecord(value.goals, source, "goal", isGoalRecord, diagnostics);
+  const milestones = collectRecord(value.milestones, source, "milestone", isMilestoneRecord, diagnostics);
+  const tasks = collectRecord(value.tasks, source, "task", isTaskRecord, diagnostics);
+  const phases = collectRecord(value.phases, source, "phase", isPhaseRecord, diagnostics);
+
+  for (const [id, milestone] of Object.entries(milestones)) {
+    if (goals[milestone.goalId] === undefined) {
+      diagnostics.push({ source, status: "partial", message: `milestone ${id} 跳过：goalId 不存在` });
+      delete milestones[id];
+    }
+  }
+
+  for (const [id, task] of Object.entries(tasks)) {
+    if (goals[task.goalId] === undefined) {
+      diagnostics.push({ source, status: "partial", message: `task ${id} 跳过：goalId 不存在` });
+      delete tasks[id];
+      continue;
+    }
+    if (task.milestoneId !== undefined) {
+      const milestone = milestones[task.milestoneId];
+      if (milestone === undefined || milestone.goalId !== task.goalId) {
+        diagnostics.push({ source, status: "partial", message: `task ${id} 跳过：milestoneId 无效` });
+        delete tasks[id];
+      }
+    }
+  }
+
+  for (const [id, phase] of Object.entries(phases)) {
+    if (!hasOwner({ goals, milestones, tasks }, phase.owner)) {
+      diagnostics.push({ source, status: "partial", message: `phase ${id} 跳过：owner 不存在` });
+      delete phases[id];
+    }
+  }
+
+  return {
+    data: {
+      schemaVersion: 1,
+      goals,
+      milestones,
+      tasks,
+      phases,
+    },
+    diagnostics,
+  };
+}
+
+function collectRecord<T>(
+  value: Record<string, unknown>,
+  source: string,
+  label: string,
+  guard: (candidate: unknown) => candidate is T & { id: string },
+  diagnostics: ObserverDiagnostic[],
+): Record<string, T> {
+  const records: Record<string, T> = {};
+  for (const [id, candidate] of Object.entries(value)) {
+    if (!guard(candidate) || candidate.id !== id) {
+      diagnostics.push({ source, status: "partial", message: `${label} ${id} 跳过：字段不完整或类型错误` });
+      continue;
+    }
+    records[id] = candidate;
+  }
+  return records;
+}
+
+function hasOwner(
+  state: Pick<GoalLedgerState, "goals" | "milestones" | "tasks">,
+  owner: PhaseOwner,
+): boolean {
+  if (owner.kind === "goal") {
+    return state.goals[owner.id] !== undefined;
+  }
+  if (owner.kind === "milestone") {
+    return state.milestones[owner.id] !== undefined;
+  }
+  return state.tasks[owner.id] !== undefined;
 }
 
 function validateRoleThreadStore(value: unknown, source: string): ValidationResult<ObserverRoleThreadStore> {
@@ -409,6 +649,7 @@ function validateAgentContextStore(value: unknown, source: string): ValidationRe
 
 function validateRunManifestRecord(
   value: unknown,
+  lineNumber: number,
 ): { ok: true; record: ObserverRunManifestRecord } | { ok: false; reason: string } {
   if (!isPlainObject(value)) {
     return { ok: false, reason: "record 不是对象" };
@@ -470,6 +711,7 @@ function validateRunManifestRecord(
     ok: true,
     record: {
       issue: { owner: issue.owner, repo: issue.repo, number: issue.number },
+      lineNumber,
       role: value.role,
       stage: value.stage as ObserverRunManifestStage,
       artifacts,
@@ -526,8 +768,246 @@ function isAgentContextState(value: unknown): value is ObserverAgentContextState
   );
 }
 
+function isGoalRecord(value: unknown): value is GoalRecord {
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.title) &&
+    isReadinessStatus(value.status) &&
+    isOptionalString(value.summary) &&
+    isOptionalString(value.scope) &&
+    isOptionalNonEmptyStringArray(value.acceptanceStatements) &&
+    isOptionalStringArray(value.dependencies) &&
+    isOptionalQualityBaseline(value.qualityBaseline) &&
+    isIssueReferenceArray(value.issueRefs) &&
+    isStringArray(value.milestoneIds) &&
+    isLedgerProvenanceArray(value.provenance) &&
+    Array.isArray(value.missingFields) &&
+    value.missingFields.every((field) => typeof field === "string" && MISSING_GOAL_FIELDS.has(field as MissingGoalField)) &&
+    isStringArray(value.nextQuestions) &&
+    isNonEmptyString(value.createdAt) &&
+    isNonEmptyString(value.updatedAt)
+  );
+}
+
+function isMilestoneRecord(value: unknown): value is MilestoneRecord {
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.goalId) &&
+    isNonEmptyString(value.title) &&
+    isQualityBaseline(value.qualityBaseline) &&
+    isStringArray(value.taskIds) &&
+    isStringArray(value.phaseIds) &&
+    isIssueReferenceArray(value.issueRefs) &&
+    isLedgerProvenanceArray(value.provenance) &&
+    isNonEmptyString(value.createdAt) &&
+    isNonEmptyString(value.updatedAt)
+  );
+}
+
+function isTaskRecord(value: unknown): value is TaskRecord {
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.goalId) &&
+    isOptionalString(value.milestoneId) &&
+    isNonEmptyString(value.title) &&
+    isReadinessStatus(value.status) &&
+    isOptionalString(value.scope) &&
+    isOptionalNonEmptyStringArray(value.acceptanceStatements) &&
+    isOptionalStringArray(value.dependencies) &&
+    isOptionalQualityBaseline(value.qualityBaseline) &&
+    isStringArray(value.phaseIds) &&
+    (value.parentIssueRef === undefined || isIssueReference(value.parentIssueRef)) &&
+    isIssueReferenceArray(value.childIssueRefs) &&
+    (value.acceptanceFacts === undefined || (Array.isArray(value.acceptanceFacts) && value.acceptanceFacts.every(isTaskAcceptanceRecord))) &&
+    Array.isArray(value.runManifestRefs) &&
+    value.runManifestRefs.every(isRunManifestReference) &&
+    isLedgerProvenanceArray(value.provenance) &&
+    isNonEmptyString(value.createdAt) &&
+    isNonEmptyString(value.updatedAt)
+  );
+}
+
+function isPhaseRecord(value: unknown): value is PhaseRecord {
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value.id) &&
+    isPhaseOwner(value.owner) &&
+    isNonEmptyString(value.name) &&
+    typeof value.status === "string" &&
+    PHASE_STATUSES.has(value.status as PhaseStatus) &&
+    isQualityBaseline(value.qualityBaseline) &&
+    isOptionalString(value.objective) &&
+    isOptionalNonEmptyStringArray(value.acceptanceStatements) &&
+    isOptionalStringArray(value.dependencies) &&
+    (value.integrationAcceptance === undefined ||
+      (Array.isArray(value.integrationAcceptance) && value.integrationAcceptance.every(isIntegrationAcceptanceRecord))) &&
+    isOptionalString(value.archiveSummary) &&
+    isOptionalString(value.archivedAt) &&
+    isOptionalString(value.startedAt) &&
+    isOptionalString(value.completedAt) &&
+    isLedgerProvenanceArray(value.provenance)
+  );
+}
+
+function isIssueReferenceArray(value: unknown): value is IssueReference[] {
+  return Array.isArray(value) && value.every(isIssueReference);
+}
+
+function isIssueReference(value: unknown): value is IssueReference {
+  if (!isPlainObject(value) || !isIssueLike(value)) {
+    return false;
+  }
+  const reference = value as Record<string, unknown>;
+
+  return (
+    typeof reference.relation === "string" &&
+    ISSUE_RELATIONS.has(reference.relation) &&
+    typeof reference.status === "string" &&
+    ISSUE_REFERENCE_STATUSES.has(reference.status as IssueReferenceStatus) &&
+    isOptionalString(reference.note)
+  );
+}
+
+function isLedgerProvenanceArray(value: unknown): value is LedgerProvenance[] {
+  return Array.isArray(value) && value.every(isLedgerProvenance);
+}
+
+function isLedgerProvenance(value: unknown): value is LedgerProvenance {
+  return (
+    isPlainObject(value) &&
+    isIssueLike(value.issue) &&
+    isNonNegativeInteger(value.messageIndex) &&
+    isOptionalString(value.commentId) &&
+    isNonEmptyString(value.capturedAt) &&
+    isOptionalString(value.note)
+  );
+}
+
+function isTaskAcceptanceRecord(value: unknown): value is TaskAcceptanceRecord {
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value.factKey) &&
+    isIssueLike(value.issue) &&
+    isNonEmptyString(value.role) &&
+    typeof value.status === "string" &&
+    ACCEPTANCE_FACT_STATUSES.has(value.status as AcceptanceFactStatus) &&
+    Array.isArray(value.statementResults) &&
+    value.statementResults.every(isAcceptanceStatementResult) &&
+    isNonNegativeInteger(value.messageIndex) &&
+    isOptionalString(value.commentId) &&
+    isNonEmptyString(value.capturedAt) &&
+    isOptionalString(value.note)
+  );
+}
+
+function isAcceptanceStatementResult(value: unknown): value is AcceptanceStatementResult {
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value.id) &&
+    typeof value.status === "string" &&
+    ACCEPTANCE_FACT_STATUSES.has(value.status as AcceptanceFactStatus) &&
+    isOptionalString(value.statement)
+  );
+}
+
+function isIntegrationAcceptanceRecord(value: unknown): value is IntegrationAcceptanceRecord {
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value.joinKey) &&
+    isNonEmptyString(value.phaseId) &&
+    isIssueLike(value.parentIssue) &&
+    isNonEmptyString(value.reviewerRole) &&
+    typeof value.status === "string" &&
+    INTEGRATION_ACCEPTANCE_STATUSES.has(value.status as IntegrationAcceptanceStatus) &&
+    isNonEmptyString(value.childPassDigest) &&
+    isNonEmptyString(value.targetAcceptanceDigest) &&
+    isOptionalStringArray(value.failedStatementIds) &&
+    isOptionalStringArray(value.repairTaskIds) &&
+    isNonEmptyString(value.capturedAt) &&
+    isOptionalString(value.note)
+  );
+}
+
+function isRunManifestReference(value: unknown): value is RunManifestReference {
+  if (!isPlainObject(value) || !isIssueLike(value.issue) || !isNonEmptyString(value.role) || !isNonEmptyString(value.completedAt)) {
+    return false;
+  }
+  if (!(typeof value.stage === "string" && RUN_MANIFEST_STAGES.has(value.stage as RunManifestStage))) {
+    return false;
+  }
+  if (value.resolution === "unresolved") {
+    return value.locator === undefined;
+  }
+  if (!(value.resolution === "linked" || value.resolution === "missing")) {
+    return false;
+  }
+  return isRunManifestLocator(value.locator);
+}
+
+function isRunManifestLocator(value: unknown): boolean {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+  if (value.kind === "jsonl-line") {
+    return value.path === ".state/run-manifests.jsonl" && isPositiveInteger(value.line);
+  }
+  return value.kind === "run-dir" && isNonEmptyString(value.runDir);
+}
+
+function isPhaseOwner(value: unknown): value is PhaseOwner {
+  return (
+    isPlainObject(value) &&
+    (value.kind === "goal" || value.kind === "milestone" || value.kind === "task") &&
+    isNonEmptyString(value.id)
+  );
+}
+
+function isIssueLike(value: unknown): value is { owner: string; repo: string; number: number } {
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value.owner) &&
+    isNonEmptyString(value.repo) &&
+    isPositiveInteger(value.number)
+  );
+}
+
+function isReadinessStatus(value: unknown): value is LedgerReadinessStatus {
+  return typeof value === "string" && READINESS_STATUSES.has(value as LedgerReadinessStatus);
+}
+
+function isQualityBaseline(value: unknown): value is QualityBaseline {
+  return typeof value === "string" && QUALITY_BASELINES.has(value as QualityBaseline);
+}
+
+function isOptionalQualityBaseline(value: unknown): value is QualityBaseline | undefined {
+  return value === undefined || isQualityBaseline(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isOptionalStringArray(value: unknown): value is string[] | undefined {
+  return value === undefined || isStringArray(value);
+}
+
+function isOptionalNonEmptyStringArray(value: unknown): value is string[] | undefined {
+  return value === undefined || (Array.isArray(value) && value.every(isNonEmptyString));
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
 function isPositiveInteger(value: unknown): value is number {

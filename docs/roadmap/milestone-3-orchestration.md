@@ -103,9 +103,19 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - 验证命令：`pnpm test -- ceo-scripts ceo-orchestration runner`、`pnpm typecheck`、`git diff --check` 均退出码 0。
 - 验收清单：product-manager 17/17 通过（复验版）；关键交付项：v0 串行主持人圆桌（无独立 moderator agent）、参与者响应缺 handoff 由 runner 拦截 + 发布纠偏、fault injection 覆盖错误 handoff 目标 / completion key idempotent / 参与者失联恢复；v1 扇出 + join 原语只写 spec-delta。
 
-### - [ ] T7 · 观察页升级为账本 UI
+### - [x] T7 · 观察页升级为账本 UI
 
 从只读 run 视图升级为目标 → 里程碑 → 任务树视图；是否引入操作能力（人工闸口在页面上确认）在方案阶段论证。
+
+验收证据（2026-07-05）：
+- 方案与归档：`openspec/changes/archive/2026-07-05-observer-ledger-ui-t7/`
+- 行为事实源：`openspec/specs/github-issue-runner/spec.md`
+- 版式事实源：`docs/wireframes/pages/observer.md`、`docs/wireframes/flow.md`
+- 架构事实源：`docs/architecture/module-map.md`
+- 实现：`src/observer/read-state.ts`、`src/observer/model.ts`、`src/observer/render.ts`、`src/observer/server.ts`
+- 测试：`tests/observer.test.ts`
+- 验证命令：`pnpm vitest run tests/observer.test.ts --reporter=verbose`（10 tests，退出码 0）、`pnpm test`（29 个 test files / 323 tests，退出码 0）、`pnpm typecheck`（退出码 0）、`git diff --check`（退出码 0）。
+- 验收清单：product-manager 已确认正式验收口径，含 QA 增补 3 条；实现证据覆盖 ledger-first goal -> milestone -> task 树、未归属任务、owner phase active / no-active / multiple-active 局部错误、watchlist 过滤、非白名单 ref 标注、task detail、只读 gate 可见化、缺 refs 闸口诊断、显式 `TaskRecord.runManifestRefs` evidence、unlinked local runs、坏 ledger fallback、read timeout fallback、roundtable hidden key / 普通 provenance / near-miss 负例、roundtable 不计入验收通过、fake `gh` / `codex` 零调用与文件哈希不变。
 
 ### - [ ] T8 · 目标入账剧本（goal-intake）
 
