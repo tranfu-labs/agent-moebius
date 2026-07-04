@@ -8,6 +8,10 @@
 <!-- agent-moebius:stage=in-progress -->
 ```
 
+## GitHub 交互协议
+
+发布到 issue 时间线前，MUST 遵守 `docs/protocols/github-interaction.md`。重点：每条消息最多一个 `@` 且只用于移交控制权；纯提及角色名时裸写；非 issue / PR 编号使用 `T3` 等形式；不得手写 runner 专属 role envelope。
+
 ## 验收职责
 
 当你被 mention 请求验收 dev 的方案或实现时，你不再做泛泛用户反馈，而是按请求中的「验收语句」逐条走查并输出结构化结论。

@@ -151,8 +151,9 @@ export function resolveNextRoleThreadState(input: {
 export function parseAgentMentions(text: string): AgentMention[] {
   const mentions: AgentMention[] = [];
   const pattern = /(^|[^A-Za-z0-9_-])@([a-z0-9]+(?:-[a-z0-9]+)*)(?![A-Za-z0-9_-])/g;
+  const searchableText = maskMarkdownCodeAreas(text);
 
-  for (const match of text.matchAll(pattern)) {
+  for (const match of searchableText.matchAll(pattern)) {
     const prefix = match[1] ?? "";
     const name = match[2];
     if (name === undefined || match.index === undefined) {
@@ -166,6 +167,70 @@ export function parseAgentMentions(text: string): AgentMention[] {
   }
 
   return mentions;
+}
+
+function maskMarkdownCodeAreas(text: string): string {
+  const masked = new Array<boolean>(text.length).fill(false);
+
+  let fenceSearchIndex = 0;
+  while (fenceSearchIndex < text.length) {
+    const fenceStart = text.indexOf("```", fenceSearchIndex);
+    if (fenceStart === -1) {
+      break;
+    }
+
+    const closingFenceStart = text.indexOf("```", fenceStart + 3);
+    const fenceEnd = closingFenceStart === -1 ? text.length : closingFenceStart + 3;
+    maskRange(masked, fenceStart, fenceEnd);
+    fenceSearchIndex = fenceEnd;
+  }
+
+  let index = 0;
+  while (index < text.length) {
+    if (masked[index] || text[index] !== "`") {
+      index += 1;
+      continue;
+    }
+
+    const lineEnd = text.indexOf("\n", index + 1);
+    const searchEnd = lineEnd === -1 ? text.length : lineEnd;
+    const closingBacktick = findClosingInlineBacktick(text, masked, index + 1, searchEnd);
+
+    if (closingBacktick === -1) {
+      index += 1;
+      continue;
+    }
+
+    maskRange(masked, index, closingBacktick + 1);
+    index = closingBacktick + 1;
+  }
+
+  return text
+    .split("")
+    .map((char, charIndex) => {
+      if (!masked[charIndex] || char === "\n") {
+        return char;
+      }
+
+      return " ";
+    })
+    .join("");
+}
+
+function findClosingInlineBacktick(text: string, masked: boolean[], start: number, end: number): number {
+  for (let index = start; index < end; index += 1) {
+    if (!masked[index] && text[index] === "`") {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function maskRange(masked: boolean[], start: number, end: number): void {
+  for (let index = start; index < end; index += 1) {
+    masked[index] = true;
+  }
 }
 
 export function selectMentionedAgent(text: string, availableAgentNames: string[]): string | null {

@@ -78,7 +78,11 @@
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
 - MUST 将 agent 触发决策封装为独立触发器；runner 只消费触发器结果，不把具体触发方式写死在编排流程中。
-- MUST 保留 mention trigger：最新消息包含已存在 agent mention 时，触发对应 agent。
+- MUST 提供 `docs/protocols/github-interaction.md` 作为 GitHub issue 共享时间线交互协议的单一事实源，适用于所有 agent 输出、CEO append、人类评论与 loop watcher 补发评论。
+- MUST 让全局 GitHub 交互协议至少覆盖四条规则：`@` 语义等于移交下一步控制权且每条消息最多一个合法 agent mention；裸 `#N` 只用于真实引用 GitHub issue / PR，任务编号、评论编号、验收语句编号与步骤编号不得写成裸 `#N`；runner 专属 role envelope（`<role>:` 可见前缀与 `<!-- agent-moebius:role=... -->` metadata）不得由人工或 loop watcher 手写伪装；带路由意图的人工评论必须显式包含一个合法 agent mention。
+- MUST 让全局 GitHub 交互协议为每条规则提供正例、反例与合规改写；任务编号示例 MUST 使用 `T3` 等非 GitHub issue 引用形式，评论位置 MUST 使用「第 N 条评论」或完整评论 URL，验收编号 MUST 使用「验收语句 N」文字形式，避免制造真实 issue / PR 反向引用。
+- MUST 让所有 `agents/*.md` persona 引用并遵守 `docs/protocols/github-interaction.md`；persona 文件只做最小引用，MUST NOT 复制协议全文形成多事实源。
+- MUST 保留 mention trigger：最新消息的非代码文本区域包含已存在 agent mention 时，触发对应 agent；fenced code block 与 inline backtick 内的 mention 不参与触发。
 - MUST NOT 提供 `agents/reflector.md` 或任何 reflector stage trigger；`@reflector` 在当前系统中只是未知 mention，不触发任何执行或评论。
 - MUST 集中定义 stage 枚举于 `src/stages.ts`，供 CEO guardrail 与各 agent persona 契约测试共用；多处 MUST NOT 各自维护副本。
 - MUST 让 `AllStages = ["plan-written", "code-verified", "in-progress"]`。
@@ -98,9 +102,9 @@
 - MUST 把 issue body 归类为 `user` speaker。
 - MUST 优先使用隐藏 metadata `<!-- agent-moebius:role=<role> -->` 识别 runner 生成的 agent comment；没有 metadata 但以 `<known-role>:`、`&lt;known-role&gt;:` 或 raw `<known-role>:` 开头的历史 comment SHOULD 按 legacy agent comment 兼容；其他 comment MUST 归类为 `user`。
 - MUST 每轮只检查最新一条归一化消息作为触发源，并由触发器决定是运行 agent 还是跳过。
-- MUST 仅当触发源包含至少一个已存在 agent mention 时启动本地 `codex`。
+- MUST 仅当触发源的非代码文本区域包含至少一个已存在 agent mention 时启动本地 `codex`。
 - MUST 在触发源没有有效 trigger 时跳过，不调用 `codex`，不发表评论。
-- MUST 在同一条消息包含多个有效 agent mention 时选择文本中最早出现的一个。
+- MUST 在同一条消息包含多个非代码文本区域的有效 agent mention 时选择文本中最早出现的一个；协议层仍要求每条消息最多一个 `@`，多 mention 由 CEO 纠偏而非运行时拒绝。
 - MUST 在选中 agent 且本轮需要调用 Codex 时先执行该 agent 声明的 pre script；pre script 失败时 MUST 跳过 Codex、跳过 GitHub 评论、保持 role thread 状态不变。
 - MUST 在 mention trigger 选中可运行 agent、prompt plan 需要执行、且该 agent 的 preScript 已成功完成后，在首次调用 Codex driver 前，为本轮触发 Codex 的最新消息添加 `eyes` reaction。
 - MUST 当触发源是 issue body 时，为当前 GitHub issue 添加 `eyes` reaction。
@@ -202,7 +206,8 @@
 - MUST 让 qa 对同一需求的方案最多判两轮不通过；第三轮仍有分歧时 MUST 列明分歧点、判"有保留通过"并交人类裁决，MUST NOT 与 dev 无限空转。
 - MUST 提供 `docs/architecture/invariants.md` 作为系统级不变量事实源，至少覆盖 liveness（任何单点故障不得使心跳循环或任一 issue 推进永久停转；每个外部调用必须有界时或有看门狗）、safety（intake 游标只在 GitHub 留下可见结果后推进）、visibility（放弃或降级任务必须留下可见痕迹，且痕迹发布路径本身受前两者约束）三类。qa 发现新故障类时 MUST 以补丁建议形式回流，经人类确认后合并，MUST NOT 直接修改该文件。
 - MUST 新增 `agents/ceo.md` 作为 CEO agent persona，承载触发范围、识别场景清单、输入契约、输出契约与修改红线；未来事故规则扩展 MUST 通过修改 `agents/ceo.md` 实现，NEVER 硬编码到 runner 或 `src/format-ceo.ts`。
-- MUST 让 `agents/ceo.md` 至少覆盖七类识别场景（append 场景保持 persona 层判断）：① `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified` 时的阶段验收回流 / 缺验收语句补齐；② 工作明显未完成、或已交付但不符合规范（持续推进）；③ 交付规范细则不满足（如 PR 缺 `Closes #N` 字样、评论中 PR 不是链接形式）；④ 死锁等待——agent 的最新响应在等待一个不存在或不会响应的对象（如把历史 reflector 评论当真人、等待系统中不存在的 reviewer / manager），CEO 追加评论纠正认知并直接裁决下一步；⑤ PR 冲突——按 PR 真实状态核实规则核实到 `state=OPEN` 且 `mergeable=CONFLICTING` 的 PR 时，`append` 一条 `@dev` 修复冲突的评论，merged / closed 的 PR MUST 跳过，MUST NOT 做去重（每次验收看到冲突即提醒）；⑥ 免确认操作放行——`dev` 的 `latestResponse` 在向用户征求免确认清单内操作的同意时，`append as=ceo` 直接授权继续；⑦ qa 交棒兜底——`agent = qa` 的 `latestResponse` 含固定结论行但交棒 mention 缺失时补交棒，正常时 `no_change`。
+- MUST 让 `agents/ceo.md` 至少覆盖八类识别场景（append 场景保持 persona 层判断）：① `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified` 时的阶段验收回流 / 缺验收语句补齐；② 工作明显未完成、或已交付但不符合规范（持续推进）；③ 交付规范细则不满足（如 PR 缺 `Closes #N` 字样、评论中 PR 不是链接形式）；④ 死锁等待——agent 的最新响应在等待一个不存在或不会响应的对象（如把历史 reflector 评论当真人、等待系统中不存在的 reviewer / manager），CEO 追加评论纠正认知并直接裁决下一步；⑤ PR 冲突——按 PR 真实状态核实规则核实到 `state=OPEN` 且 `mergeable=CONFLICTING` 的 PR 时，`append` 一条 `@dev` 修复冲突的评论，merged / closed 的 PR MUST 跳过，MUST NOT 做去重（每次验收看到冲突即提醒）；⑥ 免确认操作放行——`dev` 的 `latestResponse` 在向用户征求免确认清单内操作的同意时，`append as=ceo` 直接授权继续；⑦ qa 交棒兜底——`agent = qa` 的 `latestResponse` 含固定结论行但交棒 mention 缺失时补交棒，正常时 `no_change`；⑧ GitHub 交互协议违规纠偏——`latestResponse` 误用 `@` 进行纯提及或多重控制权移交、用裸 `#N` 表达非 issue / PR 编号、试图手写 runner 专属 role envelope，或需要提醒人工路由必须显式带一个合法 mention 时，CEO SHOULD 输出 `append`、`as=ceo`，指出违规点并给出合规写法。
+- MUST 让 CEO 的 GitHub 交互协议违规纠偏保持 append-only；`agents/ceo.md` MUST NOT 为本场景启用 `replace`，以保留违规原文作为审计证据。
 - MUST 让 `agents/ceo.md` 承载「PR 真实状态核实」要求：CEO 对 PR 下任何判断（交付规范细则、冲突、交付完成度）前，MUST 先对上下文中出现的完整 PR 链接 `https://github.com/<owner>/<repo>/pull/<n>` 在其 Codex 子进程内执行 `gh pr view <完整URL> --json title,body,state,mergeable,mergeStateStatus` 核实；MUST 使用完整 URL（CEO 运行目录不在目标仓库）；MUST NOT 仅凭评论文本猜测 PR 内容；`gh` 查询失败时 MUST NOT 基于猜测介入，保守输出 `no_change`（纯文本层即可确定的问题除外，如"评论中 PR 不是链接形式"）。PR 核实发生在 CEO Codex 子进程内部，属 persona 层行为，不经过 runner 的 GitHub adapter，不与"`src/format-ceo.ts` MUST NOT 自行调用 GitHub"红线冲突。
 - MUST 让交付规范中 `Closes #N` 的检查对象为核实到的 PR body，而非评论文本。
 - MUST 让 `agents/ceo.md` 承载免确认操作清单（授权边界只存在于 `agents/ceo.md`，`agents/dev.md` 行为不变）：清单内（CEO 直接放行）为从最新 `origin/main` 创建 feature 分支、把方案落盘到 `openspec/changes/`、方案经 qa 测试设计审查通过且发起需求角色验收通过后进入实现阶段（不再要求用户口头"开始写代码"）；清单外（仍等用户）包括但不限于 push、创建 / 合并 PR、任何删除类操作。
@@ -321,6 +326,18 @@ Given 最新消息包含 `@hermes-user` 与 `@product-manager`
 And 两个对应 agent Markdown 都存在
 When 一次轮询取回该 issue
 Then 系统选择文本中最早出现的有效 agent mention
+
+### 场景 6.1：对话型 — fenced code block 内 mention 不触发
+Given 最新消息只有 fenced code block 内包含 `@dev`
+When 一次轮询取回该 issue
+Then 系统不选择 `dev`
+And 不调用 Codex driver
+
+### 场景 6.2：对话型 — inline code 内 mention 不触发但普通文本 mention 仍触发
+Given 最新消息包含 inline code `` `@dev` `` 作为示例
+And 同一消息普通文本包含 `@product-manager`
+When 一次轮询取回该 issue
+Then 系统选择 `product-manager`
 
 ### 场景 7：stage marker 本身不触发 hook
 Given 最新消息 speaker 是 `dev`
@@ -1040,6 +1057,32 @@ Given 上下文中出现 PR 链接但 CEO 子进程内 `gh pr view` 执行失败
 When runner 调用 CEO guardrail
 Then CEO MUST NOT 基于猜测对该 PR 下判断
 And 仅纯文本层可确定的问题（如评论中 PR 不是链接形式）仍可介入
+
+### 场景 56：协议文档包含四条核心规则与例子
+Given 开发者打开 `docs/protocols/github-interaction.md`
+Then 文档包含 `@` 控制权移交规则与 `#数字` 真实 issue / PR 引用规则
+And 文档包含 runner 专属 role envelope 规则与人工路由必须带合法 mention 规则
+And 每条核心规则都包含正例、反例与合规改写
+
+### 场景 57：所有 persona 引用全局协议
+Given 仓库存在 `agents/*.md`
+When 运行 `rg -l "github-interaction|交互协议" agents/`
+Then 每个 persona 文件都被命中
+
+### 场景 58：CEO append-only 纠正协议违规
+Given `dev` 的 `latestResponse` 把 `@dev` 用作纯提及
+And 同一响应把任务编号写成 `#3`
+When CEO guardrail 处理该响应
+Then CEO 输出 `append`、`as=ceo`
+And append 正文指出 `@` 只能用于控制权移交、任务编号应写成 `T3`
+And CEO MUST NOT 输出 `replace`
+
+### 场景 59：CEO 纠正评论编号与验收编号的裸 `#N`
+Given agent 响应用 `#6` 指代第 6 条评论
+And 同一响应用 `#1` 指代验收语句编号
+When CEO guardrail 处理该响应
+Then CEO 输出 `append`、`as=ceo`
+And append 正文给出「第 6 条评论」与「验收语句 1」等文字形式改写
 
 ## 可验证行为
 - `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed 保留 `updatedAt` 并更新 `failureCount` / `lastFailureReason` / `nextPollAt`、`dead-lettered` 清零失败状态并降级 idle、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、Codex watchdog 超时后 failed 折叠并释放 queued driver pool 名额、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、`@secretary` 普通 mention 触发 Codex、secretary speaker 归一化、secretary current repo preScript cwd 传递、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO `append.as=secretary` 合法、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、dev workspace git 失败 stderr 摘要、dev workspace 本地分支名与 repo cache 串行化、codex jsonl 最终消息解析、thread id 解析、cached token 解析、Codex AbortSignal 中断与忽略温和信号时的强杀兜底、issue media 纯提取 / prompt manifest、SVG issue 输入过滤、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`gh` 子进程挂起 timeout、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、死信发布成功 / 失败 / 故障恢复不误发死信、持续 GitHub fetch 故障达到预算后死信、以及收尾中断检查抛错时 fail-open 照常发布。

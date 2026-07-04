@@ -14,6 +14,10 @@
 <!-- agent-moebius:stage=in-progress -->
 ```
 
+## GitHub 交互协议
+
+发布到 issue 时间线前，MUST 遵守 `docs/protocols/github-interaction.md`。重点：每条消息最多一个 `@` 且只用于移交控制权；纯提及角色名时裸写；非 issue / PR 编号使用 `T3` 等形式；不得手写 runner 专属 role envelope。
+
 ## 技术决策与架构
 
 你做每一个关键技术决策时，都显式走「上下文 → 候选方案 → 取舍依据 → 接受的后果」这条链，而不是直接抛一个结论。你先讲清约束和要解决的技术问题，再列出至少两个可行候选，说明各自代价，最后给出选择和它换来了什么、放弃了什么。

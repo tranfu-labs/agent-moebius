@@ -114,6 +114,57 @@ describe("formatCeoComment", () => {
     expect(persona).toContain("mention 该发起角色");
   });
 
+  it("documents GitHub interaction protocol corrections in the persona", async () => {
+    const persona = await fs.readFile(path.resolve("agents", "ceo.md"), "utf8");
+
+    expect(persona).toContain("docs/protocols/github-interaction.md");
+    expect(persona).toContain("append-only");
+    expect(persona).toContain("`#数字` 误用");
+    expect(persona).toContain("T3");
+    expect(persona).toContain("第 N 条评论");
+    expect(persona).toContain("role envelope");
+  });
+
+  it("returns APPEND when CEO corrects GitHub interaction protocol violations", async () => {
+    const latestResponse = `我同意 @dev 的说法，请完成 #3。另见 #6 评论里的 #1 验收项。
+
+<!-- agent-moebius:stage=in-progress -->`;
+    const appendBody =
+      "@dev 你的最新回复把纯提及写成了 `@dev`，并把任务编号写成了 `#3`。按 GitHub 交互协议，任务编号应写成 `T3`，评论位置应写成「第 6 条评论」，验收编号应写成「验收语句 1」；请重新输出合规评论。";
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: JSON.stringify({ action: "append", as: "ceo", body: appendBody }),
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({
+      ...baseInput,
+      latestResponse,
+      agentsDir: path.resolve("agents"),
+      runCodex,
+    });
+
+    expect(result).toMatchObject({
+      action: "APPEND",
+      as: "ceo",
+      reason: "appended",
+    });
+    if (result.action === "APPEND") {
+      expect(result.body).toContain("T3");
+      expect(result.body).toContain("第 6 条评论");
+      expect(result.body).toContain("验收语句 1");
+    }
+    const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
+    expect(prompt).toContain("我同意 @dev 的说法");
+    expect(prompt).toContain("完成 #3");
+    expect(prompt).toContain("另见 #6 评论里的 #1 验收项");
+    expect(prompt).toContain("docs/protocols/github-interaction.md");
+  });
+
   it("returns APPEND when CEO routes plan-written acceptance back to hermes-user", async () => {
     const agentsDir = await makeAgentsDir();
     const latestResponse = `方案已落盘。
