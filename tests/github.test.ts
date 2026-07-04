@@ -9,6 +9,7 @@ import {
   isGitHubIssue,
   isGitHubIssueNotFoundError,
   isIssueNotFoundMessage,
+  runCommand,
 } from "../src/github.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
@@ -108,5 +109,15 @@ describe("github issue errors", () => {
     expect(isGitHubIssue({ ...baseIssue, state: "MERGED" })).toBe(false);
     expect(isGitHubIssue(baseIssue)).toBe(false);
     expect(isGitHubIssue({ ...baseIssue, state: "OPEN", comments: [{ body: "missing id" }] })).toBe(false);
+  });
+
+  it("terminates a hanging gh command attempt after its timeout", async () => {
+    await expect(
+      runCommand(process.execPath, ["-e", "setInterval(() => {}, 1000);"], {
+        retry: false,
+        timeoutMs: 20,
+        terminationGraceMs: 10,
+      }),
+    ).rejects.toThrow(/timed out after 20ms/);
   });
 });

@@ -36,17 +36,41 @@ describe("issue media", () => {
         }),
         expect.objectContaining({
           messageIndex: 2,
-          kind: "image",
-          url: "https://example.test/diagram.svg",
-          label: "diagram",
-          syntax: "markdown-link",
-        }),
-        expect.objectContaining({
-          messageIndex: 2,
           kind: "video",
           url: "https://example.test/movie.webm",
           syntax: "bare-url",
         }),
+      ]),
+    );
+  });
+
+  it("filters SVG issue input references across supported syntaxes", () => {
+    const messages: TimelineMessage[] = [
+      {
+        index: 7,
+        speaker: "user",
+        source: "comment",
+        body: [
+          "![diagram](https://example.test/diagram.svg)",
+          "[diagram link](https://example.test/link.svg)",
+          '<img src="https://example.test/html.svg">',
+          "https://example.test/bare.svg",
+          "![screen](https://example.test/screen.png)",
+          '<video src="https://example.test/demo.mp4"></video>',
+        ].join("\n"),
+      },
+    ];
+
+    const references = extractIssueMediaReferences(messages);
+
+    expect(references.map((reference) => reference.url)).toEqual([
+      "https://example.test/screen.png",
+      "https://example.test/demo.mp4",
+    ]);
+    expect(references).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "image", syntax: "markdown-image" }),
+        expect.objectContaining({ kind: "video", syntax: "html" }),
       ]),
     );
   });

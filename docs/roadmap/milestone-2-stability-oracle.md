@@ -28,7 +28,7 @@
 - 标注【人工】的任务需要用户参与，循环应准备好材料后停下等用户，不得伪造完成。
 - 验收语句的 rescope / override 须经需求持有者或用户确认（T5 落地前先按此约定执行）。
 
-### - [ ] T1 · runner 稳定性加固
+### - [x] T1 · runner 稳定性加固
 
 **目标**：系统性消除"卡死"类故障：gh 调用全链路显式超时与熔断（连续失败后冷却，不无限重试）；Codex 子进程 watchdog（超时强杀、按失败路径处理、释放 driver pool 名额）；死信路径补全（所有失败分支最终可达死信或恢复，不存在既不推进也不报告的状态）；`src/issue-media.ts` SVG 过滤 hotfix 正规化（OpenSpec + 测试 + 提交）；以上均配故障注入自动化测试。
 
@@ -41,6 +41,13 @@
 4. 跑 `pnpm test` 与 `pnpm typecheck` → 应输出退出码 0。
 
 **依赖**：无。
+
+**阶段证据（2026-07-04，T1 已完成）**：
+- GitHub 故障注入：`tests/runner.test.ts` 覆盖 fake GitHub fetch 持续抛 `EOF` 时 heartbeat 正常返回、处理不调用 agent、失败预算达限后发布 dead-letter 并折叠为 `dead-lettered`；`tests/github.test.ts` 覆盖挂起子进程在短 timeout 后被终止；`tests/retry.test.ts` 覆盖 timeout 文本归类为 transient。
+- Codex 卡死故障注入：loop watcher 已授权最小触碰 `src/runner.ts`；`tests/runner.test.ts` 覆盖 fake Codex driver promise 永不返回时 watchdog abort、合成 timeout failed outcome、记录失败并释放 driver pool 名额使 queued job 启动；`tests/codex.test.ts` 覆盖真实 `codex` adapter 在 AbortSignal 后即使子进程忽略 `SIGINT` / `SIGTERM` 也会升级到 `SIGKILL` 并 settle。
+- SVG 正规化：`tests/issue-media.test.ts` 覆盖 Markdown image、Markdown link、HTML `src`、bare URL 的 `.svg` 输入过滤；`rg -n "svg" tests/` 可见 `tests/issue-media.test.ts:54-57`；`git log --oneline -- src/issue-media.ts` 可见 `84fb24d fix(runner): skip SVG references in media extraction`。
+- OpenSpec：本次 change 已归档到 `openspec/changes/archive/2026-07-04-harden-runner-stability-t1/`，并已合并 spec-delta 到 `openspec/specs/github-issue-runner/spec.md`。
+- 验证：`pnpm test` 通过（23 files / 198 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）。
 
 ### - [ ] T2 · 全局 GitHub 交互协议
 

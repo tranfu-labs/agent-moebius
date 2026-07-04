@@ -208,10 +208,13 @@ export function buildReleaseUploadArgs(source: IssueSource, file: PreparedOutput
   ];
 }
 
-interface CommandResult {
+export interface CommandResult {
   stdout: string;
   stderr: string;
 }
+
+const DEFAULT_GH_COMMAND_TIMEOUT_MS = 120_000;
+const DEFAULT_GH_COMMAND_TERMINATION_GRACE_MS = 5_000;
 
 export class GitHubIssueNotFoundError extends Error {
   constructor(
@@ -230,7 +233,7 @@ export class CommandFailedError extends Error {
     readonly signal: NodeJS.Signals | null,
     readonly stderr: string,
   ) {
-    const suffix = signal ? `signal ${signal}` : `exit code ${exitCode}`;
+    const suffix = signal ? `signal ${signal}` : exitCode === null ? "unknown exit" : `exit code ${exitCode}`;
     super(`${command} failed with ${suffix}: ${stderr.trim()}`);
     this.name = "CommandFailedError";
   }
@@ -248,10 +251,18 @@ interface RunCommandOptions {
   stdin?: string;
   signal?: AbortSignal;
   retry?: boolean;
+  timeoutMs?: number;
+  terminationGraceMs?: number;
 }
 
-async function runCommand(command: string, args: string[], options: RunCommandOptions = {}): Promise<CommandResult> {
-  const attempt = () => spawnCommand(command, args, options.stdin);
+export async function runCommand(command: string, args: string[], options: RunCommandOptions = {}): Promise<CommandResult> {
+  const attempt = () =>
+    spawnCommand(command, args, {
+      stdin: options.stdin,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+      terminationGraceMs: options.terminationGraceMs,
+    });
   if (options.retry === false) {
     return attempt();
   }
@@ -263,17 +274,82 @@ async function runCommand(command: string, args: string[], options: RunCommandOp
   });
 }
 
-function spawnCommand(command: string, args: string[], stdin?: string): Promise<CommandResult> {
+interface SpawnCommandOptions {
+  stdin?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  terminationGraceMs?: number;
+}
+
+function spawnCommand(command: string, args: string[], options: SpawnCommandOptions): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
+    if (isSignalAborted(options.signal)) {
+      reject(commandTerminatedError(command, null, abortDetail(options.signal?.reason)));
+      return;
+    }
+
+    const timeoutMs = options.timeoutMs ?? DEFAULT_GH_COMMAND_TIMEOUT_MS;
+    const terminationGraceMs = options.terminationGraceMs ?? DEFAULT_GH_COMMAND_TERMINATION_GRACE_MS;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      reject(new Error(`Invalid gh command timeout: ${String(timeoutMs)}`));
+      return;
+    }
+    if (!Number.isFinite(terminationGraceMs) || terminationGraceMs < 0) {
+      reject(new Error(`Invalid gh command termination grace: ${String(terminationGraceMs)}`));
+      return;
+    }
+
     const child = spawn(command, args, {
-      stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+      stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
 
     let stdout = "";
     let stderr = "";
+    let terminationDetail: string | null = null;
+    let timeoutTimer: NodeJS.Timeout | null = null;
+    let killTimer: NodeJS.Timeout | null = null;
+    let settled = false;
+
+    const cleanup = () => {
+      if (timeoutTimer !== null) {
+        clearTimeout(timeoutTimer);
+      }
+      if (killTimer !== null) {
+        clearTimeout(killTimer);
+      }
+      options.signal?.removeEventListener("abort", onAbort);
+    };
+
+    const finish = (fn: () => void) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    const requestTermination = (detail: string) => {
+      if (terminationDetail !== null || settled) {
+        return;
+      }
+
+      terminationDetail = detail;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        child.kill("SIGKILL");
+      }, terminationGraceMs);
+      killTimer.unref();
+    };
+
+    const onAbort = () => {
+      requestTermination(abortDetail(options.signal?.reason));
+    };
 
     if (child.stdout === null || child.stderr === null) {
-      reject(new Error(`${command} did not expose stdout/stderr pipes`));
+      requestTermination("missing stdout/stderr pipe");
+      finish(() => reject(new Error(`${command} did not expose stdout/stderr pipes`)));
       return;
     }
 
@@ -286,25 +362,62 @@ function spawnCommand(command: string, args: string[], stdin?: string): Promise<
       stderr += chunk;
     });
 
-    child.once("error", reject);
+    child.once("error", (error) => {
+      finish(() => reject(error));
+    });
     child.once("close", (code, signal) => {
-      if (code === 0) {
-        resolve({ stdout, stderr });
+      if (terminationDetail === null && code === 0) {
+        finish(() => resolve({ stdout, stderr }));
         return;
       }
 
-      reject(new CommandFailedError(command, code, signal, stderr));
+      finish(() => reject(commandTerminatedError(command, code, terminationDetail ?? stderr, signal)));
     });
 
-    if (stdin !== undefined) {
+    timeoutTimer = setTimeout(() => {
+      requestTermination(`timed out after ${timeoutMs}ms`);
+    }, timeoutMs);
+    timeoutTimer.unref();
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (isSignalAborted(options.signal)) {
+      requestTermination(abortDetail(options.signal?.reason));
+    }
+
+    if (options.stdin !== undefined) {
       if (child.stdin === null) {
-        reject(new Error(`${command} did not expose stdin pipe`));
+        requestTermination("missing stdin pipe");
+        finish(() => reject(new Error(`${command} did not expose stdin pipe`)));
         return;
       }
 
-      child.stdin.end(stdin);
+      child.stdin.end(options.stdin);
     }
   });
+}
+
+function commandTerminatedError(
+  command: string,
+  exitCode: number | null,
+  detail: string,
+  signal: NodeJS.Signals | null = null,
+): CommandFailedError {
+  return new CommandFailedError(command, exitCode, signal, detail);
+}
+
+function abortDetail(reason: unknown): string {
+  if (typeof reason === "string" && reason.length > 0) {
+    return `aborted: ${reason}`;
+  }
+
+  if (reason instanceof Error) {
+    return `aborted: ${reason.message}`;
+  }
+
+  return "aborted";
+}
+
+function isSignalAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }
 
 function isCommandFailedError(error: unknown): error is CommandFailedError {

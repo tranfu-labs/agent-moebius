@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { CODEX_DRIVER_POOL_MAX_CONCURRENT } from "../src/config.js";
-import type { DriverPool } from "../src/driver-pool.js";
+import { CODEX_DRIVER_POOL_MAX_CONCURRENT, CODEX_RUN_MAX_DURATION_MS } from "../src/config.js";
+import { createDriverPool, type DriverPool } from "../src/driver-pool.js";
 import { CEO_CORRECTED_METADATA, type FormatCeoResult } from "../src/format-ceo.js";
 import {
   createDefaultCodexDriverPool,
@@ -278,6 +278,59 @@ describe("runner heartbeat orchestration", () => {
     });
   });
 
+  it("dead-letters sustained GitHub fetch failures without interrupting heartbeat dispatch", async () => {
+    const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
+    const posted: string[] = [];
+    const processIssueSourceMock = vi.fn(async () => "triggered-success" as const);
+    const runner = createRunner({
+      initialState: {
+        repositories: {
+          [`${source.owner}/${source.repo}`]: {
+            lastIdleScanAt: "2026-07-01T00:00:00.000Z",
+          },
+        },
+        issues: {
+          [issue.issueKey]: {
+            owner: issue.owner,
+            repo: issue.repo,
+            issueNumber: issue.issueNumber,
+            updatedAt: "2026-07-01T00:00:00Z",
+            mode: "idle",
+            activeNoChangeCount: 0,
+            nextPollAt: null,
+            failureCount: 4,
+            lastFailureReason: "old gh failure",
+          },
+        },
+      },
+      dependencies: makeRunnerDependencies({
+        summaries: [{ issueNumber: 67, updatedAt: "2026-07-01T00:05:00Z" }],
+        fetchIssueWithComments: async () => {
+          throw new CommandFailedError("gh", 1, null, 'Post "https://api.github.com/graphql": EOF');
+        },
+        processIssueSource: processIssueSourceMock,
+        postComment: async (_source, body) => {
+          posted.push(body);
+        },
+      }),
+    });
+
+    await expect(runner.heartbeat(new Date("2026-07-01T00:10:00Z"))).resolves.toBeUndefined();
+    await runner.dispatcher.idle();
+
+    expect(processIssueSourceMock).not.toHaveBeenCalled();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toContain("Post \"https://api.github.com/graphql\": EOF");
+    expect(posted[0]).toContain("<!-- agent-moebius:dead-letter -->");
+    expect(runner.persister.state().issues[issue.issueKey]).toMatchObject({
+      mode: "idle",
+      updatedAt: "2026-07-01T00:05:00Z",
+      failureCount: 0,
+      activeNoChangeCount: 0,
+      nextPollAt: null,
+    });
+  });
+
   it("keeps retrying when dead-letter posting fails", async () => {
     const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
     const runner = createRunner({
@@ -437,6 +490,80 @@ describe("codex driver pool default limit", () => {
 
     hang.resolve();
     await expect(hangingJob).resolves.toBe(-1);
+  });
+
+  it("releases queued driver pool capacity when a Codex driver never settles after watchdog abort", async () => {
+    const first = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
+    const second = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 68 });
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const firstCodexStarted = deferred<void>();
+    let secondStarted = false;
+    let abortReason: string | null = null;
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(
+      async (options) =>
+        new Promise(() => {
+          firstCodexStarted.resolve();
+          options.signal?.addEventListener(
+            "abort",
+            () => {
+              abortReason = String(options.signal?.reason);
+            },
+            { once: true },
+          );
+        }),
+    );
+    const processIssueSourceDependency: RunnerDependencies["processIssueSource"] = async (input) => {
+      if (input.source.issueNumber === first.issueNumber) {
+        return processIssueSource(
+          input,
+          makeDependencies({
+            runCodex,
+            fetchIssueWithComments: async () => makeIssue("@dev please run", [], "OPEN", input.issue.updatedAt),
+          }),
+        );
+      }
+
+      secondStarted = true;
+      return "triggered-success";
+    };
+    const runner = createRunner({
+      initialState: stateWithIdleScanDueIssues([first, second]),
+      dependencies: makeRunnerDependencies({
+        driverPool: createDriverPool({ maxConcurrent: 1 }),
+        listAgentFiles: async () => [agent],
+        summaries: [
+          { issueNumber: 67, updatedAt: "2026-07-01T00:05:00Z" },
+          { issueNumber: 68, updatedAt: "2026-07-01T00:06:00Z" },
+        ],
+        processIssueSource: processIssueSourceDependency,
+      }),
+    });
+
+    vi.useFakeTimers();
+    try {
+      await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
+      await firstCodexStarted.promise;
+      expect(secondStarted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(CODEX_RUN_MAX_DURATION_MS);
+      await runner.dispatcher.idle();
+
+      expect(abortReason).toBe(`codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`);
+      expect(secondStarted).toBe(true);
+      expect(runner.persister.state().issues[first.issueKey]).toMatchObject({
+        mode: "active",
+        updatedAt: "2026-07-01T00:00:00Z",
+        failureCount: 1,
+        lastFailureReason: `codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`,
+      });
+      expect(runner.persister.state().issues[second.issueKey]).toMatchObject({
+        mode: "active",
+        updatedAt: "2026-07-01T00:06:00Z",
+        failureCount: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

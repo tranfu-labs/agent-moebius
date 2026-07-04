@@ -63,13 +63,17 @@
 - MUST 在目标 issue 不存在或已关闭时不调用 Codex、不发表评论，并从 intake active 状态中移除或降级该 issue。
 - MUST 把非 issue-not-found 的处理失败（含 GitHub CLI 失败、pre script 失败、Codex 失败、看门狗超时、thread 状态解析失败）统一折叠为携带失败原因的 `failed`，MUST NOT 在结局层按错误类型分类决定游标是否推进。`classifyGhError` 仅继续用于 gh 调用内同步重试的重试判定。
 - MUST 对 `gh` CLI 调用提供调用内同步重试（指数退避），只重试 `classifyGhError` 判定为 `transient` 的错误；判定为 `deterministic` 的错误（issue 不存在、`HTTP 40x/422`、`Bad credentials`、`gh auth login`、`ENOENT` 等）MUST 立即上抛不重试。重试参数集中在 `src/config.ts` 的 `GITHUB_CLI_RETRY_POLICY`，每次重试 MUST 记录 `event = "gh-retry-attempt"`（含 `label`、`attempt`、错误原因）。
+- MUST 为每次 `gh` CLI 子进程调用设置显式单次调用超时；超时后 MUST 终止对应子进程并让调用 promise settle，MUST NOT 让任何单个 `gh` 子进程永久挂起 runner 心跳或 issue job。
+- MUST 在调用方 `AbortSignal` 触发时终止正在执行的 `gh` CLI 子进程，并停止后续 retry / sleep。
+- MUST 让 `gh` CLI timeout 类错误按 transient GitHub CLI 失败处理：只读拉取与幂等 reaction MAY 在 `GITHUB_CLI_RETRY_POLICY` 预算内重试；发布 GitHub 评论与 release upload 等可见写操作 MUST NOT 自动重试。
 - MUST 让重试原语 `withRetry` 支持 `AbortSignal` 取消：signal 触发时停止后续重试与退避等待并上抛；MUST 允许注入无副作用 sleep，使重试逻辑可在不真实等待的情况下单元测试。
 - MUST 让 `classifyGhError` 以 `gh` 命令 stderr / 错误消息为依据返回 `"transient" | "deterministic"`；未知的 `gh` 运行期失败默认 `transient`。
 - MUST 对发表评论（写操作）默认不自动重试，避免瞬时错误引发重复评论；对幂等的 issue reaction 与只读拉取（issue 列表 / issue 详情）允许重试。
 - MUST 以「首条 GitHub 评论发布成功」为发布边界：边界之前的任何失败 MUST 折叠为 `failed`（不推进 `updatedAt`，重入安全）；边界之后的失败 MUST NOT 触发重入（避免重复发帖），按已发布收尾并记录日志。role-thread 状态 MUST 在首条评论发布成功之后才保存，保证重入时增量窗口一致。
 - MUST 记录结构化日志：失败重试 `event = "issue-retry-scheduled"`（含 `issueKey`、`failureCount`、失败原因），死信发布成功 `event = "dead-letter-posted"`，死信发布失败 `event = "dead-letter-post-failed"`。
 - MUST 在收尾中断检查（codex 成功后的 conversation snapshot 复核）因 GitHub CLI 抛异常而失败时 fail-open：记录 `event = "agent-run-interrupt-check-failopen"`，视作未观察到新消息并照常执行后续发布流程，MUST NOT 因该次检查失败而丢弃已完成的 codex 产出或返回 `failed`。
-- MUST 为单次本地 codex run 设置总时长看门狗上限 `CODEX_RUN_MAX_DURATION_MS`；超时 MUST 通过既有 `AbortController` 中止该 run，记录 `event = "codex-watchdog-timeout"` 并将该次处理判为 `failed`（区别于收到新消息的 `interrupted`），以兜底 in-flight job 永不返回导致的 `skip-inflight` 死锁。
+- MUST 为单次本地 codex run 设置总时长看门狗上限 `CODEX_RUN_MAX_DURATION_MS`；超时 MUST 通过既有 `AbortController` 中止该 run；即使 driver promise 永不 settle，runner 也 MUST 先合成 timeout failure 让 issue job settle，记录 `event = "codex-watchdog-timeout"` 并将该次处理判为 `failed`（区别于收到新消息的 `interrupted`），以兜底 in-flight job 永不返回导致的 `skip-inflight` 死锁。
+- MUST 让 `src/codex.ts` adapter 在收到 abort 时终止底层 `codex` 子进程并返回 interrupted failure result，必要时从温和中断升级到强杀，避免 driver pool 依赖永不返回的真实子进程自行释放名额。
 - MUST 把 `GITHUB_CLI_RETRY_POLICY` 与 `CODEX_RUN_MAX_DURATION_MS` 写入启动日志 `CONFIG_LOG_FIELDS`。
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
@@ -110,6 +114,7 @@
 - MUST 在运行被 mention 的 Codex agent 前，从本轮 prompt 范围内的 GitHub issue body/comments 检测图片与视频引用。
 - MUST 让媒体引用提取保持为纯业务数据操作，不调用 GitHub、Codex、网络或文件系统。
 - MUST 只把 `http:` 与 `https:` URL 视为可下载 issue media 引用。
+- MUST 让 issue 输入媒体提取跳过 SVG URL；`.svg` 引用无论来自 Markdown image、Markdown link、HTML `src` 还是 bare URL，均 MUST NOT 进入传给 media-assets / Codex `--image` 的 issue media references。
 - MUST 将 issue media 下载到当前 Codex run directory，MUST NOT 写入 `agents/`、`.state/` 或目标 worktree。
 - MUST 按媒体类型、响应 content type 与有界大小校验已下载 issue media，再暴露给 Codex。
 - MUST 通过重复 `--image <file>` 参数把准备好的图片传给 `codex exec` 与 `codex exec resume`。
@@ -155,6 +160,7 @@
 - MUST 默认使用同仓库 GitHub release tag `agent-moebius-artifacts` 存储 artifact，且不把生成文件提交到 worktree 或 source branch。
 - MUST 在 CEO guardrail 接收 `latestResponse` 前，把已发布 artifact 预览追加到 agent 最终回复。
 - MUST 在生成 artifact 发布失败时发布可见错误评论，MUST NOT 声称 artifact 已成功交付。
+- MUST 保留 output artifact 发布对 SVG 的支持；SVG 过滤仅适用于 issue 输入媒体引用，不适用于 Codex 生成产物发布。
 - MUST 等到 agent comment 与必要 artifact publication 都成功后才更新 role thread 状态。
 - MUST 让 artifact publishing 保持在 `conversation.ts`、`github-response-intake.ts`、`driver-pool.ts` 等纯调度模块之外。
 - MUST 让所有 Codex agent persona（`agents/dev.md`、`agents/dev-manager.md`、`agents/product-manager.md`、`agents/hermes-user.md` 及未来新增 Codex agent）契约要求：每条响应末尾必须以 `<!-- agent-moebius:stage=<enum> -->` marker 结尾，`<enum>` MUST 属于 `AllStages`。
@@ -624,6 +630,13 @@ And 不调用 Codex driver
 And 不更新 `.state/role-threads.json`
 And intake 把本次触发视为已处理，避免同一坏链接每分钟重复刷屏
 
+### 场景 30.3.1：Issue media 输入 — SVG 引用被过滤
+Given issue timeline 中包含 `.svg` URL
+And URL 分别出现在 Markdown image、Markdown link、HTML `src` 与 bare URL 中
+When runner 提取本轮 issue media references
+Then 这些 SVG URL 均不会出现在提取结果中
+And 非 SVG 图片 / 视频 URL 仍按既有规则提取
+
 ### 场景 30.4：输出 artifact — 生成 SVG / 图片 / 视频后可在 comment 直接查看
 Given Codex 成功完成且在 runDir 或最终回复引用中产生支持的 SVG、图片或视频 artifact
 When runner 发布 agent comment 前处理输出 artifact
@@ -967,12 +980,38 @@ And `lastFailureReason` 记录 GitHub CLI 失败原因
 And `mode` 保持 `active` 并排下一次 poll
 And 后续 poll 成功拉取到仍存在的变化时重新进入处理
 
+### 场景 49.1：GitHub CLI 子进程挂起不会无限等待
+Given runner 正在通过 GitHub adapter 执行一次只读 `gh` CLI 调用
+And 该 `gh` 子进程一直不退出
+When 单次调用 timeout 到期
+Then 系统终止该 `gh` 子进程
+And 本次尝试按 transient 失败进入有限 retry 或最终上抛
+And 对应心跳或 issue job 不会永久等待该子进程
+
+### 场景 49.2：持续 GitHub 网络故障最终死信或恢复
+Given 某 issue 的最新消息需要处理
+And fake GitHub adapter 持续抛出网络错误
+When runner 多轮处理该 issue
+Then 每轮失败都不推进该 issue 的 intake `updatedAt`
+And 心跳仍能继续扫描 / 派发其他 due issue
+And 失败达预算后，死信评论发布成功时该 issue 折叠为 `dead-lettered`
+And 若预算轮处理恢复成功，则正常 `triggered-success` 且不发布死信
+
 ### 场景 50：codex run 超时看门狗判 failed
 Given `dev` agent 的 codex run 运行时长超过 `CODEX_RUN_MAX_DURATION_MS`
 When 看门狗触发并通过 `AbortController` 中止该 run
 Then 系统记录 `event = "codex-watchdog-timeout"`
 And 该次处理判为 `failed`（而非 `interrupted`）
 And 该 issue 从 in-flight 集合释放，避免永久 `skip-inflight`
+
+### 场景 50.1：Codex 子进程卡死时 watchdog 释放名额
+Given `dev` agent 的 Codex run 子进程不产生最终结果且不自行退出
+And fake driver promise 在收到 abort 后仍永不返回
+When 运行时长超过 `CODEX_RUN_MAX_DURATION_MS`
+Then watchdog abort 当前 Codex run 并记录 `codex-watchdog-timeout`
+And 该 issue processing outcome 为 `failed`
+And issue 从 in-flight 集合移除
+And driver pool 后续 queued job 能继续启动
 
 ### 场景 51：CEO 核实到 PR 冲突
 Given issue 上下文中出现一个完整 PR 链接，该 PR `state=OPEN` 且 `mergeable=CONFLICTING`
@@ -1003,7 +1042,7 @@ Then CEO MUST NOT 基于猜测对该 PR 下判断
 And 仅纯文本层可确定的问题（如评论中 PR 不是链接形式）仍可介入
 
 ## 可验证行为
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed 保留 `updatedAt` 并更新 `failureCount` / `lastFailureReason` / `nextPollAt`、`dead-lettered` 清零失败状态并降级 idle、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、`@secretary` 普通 mention 触发 Codex、secretary speaker 归一化、secretary current repo preScript cwd 传递、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO `append.as=secretary` 合法、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、dev workspace git 失败 stderr 摘要、dev workspace 本地分支名与 repo cache 串行化、codex jsonl 最终消息解析、thread id 解析、cached token 解析与 Codex AbortSignal 中断、issue media 纯提取 / prompt manifest、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、死信发布成功 / 失败 / 故障恢复不误发死信、以及收尾中断检查抛错时 fail-open 照常发布。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed 保留 `updatedAt` 并更新 `failureCount` / `lastFailureReason` / `nextPollAt`、`dead-lettered` 清零失败状态并降级 idle、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、Codex watchdog 超时后 failed 折叠并释放 queued driver pool 名额、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、`@secretary` 普通 mention 触发 Codex、secretary speaker 归一化、secretary current repo preScript cwd 传递、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO `append.as=secretary` 合法、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、dev workspace git 失败 stderr 摘要、dev workspace 本地分支名与 repo cache 串行化、codex jsonl 最终消息解析、thread id 解析、cached token 解析、Codex AbortSignal 中断与忽略温和信号时的强杀兜底、issue media 纯提取 / prompt manifest、SVG issue 输入过滤、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`gh` 子进程挂起 timeout、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、死信发布成功 / 失败 / 故障恢复不误发死信、持续 GitHub fetch 故障达到预算后死信、以及收尾中断检查抛错时 fail-open 照常发布。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 并可能发表评论；执行前应确认这是期望的外部副作用。

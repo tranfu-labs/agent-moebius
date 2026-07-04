@@ -149,4 +149,46 @@ setInterval(() => {}, 1000);
       process.env.PATH = previousPath;
     }
   });
+
+  it("escalates aborted codex child processes to SIGKILL when they ignore graceful signals", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const binDir = path.join(tempDir, "bin");
+    const runDir = path.join(tempDir, "run");
+    await fs.mkdir(binDir);
+    const codexPath = path.join(binDir, "codex");
+    await fs.writeFile(
+      codexPath,
+      `#!/usr/bin/env node
+process.on("SIGINT", () => {});
+process.on("SIGTERM", () => {});
+setInterval(() => {}, 1000);
+`,
+      "utf8",
+    );
+    await fs.chmod(codexPath, 0o755);
+
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    const controller = new AbortController();
+    try {
+      const pending = run({
+        prompt: "hello",
+        runDir,
+        signal: controller.signal,
+        interruptTerminationDelayMs: 10,
+        interruptKillDelayMs: 10,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      controller.abort("codex-run-timeout:20ms");
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      expect(isInterruptedCodexRunResult(result)).toBe(true);
+      if (!result.ok) {
+        expect(result.reason).toBe("interrupted:codex-run-timeout:20ms");
+      }
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
 });
