@@ -126,7 +126,7 @@
 
 **依赖**：T2（挂在协议文档上）。
 
-### - [ ] T6 · 里程碑设定标准文档
+### - [x] T6 · 里程碑设定标准文档
 
 **目标**：产出 `docs/roadmap/milestone-standards.md`，作为人和未来编排者（里程碑 3）共用的决策尺子。至少包含：**垂直切片原则**（里程碑 = 一次能力解锁或最大风险消除，收尾必须是可被角色端到端验收的垂直切片；反例：水平分层——先做完所有数据库再做所有接口，每层都无法验收）；**风险优先排序**（最不确定的先用 spike 消除，引用 M1 T4 为范例）；**显式质量基准**（demo 级 / 数据正确级 / 成品级是里程碑的显式属性，写进里程碑文档，不靠执行方悟）；**任务粒度标准**（一个任务 = 一组可机械执行的验收语句 + 与兄弟任务最小文件重叠）；**worked example**：以"做一个支付宝式项目"为例给出 M0（假账扫码支付通路 demo）→ M1（单用户真实 happy path）→ M2（账户安全与异常路径）→ M3（商户侧）的完整拆解示范，每级标注质量基准与验收方式。
 
@@ -138,6 +138,14 @@
 3. 打开 `docs/roadmap/milestone-task-issue-template.md` → 应看到对标准文档的引用。
 
 **依赖**：无。
+
+**阶段证据（2026-07-04，T6 已完成）**：
+- 标准文档：新增 `docs/roadmap/milestone-standards.md`，覆盖垂直切片、风险优先、显式质量基准、任务粒度四原则；每条原则均包含正例、反例与检查问题。文档包含三档质量基准表：`demo 级`、`数据正确级`、`成品级`。
+- Worked example：`docs/roadmap/milestone-standards.md` 保留“支付宝式项目”字面锚点，并声明它只是抽象支付产品拆解示例，不代表真实支付宝架构、牌照、清结算或合规方案；M0-M3 每级均包含“为什么这是垂直切片”、质量基准和验收方式。
+- 模板引用：`docs/roadmap/milestone-task-issue-template.md` 已在“使用规则”和生成 issue body 的“需求来源”位置引用 `docs/roadmap/milestone-standards.md`，并移除里程碑 1 与 `docs/roadmap/milestone-1-acceptance-loop.md` 硬编码。
+- OpenSpec：方案与任务记录已归档到实际存在路径 `openspec/changes/archive/2026-07-04-add-milestone-standards-t6/`。
+- 验证：`git diff --check` 通过（exit 0）；`pnpm test` 通过（24 files / 216 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；内容检查 `rg` 覆盖四原则、正反例、三档质量基准、worked example 和模板引用。
+- 产品验收：product-manager 已实读 worktree 文件，并按三条正式验收语句逐条验收通过；QA 本轮无增补验收语句。
 
 ### - [ ] T7 ·【人工】端到端演练
 
