@@ -14,6 +14,14 @@
 
 外加：预览探针给出"本地跑 + 截图是否足够，还是必须上 PR 预览"的明确结论文档。
 
+## 成功标准达成证据
+
+里程碑 1 的闭环已在三组真实 issue / PR 中跑通：
+
+- 主例：[issue #39](https://github.com/tranfu-labs/agent-moebius/issues/39) → [PR #40](https://github.com/tranfu-labs/agent-moebius/pull/40) merged。#39 完整覆盖需求角色提需、dev `plan-written`、验收角色方案验收、dev `code-verified`、验收角色逐条走查，并额外证明 qa gate 真实介入 dev 方案修订。
+- 补充证据：[issue #34](https://github.com/tranfu-labs/agent-moebius/issues/34) → [PR #35](https://github.com/tranfu-labs/agent-moebius/pull/35) merged，验证 T2 的 CEO 阶段验收回流规则在真实 issue 中闭环。
+- 补充证据：[issue #36](https://github.com/tranfu-labs/agent-moebius/issues/36) → [PR #37](https://github.com/tranfu-labs/agent-moebius/pull/37) merged，验证 T3 的验收角色逐条走查行为在真实 issue 中闭环。
+
 ## 任务清单
 
 约定：
@@ -103,7 +111,7 @@
 - 项目检查：`pnpm test` 通过（23 个测试文件、193 个测试）；`pnpm typecheck` 通过。
 - **Spike finding**（就是 spike 要找的东西）：runner artifact publisher 未能在 dev 独占 worktree 内自动发现 PNG 并追加 release 链接；`discoverOutputArtifacts` 只扫 runDir 且要求 `![](path)` markdown-image 引用。这一 gap 已写入 `docs/roadmap/spike-preview-oracle.md` 与 `openspec/changes/archive/2026-07-04-spike-preview-oracle/tasks.md`，是下里程碑候选修复项。以 loop watcher 身份 override 验收语句 2 的字面要求（"应看到 artifact 评论"）——spike 的产出正是明确找到并记录这个 gap，达成任务目标。
 
-### - [ ] T5 ·【人工】端到端 dogfood
+### - [x] T5 ·【人工】端到端 dogfood
 
 **目标**：在一个真实 issue 上完整走一遍成功标准中的闭环，验证 T1–T3 的规则在真实运行时协同生效，记录卡点。
 
@@ -115,6 +123,12 @@
 
 **依赖**：T1、T2、T3。
 
+**验收证据**（2026-07-04）：
+- 主例：[issue #39](https://github.com/tranfu-labs/agent-moebius/issues/39) → [PR #40](https://github.com/tranfu-labs/agent-moebius/pull/40) merged。公开时间线包含需求角色提需、dev `plan-written` 带验收语句、qa / product-manager 对方案的结构化验收、dev `code-verified`、product-manager 对实现证据逐条走查；其中 #39 还展示 qa gate 对 dev 方案修订的真实介入。
+- 补充证据：[issue #34](https://github.com/tranfu-labs/agent-moebius/issues/34) → [PR #35](https://github.com/tranfu-labs/agent-moebius/pull/35) merged。公开时间线包含 dev `plan-written`、product-manager 方案验收、dev `code-verified` 与后续实现反思 / 证据核对，证明 T2 验收回流规则可在真实任务中收敛。
+- 补充证据：[issue #36](https://github.com/tranfu-labs/agent-moebius/issues/36) → [PR #37](https://github.com/tranfu-labs/agent-moebius/pull/37) merged。公开时间线包含需求角色提需、dev `plan-written` 带验收语句、product-manager 方案验收、dev `code-verified`、product-manager 逐条验收通过，证明 T3 验收角色职责可在真实任务中收敛。
+- 文档记录：本节已追记三组 dogfood 记录；下方「里程碑 2 候选 / 卡点清单」已追记执行中观察到的 5 条卡点。#38 仅作为 SVG 死锁卡点证据，不计入成功闭环 issue。
+
 ## 非目标
 
 - **不做 Figma 对齐流程**：依赖视觉对比 oracle，等 T4 结论后在里程碑 2 立项。
@@ -122,6 +136,30 @@
 - **不上 PR 预览基建**：是否需要由 T4 的结论决定，不预设。
 - **不改 runner / dispatcher 等运行时代码**：本里程碑是纯规则层（`agents/*.md`）+ 文档产出；若执行中发现必须改代码才能闭环，停下来把发现记录到本文件并与用户确认，不自行扩权。
 
+## 里程碑 2 候选 / 卡点清单
+
+以下候选只记录观察证据与影响，不在 T5 中现场修规则。
+
+1. **runner interrupt 竞态**
+   - 观察证据：T2 / T3 / T4 多次出现 agent 通过 Codex 完成评论后，runner 在收尾 poll 到 message count 增长，误判为新消息中断，导致本该继续的 CEO guardrail 或路由步骤被杀掉，需 loop watcher 补触发 5 次以上。
+   - 影响：阶段路由不稳定，`plan-written` / `code-verified` 后续验收可能漏派，需要人工补 ping，真实闭环时延和误判成本上升。
+
+2. **Codex `--image` 不接受 SVG**
+   - 观察证据：[issue #38](https://github.com/tranfu-labs/agent-moebius/issues/38) 因 dev 探索阶段生成的 SVG 被 runner 作为 output artifact 发布，后续触发时又被按 `--image` 输入传给 Codex，导致 `codex-failed exit-code-1` 并死锁；loop watcher 曾在本地临时 patch `src/issue-media.ts` 跳过 SVG。
+   - 影响：SVG artifact 会污染后续 Codex 输入并阻断 issue；下一里程碑应把 SVG 跳过或转换策略正式走 OpenSpec 流程落地。
+
+3. **preScript 失败不真的重试**
+   - 观察证据：日志出现 `issue-retry-scheduled failureCount:1`，但 intake state 落盘后 `failureCount:0`，后续 poll 没有按失败预算重试。
+   - 影响：preScript / workspace 准备失败时可能停在不可恢复状态，runner 的 active retry 与死信机制无法兑现。
+
+4. **CEO `code-verified` 阶段路由缺 `@` mention**
+   - 观察证据：T4 中 CEO append 只提醒 dev 做实现反思，正文提到等待 product-manager，但没有 `@product-manager` mention，product-manager 不会被普通 mention trigger 派上，需人工补 ping。
+   - 影响：`code-verified` 后的需求角色验收回流不可靠，阶段成功与否取决于人工 watcher，而不是规则闭环。
+
+5. **dev 可能幻觉 commit / 文件写入**
+   - 观察证据：T4 / #39 中 dev 声称已有 commit `f8d984d`、已追记证据并归档；实际 `git status` 仍显示未提交改动，milestone 文档未改，最终由 loop watcher 代 dev commit、归档、push 并开 [PR #40](https://github.com/tranfu-labs/agent-moebius/pull/40)。
+   - 影响：评论中的完成叙述不能作为事实依据；后续需要强化 git/file 证据校验，要求关键交付必须以 `git status`、diff、commit sha 和文件检索结果交叉验证。
+
 ## 里程碑收尾
 
-T1–T5 全部勾选后：把成功标准的达成证据（dogfood issue 链接）写入本文件头部，产出"里程碑 2 候选方向"一节（预览 oracle 基建 / Figma 流程 / 拆解编排，依 T4 结论排序），等用户裁决后再立项。
+T1–T5 已全部勾选。成功标准达成证据见文档头部；里程碑 2 候选问题见上一节，等用户裁决后再立项。
