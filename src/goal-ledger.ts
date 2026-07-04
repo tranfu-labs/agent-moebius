@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 export type QualityBaseline = "demo" | "data-correct" | "production";
 export type LedgerReadinessStatus = "draft" | "pending" | "ready";
 export type PhaseStatus = "pending" | "active" | "completed";
@@ -11,6 +13,11 @@ export type PhaseOwner = { kind: "goal" | "milestone" | "task"; id: string };
 const MAX_PHASE_ARTIFACT_SUMMARY_LENGTH = 500;
 const MAX_PHASE_ARTIFACT_LOCATOR_LENGTH = 500;
 const MAX_ISSUE_REFERENCE_NOTE_LENGTH = 500;
+const MAX_ACCEPTANCE_NOTE_LENGTH = 500;
+const MAX_ACCEPTANCE_STATEMENT_ID_LENGTH = 200;
+const MAX_ACCEPTANCE_STATEMENT_TEXT_LENGTH = 2_000;
+
+export const INTEGRATION_ACCEPTANCE_KEY_PREFIX = "agent-moebius-integration-acceptance-key";
 
 export interface IssueReference {
   owner: string;
@@ -29,6 +36,58 @@ export interface LedgerProvenance {
   };
   messageIndex: number;
   commentId?: string;
+  capturedAt: string;
+  note?: string;
+}
+
+export type AcceptanceFactStatus = "passed" | "failed";
+export type IntegrationAcceptanceStatus = "requested" | "passed" | "failed" | "blocked";
+
+export interface AcceptanceStatementResult {
+  id: string;
+  status: AcceptanceFactStatus;
+  statement?: string;
+}
+
+export interface TaskAcceptanceRecord {
+  factKey: string;
+  issue: {
+    owner: string;
+    repo: string;
+    number: number;
+  };
+  role: string;
+  status: AcceptanceFactStatus;
+  statementResults: AcceptanceStatementResult[];
+  messageIndex: number;
+  commentId?: string;
+  capturedAt: string;
+  note?: string;
+}
+
+export interface IntegrationAcceptanceRecord {
+  joinKey: string;
+  phaseId: string;
+  parentIssue: {
+    owner: string;
+    repo: string;
+    number: number;
+  };
+  reviewerRole: string;
+  status: IntegrationAcceptanceStatus;
+  childPassDigest: string;
+  targetAcceptanceDigest: string;
+  sourceComment?: {
+    issue: {
+      owner: string;
+      repo: string;
+      number: number;
+    };
+    messageIndex: number;
+    commentId?: string;
+  };
+  failedStatementIds?: string[];
+  repairTaskIds?: string[];
   capturedAt: string;
   note?: string;
 }
@@ -128,6 +187,7 @@ export interface TaskRecord {
   phaseIds: string[];
   parentIssueRef?: IssueReference;
   childIssueRefs: IssueReference[];
+  acceptanceFacts?: TaskAcceptanceRecord[];
   runManifestRefs: RunManifestReference[];
   provenance: LedgerProvenance[];
   createdAt: string;
@@ -144,6 +204,7 @@ export interface PhaseRecord {
   acceptanceStatements?: string[];
   dependencies?: string[];
   artifactRefs?: PhaseArtifactReference[];
+  integrationAcceptance?: IntegrationAcceptanceRecord[];
   archiveSummary?: string;
   archivedAt?: string;
   startedAt?: string;
@@ -216,6 +277,64 @@ export interface ArchivedPhaseReference {
   archivedAt?: string;
   archiveSummary?: string;
   artifactRefs: PhaseArtifactReference[];
+}
+
+export interface RecordTaskAcceptanceFactInput {
+  taskId: string;
+  issue: TaskAcceptanceRecord["issue"];
+  role: string;
+  status: AcceptanceFactStatus;
+  statementResults: AcceptanceStatementResult[];
+  messageIndex: number;
+  commentId?: string;
+  capturedAt: string;
+  note?: string;
+}
+
+export interface EvaluateIntegrationAcceptanceJoinInput {
+  owner: PhaseOwner;
+  parentIssue: IntegrationAcceptanceRecord["parentIssue"];
+  reviewerRole: string;
+}
+
+export type IntegrationAcceptanceJoinEvaluation =
+  | {
+      status: "ready";
+      owner: PhaseOwner;
+      phaseId: string;
+      parentIssue: IntegrationAcceptanceRecord["parentIssue"];
+      reviewerRole: string;
+      acceptanceStatements: string[];
+      childPassFacts: Array<{ taskId: string; fact: TaskAcceptanceRecord }>;
+      joinKey: string;
+      childPassDigest: string;
+      targetAcceptanceDigest: string;
+    }
+  | {
+      status: "waiting";
+      owner: PhaseOwner;
+      phaseId: string;
+      pending: Array<{ taskId: string; issue: TaskAcceptanceRecord["issue"]; reason: "missing" | "failed" }>;
+    }
+  | {
+      status: "blocked";
+      owner: PhaseOwner;
+      reason: string;
+    };
+
+export interface RecordIntegrationAcceptanceEventInput {
+  phaseId: string;
+  parentIssue: IntegrationAcceptanceRecord["parentIssue"];
+  reviewerRole: string;
+  status: IntegrationAcceptanceStatus;
+  childPassDigest: string;
+  targetAcceptanceDigest: string;
+  sourceComment?: IntegrationAcceptanceRecord["sourceComment"];
+  failedStatementIds?: string[];
+  repairTaskIds?: string[];
+  capturedAt: string;
+  note?: string;
+  joinKey?: string;
 }
 
 export function createEmptyGoalLedgerState(): GoalLedgerState {
@@ -437,6 +556,257 @@ export function listArchivedPhaseReferences(state: GoalLedgerState, owner: Phase
     }));
 }
 
+export function recordTaskAcceptanceFact(
+  state: GoalLedgerState,
+  input: RecordTaskAcceptanceFactInput,
+): GoalLedgerState {
+  assertGoalLedgerState(state);
+  assertNonEmptyString(input.taskId, "taskId");
+  assertIssueLike(input.issue, "issue");
+  assertNonEmptyString(input.role, "role");
+  assertAcceptanceFactStatus(input.status, "status");
+  assertAcceptanceStatementResults(input.statementResults, "statementResults");
+  if (!isNonNegativeInteger(input.messageIndex)) {
+    throw new Error("Invalid task acceptance fact: messageIndex invalid");
+  }
+  assertOptionalNonEmptyString(input.commentId, "commentId");
+  assertIsoLikeString(input.capturedAt, "capturedAt");
+  assertOptionalAcceptanceNote(input.note, "note");
+
+  const task = state.tasks[input.taskId];
+  if (task === undefined) {
+    throw new Error(`Invalid task acceptance fact: missing task ${input.taskId}`);
+  }
+  if (!task.childIssueRefs.some((reference) => issueReferenceMatchesIssue(reference, input.issue) && reference.relation === "child")) {
+    throw new Error(`Invalid task acceptance fact: issue is not a child ref for ${input.taskId}`);
+  }
+
+  const factKey = buildTaskAcceptanceFactKey(input);
+  const fact: TaskAcceptanceRecord = {
+    factKey,
+    issue: input.issue,
+    role: input.role,
+    status: input.status,
+    statementResults: input.statementResults,
+    messageIndex: input.messageIndex,
+    ...(input.commentId === undefined ? {} : { commentId: input.commentId }),
+    capturedAt: input.capturedAt,
+    ...(input.note === undefined ? {} : { note: input.note }),
+  };
+  const existingFacts = task.acceptanceFacts ?? [];
+  const withoutDuplicate = existingFacts.filter((existing) => existing.factKey !== factKey);
+  const nextTask: TaskRecord = {
+    ...task,
+    acceptanceFacts: [...withoutDuplicate, fact],
+    updatedAt: input.capturedAt,
+  };
+  const nextState = withGoalLedgerEntry(state, "tasks", task.id, nextTask);
+  assertGoalLedgerState(nextState);
+  return nextState;
+}
+
+export function evaluateIntegrationAcceptanceJoin(
+  state: GoalLedgerState,
+  input: EvaluateIntegrationAcceptanceJoinInput,
+): IntegrationAcceptanceJoinEvaluation {
+  assertGoalLedgerState(state);
+  assertPhaseOwner(input.owner, "owner");
+  assertIssueLike(input.parentIssue, "parentIssue");
+  assertNonEmptyString(input.reviewerRole, "reviewerRole");
+
+  let projection: ActivePhaseContextProjection;
+  try {
+    projection = projectActivePhaseContext(state, input.owner);
+  } catch (error) {
+    return { status: "blocked", owner: input.owner, reason: formatError(error) };
+  }
+  if (projection.status !== "active") {
+    return { status: "blocked", owner: input.owner, reason: "no-active-phase" };
+  }
+  if (projection.current.acceptanceStatements.length === 0) {
+    return { status: "blocked", owner: input.owner, reason: "missing-target-acceptance-statements" };
+  }
+
+  const visibleTasks = resolveVisibleTasksForOwner(state, input.owner);
+  const childRefs = visibleTasks.flatMap((task) =>
+    task.childIssueRefs
+      .filter((reference) => reference.relation === "child")
+      .map((reference) => ({ task, reference })),
+  );
+  if (childRefs.length === 0) {
+    return { status: "blocked", owner: input.owner, reason: "no-child-issue-refs" };
+  }
+
+  const passed: Array<{ taskId: string; fact: TaskAcceptanceRecord }> = [];
+  const pending: Array<{ taskId: string; issue: TaskAcceptanceRecord["issue"]; reason: "missing" | "failed" }> = [];
+
+  for (const { task, reference } of childRefs) {
+    if (reference.owner !== input.parentIssue.owner || reference.repo !== input.parentIssue.repo) {
+      return { status: "blocked", owner: input.owner, reason: `cross-repository-child:${task.id}` };
+    }
+    const latest = latestAcceptanceFactForIssue(task.acceptanceFacts ?? [], reference);
+    if (latest === undefined) {
+      pending.push({ taskId: task.id, issue: issueFromReference(reference), reason: "missing" });
+      continue;
+    }
+    if (latest.status !== "passed") {
+      pending.push({ taskId: task.id, issue: issueFromReference(reference), reason: "failed" });
+      continue;
+    }
+    passed.push({ taskId: task.id, fact: latest });
+  }
+
+  if (pending.length > 0) {
+    return {
+      status: "waiting",
+      owner: input.owner,
+      phaseId: projection.current.phaseId,
+      pending,
+    };
+  }
+
+  const childPassDigest = digestStrings(passed.map((item) => `${item.taskId}:${item.fact.factKey}`).sort());
+  const targetAcceptanceDigest = digestStrings(projection.current.acceptanceStatements);
+  const joinKey = buildIntegrationAcceptanceJoinKey({
+    parentIssue: input.parentIssue,
+    phaseId: projection.current.phaseId,
+    childPassDigest,
+    targetAcceptanceDigest,
+  });
+
+  return {
+    status: "ready",
+    owner: input.owner,
+    phaseId: projection.current.phaseId,
+    parentIssue: input.parentIssue,
+    reviewerRole: input.reviewerRole,
+    acceptanceStatements: projection.current.acceptanceStatements,
+    childPassFacts: passed,
+    joinKey,
+    childPassDigest,
+    targetAcceptanceDigest,
+  };
+}
+
+export function recordIntegrationAcceptanceEvent(
+  state: GoalLedgerState,
+  input: RecordIntegrationAcceptanceEventInput,
+): GoalLedgerState {
+  assertGoalLedgerState(state);
+  assertNonEmptyString(input.phaseId, "phaseId");
+  assertIssueLike(input.parentIssue, "parentIssue");
+  assertNonEmptyString(input.reviewerRole, "reviewerRole");
+  assertIntegrationAcceptanceStatus(input.status, "status");
+  assertDigest(input.childPassDigest, "childPassDigest");
+  assertDigest(input.targetAcceptanceDigest, "targetAcceptanceDigest");
+  assertOptionalSourceComment(input.sourceComment, "sourceComment");
+  assertOptionalStringArray(input.failedStatementIds, "failedStatementIds", { requireNonEmptyItems: true });
+  assertOptionalStringArray(input.repairTaskIds, "repairTaskIds", { requireNonEmptyItems: true });
+  assertIsoLikeString(input.capturedAt, "capturedAt");
+  assertOptionalAcceptanceNote(input.note, "note");
+
+  const phase = state.phases[input.phaseId];
+  if (phase === undefined) {
+    throw new Error(`Invalid integration acceptance event: missing phase ${input.phaseId}`);
+  }
+
+  const joinKey =
+    input.joinKey ??
+    buildIntegrationAcceptanceJoinKey({
+      parentIssue: input.parentIssue,
+      phaseId: input.phaseId,
+      childPassDigest: input.childPassDigest,
+      targetAcceptanceDigest: input.targetAcceptanceDigest,
+    });
+  assertIntegrationJoinKey(joinKey, "joinKey");
+
+  const event: IntegrationAcceptanceRecord = {
+    joinKey,
+    phaseId: input.phaseId,
+    parentIssue: input.parentIssue,
+    reviewerRole: input.reviewerRole,
+    status: input.status,
+    childPassDigest: input.childPassDigest,
+    targetAcceptanceDigest: input.targetAcceptanceDigest,
+    ...(input.sourceComment === undefined ? {} : { sourceComment: input.sourceComment }),
+    ...(input.failedStatementIds === undefined ? {} : { failedStatementIds: input.failedStatementIds }),
+    ...(input.repairTaskIds === undefined ? {} : { repairTaskIds: input.repairTaskIds }),
+    capturedAt: input.capturedAt,
+    ...(input.note === undefined ? {} : { note: input.note }),
+  };
+  const existing = phase.integrationAcceptance ?? [];
+  const withoutDuplicate = existing.filter((candidate) => candidate.joinKey !== joinKey || candidate.status !== event.status);
+  const nextPhase: PhaseRecord = {
+    ...phase,
+    integrationAcceptance: [...withoutDuplicate, event],
+  };
+  const nextState = withGoalLedgerEntry(state, "phases", phase.id, nextPhase);
+  assertGoalLedgerState(nextState);
+  return nextState;
+}
+
+export function resolveVisibleTasksForOwner(state: GoalLedgerState, owner: PhaseOwner): TaskRecord[] {
+  assertGoalLedgerState(state);
+  assertPhaseOwner(owner, "owner");
+  assertOwnerExists(state, owner, "owner");
+  if (owner.kind === "task") {
+    const task = state.tasks[owner.id];
+    return task === undefined ? [] : [task];
+  }
+  if (owner.kind === "milestone") {
+    const milestone = state.milestones[owner.id];
+    return milestone === undefined
+      ? []
+      : milestone.taskIds.map((taskId) => state.tasks[taskId]).filter((task): task is TaskRecord => task !== undefined);
+  }
+  return Object.values(state.tasks).filter((task) => task.goalId === owner.id);
+}
+
+export function buildTaskAcceptanceFactKey(input: {
+  issue: TaskAcceptanceRecord["issue"];
+  statementResults: AcceptanceStatementResult[];
+  messageIndex: number;
+  commentId?: string;
+}): string {
+  assertIssueLike(input.issue, "issue");
+  assertAcceptanceStatementResults(input.statementResults, "statementResults");
+  if (!isNonNegativeInteger(input.messageIndex)) {
+    throw new Error("Invalid task acceptance fact key: messageIndex invalid");
+  }
+  const version = input.commentId ?? `message-${String(input.messageIndex)}`;
+  return `task-acceptance:${digestStrings([
+    `${input.issue.owner}/${input.issue.repo}/${String(input.issue.number)}`,
+    version,
+    digestStatementResults(input.statementResults),
+  ])}`;
+}
+
+export function buildIntegrationAcceptanceJoinKey(input: {
+  parentIssue: IntegrationAcceptanceRecord["parentIssue"];
+  phaseId: string;
+  childPassDigest: string;
+  targetAcceptanceDigest: string;
+}): string {
+  assertIssueLike(input.parentIssue, "parentIssue");
+  assertNonEmptyString(input.phaseId, "phaseId");
+  assertDigest(input.childPassDigest, "childPassDigest");
+  assertDigest(input.targetAcceptanceDigest, "targetAcceptanceDigest");
+  return `${INTEGRATION_ACCEPTANCE_KEY_PREFIX}:${digestStrings([
+    `${input.parentIssue.owner}/${input.parentIssue.repo}/${String(input.parentIssue.number)}`,
+    input.phaseId,
+    input.childPassDigest,
+    input.targetAcceptanceDigest,
+  ])}`;
+}
+
+export function buildAcceptanceStatementsDigest(statements: string[]): string {
+  assertStringArray(statements, "statements");
+  if (!statements.every(isNonEmptyString)) {
+    throw new Error("Invalid acceptance statements digest: contains empty statement");
+  }
+  return digestStrings(statements);
+}
+
 export function parseGoalLedgerState(value: unknown): GoalLedgerState {
   assertGoalLedgerState(value);
   return value;
@@ -554,6 +924,9 @@ function assertTaskRecord(value: unknown, path: string): asserts value is TaskRe
     assertIssueReference(value.parentIssueRef, `${path}.parentIssueRef`);
   }
   assertArray(value.childIssueRefs, `${path}.childIssueRefs`, assertIssueReference);
+  if (value.acceptanceFacts !== undefined) {
+    assertArray(value.acceptanceFacts, `${path}.acceptanceFacts`, assertTaskAcceptanceRecord);
+  }
   assertArray(value.runManifestRefs, `${path}.runManifestRefs`, assertRunManifestReference);
   assertArray(value.provenance, `${path}.provenance`, assertLedgerProvenance);
   assertIsoLikeString(value.createdAt, `${path}.createdAt`);
@@ -583,6 +956,9 @@ function assertPhaseRecord(value: unknown, path: string): asserts value is Phase
   assertOptionalStringArray(value.dependencies, `${path}.dependencies`, { requireNonEmptyItems: true });
   if (value.artifactRefs !== undefined) {
     assertArray(value.artifactRefs, `${path}.artifactRefs`, assertPhaseArtifactReference);
+  }
+  if (value.integrationAcceptance !== undefined) {
+    assertArray(value.integrationAcceptance, `${path}.integrationAcceptance`, assertIntegrationAcceptanceRecord);
   }
   assertOptionalNonEmptyString(value.archiveSummary, `${path}.archiveSummary`);
   assertOptionalIsoLikeString(value.archivedAt, `${path}.archivedAt`);
@@ -673,6 +1049,134 @@ function assertLedgerProvenance(value: unknown, path: string): asserts value is 
   assertOptionalNonEmptyString(value.commentId, `${path}.commentId`);
   assertIsoLikeString(value.capturedAt, `${path}.capturedAt`);
   assertOptionalNonEmptyString(value.note, `${path}.note`);
+}
+
+function assertTaskAcceptanceRecord(value: unknown, path: string): asserts value is TaskAcceptanceRecord {
+  if (!isPlainObject(value)) {
+    throw new Error(`Invalid goal ledger state: ${path} is not an object`);
+  }
+  assertNonEmptyString(value.factKey, `${path}.factKey`);
+  if (!String(value.factKey).startsWith("task-acceptance:")) {
+    throw new Error(`Invalid goal ledger state: ${path}.factKey invalid`);
+  }
+  assertIssueLike(value.issue, `${path}.issue`);
+  assertNonEmptyString(value.role, `${path}.role`);
+  assertAcceptanceFactStatus(value.status, `${path}.status`);
+  assertAcceptanceStatementResults(value.statementResults, `${path}.statementResults`);
+  if (!isNonNegativeInteger(value.messageIndex)) {
+    throw new Error(`Invalid goal ledger state: ${path}.messageIndex invalid`);
+  }
+  assertOptionalNonEmptyString(value.commentId, `${path}.commentId`);
+  assertIsoLikeString(value.capturedAt, `${path}.capturedAt`);
+  assertOptionalAcceptanceNote(value.note, `${path}.note`);
+}
+
+function assertIntegrationAcceptanceRecord(value: unknown, path: string): asserts value is IntegrationAcceptanceRecord {
+  if (!isPlainObject(value)) {
+    throw new Error(`Invalid goal ledger state: ${path} is not an object`);
+  }
+  assertIntegrationJoinKey(value.joinKey, `${path}.joinKey`);
+  assertNonEmptyString(value.phaseId, `${path}.phaseId`);
+  assertIssueLike(value.parentIssue, `${path}.parentIssue`);
+  assertNonEmptyString(value.reviewerRole, `${path}.reviewerRole`);
+  assertIntegrationAcceptanceStatus(value.status, `${path}.status`);
+  assertDigest(value.childPassDigest, `${path}.childPassDigest`);
+  assertDigest(value.targetAcceptanceDigest, `${path}.targetAcceptanceDigest`);
+  assertOptionalSourceComment(value.sourceComment, `${path}.sourceComment`);
+  assertOptionalStringArray(value.failedStatementIds, `${path}.failedStatementIds`, { requireNonEmptyItems: true });
+  assertOptionalStringArray(value.repairTaskIds, `${path}.repairTaskIds`, { requireNonEmptyItems: true });
+  assertIsoLikeString(value.capturedAt, `${path}.capturedAt`);
+  assertOptionalAcceptanceNote(value.note, `${path}.note`);
+}
+
+function assertIssueLike(value: unknown, path: string): asserts value is TaskAcceptanceRecord["issue"] {
+  if (!isPlainObject(value)) {
+    throw new Error(`Invalid goal ledger state: ${path} is not an object`);
+  }
+  assertNonEmptyString(value.owner, `${path}.owner`);
+  assertNonEmptyString(value.repo, `${path}.repo`);
+  if (!isPositiveInteger(value.number)) {
+    throw new Error(`Invalid goal ledger state: ${path}.number invalid`);
+  }
+}
+
+function assertAcceptanceFactStatus(value: unknown, path: string): asserts value is AcceptanceFactStatus {
+  if (!(value === "passed" || value === "failed")) {
+    throw new Error(`Invalid goal ledger state: ${path} invalid`);
+  }
+}
+
+function assertIntegrationAcceptanceStatus(value: unknown, path: string): asserts value is IntegrationAcceptanceStatus {
+  if (!(value === "requested" || value === "passed" || value === "failed" || value === "blocked")) {
+    throw new Error(`Invalid goal ledger state: ${path} invalid`);
+  }
+}
+
+function assertAcceptanceStatementResults(value: unknown, path: string): asserts value is AcceptanceStatementResult[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`Invalid goal ledger state: ${path} is not a non-empty array`);
+  }
+  const seenIds = new Set<string>();
+  value.forEach((result, index) => {
+    const itemPath = `${path}.${String(index)}`;
+    if (!isPlainObject(result)) {
+      throw new Error(`Invalid goal ledger state: ${itemPath} is not an object`);
+    }
+    assertNonEmptyString(result.id, `${itemPath}.id`);
+    if (String(result.id).length > MAX_ACCEPTANCE_STATEMENT_ID_LENGTH) {
+      throw new Error(`Invalid goal ledger state: ${itemPath}.id too long`);
+    }
+    if (seenIds.has(result.id)) {
+      throw new Error(`Invalid goal ledger state: ${path} duplicate id ${result.id}`);
+    }
+    seenIds.add(result.id);
+    assertAcceptanceFactStatus(result.status, `${itemPath}.status`);
+    if (result.statement !== undefined) {
+      assertNonEmptyString(result.statement, `${itemPath}.statement`);
+      if (String(result.statement).length > MAX_ACCEPTANCE_STATEMENT_TEXT_LENGTH) {
+        throw new Error(`Invalid goal ledger state: ${itemPath}.statement too long`);
+      }
+    }
+  });
+}
+
+function assertOptionalAcceptanceNote(value: unknown, path: string): asserts value is string | undefined {
+  if (value === undefined) {
+    return;
+  }
+  assertNonEmptyString(value, path);
+  if (String(value).length > MAX_ACCEPTANCE_NOTE_LENGTH) {
+    throw new Error(`Invalid goal ledger state: ${path} too long`);
+  }
+}
+
+function assertDigest(value: unknown, path: string): asserts value is string {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) {
+    throw new Error(`Invalid goal ledger state: ${path} invalid digest`);
+  }
+}
+
+function assertOptionalSourceComment(
+  value: unknown,
+  path: string,
+): asserts value is IntegrationAcceptanceRecord["sourceComment"] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!isPlainObject(value)) {
+    throw new Error(`Invalid goal ledger state: ${path} is not an object`);
+  }
+  assertIssueLike(value.issue, `${path}.issue`);
+  if (!isNonNegativeInteger(value.messageIndex)) {
+    throw new Error(`Invalid goal ledger state: ${path}.messageIndex invalid`);
+  }
+  assertOptionalNonEmptyString(value.commentId, `${path}.commentId`);
+}
+
+function assertIntegrationJoinKey(value: unknown, path: string): asserts value is string {
+  if (typeof value !== "string" || !new RegExp(`^${INTEGRATION_ACCEPTANCE_KEY_PREFIX}:[a-f0-9]{64}$`, "u").test(value)) {
+    throw new Error(`Invalid goal ledger state: ${path} invalid`);
+  }
 }
 
 function assertRunManifestReference(value: unknown, path: string): asserts value is RunManifestReference {
@@ -961,6 +1465,61 @@ function assertSafeRelativePath(value: unknown, path: string): asserts value is 
   if (segments.some((segment) => segment === "..")) {
     throw new Error(`Invalid goal ledger state: ${path} escapes workspace`);
   }
+}
+
+function latestAcceptanceFactForIssue(
+  facts: readonly TaskAcceptanceRecord[],
+  reference: IssueReference,
+): TaskAcceptanceRecord | undefined {
+  const matching = facts.filter((fact) => issueReferenceMatchesIssue(reference, fact.issue));
+  return matching.sort(compareTaskAcceptanceFacts).at(-1);
+}
+
+function compareTaskAcceptanceFacts(left: TaskAcceptanceRecord, right: TaskAcceptanceRecord): number {
+  const leftTime = Date.parse(left.capturedAt);
+  const rightTime = Date.parse(right.capturedAt);
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+  if (left.messageIndex !== right.messageIndex) {
+    return left.messageIndex - right.messageIndex;
+  }
+  return left.factKey.localeCompare(right.factKey);
+}
+
+function issueFromReference(reference: IssueReference): TaskAcceptanceRecord["issue"] {
+  return {
+    owner: reference.owner,
+    repo: reference.repo,
+    number: reference.number,
+  };
+}
+
+function issueReferenceMatchesIssue(reference: IssueReference, issue: TaskAcceptanceRecord["issue"]): boolean {
+  return reference.owner === issue.owner && reference.repo === issue.repo && reference.number === issue.number;
+}
+
+function digestStatementResults(results: AcceptanceStatementResult[]): string {
+  return digestStrings(
+    results
+      .map((result) => `${result.id}:${result.status}:${result.statement ?? ""}`)
+      .sort(),
+  );
+}
+
+function digestStrings(values: readonly string[]): string {
+  const hash = crypto.createHash("sha256");
+  for (const value of values) {
+    hash.update(String(value.length));
+    hash.update(":");
+    hash.update(value);
+    hash.update("\n");
+  }
+  return hash.digest("hex");
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function mergeIssueRefs(existing: IssueReference[], incoming: IssueReference[]): IssueReference[] {

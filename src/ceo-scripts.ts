@@ -7,6 +7,8 @@ export const REQUIRED_CEO_SCRIPT_IDS = [
   "plan-review",
   "post-implementation-retro",
   "milestone-spawn-child-issues",
+  "integration-acceptance",
+  "integration-repair-child-issues",
 ] as const;
 
 export type CeoScriptAction = "route" | "spawn_child_issues";

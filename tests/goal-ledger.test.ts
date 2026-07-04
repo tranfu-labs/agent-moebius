@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   assertGoalLedgerState,
+  buildTaskAcceptanceFactKey,
   computeReadyMissingFields,
   createEmptyGoalLedgerState,
+  evaluateIntegrationAcceptanceJoin,
   listArchivedPhaseReferences,
   markGoalReady,
   parseGoalLedgerState,
   projectActivePhaseContext,
+  recordIntegrationAcceptanceEvent,
+  recordTaskAcceptanceFact,
   switchActivePhase,
   upsertGoalIntakeDraft,
   withGoalLedgerEntry,
@@ -387,6 +391,106 @@ describe("goal ledger", () => {
       ).toThrow();
     }
   });
+
+  it("upserts child acceptance facts by a stable source key so repeated comments do not change join digest", () => {
+    const state = stateWithGoalJoinChildren();
+    const factInput = {
+      taskId: "task-1",
+      issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 101 },
+      role: "product-manager",
+      status: "passed" as const,
+      statementResults: [{ id: "1", status: "passed" as const, statement: "跑 task-1" }],
+      messageIndex: 3,
+      commentId: "comment-101-pass",
+      capturedAt: "2026-07-04T00:10:00.000Z",
+    };
+
+    const once = recordTaskAcceptanceFact(state, factInput);
+    const twice = recordTaskAcceptanceFact(once, { ...factInput, capturedAt: "2026-07-04T00:11:00.000Z" });
+
+    expect(twice.tasks["task-1"]?.acceptanceFacts).toHaveLength(1);
+    expect(twice.tasks["task-1"]?.acceptanceFacts?.[0]?.factKey).toBe(buildTaskAcceptanceFactKey(factInput));
+  });
+
+  it("evaluates integration acceptance join only when every in-scope child has a passed fact", () => {
+    const state = stateWithGoalJoinChildren();
+    const onePassed = recordTaskAcceptanceFact(state, {
+      taskId: "task-1",
+      issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 101 },
+      role: "product-manager",
+      status: "passed",
+      statementResults: [{ id: "1", status: "passed", statement: "跑 task-1" }],
+      messageIndex: 3,
+      commentId: "comment-101-pass",
+      capturedAt: "2026-07-04T00:10:00.000Z",
+    });
+
+    expect(
+      evaluateIntegrationAcceptanceJoin(onePassed, {
+        owner: goalOwner(),
+        parentIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+        reviewerRole: "product-manager",
+      }),
+    ).toMatchObject({
+      status: "waiting",
+      pending: [{ taskId: "task-2", issue: { number: 102 }, reason: "missing" }],
+    });
+
+    const allPassed = recordTaskAcceptanceFact(onePassed, {
+      taskId: "task-2",
+      issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 102 },
+      role: "product-manager",
+      status: "passed",
+      statementResults: [{ id: "1", status: "passed", statement: "跑 task-2" }],
+      messageIndex: 4,
+      commentId: "comment-102-pass",
+      capturedAt: "2026-07-04T00:12:00.000Z",
+    });
+    const ready = evaluateIntegrationAcceptanceJoin(allPassed, {
+      owner: goalOwner(),
+      parentIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+      reviewerRole: "product-manager",
+    });
+
+    expect(ready).toMatchObject({
+      status: "ready",
+      phaseId: "goal-phase",
+      reviewerRole: "product-manager",
+      childPassFacts: [{ taskId: "task-1" }, { taskId: "task-2" }],
+    });
+    expect(ready.status === "ready" ? ready.joinKey : "").toContain("agent-moebius-integration-acceptance-key:");
+  });
+
+  it("records integration acceptance events idempotently by join key and status", () => {
+    const state = stateWithGoalJoinChildren();
+    const childPassDigest = "a".repeat(64);
+    const targetAcceptanceDigest = "b".repeat(64);
+    const once = recordIntegrationAcceptanceEvent(state, {
+      phaseId: "goal-phase",
+      parentIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+      reviewerRole: "product-manager",
+      status: "requested",
+      childPassDigest,
+      targetAcceptanceDigest,
+      capturedAt: "2026-07-04T00:10:00.000Z",
+    });
+    const twice = recordIntegrationAcceptanceEvent(once, {
+      phaseId: "goal-phase",
+      parentIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+      reviewerRole: "product-manager",
+      status: "requested",
+      childPassDigest,
+      targetAcceptanceDigest,
+      capturedAt: "2026-07-04T00:11:00.000Z",
+      note: "retried",
+    });
+
+    expect(twice.phases["goal-phase"]?.integrationAcceptance).toHaveLength(1);
+    expect(twice.phases["goal-phase"]?.integrationAcceptance?.[0]).toMatchObject({
+      status: "requested",
+      note: "retried",
+    });
+  });
 });
 
 function readyGoalState(): GoalLedgerState {
@@ -442,6 +546,52 @@ function stateWithTaskPhases(taskQualityBaseline: TaskRecord["qualityBaseline"] 
       objective: "实现阶段作用域隔离",
     },
   );
+}
+
+function stateWithGoalJoinChildren(): GoalLedgerState {
+  const base = readyGoalState();
+  const withTasks = withGoalLedgerEntry(
+    withGoalLedgerEntry(base, "tasks", "task-1", {
+      id: "task-1",
+      goalId: "goal-1",
+      title: "child 1",
+      status: "ready",
+      scope: "child 1",
+      acceptanceStatements: ["跑 task-1"],
+      dependencies: [],
+      qualityBaseline: "data-correct",
+      phaseIds: [],
+      parentIssueRef: { owner: "tranfu-labs", repo: "agent-moebius", number: 63, relation: "parent", status: "open" },
+      childIssueRefs: [{ owner: "tranfu-labs", repo: "agent-moebius", number: 101, relation: "child", status: "open" }],
+      runManifestRefs: [],
+      provenance: [makeProvenance()],
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+    "tasks",
+    "task-2",
+    {
+      id: "task-2",
+      goalId: "goal-1",
+      title: "child 2",
+      status: "ready",
+      scope: "child 2",
+      acceptanceStatements: ["跑 task-2"],
+      dependencies: [],
+      qualityBaseline: "data-correct",
+      phaseIds: [],
+      parentIssueRef: { owner: "tranfu-labs", repo: "agent-moebius", number: 63, relation: "parent", status: "open" },
+      childIssueRefs: [{ owner: "tranfu-labs", repo: "agent-moebius", number: 102, relation: "child", status: "open" }],
+      runManifestRefs: [],
+      provenance: [makeProvenance()],
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+  );
+  return withGoalLedgerEntry(withTasks, "phases", "goal-phase", {
+    ...makePhase("goal-phase", "active", goalOwner()),
+    acceptanceStatements: ["目标级验收 1", "目标级验收 2"],
+  });
 }
 
 function makePhase(id: string, status: PhaseRecord["status"], owner: PhaseRecord["owner"]): PhaseRecord {

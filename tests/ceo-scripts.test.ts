@@ -5,14 +5,20 @@ import { describe, expect, it } from "vitest";
 import { loadCeoScripts, parseCeoScriptMarkdown } from "../src/ceo-scripts.js";
 
 describe("CEO script library", () => {
-  it("loads the three required script files as data", async () => {
+  it("loads the required script files as data", async () => {
     const scripts = await loadCeoScripts({ agentsDir: path.resolve("agents"), required: true });
 
     expect(scripts.map((script) => script.id).sort()).toEqual([
+      "integration-acceptance",
+      "integration-repair-child-issues",
       "milestone-spawn-child-issues",
       "plan-review",
       "post-implementation-retro",
     ]);
+    expect(scripts.find((script) => script.id === "integration-acceptance")).toMatchObject({ action: "route" });
+    expect(scripts.find((script) => script.id === "integration-repair-child-issues")).toMatchObject({
+      action: "spawn_child_issues",
+    });
     expect(scripts.find((script) => script.id === "milestone-spawn-child-issues")).toMatchObject({
       action: "spawn_child_issues",
     });
