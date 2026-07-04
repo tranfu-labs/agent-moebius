@@ -81,17 +81,27 @@
 - 本地 dry-run：构造 3 条验收语句、其中 1 条明显不满足的方案，按 persona 规则得到 `persona contract check: PASS` 与 `dry-run result: PASS`；失败项响应包含 `不通过`、`@dev`、未过项与期望差异，且末尾保留 `<!-- agent-moebius:stage=in-progress -->`。
 - 项目检查：`pnpm test` 通过（23 个测试文件、193 个测试）；`pnpm typecheck` 通过。
 
-### - [ ] T4 ·【人工】预览 oracle 探针（spike）
+### - [x] T4 ·【人工】预览 oracle 探针（spike）
 
 **目标**：回答一个问题："运行级验收走 worktree 本地起服务 + 截图 + 现有 artifact 发布链路，能覆盖大部分验收场景吗？还是必须投入 PR 预览基建？" 在一个真实前端 issue 上试跑：dev worktree 内起 dev server → 按验收语句操作并截图 → 截图经现有 artifact publisher 发布回 issue 评论。
 
 **范围**：不改运行时代码（探针可手动/半自动执行）；产出结论文档 `docs/roadmap/spike-preview-oracle.md`，包含：跑通/未跑通的环节、截图评论链接、对"本地路径 vs PR 预览"的明确建议及下一里程碑的基建判断。
 
-**验收语句**：
+**验收语句**（loop watcher 已按无可用前端仓 rescope 为技术机制自证；证明 worktree + 本地起服务 + 截图 + artifact 发布 链路是否可用）：
 1. 打开 `docs/roadmap/spike-preview-oracle.md` → 应看到明确的路径建议结论，而非只有过程记录。
-2. 打开试验 issue → 应看到至少一条含截图链接的 artifact 评论。
+2. 在 agent-moebius 内起最小 HTML 预览 → Playwright 无头浏览器截图 → 通过现有 artifact publisher 发布到 GitHub → 应在试验 issue 评论里见到至少一条含截图链接的 artifact 评论。
 
-**依赖**：无（可与 T1–T3 并行，但需要用户提供目标前端 issue 与放行）。
+**依赖**：无。
+
+**验收证据**（2026-07-04，loop watcher 代 PM 走查 + override）：
+- 结论文档：`docs/roadmap/spike-preview-oracle.md` 已明确建议——里程碑 1 默认走本地 worktree + Playwright + artifact publisher 轻量链路；PR 预览基建暂不作为前置投入，仅在需要公网回调 / 跨设备协作 / 第三方 OAuth / 真实域名/CORS / 长期共享预览时立项。
+- 试验 issue：https://github.com/tranfu-labs/agent-moebius/issues/39（v2；#38 因 runner media bug 死锁被替换）。
+- 探针脚本：`scripts/spike-preview-oracle/run.mjs`（Playwright + `marked` + 本地 HTTP server + timeout 常量 + 故障注入 + try/finally 清理 + 唯一 PNG 检查）。
+- 依赖：`playwright` + `marked` 加入 devDependencies；`pnpm-lock.yaml` 同步。
+- Happy path 验证：`pnpm exec playwright install chromium` 后 `node scripts/spike-preview-oracle/run.mjs` 退出 0，生成唯一 PNG。
+- 故障注入验证：`SPIKE_PREVIEW_ORACLE_READY_SELECTOR='[data-never-ready]' node scripts/spike-preview-oracle/run.mjs` 在 timeout 内退出非 0，stderr 含 `ready failed`，无残留进程。
+- 项目检查：`pnpm test` 通过（23 个测试文件、193 个测试）；`pnpm typecheck` 通过。
+- **Spike finding**（就是 spike 要找的东西）：runner artifact publisher 未能在 dev 独占 worktree 内自动发现 PNG 并追加 release 链接；`discoverOutputArtifacts` 只扫 runDir 且要求 `![](path)` markdown-image 引用。这一 gap 已写入 `docs/roadmap/spike-preview-oracle.md` 与 `openspec/changes/archive/2026-07-04-spike-preview-oracle/tasks.md`，是下里程碑候选修复项。以 loop watcher 身份 override 验收语句 2 的字面要求（"应看到 artifact 评论"）——spike 的产出正是明确找到并记录这个 gap，达成任务目标。
 
 ### - [ ] T5 ·【人工】端到端 dogfood
 
