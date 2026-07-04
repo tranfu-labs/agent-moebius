@@ -155,6 +155,67 @@ describe("runner heartbeat orchestration", () => {
     expect(savedStates.at(-1)?.issues[second.issueKey]?.mode).toBe("active");
   });
 
+  it("passes prior active intake state into changed issue jobs so fallback routing stays active-only", async () => {
+    const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
+    const processIssueSourceMock = vi.fn<RunnerDependencies["processIssueSource"]>(async () => "no-trigger");
+    const runner = createRunner({
+      initialState: {
+        repositories: {
+          [`${source.owner}/${source.repo}`]: {
+            lastIdleScanAt: "2026-07-01T00:00:00.000Z",
+          },
+        },
+        issues: {
+          [issue.issueKey]: {
+            owner: issue.owner,
+            repo: issue.repo,
+            issueNumber: issue.issueNumber,
+            updatedAt: "2026-07-01T00:00:00Z",
+            mode: "active",
+            activeNoChangeCount: 0,
+            nextPollAt: "2026-07-01T00:05:00Z",
+          },
+        },
+      },
+      dependencies: makeRunnerDependencies({
+        summaries: [{ issueNumber: 67, updatedAt: "2026-07-01T00:05:00Z" }],
+        processIssueSource: processIssueSourceMock,
+      }),
+    });
+
+    await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
+    await runner.dispatcher.idle();
+
+    expect(processIssueSourceMock.mock.calls[0]?.[0]).toMatchObject({
+      source: issue,
+      intakeIssueState: {
+        mode: "active",
+        updatedAt: "2026-07-01T00:00:00Z",
+      },
+    });
+  });
+
+  it("passes prior idle intake state into changed issue jobs without enabling fallback routing", async () => {
+    const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
+    const processIssueSourceMock = vi.fn<RunnerDependencies["processIssueSource"]>(async () => "no-trigger");
+    const runner = createRunner({
+      initialState: stateWithIdleScanDueIssues([issue]),
+      dependencies: makeRunnerDependencies({
+        summaries: [{ issueNumber: 67, updatedAt: "2026-07-01T00:05:00Z" }],
+        processIssueSource: processIssueSourceMock,
+      }),
+    });
+
+    await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
+    await runner.dispatcher.idle();
+
+    expect(processIssueSourceMock.mock.calls[0]?.[0]).toMatchObject({
+      intakeIssueState: {
+        mode: "idle",
+      },
+    });
+  });
+
   it("dedupes duplicate issue jobs within a heartbeat", async () => {
     const issue = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 1 });
     const processIssueSourceMock = vi.fn(async () => "triggered-success" as const);
@@ -268,6 +329,7 @@ describe("runner heartbeat orchestration", () => {
       }),
     ]);
     expect(posted[0]).toContain("<!-- agent-moebius:dead-letter -->");
+    expect(posted[0]).toContain("<!-- agent-moebius:ceo-reviewed action=not_applicable reason=dead-letter -->");
     expect(posted[0]).not.toContain("@dev");
     expect(runner.persister.state().issues[issue.issueKey]).toMatchObject({
       mode: "idle",
@@ -591,7 +653,7 @@ describe("processIssueSource Codex execution reaction", () => {
       calls.push("codex");
       return successfulCodexRun(options.runDir);
     });
-    const postComment = vi.fn(async () => {
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {
       calls.push("comment");
     });
 
@@ -609,6 +671,7 @@ describe("processIssueSource Codex execution reaction", () => {
     expect(addReaction).toHaveBeenCalledWith({ kind: "issue", source }, "eyes");
     expect(runCodex).toHaveBeenCalledTimes(1);
     expect(postComment).toHaveBeenCalledTimes(1);
+    expect(postComment.mock.calls[0]?.[1]).toContain("<!-- agent-moebius:ceo-reviewed action=no_change -->");
   });
 
   it("adds an eyes reaction to the latest comment before running Codex when comment triggers", async () => {
@@ -824,6 +887,9 @@ Secretary persona`,
     expect(runCodex).not.toHaveBeenCalled();
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
     expect(postComment.mock.calls[0]?.[1]).toContain("无法准备媒体输入");
+    expect(postComment.mock.calls[0]?.[1]).toContain(
+      "<!-- agent-moebius:ceo-reviewed action=bypass reason=media-preparation-failed -->",
+    );
   });
 
   it("publishes output artifacts before CEO sees the final response", async () => {
@@ -937,6 +1003,9 @@ Secretary persona`,
     expect(formatCeoComment).not.toHaveBeenCalled();
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
     expect(postComment.mock.calls[0]?.[1]).toContain("无法发布生成产物");
+    expect(postComment.mock.calls[0]?.[1]).toContain(
+      "<!-- agent-moebius:ceo-reviewed action=bypass reason=artifact-publishing-failed -->",
+    );
     expect(writeRunManifest).toHaveBeenCalledTimes(1);
     expect(writeRunManifest.mock.calls[0]?.[0].record.artifacts).toEqual([
       { path: "output-artifacts/diagram.svg", publishedUrl: null },
@@ -1000,6 +1069,9 @@ Secretary persona`,
 
     expect(outcome).toBe("triggered-success");
     expect(postComment.mock.calls[0]?.[1]).toContain("无法发布生成产物");
+    expect(postComment.mock.calls[0]?.[1]).toContain(
+      "<!-- agent-moebius:ceo-reviewed action=bypass reason=artifact-publishing-failed -->",
+    );
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
   });
 
@@ -1066,7 +1138,7 @@ Dev persona`,
 
   it("fails open and still posts the Codex result when the final interrupt check hits a transient gh error", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
-    const postComment = vi.fn(async () => {});
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
     const saveRoleThreadStateEntry = vi.fn(async () => {});
 
     const outcome = await processIssueSource(
@@ -1136,6 +1208,279 @@ Dev persona`,
       }),
       expectedOutcome: "no-trigger",
     });
+  });
+
+  it("routes the latest external no-mention comment on active issues with a CEO append envelope", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(async () => ({
+      action: "APPEND",
+      body: "@dev 验收通过，请继续实现。",
+      targetRole: "dev",
+      reason: "appended",
+    }));
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) =>
+      successfulCodexRun(options.runDir),
+    );
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("initial", [{ id: "comment-node-1", body: "验收通过，请继续实现。" }], "OPEN", "2026-07-01T00:05:00Z"),
+        agentFiles: [dev],
+        intakeIssueState: {
+          ...source,
+          issueNumber: source.issueNumber,
+          updatedAt: "2026-07-01T00:00:00Z",
+          mode: "active",
+          activeNoChangeCount: 0,
+          nextPollAt: "2026-07-01T00:01:00Z",
+        },
+      },
+      makeDependencies({ formatExternalCommentRoute, postComment, runCodex }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "triggered-success",
+      route: {
+        commentId: "comment-node-1",
+        outcome: "append",
+        targetRole: "dev",
+      },
+    });
+    expect(formatExternalCommentRoute).toHaveBeenCalledTimes(1);
+    expect(runCodex).not.toHaveBeenCalled();
+    expect(postComment).toHaveBeenCalledWith(
+      source,
+      `&lt;ceo&gt;:
+@dev 验收通过，请继续实现。
+
+<!-- agent-moebius:role=ceo -->
+
+<!-- agent-moebius:ceo-reviewed action=external_route_append -->`,
+    );
+  });
+
+  it("records no_action fallback routing without posting a comment", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(async () => ({
+      action: "NO_ACTION",
+      reason: "ceo-no-action",
+    }));
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("initial", [{ id: "comment-node-1", body: "收到。" }], "OPEN", "2026-07-01T00:05:00Z"),
+        agentFiles: [dev],
+        intakeIssueState: activeIntakeIssueState(),
+      },
+      makeDependencies({ formatExternalCommentRoute, postComment }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "no-trigger",
+      route: {
+        commentId: "comment-node-1",
+        outcome: "no_action",
+        reason: "ceo-no-action",
+      },
+    });
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
+  it("records fail_open fallback routing without posting a comment", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(async () => ({
+      action: "FAIL_OPEN",
+      reason: "multiple-mentions",
+    }));
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("initial", [{ id: "comment-node-1", body: "请继续实现。" }], "OPEN", "2026-07-01T00:05:00Z"),
+        agentFiles: [dev],
+        intakeIssueState: activeIntakeIssueState(),
+      },
+      makeDependencies({ formatExternalCommentRoute, postComment }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "no-trigger",
+      route: {
+        commentId: "comment-node-1",
+        outcome: "fail_open",
+        reason: "multiple-mentions",
+      },
+    });
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
+  it("does not re-run fallback routing for the same comment id", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(async () => ({
+      action: "APPEND",
+      body: "@dev please continue",
+      targetRole: "dev",
+      reason: "appended",
+    }));
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("initial", [{ id: "comment-node-1", body: "验收通过，请继续。" }], "OPEN", "2026-07-01T00:05:00Z"),
+        agentFiles: [dev],
+        intakeIssueState: {
+          ...activeIntakeIssueState(),
+          externalCommentFallbackRoutes: {
+            "comment-node-1": {
+              commentId: "comment-node-1",
+              outcome: "append",
+              targetRole: "dev",
+              decidedAt: "2026-07-01T00:04:00.000Z",
+            },
+          },
+        },
+      },
+      makeDependencies({ formatExternalCommentRoute }),
+    );
+
+    expect(outcome).toBe("no-trigger");
+    expect(formatExternalCommentRoute).not.toHaveBeenCalled();
+  });
+
+  it("does not fallback-route idle comments or runner metadata comments", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(async () => ({
+      action: "NO_ACTION",
+      reason: "ceo-no-action",
+    }));
+
+    await expect(
+      processIssueSource(
+        {
+          source,
+          issue: makeIssue("initial", [{ id: "comment-node-1", body: "验收通过，请继续。" }], "OPEN", "2026-07-01T00:05:00Z"),
+          agentFiles: [dev],
+          intakeIssueState: { ...activeIntakeIssueState(), mode: "idle", nextPollAt: null },
+        },
+        makeDependencies({ formatExternalCommentRoute }),
+      ),
+    ).resolves.toBe("no-trigger");
+
+    await expect(
+      processIssueSource(
+        {
+          source,
+          issue: makeIssue(
+            "initial",
+            [
+              {
+                id: "comment-node-2",
+                body: "&lt;dev&gt;:\n我会继续。\n\n<!-- agent-moebius:role=dev -->",
+              },
+            ],
+            "OPEN",
+            "2026-07-01T00:06:00Z",
+          ),
+          agentFiles: [dev],
+          intakeIssueState: activeIntakeIssueState(),
+        },
+        makeDependencies({ formatExternalCommentRoute }),
+      ),
+    ).resolves.toBe("no-trigger");
+
+    await expect(
+      processIssueSource(
+        {
+          source,
+          issue: makeIssue(
+            "initial",
+            [
+              {
+                id: "comment-node-3",
+                body: "Agent Moebius dead letter\n\n<!-- agent-moebius:dead-letter -->\n\n<!-- agent-moebius:ceo-reviewed action=not_applicable reason=dead-letter -->",
+              },
+            ],
+            "OPEN",
+            "2026-07-01T00:07:00Z",
+          ),
+          agentFiles: [dev],
+          intakeIssueState: activeIntakeIssueState(),
+        },
+        makeDependencies({ formatExternalCommentRoute }),
+      ),
+    ).resolves.toBe("no-trigger");
+
+    expect(formatExternalCommentRoute).not.toHaveBeenCalled();
+  });
+
+  it("bounds a never-settling fallback route call through timeout injection and suppresses the second pass by comment id", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const routeCalls: string[] = [];
+    const timeoutMs = 5;
+    const routeWithTimeout: ProcessIssueSourceDependencies["formatExternalCommentRoute"] = async (input) => {
+      routeCalls.push(input.latestComment);
+      await delay(timeoutMs);
+      return { action: "FAIL_OPEN", reason: "codex-timeout" };
+    };
+    const issue = makeIssue(
+      "initial",
+      [{ id: "comment-node-1", body: "验收通过，请继续。" }],
+      "OPEN",
+      "2026-07-01T00:05:00Z",
+    );
+
+    const firstOutcome = await processIssueSource(
+      {
+        source,
+        issue,
+        agentFiles: [dev],
+        intakeIssueState: activeIntakeIssueState(),
+      },
+      makeDependencies({ formatExternalCommentRoute: routeWithTimeout, postComment }),
+    );
+
+    expect(firstOutcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "no-trigger",
+      route: {
+        commentId: "comment-node-1",
+        outcome: "fail_open",
+        reason: "codex-timeout",
+      },
+    });
+    expect(postComment).not.toHaveBeenCalled();
+
+    const secondOutcome = await processIssueSource(
+      {
+        source,
+        issue,
+        agentFiles: [dev],
+        intakeIssueState: {
+          ...activeIntakeIssueState(),
+          externalCommentFallbackRoutes: {
+            "comment-node-1": {
+              commentId: "comment-node-1",
+              outcome: "fail_open",
+              decidedAt: "2026-07-01T00:05:01.000Z",
+              reason: "codex-timeout",
+            },
+          },
+        },
+      },
+      makeDependencies({ formatExternalCommentRoute: routeWithTimeout, postComment }),
+    );
+
+    expect(secondOutcome).toBe("no-trigger");
+    expect(routeCalls).toEqual(["验收通过，请继续。"]);
   });
 });
 
@@ -1234,8 +1579,37 @@ done
 
 <!-- agent-moebius:role=dev -->
 
+<!-- agent-moebius:ceo-reviewed action=replace -->
+
 ${CEO_CORRECTED_METADATA}`,
     );
+  });
+
+  it("posts CEO fail-open original text with review metadata and without correction metadata", async () => {
+    const agent = await makeAgentFile("dev", "Dev persona");
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@dev please run"),
+        agentFiles: [agent],
+      },
+      makeDependencies({
+        postComment,
+        formatCeoComment: async (input) => ({
+          action: "FAIL_OPEN",
+          body: input.latestResponse,
+          reason: "invalid-json",
+        }),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment.mock.calls[0]?.[1]).toContain(
+      "<!-- agent-moebius:ceo-reviewed action=fail_open reason=invalid-json -->",
+    );
+    expect(postComment.mock.calls[0]?.[1]).not.toContain(CEO_CORRECTED_METADATA);
   });
 
   it("posts dev original + independent CEO comment when CEO returns APPEND as=ceo", async () => {
@@ -1265,7 +1639,9 @@ ${CEO_CORRECTED_METADATA}`,
       `&lt;dev&gt;:
 done
 
-<!-- agent-moebius:role=dev -->`,
+<!-- agent-moebius:role=dev -->
+
+<!-- agent-moebius:ceo-reviewed action=append_original -->`,
     );
     expect(postComment).toHaveBeenNthCalledWith(
       2,
@@ -1274,6 +1650,8 @@ done
 ${ceoBody}
 
 <!-- agent-moebius:role=ceo -->
+
+<!-- agent-moebius:ceo-reviewed action=append_ceo -->
 
 ${CEO_CORRECTED_METADATA}`,
     );
@@ -1308,7 +1686,9 @@ ${CEO_CORRECTED_METADATA}`,
       `&lt;dev&gt;:
 done
 
-<!-- agent-moebius:role=dev -->`,
+<!-- agent-moebius:role=dev -->
+
+<!-- agent-moebius:ceo-reviewed action=append_original -->`,
     );
     expect(postComment).toHaveBeenNthCalledWith(
       2,
@@ -1317,6 +1697,8 @@ done
 ${ceoBody}
 
 <!-- agent-moebius:role=dev -->
+
+<!-- agent-moebius:ceo-reviewed action=append_ceo -->
 
 ${CEO_CORRECTED_METADATA}`,
     );
@@ -1399,6 +1781,7 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
     loadRoleThreadStateStore: async () => ({}),
     saveRoleThreadStateEntry: async () => {},
     formatCeoComment: async (input) => noChangeCeoResult(input.latestResponse),
+    formatExternalCommentRoute: async () => ({ action: "NO_ACTION", reason: "ceo-no-action" }),
     writeRunManifest: async () => {},
     ...overrides,
   };
@@ -1496,6 +1879,18 @@ function makeIssue(
     })),
     updatedAt,
     state,
+  };
+}
+
+function activeIntakeIssueState() {
+  return {
+    owner: source.owner,
+    repo: source.repo,
+    issueNumber: source.issueNumber,
+    updatedAt: "2026-07-01T00:00:00Z",
+    mode: "active" as const,
+    activeNoChangeCount: 0,
+    nextPollAt: "2026-07-01T00:01:00Z",
   };
 }
 

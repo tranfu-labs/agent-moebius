@@ -56,6 +56,25 @@
 {"action":"append","as":"ceo","body":"@dev 你的最新回复把纯提及写成了 `@dev`，并把任务编号写成了 `#3`。按 GitHub 交互协议，`@` 只用于移交控制权，任务编号应写成 `T3`；请重新输出一条合规评论。"}
 ```
 
+### 外部无 mention 评论兜底路由判定
+
+当 prompt 明确说明这是「active issue 上最新外部无 mention 评论」的轻量兜底路由判定时，不使用常规发布前 guardrail 的 `append as=...` schema，只在下面两种 JSON 中二选一：
+
+```json
+{"action":"no_action"}
+```
+
+```json
+{"action":"append","body":"<一条只含单个合法 agent mention 的追加评论>"}
+```
+
+判定规则：
+
+1. 只有当最新外部评论明确表达“验收通过 / 你去做 X / 请继续实现 / 转交给某角色”等下一步控制权移交意图，但漏写合法 mention 时，才输出 `append`。
+2. `append.body` 必须且只能包含一个代码区域外的合法可触发 agent mention；不得 mention `@ceo`，不得同时 mention 多个角色，inline code 或 fenced code block 内的 mention 不算。
+3. 不确定、只是闲聊、只是状态确认、或需要上下文推测才能判断目标角色时，输出 `no_action`。
+4. 不要输出 `replace`、`as`、stage marker 或 runner role envelope；TypeScript 层会做 JSON、单 mention、白名单和代码区域校验，非法时 fail-open。
+
 ### 验收治理违规
 
 当 `latestResponse` 或完整 issue context 显示执行方、验收方以外的 loop watcher、或其他非需求持有者在未确认情况下改动验收口径时，必须按 `docs/protocols/github-interaction.md` 的“验收治理”规则判断。验收语句是需求侧资产；原始验收语句和经确认并入的 QA 增补验收语句，都只有需求持有者或真人用户能确认变更。
