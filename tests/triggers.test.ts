@@ -34,12 +34,13 @@ describe("triggers", () => {
     });
   });
 
-  it("does not run CEO through an ordinary mention", () => {
+  it("runs CEO through the ordinary mention trigger", () => {
     const timeline = buildTimeline("@ceo please review", [], ["ceo", ...agents]);
 
     expect(resolveTrigger({ timeline, availableAgentNames: ["ceo", ...agents] })).toEqual({
-      kind: "skip",
-      reason: "no-trigger",
+      kind: "run-agent",
+      role: "ceo",
+      reason: "mention",
     });
   });
 

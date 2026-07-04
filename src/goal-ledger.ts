@@ -10,6 +10,7 @@ export type PhaseOwner = { kind: "goal" | "milestone" | "task"; id: string };
 
 const MAX_PHASE_ARTIFACT_SUMMARY_LENGTH = 500;
 const MAX_PHASE_ARTIFACT_LOCATOR_LENGTH = 500;
+const MAX_ISSUE_REFERENCE_NOTE_LENGTH = 500;
 
 export interface IssueReference {
   owner: string;
@@ -17,6 +18,7 @@ export interface IssueReference {
   number: number;
   relation: IssueRelation;
   status: IssueReferenceStatus;
+  note?: string;
 }
 
 export interface LedgerProvenance {
@@ -648,6 +650,9 @@ function assertIssueReference(value: unknown, path: string): asserts value is Is
   if (!(value.status === "planned" || value.status === "open" || value.status === "closed" || value.status === "unknown")) {
     throw new Error(`Invalid goal ledger state: ${path}.status invalid`);
   }
+  if (value.note !== undefined) {
+    assertIssueReferenceNote(value.note, `${path}.note`);
+  }
 }
 
 function assertLedgerProvenance(value: unknown, path: string): asserts value is LedgerProvenance {
@@ -928,6 +933,13 @@ function assertBoundedLocator(value: unknown, path: string): asserts value is st
   const locator = String(value);
   if (locator.length > MAX_PHASE_ARTIFACT_LOCATOR_LENGTH || /\s/.test(locator)) {
     throw new Error(`Invalid goal ledger state: ${path} invalid`);
+  }
+}
+
+function assertIssueReferenceNote(value: unknown, path: string): asserts value is string {
+  assertNonEmptyString(value, path);
+  if (String(value).length > MAX_ISSUE_REFERENCE_NOTE_LENGTH) {
+    throw new Error(`Invalid goal ledger state: ${path} too long`);
   }
 }
 

@@ -3,9 +3,14 @@ import {
   CURRENT_REPO_WORKSPACE_PRE_SCRIPT_PATH,
   runCurrentRepoWorkspacePreScript,
 } from "./current-repo-workspace.js";
+import {
+  CEO_LEDGER_CONTEXT_PRE_SCRIPT_PATH,
+  runCeoLedgerContextPreScript,
+} from "./ceo-ledger-context.js";
 import { DEV_WORKSPACE_PRE_SCRIPT_PATH, runDevWorkspacePreScript } from "./dev-workspace.js";
 
 const PRE_SCRIPTS: Record<string, AgentPreScript> = {
+  [CEO_LEDGER_CONTEXT_PRE_SCRIPT_PATH]: runCeoLedgerContextPreScript,
   [CURRENT_REPO_WORKSPACE_PRE_SCRIPT_PATH]: runCurrentRepoWorkspacePreScript,
   [DEV_WORKSPACE_PRE_SCRIPT_PATH]: runDevWorkspacePreScript,
 };

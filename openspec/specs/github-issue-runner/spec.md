@@ -40,7 +40,7 @@
 - MUST 在单 issue 处理返回 `failed` 时保留既有 `updatedAt`、`failureCount` 累加 1（此前 idle 或缺失状态从 1 开始）、记录 `lastFailureReason`、`activeNoChangeCount` 保持不变、`mode = active`、`nextPollAt` 设为处理时间后 `activeIssuePollIntervalMs`。失败 MUST NOT 消耗安静降级预算（`activeNoChangeCount`），安静轮询 MUST NOT 消耗失败预算（`failureCount`）。
 - MUST 在 `triggered-success` / `no-trigger` / `dead-lettered` 结局折叠时清零 `failureCount` 与 `lastFailureReason`。存量状态文件（无新字段）MUST 可直接加载。
 - MUST 在 active issue 的最新外部 comment 归一化为 `speaker=user`、不带任何 `agent-moebius:*` runner 机器 metadata、且该 comment 没有合法 agent mention 时，执行一次 CEO 式无状态兜底路由判定；idle issue、issue body、runner metadata comment、已有合法 agent mention 的 comment MUST NOT 进入该兜底路由。
-- MUST 让外部 comment 兜底路由只输出两类业务结果：`no_action`（无需行动）或 `append`（一条以 `ceo` role envelope 发布的追加评论）。append 正文 MUST 且只能包含一个代码区域外的合法可触发 agent mention；TypeScript 层 MUST 校验 JSON shape、非空 body、单 mention、白名单和不得 mention `@ceo`，具体路由判据 MUST 放在 `agents/ceo.md`。
+- MUST 让外部 comment 兜底路由只输出两类业务结果：`no_action`（无需行动）或 `append`（一条以 `ceo` role envelope 发布的追加评论）。append 正文 MUST 且只能包含一个代码区域外的合法可触发 agent mention；TypeScript 层 MUST 校验 JSON shape、非空 body、单 mention 和白名单。目标不清或需要编排裁决时可 append `@ceo`，目标明确时可 append 对应目标角色；具体路由判据 MUST 放在 `agents/ceo.md`。
 - MUST 按 GitHub comment id 记录每次外部 comment 兜底路由判定结果，至少包含 comment id、`outcome`（`no_action` / `append` / `fail_open`）、判定时间，以及可用时的失败原因或目标角色；同一 comment id 已有记录时 MUST NOT 再次调用兜底路由判定。
 - MUST 在兜底路由判定失败、超时、非法 JSON、非法 append body 或 persona 加载失败时 fail-open：不发布评论，保持现有 no-trigger 语义，并记录 `outcome = fail_open`，避免同一 comment 重复消耗成本。
 - MUST 在兜底路由发布 append 成功后，让该 comment 成为下一轮 active poll 的最新消息，并由普通 mention trigger 在下一轮选择目标 agent；本轮 MUST NOT 直接运行 append 中 mention 的目标 agent。
@@ -275,7 +275,7 @@
 - MUST 让 `agents/ceo.md` 承载「PR 真实状态核实」要求：CEO 对 PR 下任何判断（交付规范细则、冲突、交付完成度）前，MUST 先对上下文中出现的完整 PR 链接 `https://github.com/<owner>/<repo>/pull/<n>` 在其 Codex 子进程内执行 `gh pr view <完整URL> --json title,body,state,mergeable,mergeStateStatus` 核实；MUST 使用完整 URL（CEO 运行目录不在目标仓库）；MUST NOT 仅凭评论文本猜测 PR 内容；`gh` 查询失败时 MUST NOT 基于猜测介入，保守输出 `no_change`（纯文本层即可确定的问题除外，如"评论中 PR 不是链接形式"）。PR 核实发生在 CEO Codex 子进程内部，属 persona 层行为，不经过 runner 的 GitHub adapter，不与"`src/format-ceo.ts` MUST NOT 自行调用 GitHub"红线冲突。
 - MUST 让交付规范中 `Closes #N` 的检查对象为核实到的 PR body，而非评论文本。
 - MUST 让 `agents/ceo.md` 承载免确认操作清单（授权边界只存在于 `agents/ceo.md`，`agents/dev.md` 行为不变）：清单内（CEO 直接放行）为从最新 `origin/main` 创建 feature 分支、把方案落盘到 `openspec/changes/`、方案经 qa 测试设计审查通过且发起需求角色验收通过后进入实现阶段（不再要求用户口头"开始写代码"）；清单外（仍等用户）包括但不限于 push、创建 / 合并 PR、任何删除类操作。
-- MUST 让 `agents/ceo.md` 承载协作生态认知，至少包含：真实可通过 mention 触发的 Codex agent 清单（当前为 `dev`、`dev-manager`、`product-manager`、`hermes-user`、`secretary`、`tranfu-agents-manager`、`qa`）；系统中不存在 reflector、reviewer、manager 等可交互对象；历史 `<reflector>` / `stage-hook` 评论只作为旧公开上下文，不代表当前仍有可触发角色；各 agent 常犯错误的经验清单（至少含 dev：把历史 reflector 评论当真人汇报、等待不存在的角色、收到提醒后只做确认式回复无实质推进）。
+- MUST 让 `agents/ceo.md` 承载协作生态认知，至少包含：真实可通过 mention 触发的 Codex agent 清单（当前为 `dev`、`dev-manager`、`product-manager`、`hermes-user`、`secretary`、`tranfu-agents-manager`、`qa`、`ceo`）；系统中不存在 reflector、reviewer、manager 等可交互对象；历史 `<reflector>` / `stage-hook` 评论只作为旧公开上下文，不代表当前仍有可触发角色；各 agent 常犯错误的经验清单（至少含 dev：把历史 reflector 评论当真人汇报、等待不存在的角色、收到提醒后只做确认式回复无实质推进）。
 - 未来新增 driver agent 时 MUST 同步更新 `agents/ceo.md` 生态认知章节的 agent 清单（与 `as` 允许集合的同步义务并列）。
 - MUST 定义 `agents/ceo.md` 的输入契约字段：`issueContext`、`latestResponse`、`agent`、`allowedStages`。
 - MUST 让 CEO `issueContext` 是完整公开 issue context，至少包含 `issueUrl = https://github.com/<owner>/<repo>/issues/<number>`、当前 issue body 原文 `issueBody`、以及按 GitHub 返回顺序排列的所有 comment body 原文 `comments`。
@@ -302,8 +302,8 @@
 - MUST 让 `format-ceo.ts` 的 `DEFAULT_CEO_TIMEOUT_MS = 300_000`，为 CEO 子进程内执行 `gh` 核实留出时长余量；超时取消子进程并 fail-open 发原文的语义不变。
 - MUST 记录结构化日志覆盖 `event = "ceo-guardrail-repaired"`（`replace` 命中）、`event = "ceo-guardrail-appended"`（`append` 命中，含 `as` 字段）、`event = "ceo-guardrail-noop"`（`no_change`）、`event = "ceo-guardrail-failopen"`（fail-open），至少包含 `issueKey`、`agent`、`reason`。
 - MUST 让 `src/conversation.ts` 的 `normalizeComment` 识别 `<!-- agent-moebius:role=ceo -->` metadata 并直接归为 `speaker=ceo`，**不走 `availableAgentNames` 白名单校验**；其他 role 仍走现有校验路径。
-- MUST NOT 把 `ceo` 加进 `availableAgentNames`；CEO 不是 mention codex agent，`@ceo` 不应触发 codex 调用。
-- MUST 让 CEO 规则进化入口是 `@secretary`，而不是 `@ceo` 普通触发。
+- MUST 把 `ceo` 加进普通 mention trigger 的可触发 agent 集合；`@ceo` MUST 进入独立 issue + role thread，并走普通 CEO agent 的 fail-closed 编排路径。
+- MUST 让 CEO 规则进化入口是 `@secretary`，而不是普通 `@ceo` 编排触发。
 - 未来新增 driver agent 时 MUST 同步扩 `agents/ceo.md` 的 `as` 允许集合并更新 `format-ceo.ts` 的 `CEO_APPEND_ROLES` 白名单。
 - MUST 在 runner 写回 agent 评论时使用 GitHub 页面可见模板 `<role>:\n${LAST_RESPONSE}`，其中 `${LAST_RESPONSE}` 是 Codex 本轮最终 assistant 文本；落到 comment body 时 MUST 使用 `&lt;role&gt;:\n${LAST_RESPONSE}`，避免 GitHub Markdown 把 raw `<role>` 当作 HTML 标签处理。
 - MUST 在 runner 写回 agent 评论时追加隐藏 metadata `<!-- agent-moebius:role=<role> -->`。
@@ -693,11 +693,18 @@ And MUST 执行一次外部 comment 兜底路由判定
 
 ### 场景 22.12：GitHub response intake — 外部 route parser 非法 append fail-open
 Given external comment route 返回 append
-And append body 为空、没有合法 mention、含多个合法 mention、mention 未知 role、mention `@ceo`、或合法 mention 只出现在 fenced code / inline code 中
+And append body 为空、没有合法 mention、含多个合法 mention、mention 未知 role、或合法 mention 只出现在 fenced code / inline code 中
 When TypeScript 后置校验 route 输出
 Then route result MUST 为 `FAIL_OPEN`
 And runner MUST NOT 发布 append 评论
 And intake state MUST 记录该 comment id 的 `outcome = fail_open`
+
+### 场景 22.12a：GitHub response intake — 外部 route 可 append CEO
+Given external comment route 返回 append
+And append body 在非代码区域只包含一个合法 mention `@ceo`
+When TypeScript 后置校验 route 输出
+Then route result MUST 为 `APPEND`
+And runner 本轮只发布 `<ceo>:` route append，不直接运行 CEO agent
 
 ### 场景 22.13：GitHub response intake — 兜底路由调用有界完成
 Given active issue 最新外部无 mention comment 触发 external comment route
@@ -1173,12 +1180,13 @@ And runner fail-open 直接 post dev 原文
 And comment body 包含 `<!-- agent-moebius:ceo-reviewed action=fail_open reason=unknown-as -->`
 And 日志包含 `event=ceo-guardrail-failopen`
 
-### 场景 46：CEO speaker 命名空间独立于 mention 白名单
+### 场景 46：CEO speaker 命名空间独立于普通 mention 触发
 Given issue timeline 里有一条 body 含 `<!-- agent-moebius:role=ceo -->` 的评论
-And `availableAgentNames = ["dev", "product-manager", "hermes-user"]`（不含 `ceo`）
+And `availableAgentNames` 包含 `ceo`
 When `normalizeComment` 处理该评论
 Then 该评论归一化为 `speaker=ceo`
-And 该评论 body 不会因 `@ceo` mention 触发 codex 调用（`ceo` 不在 mention agent 集合内）
+And speaker 归一化不依赖普通 mention 触发
+And 最新非代码消息中的 `@ceo` 仍可由普通 mention trigger 选择 CEO agent
 
 ### 场景 47：CEO guardrail — dev 死锁等待不存在的角色被 CEO append 裁决
 Given dev 收到历史 plan-written reflector hook
@@ -1457,10 +1465,181 @@ When observer 页面渲染
 Then 诊断区显示配置读取失败
 And 页面不把所有 repository 误报为“没有记录”
 
+## T3 CEO agent 编排路径
+- MUST treat `ceo` as both the existing stateless guardrail identity and a normal mention-triggerable Codex agent identity; the two paths MUST keep distinct failure semantics.
+- MUST let manual `@ceo` in the latest non-code message trigger the CEO agent through the normal mention trigger.
+- MUST preserve CEO guardrail as stateless and fail-open: guardrail failures MUST NOT block the original agent comment.
+- MUST give CEO agent runs an independent issue + role thread using the existing role-thread state store.
+- MUST let `agents/ceo.md` use frontmatter `preScript: src/agent-prescripts/ceo-ledger-context.ts` for the normal agent path only; guardrail calls MUST parse and use the persona body without executing that preScript.
+- MUST keep CEO agent visible responses at `in-progress`; CEO agent MUST NOT use `plan-written` or `code-verified`.
+- MUST store CEO scripts as independent data files outside top-level `agents/*.md`; the first script set MUST include `plan-review`, `post-implementation-retro`, and `milestone-spawn-child-issues`.
+- MUST validate CEO workflow id and template existence at runtime before performing orchestration side effects.
+- MUST fail closed, with a visible `<ceo>:` `in-progress` failure comment, when CEO agent ledger context loading fails, the ledger file is missing, ledger schema is invalid, no unique current projection can be derived, a required script is missing, orchestration JSON is invalid, issue creation fails, or ledger child-ref writing fails.
+- MUST NOT update the CEO role thread after a fail-closed CEO orchestration failure.
+- MUST update the CEO role thread only after all required orchestration side effects have completed and the final CEO comment has been posted successfully.
+- MUST support agent preScripts returning deterministic prompt context; runner MUST append that context to the selected agent prompt before Codex execution.
+- MUST let the CEO ledger preScript inject only the current active phase projection and bounded ledger summary relevant to the current issue; it MUST NOT inject previous phase artifact bodies or the entire ledger as free context.
+- MUST keep CEO orchestration side effects inside runner / TypeScript adapters; CEO agent Codex output MUST NOT directly execute `gh issue create` or arbitrary shell commands.
+- MUST provide a GitHub adapter for creating an issue in the same repository as the parent issue, using controlled argv and stdin, with no automatic retry for the visible write.
+- MUST bound CEO orchestration `createIssue` calls with both the GitHub adapter timeout / AbortSignal behavior and a runner-level action timeout so fake or faulty adapters cannot leave an issue job permanently unsettled.
+- MUST render child issue body from validated orchestration fields and script template data, not from an arbitrary shell command.
+- MUST require each spawned child issue body to include parent reference, ledger id or task id, quality baseline, acceptance statements, dependencies, initial handoff role, provenance, conflict-group reason, and a stable hidden orchestration key.
+- MUST derive the stable orchestration key from parent issue source, workflow id, and ledger task id; the key MUST NOT include title, description, or other CEO free text.
+- MUST reject a CEO orchestration output that contains more than one child descriptor for the same ledger task id in T3.
+- MUST require each spawned child issue to contain at most one legal non-code agent mention; the initial handoff role MUST be a real triggerable agent.
+- MUST create T3 child issues only in the parent issue repository; cross-repository orchestration is out of scope.
+- MUST write created or uniquely recovered child issue references back to the corresponding ledger task entry with local child issue reference, intent/status, provenance, and the stable orchestration key; it MUST NOT implement a GitHub issue state synchronizer.
+- MUST skip issue creation for a child descriptor when the latest ledger task entry already contains a child reference with the same orchestration key.
+- MUST search the parent repository for an existing child issue with the same hidden orchestration key before creating a new issue when the ledger has no matching child reference.
+- MUST fail closed without creating a new issue when orchestration-key lookup fails or returns multiple matches.
+- MUST NOT delete already-created child issues as compensation after a later child creation or ledger update failure; the visible failure comment MUST list created and not-created items.
+- MUST use bounded timeout / AbortSignal behavior when saving ledger child references from CEO orchestration.
+- MUST treat fail-closed explanation comment publishing as the visibility boundary: if the failure comment posts successfully, the issue records a visible failure and the CEO role thread remains unchanged; if the failure comment cannot be posted, the processing result MUST remain failed and enter existing intake retry / dead-letter behavior. Failure reasons for already-created or recovered child issues MUST include their issue URLs so dead-letter can preserve compensation context.
+- MUST prevent CEO guardrail self-excitation for CEO agent comments: when `agent = ceo`, guardrail append MUST NOT use `as=ceo` and MUST NOT append a body that hands control back to `@ceo`; invalid self-loop append MUST fail open to the original CEO agent comment.
+- MUST parse CEO orchestration output after stripping a trailing valid `in-progress` stage marker; fenced JSON followed by that stage marker MUST be accepted, while invalid JSON followed by the marker MUST NOT call `createIssue`.
+- MUST NOT implement T4 integration acceptance points, T5 worktree resourceization, T6 fan-out / join / roundtable topology, T7 observer UI changes, PR / push / delete actions, or cross-repository orchestration in T3.
+
+### 场景 T3.1：手动 @ceo 触发普通 CEO agent
+Given 最新消息在非代码区域包含 `@ceo`
+And `agents/ceo.md` 存在
+When runner 解析 mention trigger
+Then runner 选择 `ceo` agent
+And 该 run 使用 issue + role = `ceo` 的独立 role thread
+
+### 场景 T3.2：CEO agent 账本 prescript 成功注入当前阶段 projection
+Given `.state/goal-ledger.json` 存在且 schema 合法
+And 当前 issue 能唯一关联到一个有 active phase 的 ledger owner
+When `@ceo` 触发 CEO agent
+Then runner 执行 `ceo-ledger-context` prescript
+And Codex prompt 包含当前 phase objective、quality baseline、acceptance statements、dependencies、owner/task identity 和可用 workflow id
+And prompt 不包含已归档阶段 artifact body
+
+### 场景 T3.3：账本缺失时 CEO 编排 fail closed
+Given 最新消息包含 `@ceo`
+And `.state/goal-ledger.json` 不存在
+When runner 准备 CEO agent
+Then runner 不调用 Codex
+And runner 不创建任何 issue
+And runner 发布一条 `<ceo>:` 可见失败评论，末尾为 `<!-- agent-moebius:stage=in-progress -->`
+And runner 不更新 ceo role thread
+
+### 场景 T3.4：剧本缺失时不创建 issue
+Given CEO agent 输出 `workflowId = "milestone-spawn-child-issues"`
+And runtime 未加载到该 workflow 的剧本模板
+When runner 校验 orchestration 输出
+Then runner 不调用 GitHub issue create
+And runner 发布 fail-closed 失败评论
+And runner 不更新 ceo role thread
+
+### 场景 T3.5：真实 spawn 子 issue 并注入质量基准与验收语句
+Given CEO agent 输出合法 `spawn_child_issues`
+And workflow id、ledger task id、initial role、quality baseline、acceptance statements、dependencies 和 provenance 均合法
+When runner 执行 orchestration
+Then runner 通过 GitHub adapter 在父 issue 同仓库创建子 issue
+And 子 issue body 包含 parent reference、ledger task id、quality baseline、acceptance statements、dependencies、initial handoff role、provenance 和 conflict-group reason
+And 子 issue body 只有一个合法 agent mention
+
+### 场景 T3.6：创建成功后账本有 child ref
+Given runner 成功创建子 issue
+When runner 写回 ledger
+Then 对应 `TaskRecord.childIssueRefs` 包含该 child issue reference
+And reference status 为 `open`
+And provenance 指向父 issue 与本次 CEO orchestration
+
+### 场景 T3.7：部分成功不删除补偿但必须留痕
+Given CEO orchestration 需要创建两个子 issue
+And 第一个子 issue 已创建成功
+And 第二个子 issue 创建失败
+When runner 处理失败
+Then runner 不删除第一个子 issue
+And runner 发布 fail-closed 评论列出已创建和未创建项
+And runner 不更新 ceo role thread
+
+### 场景 T3.7a：部分成功后 ledger 已写入的 child 不重复创建
+Given 第一个 child issue 的 child ref 已写入 ledger，且带 orchestration key
+And 后续 child 创建失败导致本轮没有保存 ceo role thread
+When 下一轮 runner 重试同一 CEO orchestration
+Then runner 读取 ledger 后识别第一个 child descriptor 已有同 key child ref
+And runner 不再次调用 GitHub create issue 创建第一个 child
+
+### 场景 T3.7aa：重跑时 title 变化不改变 orchestration key
+Given CEO orchestration 第一次为 parent issue、workflow id、ledger task id `task-1` 输出 title `A`
+And runner 已创建该 child issue 并记录 orchestration key
+When 下一轮 CEO orchestration 为同一 parent issue、workflow id、ledger task id `task-1` 输出 title `A revised`
+Then runner 计算出的 orchestration key 与第一次相同
+And runner 不再次调用 GitHub create issue 创建该 child
+
+### 场景 T3.7ab：child 已创建但 ledger ref 未写入时按 GitHub key 找回
+Given runner 已创建 child issue
+And child issue body 含稳定 hidden orchestration key
+And ledger child ref 保存 timeout
+And fail-closed 评论发布失败
+When 下一轮 runner 重试同一 descriptor
+Then runner 在创建前按 orchestration key 查询父 issue 同仓库
+And runner 找到唯一 child issue 后不再次创建
+And runner 尝试把该 child issue 写回 ledger
+And 后续失败说明或 dead-letter reason 包含该 child issue URL
+
+### 场景 T3.7b：createIssue 永久挂起时有界失败
+Given CEO orchestration 需要创建 child issue
+And injected `createIssue` promise 永久不 settle
+When runner 执行 orchestration
+Then issue job 在配置的 orchestration action timeout 内 settle
+And runner 不保存 ceo role thread
+And runner 不创建后续 child issue
+And runner 发布可见 fail-closed 评论或进入既有 failed / dead-letter 路径
+
+### 场景 T3.7c：ledger child ref 保存 timeout 时有界失败
+Given runner 已成功创建 child issue
+And child ref 保存操作 timeout
+When runner 处理该 timeout
+Then runner 不保存 ceo role thread
+And runner 发布可见 fail-closed 评论，包含已创建 issue URL 与 ledger 写入失败原因
+
+### 场景 T3.7d：CEO JSON 与 stage marker 共存
+Given CEO Codex 输出 fenced JSON
+And fenced JSON 后接合法 `<!-- agent-moebius:stage=in-progress -->`
+When runner 解析 CEO orchestration output
+Then parser 接受该输出
+When CEO Codex 输出非法 JSON 后接合法 stage marker
+Then parser 拒绝该输出
+And runner 不调用 GitHub create issue
+
+### 场景 T3.8：guardrail 仍 fail-open
+Given 任一 agent 评论进入 CEO guardrail
+And CEO guardrail Codex 超时、失败或返回非法 JSON
+When runner 发布评论
+Then runner 发布原 agent 响应
+And 评论带 `ceo-reviewed action=fail_open` 审计 metadata
+
+### 场景 T3.9：CEO agent guardrail 防自激
+Given `agent = ceo`
+And CEO guardrail 返回 `append as=ceo` 或 append body 交回 `@ceo`
+When `formatCeoComment` 后置校验结果
+Then guardrail 结果 fail-open 为原 CEO agent 响应
+And runner 不发布额外自我续写评论
+
+### 场景 T3.10：外部无 mention 路由可移交 CEO
+Given active issue 最新外部 comment 没有合法 mention
+And 该 comment 有路由意图但目标不清或需要编排裁决
+When external comment fallback route 判定
+Then 判定可返回 append body `@ceo ...`
+And TypeScript 校验接受单个 `@ceo`
+And 本轮只发布 `<ceo>:` route append，不直接运行 CEO
+And 下一轮 active poll 由普通 mention trigger 选择 CEO agent
+
+### 场景 T3.11：非目标不越界
+Given T3 实现完成
+When 检查改动范围
+Then 不存在 T4 集成验收 join 语义
+And 不存在 T5 issue 级 worktree resourceization
+And 不存在 T6 fan-out / join / roundtable 拓扑
+And 不存在 T7 observer UI 写入或展示改动
+
 ## 可验证行为
 - `pnpm vitest run tests/observer.test.ts` MUST 通过，覆盖 observer 的白名单聚合、状态来源标注、artifact 发布链接 / 图片预览、未发布 artifact 路径、缺 `.state` 文件、坏 state JSON、坏 JSONL、JSONL 尾行截断、manifest 缺字段、损坏 config 诊断、无写入边界、fake `gh` / `codex` 零调用，以及 observer 被强杀后 runner 测试不受影响。
 - `pnpm vitest run tests/runner.test.ts tests/format-ceo.test.ts tests/github-response-intake.test.ts tests/conversation.test.ts` MUST 通过，覆盖外部无 mention 兜底路由、route parser 负例、comment id ledger 防重、CEO 审阅 metadata 覆盖、旧 intake state 兼容与 speaker 归一化边界。
-- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed 保留 `updatedAt` 并更新 `failureCount` / `lastFailureReason` / `nextPollAt`、`dead-lettered` 清零失败状态并降级 idle、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、Codex watchdog 超时后 failed 折叠并释放 queued driver pool 名额、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、`@secretary` 普通 mention 触发 Codex、secretary speaker 归一化、secretary current repo preScript cwd 传递、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO `append.as=secretary` 合法、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、dev workspace git 失败 stderr 摘要、dev workspace 本地分支名与 repo cache 串行化、codex jsonl 最终消息解析、thread id 解析、cached token 解析、Codex AbortSignal 中断与忽略温和信号时的强杀兜底、issue media 纯提取 / prompt manifest、SVG issue 输入过滤、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`gh` 子进程挂起 timeout、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、死信发布成功 / 失败 / 故障恢复不误发死信、持续 GitHub fetch 故障达到预算后死信、以及收尾中断检查抛错时 fail-open 照常发布。
+- `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed 保留 `updatedAt` 并更新 `failureCount` / `lastFailureReason` / `nextPollAt`、`dead-lettered` 清零失败状态并降级 idle、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、Codex watchdog 超时后 failed 折叠并释放 queued driver pool 名额、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` 不触发 Codex、`@ceo` 普通 mention 触发 Codex、`@secretary` 普通 mention 触发 Codex、secretary speaker 归一化、secretary current repo preScript cwd 传递、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO `append.as=secretary` 合法、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、CEO script 文件加载、CEO agent 账本 prescript fail-closed、CEO orchestration JSON + stage marker 解析、真实 createIssue adapter argv/stdin、稳定 orchestration key、child issue ledger ref、按 hidden key 找回已创建 child、防自激环、外部 route append `@ceo`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、dev workspace git 失败 stderr 摘要、dev workspace 本地分支名与 repo cache 串行化、codex jsonl 最终消息解析、thread id 解析、cached token 解析、Codex AbortSignal 中断与忽略温和信号时的强杀兜底、issue media 纯提取 / prompt manifest、SVG issue 输入过滤、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`gh` 子进程挂起 timeout、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、死信发布成功 / 失败 / 故障恢复不误发死信、持续 GitHub fetch 故障达到预算后死信、以及收尾中断检查抛错时 fail-open 照常发布。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。
 - `pnpm start` 会真实扫描白名单 repositories；首次 repository scan 默认只建立 baseline，后续最新消息包含有效 trigger 时会调用 codex 并可能发表评论；执行前应确认这是期望的外部副作用。

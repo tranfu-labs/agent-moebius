@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { OUTPUT_ARTIFACT_RELEASE_TAG } from "./config.js";
+import { CEO_ORCHESTRATION_ACTION_TIMEOUT_MS, OUTPUT_ARTIFACT_RELEASE_TAG } from "./config.js";
 import type { IssueSource, RepositoryRef } from "./issue-source.js";
 import type { PreparedOutputArtifact, PublishedArtifact } from "./media-assets.js";
 import { classifyGhError, withRetry } from "./retry.js";
@@ -20,6 +20,16 @@ export interface GitHubIssueSummary {
   issueNumber: number;
   updatedAt: string;
 }
+
+export interface CreatedIssue {
+  number: number;
+  url: string;
+}
+
+export type IssueLookupByOrchestrationKeyResult =
+  | { kind: "none" }
+  | { kind: "one"; issue: CreatedIssue }
+  | { kind: "multiple"; issues: CreatedIssue[] };
 
 export type IssueReactionContent = "eyes";
 
@@ -81,6 +91,44 @@ export async function postComment(source: IssueSource, body: string): Promise<vo
   await runCommand("gh", buildPostCommentArgs(source), { stdin: body, retry: false });
 }
 
+export async function createIssue(
+  source: IssueSource,
+  input: { title: string; body: string },
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<CreatedIssue> {
+  const result = await runCommand("gh", buildCreateIssueArgs(source, input.title), {
+    stdin: input.body,
+    retry: false,
+    signal: options.signal,
+    timeoutMs: options.timeoutMs ?? CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+  });
+  return parseCreatedIssueUrl(result.stdout, source);
+}
+
+export async function findIssueByOrchestrationKey(
+  source: IssueSource,
+  key: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<IssueLookupByOrchestrationKeyResult> {
+  const result = await runCommand("gh", buildFindIssueByOrchestrationKeyArgs(source, key), {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs ?? CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+  });
+  const parsed: unknown = JSON.parse(result.stdout);
+  if (!isIssueSearchResultList(parsed)) {
+    throw new Error("gh issue list returned an unexpected issue search shape");
+  }
+
+  const issues = parsed.map((issue) => ({ number: issue.number, url: issue.url }));
+  if (issues.length === 0) {
+    return { kind: "none" };
+  }
+  if (issues.length === 1) {
+    return { kind: "one", issue: issues[0]! };
+  }
+  return { kind: "multiple", issues };
+}
+
 export async function addReaction(target: ReactionTarget, content: IssueReactionContent): Promise<void> {
   await runCommand("gh", buildAddReactionArgs(target, content));
 }
@@ -139,6 +187,25 @@ export function buildFetchIssueWithCommentsArgs(source: IssueSource): string[] {
 
 export function buildPostCommentArgs(source: IssueSource): string[] {
   return ["issue", "comment", String(source.issueNumber), "--repo", `${source.owner}/${source.repo}`, "--body-file", "-"];
+}
+
+export function buildCreateIssueArgs(source: IssueSource, title: string): string[] {
+  return ["issue", "create", "--repo", `${source.owner}/${source.repo}`, "--title", title, "--body-file", "-"];
+}
+
+export function buildFindIssueByOrchestrationKeyArgs(source: IssueSource, key: string): string[] {
+  return [
+    "issue",
+    "list",
+    "--repo",
+    `${source.owner}/${source.repo}`,
+    "--state",
+    "all",
+    "--search",
+    key,
+    "--json",
+    "number,url",
+  ];
 }
 
 export function buildAddIssueReactionArgs(source: IssueSource, content: IssueReactionContent): string[] {
@@ -466,6 +533,42 @@ function isGitHubIssueSummaryList(value: unknown): value is Array<{ number: numb
       return Number.isInteger(summary.number) && summary.number !== undefined && summary.number > 0 && typeof summary.updatedAt === "string";
     })
   );
+}
+
+function isIssueSearchResultList(value: unknown): value is Array<{ number: number; url: string }> {
+  return (
+    Array.isArray(value) &&
+    value.every((issue) => {
+      if (typeof issue !== "object" || issue === null || Array.isArray(issue)) {
+        return false;
+      }
+
+      const summary = issue as Partial<{ number: number; url: string }>;
+      return Number.isInteger(summary.number) && summary.number !== undefined && summary.number > 0 && typeof summary.url === "string";
+    })
+  );
+}
+
+function parseCreatedIssueUrl(stdout: string, source: IssueSource): CreatedIssue {
+  const trimmed = stdout.trim();
+  const escapedOwner = escapeRegex(source.owner);
+  const escapedRepo = escapeRegex(source.repo);
+  const match = trimmed.match(new RegExp(`https://github\\.com/${escapedOwner}/${escapedRepo}/issues/(\\d+)`, "u"));
+  const numberText = match?.[1];
+  if (numberText === undefined) {
+    throw new Error("gh issue create did not return a parseable GitHub issue URL");
+  }
+
+  const number = Number(numberText);
+  if (!Number.isInteger(number) || number <= 0) {
+    throw new Error("gh issue create returned an invalid issue number");
+  }
+
+  return { number, url: `https://github.com/${source.owner}/${source.repo}/issues/${String(number)}` };
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function ensureArtifactRelease(source: IssueSource): Promise<void> {
