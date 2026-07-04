@@ -11,6 +11,22 @@ import {
   type FormatCeoInput,
   type FormatExternalCommentRouteInput,
 } from "../src/format-ceo.js";
+import { parseAgentMentions } from "../src/conversation.js";
+
+const PLAN_REVIEW_TEMPLATE_ITEMS = [
+  "对其他模块的影响",
+  "可行性",
+  "核心目标贴合度",
+  "过度设计",
+  "现有规范遵守",
+  "周全性与鲁棒性",
+];
+
+const CODE_VERIFIED_RETRO_TEMPLATE_ITEMS = [
+  "实现是否符合方案最初设计",
+  "有无新发现是方案当时没考虑到、其实应该做得不一样的",
+  "本次执行有无新经验值得沉淀",
+];
 
 describe("parseCeoOutput", () => {
   it("parses no_change JSON", () => {
@@ -210,10 +226,20 @@ describe("formatCeoComment", () => {
   it("documents CEO stage acceptance routing in the persona", async () => {
     const persona = await fs.readFile(path.resolve("agents", "ceo.md"), "utf8");
 
+    expect(persona).toContain("识别场景 -> 套模板 -> @角色");
+    expect(persona).toContain("方案评审模板");
+    expect(persona).toContain("执行后复盘模板");
     expect(persona).toContain("回流给发起需求角色验收");
     expect(persona).toContain("缺验收语句时要求补齐");
     expect(persona).toContain("mention `@dev`");
-    expect(persona).toContain("mention 该发起角色");
+    expect(persona).toContain("唯一合法 mention 指向该发起角色");
+
+    expectItemsInOrder(extractTemplateSection(persona, "方案评审模板固定包含六项", "输出示例："), [
+      ...PLAN_REVIEW_TEMPLATE_ITEMS,
+    ]);
+    expectItemsInOrder(extractTemplateSection(persona, "执行后复盘模板固定包含三问", "输出示例"), [
+      ...CODE_VERIFIED_RETRO_TEMPLATE_ITEMS,
+    ]);
   });
 
   it("documents GitHub interaction protocol corrections in the persona", async () => {
@@ -267,16 +293,14 @@ describe("formatCeoComment", () => {
     expect(prompt).toContain("docs/protocols/github-interaction.md");
   });
 
-  it("returns APPEND when CEO routes plan-written acceptance back to hermes-user", async () => {
-    const agentsDir = await makeAgentsDir();
+  it("returns APPEND with the plan review template to qa for plan-written", async () => {
     const latestResponse = `方案已落盘。
 
 ## 验收语句
 1. 跑 pnpm test -- tests/format-ceo.test.ts → 应退出码 0。
 
 <!-- agent-moebius:stage=plan-written -->`;
-    const appendBody =
-      "@hermes-user 请按本轮方案末尾的「验收语句」逐条验收方案：每条给出通过 / 不通过 + 依据。";
+    const appendBody = makePlanReviewAppendBody();
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
       finalText: JSON.stringify({ action: "append", as: "ceo", body: appendBody }),
@@ -291,11 +315,11 @@ describe("formatCeoComment", () => {
       ...baseInput,
       issueContext: {
         issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/34",
-        issueBody: "需求持有者是 hermes-user。\n@dev 请实现验收回流路由。",
+        issueBody: "需求持有者是 product-manager。\n@dev 请实现验收回流路由。",
         comments: [],
       },
       latestResponse,
-      agentsDir,
+      agentsDir: path.resolve("agents"),
       runCodex,
     });
 
@@ -305,14 +329,74 @@ describe("formatCeoComment", () => {
       reason: "appended",
     });
     if (result.action === "APPEND") {
-      expect(result.body).toContain("@hermes-user");
-      expect(result.body).toContain("验收语句");
-      expect(result.body).toContain("逐条验收");
+      expect(result.body).toBe(appendBody);
+      expectItemsInOrder(result.body, PLAN_REVIEW_TEMPLATE_ITEMS);
+      expect(parseAgentMentions(result.body).map((mention) => mention.name)).toEqual(["qa"]);
+      expect(result.body).not.toContain("@product-manager");
     }
     const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
-    expect(prompt).toContain("需求持有者是 hermes-user");
+    expect(prompt).toContain("需求持有者是 product-manager");
     expect(prompt).toContain("<!-- agent-moebius:stage=plan-written -->");
     expect(prompt).toContain("## 验收语句");
+    expect(prompt).toContain("方案评审模板");
+    expectItemsInOrder(appendBody, PLAN_REVIEW_TEMPLATE_ITEMS);
+  });
+
+  it("returns APPEND with the post-implementation retro template to the requester for code-verified", async () => {
+    const latestResponse = `实现已完成，测试通过。
+
+<!-- agent-moebius:stage=code-verified -->`;
+    const appendBody = makeCodeVerifiedRetroAppendBody("product-manager");
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: JSON.stringify({ action: "append", as: "ceo", body: appendBody }),
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({
+      ...baseInput,
+      issueContext: {
+        issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/61",
+        issueBody: "需求持有者是 product-manager。\n@dev 请实现 T9。",
+        comments: [
+          {
+            body: `&lt;dev&gt;:
+方案已落盘。
+
+## 验收语句
+1. 打开 agents/ceo.md → 应看到固定模板。
+
+<!-- agent-moebius:stage=plan-written -->
+<!-- agent-moebius:role=dev -->`,
+          },
+        ],
+      },
+      latestResponse,
+      agentsDir: path.resolve("agents"),
+      runCodex,
+    });
+
+    expect(result).toMatchObject({
+      action: "APPEND",
+      as: "ceo",
+      reason: "appended",
+    });
+    if (result.action === "APPEND") {
+      expect(result.body).toBe(appendBody);
+      expectItemsInOrder(result.body, CODE_VERIFIED_RETRO_TEMPLATE_ITEMS);
+      expect(parseAgentMentions(result.body).map((mention) => mention.name)).toEqual(["product-manager"]);
+      expect(result.body).toContain("dev 提供");
+      expect(result.body).not.toContain("@dev");
+    }
+    const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
+    expect(prompt).toContain("需求持有者是 product-manager");
+    expect(prompt).toContain("<!-- agent-moebius:stage=code-verified -->");
+    expect(prompt).toContain("执行后复盘模板");
+    expectItemsInOrder(appendBody, CODE_VERIFIED_RETRO_TEMPLATE_ITEMS);
   });
 
   it("returns APPEND when CEO asks dev to add missing acceptance statements", async () => {
@@ -726,4 +810,44 @@ function successfulCodexRun(runDir: string, finalText: string) {
     stdoutPath: path.join(runDir, "stdout.jsonl"),
     stderrPath: path.join(runDir, "stderr.log"),
   };
+}
+
+function makePlanReviewAppendBody(): string {
+  return `@qa 本轮方案已输出 \`plan-written\` 且含「验收语句」清单，请按固定方案评审模板审查：
+
+1. 对其他模块的影响：检查依赖边界、module-map 与禁止依赖方向是否受影响。
+2. 可行性：检查技术路径是否已验证，或是否有仓库内先例 / 测试支撑。
+3. 核心目标贴合度：检查方案是否直接服务本任务目标，是否跑偏。
+4. 过度设计：检查是否能用更小改动完成，是否引入不必要抽象 / 文件 / 运行时能力。
+5. 现有规范遵守：检查是否遵守 OpenSpec、AGENTS.md、GitHub 交互协议与验收治理。
+6. 周全性与鲁棒性：检查意外情况、失败路径、边界条件是否覆盖。
+
+请按你的测试设计流程给出审查结论；如需增补验收语句，请标注为测试设计建议，等待需求持有者确认后才并入正式清单。`;
+}
+
+function makeCodeVerifiedRetroAppendBody(requester: string): string {
+  return `@${requester} 请按已确认方案中的「验收语句」逐条验收本次实现证据，并按固定执行后复盘模板给出结论：
+
+1. 实现是否符合方案最初设计：请对照方案逐条说明，偏差逐条列出，并判断是否可接受。
+2. 有无新发现是方案当时没考虑到、其实应该做得不一样的：如有，请回流为后续任务或规范修订建议。
+3. 本次执行有无新经验值得沉淀：如有，请指出应沉淀到规范、persona 或文档的位置。
+
+同时请检查 dev 提供的测试输出、文件路径或 artifact 证据是否足以支撑每条验收语句；任一不通过时，请指出未过语句、实际观察与期望差异。`;
+}
+
+function extractTemplateSection(text: string, start: string, end: string): string {
+  const startIndex = text.indexOf(start);
+  expect(startIndex).toBeGreaterThanOrEqual(0);
+  const endIndex = text.indexOf(end, startIndex + start.length);
+  expect(endIndex).toBeGreaterThan(startIndex);
+  return text.slice(startIndex, endIndex);
+}
+
+function expectItemsInOrder(text: string, items: string[]): void {
+  let previousIndex = -1;
+  for (const item of items) {
+    const itemIndex = text.indexOf(item);
+    expect(itemIndex).toBeGreaterThan(previousIndex);
+    previousIndex = itemIndex;
+  }
 }
