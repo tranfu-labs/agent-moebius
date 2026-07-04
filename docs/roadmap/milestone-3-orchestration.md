@@ -93,6 +93,7 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 
 以下条目是里程碑 2 运行期间 dogfood 观察到、尚未定型的 runner 稳定性 / 编排缺口，本文档启动时并入某个 T 或另起新 T：
 
+- **账本写路径整体未接线**（2026-07-04，T1–T3 完成后核查）：`saveGoalLedgerState` 与 `switchActivePhase` 在运行时代码中无任何调用方，账本目前只读生效（CEO prescript 读 projection → spawn 注入子 issue）。三个缺失入口：(a) **目标采访入账**——T1 intake 是纯 helper，无 CEO action / CLI，用户无法通过对话把目标写进账本，只能手工编 `.state/goal-ledger.json`；(b) **阶段切换**——"切换即归档"的 fail-closed 语义已实现但无人能触发，阶段隔离最关键的动作只能手工改 JSON；(c) **spawn 回写**——CEO spawn 子 issue 后账本不记录 child issue refs，账本与现实立即漂移。三者是 T4 / T8 dogfood 的前置接线；入账与切阶段建议做成 CEO 新 action（`goal_intake` / `switch_phase`），沿用"副作用只经 runner 受控执行 + fail-closed"的既有立场。
 - **无匹配剧本时的固定结论行误用**（2026-07-04，tranfu-agents-app issue 96）：qa 被问页面走查问题（无匹配剧本的场景），误套方案审查剧本——开头声明「当前没有 plan-written 方案评论」、结尾仍输出固定结论行「QA 结论：通过」。缺规则：**无匹配剧本时不得套用任何固定结论行**，应说明能力边界并建议下一步（如指出需要 workspace 走查能力、建议等 T5）。落点：`agents/qa.md` 及 T3 剧本分发规则的负向约束；性质与 CEO 托举同源——识别不了场景时诚实说不知道，而不是套最近的模板。
 - **Codex CLI 额度失败识别与退避**（2026-07-04 首次命中）：codex CLI 返回 `You've hit your usage limit` 时 runner 只见 `exit-code-1`，与 gh EOF 等瞬断同等对待；约 5 分钟内失败预算耗尽 → dead-letter → 即便额度恢复也不再自动 pick up。缺口：(a) 从 codex stdout.jsonl 抽取错误类别（usage limit / rate limit / network），按类采用不同退避（usage-limit 应按 "try again at <time>" 直接退到目标时刻，不占失败预算）；(b) event 层暴露分类字段，loop watcher 不用 tail runDir 才知道根因；(c) dead-letter 之后额度恢复时可自动 recover 已 idle 的 issue。可能落在 T3（CEO 编排剧本库对失败的分场景处理）或与 T5 worktree 供给同批做 runner 侧改造。
 
