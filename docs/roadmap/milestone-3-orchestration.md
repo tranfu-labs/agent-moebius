@@ -61,6 +61,12 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - Figma 对齐流程仍不做（依赖视觉对比 oracle，独立立项）。
 - PR 预览基建仍按 `docs/roadmap/spike-preview-oracle.md` 的触发条件判断，不预设。
 
+## 待细化候选观察
+
+以下条目是里程碑 2 运行期间 dogfood 观察到、尚未定型的 runner 稳定性 / 编排缺口，本文档启动时并入某个 T 或另起新 T：
+
+- **Codex CLI 额度失败识别与退避**（2026-07-04 首次命中）：codex CLI 返回 `You've hit your usage limit` 时 runner 只见 `exit-code-1`，与 gh EOF 等瞬断同等对待；约 5 分钟内失败预算耗尽 → dead-letter → 即便额度恢复也不再自动 pick up。缺口：(a) 从 codex stdout.jsonl 抽取错误类别（usage limit / rate limit / network），按类采用不同退避（usage-limit 应按 "try again at <time>" 直接退到目标时刻，不占失败预算）；(b) event 层暴露分类字段，loop watcher 不用 tail runDir 才知道根因；(c) dead-letter 之后额度恢复时可自动 recover 已 idle 的 issue。可能落在 T3（CEO 编排剧本库对失败的分场景处理）或与 T5 worktree 供给同批做 runner 侧改造。
+
 ## 启动条件
 
 里程碑 2 T1–T7 全部收尾，且本文档任务经细化（补齐验收语句、范围、依赖）并获用户裁决。
