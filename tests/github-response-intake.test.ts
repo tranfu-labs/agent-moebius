@@ -4,6 +4,8 @@ import {
   failedIssueProcessingOutcome,
   getDueActiveIssueSources,
   getDueRepositories,
+  hasFallbackRouteDecision,
+  noTriggerWithFallbackRouteDecision,
   recordActiveIssueUnchanged,
   recordIssueProcessingOutcome,
   resolveRepositoryScan,
@@ -311,6 +313,63 @@ describe("github response intake", () => {
       failureCount: 0,
     });
     expect(result.issues["tranfu-labs/agent-moebius#4"]).not.toHaveProperty("lastFailureReason");
+  });
+
+  it("records fallback route decisions by comment id and suppresses duplicates", () => {
+    const state = stateWithActiveIssue({
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 0,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+    const result = recordIssueProcessingOutcome({
+      state,
+      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
+      outcome: noTriggerWithFallbackRouteDecision({
+        commentId: "comment-node-1",
+        outcome: "append",
+        judgedAt: "2026-06-28T00:02:00.000Z",
+        targetRole: "dev",
+        reason: "route-intent",
+      }),
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
+    });
+    const issueState = result.issues["tranfu-labs/agent-moebius#4"];
+
+    expect(issueState?.fallbackRouteDecisions?.["comment-node-1"]).toMatchObject({
+      outcome: "append",
+      targetRole: "dev",
+    });
+    expect(hasFallbackRouteDecision({ issueState, commentId: "comment-node-1" })).toBe(true);
+    expect(hasFallbackRouteDecision({ issueState, commentId: "comment-node-2" })).toBe(false);
+  });
+
+  it("preserves fallback route decisions across later processing outcomes", () => {
+    const state = stateWithActiveIssue({
+      updatedAt: "2026-06-28T00:00:00.000Z",
+      activeNoChangeCount: 0,
+      nextPollAt: "2026-06-28T00:01:00.000Z",
+    });
+    state.issues["tranfu-labs/agent-moebius#4"]!.fallbackRouteDecisions = {
+      "comment-node-1": {
+        commentId: "comment-node-1",
+        outcome: "fail_open",
+        judgedAt: "2026-06-28T00:02:00.000Z",
+        reason: "codex-timeout",
+      },
+    };
+
+    const result = recordIssueProcessingOutcome({
+      state,
+      summary: makeSummary(4, "2026-06-28T00:03:00.000Z"),
+      outcome: "triggered-success",
+      processedAt: now,
+      activeIssuePollIntervalMs: oneMinuteMs,
+      activeIssueNoChangeLimit: 5,
+    });
+
+    expect(result.issues["tranfu-labs/agent-moebius#4"]?.fallbackRouteDecisions).toHaveProperty("comment-node-1");
   });
 
   it("demotes active issues after five unchanged active polls", () => {

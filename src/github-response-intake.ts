@@ -19,6 +19,7 @@ export interface IntakeIssueState extends RepositoryRef {
   nextPollAt: string | null;
   failureCount?: number;
   lastFailureReason?: string;
+  fallbackRouteDecisions?: Record<string, FallbackRouteDecision>;
 }
 
 export interface GitHubResponseIntakeState {
@@ -32,10 +33,26 @@ export interface FailedIssueProcessingOutcome {
   agent?: string;
 }
 
+export type FallbackRouteDecisionOutcome = "no_action" | "append" | "fail_open";
+
+export interface FallbackRouteDecision {
+  commentId: string;
+  outcome: FallbackRouteDecisionOutcome;
+  judgedAt: string;
+  targetRole?: string;
+  reason?: string;
+}
+
+export interface NoTriggerWithFallbackRouteDecisionOutcome {
+  kind: "no-trigger";
+  fallbackRouteDecision: FallbackRouteDecision;
+}
+
 export type IssueProcessingOutcome =
   | "triggered-success"
   | "no-trigger"
   | FailedIssueProcessingOutcome
+  | NoTriggerWithFallbackRouteDecisionOutcome
   | "dead-lettered"
   | "interrupted"
   | "issue-not-found"
@@ -162,45 +179,61 @@ export function recordIssueProcessingOutcome(input: {
     const activeNoChangeCount = previousIssue?.mode === "active" ? previousIssue.activeNoChangeCount : 0;
     const failureCount = (previousIssue?.failureCount ?? 0) + 1;
 
+    const issue = withFallbackRouteDecisions(
+      {
+        owner: input.summary.owner,
+        repo: input.summary.repo,
+        issueNumber: input.summary.issueNumber,
+        updatedAt: previousIssue?.updatedAt ?? new Date(0).toISOString(),
+        mode: "active",
+        activeNoChangeCount,
+        nextPollAt: addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString(),
+        failureCount,
+        lastFailureReason: input.outcome.reason,
+      },
+      previousIssue,
+      null,
+    );
+
     return {
       ...input.state,
       issues: {
         ...input.state.issues,
-        [source.issueKey]: {
-          owner: input.summary.owner,
-          repo: input.summary.repo,
-          issueNumber: input.summary.issueNumber,
-          updatedAt: previousIssue?.updatedAt ?? new Date(0).toISOString(),
-          mode: "active",
-          activeNoChangeCount,
-          nextPollAt: addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString(),
-          failureCount,
-          lastFailureReason: input.outcome.reason,
-        },
+        [source.issueKey]: issue,
       },
     };
   }
 
-  if (input.outcome === "dead-lettered") {
+  const outcome = issueProcessingOutcomeKind(input.outcome);
+  const fallbackRouteDecision = getFallbackRouteDecisionFromOutcome(input.outcome);
+  const previousIssue = input.state.issues[source.issueKey];
+
+  if (outcome === "dead-lettered") {
+    const issue = withFallbackRouteDecisions(
+      {
+        owner: input.summary.owner,
+        repo: input.summary.repo,
+        issueNumber: input.summary.issueNumber,
+        updatedAt: input.summary.updatedAt,
+        mode: "idle",
+        activeNoChangeCount: 0,
+        nextPollAt: null,
+        failureCount: 0,
+      },
+      previousIssue,
+      null,
+    );
+
     return {
       ...input.state,
       issues: {
         ...input.state.issues,
-        [source.issueKey]: {
-          owner: input.summary.owner,
-          repo: input.summary.repo,
-          issueNumber: input.summary.issueNumber,
-          updatedAt: input.summary.updatedAt,
-          mode: "idle",
-          activeNoChangeCount: 0,
-          nextPollAt: null,
-          failureCount: 0,
-        },
+        [source.issueKey]: issue,
       },
     };
   }
 
-  if (input.outcome === "issue-not-found" || input.outcome === "issue-closed") {
+  if (outcome === "issue-not-found" || outcome === "issue-closed") {
     const { [source.issueKey]: _removed, ...issues } = input.state.issues;
     return {
       ...input.state,
@@ -208,41 +241,53 @@ export function recordIssueProcessingOutcome(input: {
     };
   }
 
-  if (input.outcome === "interrupted") {
-    return {
-      ...input.state,
-      issues: {
-        ...input.state.issues,
-        [source.issueKey]: {
-          owner: input.summary.owner,
-          repo: input.summary.repo,
-          issueNumber: input.summary.issueNumber,
-          updatedAt: input.summary.updatedAt,
-          mode: "active",
-          activeNoChangeCount: 0,
-          nextPollAt: input.processedAt.toISOString(),
-          failureCount: 0,
-        },
-      },
-    };
-  }
-
-  const previousMode = input.state.issues[source.issueKey]?.mode ?? "idle";
-  const isActive = input.outcome === "triggered-success" || previousMode === "active";
-  return {
-    ...input.state,
-    issues: {
-      ...input.state.issues,
-      [source.issueKey]: {
+  if (outcome === "interrupted") {
+    const issue = withFallbackRouteDecisions(
+      {
         owner: input.summary.owner,
         repo: input.summary.repo,
         issueNumber: input.summary.issueNumber,
         updatedAt: input.summary.updatedAt,
-        mode: isActive ? "active" : "idle",
+        mode: "active",
         activeNoChangeCount: 0,
-        nextPollAt: isActive ? addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString() : null,
+        nextPollAt: input.processedAt.toISOString(),
         failureCount: 0,
       },
+      previousIssue,
+      null,
+    );
+
+    return {
+      ...input.state,
+      issues: {
+        ...input.state.issues,
+        [source.issueKey]: issue,
+      },
+    };
+  }
+
+  const previousMode = previousIssue?.mode ?? "idle";
+  const isActive = outcome === "triggered-success" || previousMode === "active";
+  const issue = withFallbackRouteDecisions(
+    {
+      owner: input.summary.owner,
+      repo: input.summary.repo,
+      issueNumber: input.summary.issueNumber,
+      updatedAt: input.summary.updatedAt,
+      mode: isActive ? "active" : "idle",
+      activeNoChangeCount: 0,
+      nextPollAt: isActive ? addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString() : null,
+      failureCount: 0,
+    },
+    previousIssue,
+    fallbackRouteDecision,
+  );
+
+  return {
+    ...input.state,
+    issues: {
+      ...input.state.issues,
+      [source.issueKey]: issue,
     },
   };
 }
@@ -253,8 +298,21 @@ export function failedIssueProcessingOutcome(input: { reason: string; agent?: st
     : { kind: "failed", reason: input.reason, agent: input.agent };
 }
 
+export function noTriggerWithFallbackRouteDecision(
+  fallbackRouteDecision: FallbackRouteDecision,
+): NoTriggerWithFallbackRouteDecisionOutcome {
+  return { kind: "no-trigger", fallbackRouteDecision };
+}
+
 export function isFailedIssueProcessingOutcome(outcome: IssueProcessingOutcome): outcome is FailedIssueProcessingOutcome {
   return typeof outcome === "object" && outcome.kind === "failed";
+}
+
+export function hasFallbackRouteDecision(input: {
+  issueState: IntakeIssueState | undefined;
+  commentId: string;
+}): boolean {
+  return input.issueState?.fallbackRouteDecisions?.[input.commentId] !== undefined;
 }
 
 export function recordActiveIssueUnchanged(input: {
@@ -337,6 +395,39 @@ export function enforceActiveIssueLimit(input: {
 
 function isDue(nextPollAt: string | null, now: Date): boolean {
   return nextPollAt === null || Date.parse(nextPollAt) <= now.getTime();
+}
+
+function issueProcessingOutcomeKind(
+  outcome: Exclude<IssueProcessingOutcome, FailedIssueProcessingOutcome>,
+): Exclude<IssueProcessingOutcome, FailedIssueProcessingOutcome | NoTriggerWithFallbackRouteDecisionOutcome> {
+  if (typeof outcome === "object" && outcome.kind === "no-trigger") {
+    return "no-trigger";
+  }
+
+  return outcome as Exclude<IssueProcessingOutcome, FailedIssueProcessingOutcome | NoTriggerWithFallbackRouteDecisionOutcome>;
+}
+
+function getFallbackRouteDecisionFromOutcome(outcome: IssueProcessingOutcome): FallbackRouteDecision | null {
+  return typeof outcome === "object" && outcome.kind === "no-trigger" ? outcome.fallbackRouteDecision : null;
+}
+
+function withFallbackRouteDecisions(
+  issue: IntakeIssueState,
+  previousIssue: IntakeIssueState | undefined,
+  decision: FallbackRouteDecision | null,
+): IntakeIssueState {
+  const previousDecisions = previousIssue?.fallbackRouteDecisions;
+  if (decision === null) {
+    return previousDecisions === undefined ? issue : { ...issue, fallbackRouteDecisions: previousDecisions };
+  }
+
+  return {
+    ...issue,
+    fallbackRouteDecisions: {
+      ...(previousDecisions ?? {}),
+      [decision.commentId]: decision,
+    },
+  };
 }
 
 function makeRepositorySet(repositories: readonly RepositoryRef[]): Set<string> {

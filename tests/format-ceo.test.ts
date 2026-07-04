@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CEO_CORRECTED_METADATA,
   formatCeoComment,
+  formatExternalCommentFallbackRoute,
   parseCeoOutput,
+  parseExternalCommentFallbackRouteOutput,
   type FormatCeoInput,
 } from "../src/format-ceo.js";
 
@@ -43,6 +45,109 @@ describe("parseCeoOutput", () => {
   it("returns unknown_action for unknown action value", () => {
     const parsed = parseCeoOutput('{"action":"delete","body":"x"}');
     expect(parsed.kind).toBe("unknown_action");
+  });
+});
+
+describe("parseExternalCommentFallbackRouteOutput", () => {
+  it("parses no_action and append route JSON", () => {
+    expect(parseExternalCommentFallbackRouteOutput('{"action":"no_action","reason":"thanks only"}')).toEqual({
+      kind: "no_action",
+      reason: "thanks only",
+    });
+    expect(parseExternalCommentFallbackRouteOutput('{"action":"append","body":"@dev please continue"}')).toEqual({
+      kind: "append",
+      body: "@dev please continue",
+    });
+  });
+
+  it("rejects malformed route JSON and unknown actions", () => {
+    expect(parseExternalCommentFallbackRouteOutput("not-json").kind).toBe("invalid_json");
+    expect(parseExternalCommentFallbackRouteOutput('{"action":"replace","body":"x"}')).toEqual({
+      kind: "unknown_action",
+      detail: "replace",
+    });
+  });
+});
+
+describe("formatExternalCommentFallbackRoute", () => {
+  it("returns APPEND for one valid route mention", async () => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: '{"action":"append","body":"@dev 请继续实现","reason":"pm accepted"}',
+      threadId: "fallback-route-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatExternalCommentFallbackRoute({
+      issueContext: baseInput.issueContext,
+      commentBody: "方案通过，可以继续实现",
+      availableAgentNames: ["dev", "product-manager"],
+      runDir: baseInput.runDir,
+      agentsDir,
+      runCodex,
+    });
+
+    expect(result).toMatchObject({
+      action: "APPEND",
+      body: "@dev 请继续实现",
+      targetRole: "dev",
+      reason: "pm accepted",
+    });
+  });
+
+  it.each([
+    ["empty body", '{"action":"append","body":"   "}', "empty-body"],
+    ["missing mention", '{"action":"append","body":"please continue"}', "missing-mention"],
+    ["multiple mentions", '{"action":"append","body":"@dev then @product-manager"}', "multiple-mentions"],
+    ["unknown role", '{"action":"append","body":"@reviewer please continue"}', "unknown-target"],
+    ["ceo target", '{"action":"append","body":"@ceo please continue"}', "ceo-target"],
+    ["fenced code only", '{"action":"append","body":"```\\n@dev\\n```"}', "missing-mention"],
+    ["inline code only", '{"action":"append","body":"`@dev`"}', "missing-mention"],
+  ])("fail-opens route append with %s", async (_label, finalText, reason) => {
+    const agentsDir = await makeAgentsDir();
+    const result = await formatExternalCommentFallbackRoute({
+      issueContext: baseInput.issueContext,
+      commentBody: "route me",
+      availableAgentNames: ["dev", "product-manager"],
+      runDir: baseInput.runDir,
+      agentsDir,
+      runCodex: async (options) => ({
+        ok: true as const,
+        finalText,
+        threadId: "fallback-route-thread",
+        cachedInputTokens: null,
+        runDir: options.runDir,
+        stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+        stderrPath: path.join(options.runDir, "stderr.log"),
+      }),
+    });
+
+    expect(result).toMatchObject({ action: "FAIL_OPEN", reason });
+  });
+
+  it("times out and aborts a stuck route Codex run", async () => {
+    const agentsDir = await makeAgentsDir();
+    let signal: AbortSignal | undefined;
+
+    const result = await formatExternalCommentFallbackRoute({
+      issueContext: baseInput.issueContext,
+      commentBody: "please continue",
+      availableAgentNames: ["dev"],
+      runDir: baseInput.runDir,
+      agentsDir,
+      timeoutMs: 1,
+      runCodex: (options) => {
+        signal = options.signal;
+        return new Promise(() => {});
+      },
+    });
+
+    expect(result).toMatchObject({ action: "FAIL_OPEN", reason: "codex-timeout" });
+    expect(signal?.aborted).toBe(true);
   });
 });
 
@@ -123,6 +228,16 @@ describe("formatCeoComment", () => {
     expect(persona).toContain("T3");
     expect(persona).toContain("第 N 条评论");
     expect(persona).toContain("role envelope");
+  });
+
+  it("documents external no-mention fallback routing in the persona", async () => {
+    const persona = await fs.readFile(path.resolve("agents", "ceo.md"), "utf8");
+
+    expect(persona).toContain("外部无 mention 评论兜底路由判定");
+    expect(persona).toContain("latestExternalComment");
+    expect(persona).toContain('{"action":"no_action"');
+    expect(persona).toContain('{"action":"append"');
+    expect(persona).toContain("不能 mention `@ceo`");
   });
 
   it("returns APPEND when CEO corrects GitHub interaction protocol violations", async () => {

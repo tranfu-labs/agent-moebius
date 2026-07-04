@@ -34,7 +34,9 @@ import {
   buildTimeline,
   countMessages,
   formatAgentComment,
+  getLatestTimelineMessage,
   resolveNextRoleThreadState,
+  selectMentionedAgent,
   type TimelineMessage,
 } from "./conversation.js";
 import { isInterruptedCodexRunResult, run as runCodex } from "./codex.js";
@@ -49,7 +51,11 @@ import {
 } from "./issue-dispatcher.js";
 import { runIntakeScan } from "./scanner.js";
 import { createStatePersister, type StatePersister } from "./state-persister.js";
-import { CEO_CORRECTED_METADATA, formatCeoComment } from "./format-ceo.js";
+import {
+  CEO_CORRECTED_METADATA,
+  formatCeoComment,
+  formatExternalCommentFallbackRoute,
+} from "./format-ceo.js";
 import {
   addReaction,
   fetchIssueWithComments,
@@ -73,8 +79,12 @@ import {
 import {
   failedIssueProcessingOutcome,
   getDueActiveIssueSources,
+  hasFallbackRouteDecision,
   isFailedIssueProcessingOutcome,
+  noTriggerWithFallbackRouteDecision,
+  type FallbackRouteDecision,
   type GitHubResponseIntakeState,
+  type IntakeIssueState,
   type IssueProcessingOutcome,
   type IssueSummary,
 } from "./github-response-intake.js";
@@ -110,6 +120,7 @@ export interface ProcessIssueSourceDependencies {
   loadRoleThreadStateStore: typeof loadRoleThreadStateStore;
   saveRoleThreadStateEntry: typeof saveRoleThreadStateEntry;
   formatCeoComment: typeof formatCeoComment;
+  formatExternalCommentFallbackRoute: typeof formatExternalCommentFallbackRoute;
   writeRunManifest: typeof writeRunManifest;
 }
 
@@ -125,6 +136,7 @@ const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies 
   loadRoleThreadStateStore,
   saveRoleThreadStateEntry,
   formatCeoComment,
+  formatExternalCommentFallbackRoute,
   writeRunManifest,
 };
 
@@ -268,7 +280,14 @@ export function createRunner(input: {
 
       const state = persister.state();
       const jobs: IssueProcessingJob[] = [
-        ...changedIssues.map((summary) => ({ kind: "changed" as const, summary })),
+        ...changedIssues.map((summary) => {
+          const issueKey = makeIssueSource(summary).issueKey;
+          return {
+            kind: "changed" as const,
+            summary,
+            previousIssueState: state.issues[issueKey],
+          };
+        }),
         ...getDueActiveIssueSources({
           repositories: dependencies.watchRepositories,
           state,
@@ -280,6 +299,7 @@ export function createRunner(input: {
             source,
             previousUpdatedAt: issueState?.updatedAt ?? new Date(0).toISOString(),
             previousActiveNoChangeCount: issueState?.activeNoChangeCount ?? 0,
+            previousIssueState: issueState,
           };
         }),
       ];
@@ -347,6 +367,10 @@ async function processActiveIssueJob(input: {
       source: input.job.source,
       issue,
       agentFiles: input.agentFiles,
+      fallbackRouteContext: {
+        active: true,
+        issueState: input.job.previousIssueState,
+      },
     });
 
     return {
@@ -397,6 +421,10 @@ async function processChangedIssueJob(input: {
       source,
       issue,
       agentFiles: input.agentFiles,
+      fallbackRouteContext: {
+        active: input.job.previousIssueState?.mode === "active",
+        issueState: input.job.previousIssueState,
+      },
     });
 
     return {
@@ -447,6 +475,7 @@ export async function pollActiveIssue(input: {
       source: input.source,
       previousUpdatedAt: issueState.updatedAt,
       previousActiveNoChangeCount: issueState.activeNoChangeCount,
+      previousIssueState: issueState,
     },
     agentFiles: input.agentFiles,
     fetchIssueWithComments: dependencies.fetchIssueWithComments,
@@ -519,11 +548,18 @@ async function resolveDeadLetterForFailedResult(input: {
   }
 }
 
+export interface FallbackRouteContext {
+  active: boolean;
+  issueState?: IntakeIssueState;
+  timeoutMs?: number;
+}
+
 export async function processIssueSource(
   input: {
     source: IssueSource;
     issue: GitHubIssue;
     agentFiles: AgentFile[];
+    fallbackRouteContext?: FallbackRouteContext;
   },
   dependencies = DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES,
 ): Promise<IssueProcessingOutcome> {
@@ -543,6 +579,42 @@ export async function processIssueSource(
     const trigger = resolveTrigger({ timeline, availableAgentNames: agentNames });
 
     if (trigger.kind === "skip") {
+      const fallbackRouteOutcome =
+        trigger.reason === "no-trigger"
+          ? await resolveExternalCommentFallbackRoute({
+              source: input.source,
+              issue: input.issue,
+              timeline,
+              agentNames,
+              context: input.fallbackRouteContext,
+              count,
+              dependencies,
+            })
+          : null;
+
+      if (fallbackRouteOutcome !== null) {
+        log({
+          event: "external-comment-fallback-route",
+          count,
+          issueKey: input.source.issueKey,
+          commentId: fallbackRouteOutcome.decision.commentId,
+          outcome: fallbackRouteOutcome.decision.outcome,
+          targetRole: fallbackRouteOutcome.decision.targetRole,
+          reason: fallbackRouteOutcome.decision.reason,
+        });
+
+        if (fallbackRouteOutcome.action === "append") {
+          await postVisibleComment(
+            formatReviewedAgentComment("ceo", fallbackRouteOutcome.body, {
+              action: "not_applicable",
+              reason: "fallback-route-append",
+            }),
+          );
+        }
+
+        return noTriggerWithFallbackRouteDecision(fallbackRouteOutcome.decision);
+      }
+
       log({ event: "skip", count, reason: trigger.reason, issueKey: input.source.issueKey });
       return "no-trigger";
     }
@@ -618,7 +690,12 @@ export async function processIssueSource(
       dependencies,
     });
     if (!initialMedia.ok) {
-      await postVisibleComment(formatAgentComment(selectedAgent.name, formatMediaPreparationFailure(initialMedia.failures)));
+      await postVisibleComment(
+        formatReviewedAgentComment(selectedAgent.name, formatMediaPreparationFailure(initialMedia.failures), {
+          action: "bypass",
+          reason: "media-preparation-failed",
+        }),
+      );
       return "triggered-success";
     }
 
@@ -734,7 +811,12 @@ export async function processIssueSource(
           dependencies,
         });
         if (!fallbackMedia.ok) {
-          await postVisibleComment(formatAgentComment(selectedAgent.name, formatMediaPreparationFailure(fallbackMedia.failures)));
+          await postVisibleComment(
+            formatReviewedAgentComment(selectedAgent.name, formatMediaPreparationFailure(fallbackMedia.failures), {
+              action: "bypass",
+              reason: "media-preparation-failed",
+            }),
+          );
           return "triggered-success";
         }
 
@@ -827,7 +909,12 @@ export async function processIssueSource(
         issueKey: input.source.issueKey,
         dependencies,
       });
-      await postVisibleComment(formatAgentComment(selectedAgent.name, formatArtifactPublishingFailure(publishableFinalText.error)));
+      await postVisibleComment(
+        formatReviewedAgentComment(selectedAgent.name, formatArtifactPublishingFailure(publishableFinalText.error), {
+          action: "bypass",
+          reason: "artifact-publishing-failed",
+        }),
+      );
       return "triggered-success";
     }
 
@@ -854,7 +941,9 @@ export async function processIssueSource(
     });
 
     if (ceoResult.action === "APPEND") {
-      const originalBody = formatAgentComment(selectedAgent.name, publishableFinalText.body);
+      const originalBody = formatReviewedAgentComment(selectedAgent.name, publishableFinalText.body, {
+        action: "append-original",
+      });
       await postVisibleComment(originalBody);
       await writeRunManifestBestEffort({
         record: runManifestRecord,
@@ -866,10 +955,20 @@ export async function processIssueSource(
       });
       await dependencies.saveRoleThreadStateEntry(input.source.issueKey, selectedAgent.name, nextState);
 
-      const ceoAppendBody = `${formatAgentComment(ceoResult.as, ceoResult.body)}\n\n${CEO_CORRECTED_METADATA}`;
+      const ceoAppendBody = `${formatReviewedAgentComment(ceoResult.as, ceoResult.body, {
+        action: "append-ceo",
+      })}\n\n${CEO_CORRECTED_METADATA}`;
       await dependencies.postComment(input.source, ceoAppendBody);
     } else {
-      const postedBody = formatGuardedAgentComment(selectedAgent.name, ceoResult.body);
+      const postedBody = formatGuardedAgentComment(
+        selectedAgent.name,
+        ceoResult.body,
+        ceoResult.action === "REPLACE"
+          ? { action: "replace" }
+          : ceoResult.action === "FAIL_OPEN"
+            ? { action: "fail_open" }
+            : { action: "no_change" },
+      );
       await postVisibleComment(postedBody);
       await writeRunManifestBestEffort({
         record: runManifestRecord,
@@ -943,6 +1042,101 @@ async function prepareMediaForPrompt(input: {
     imageCount: result.imagePaths.length,
   });
   return result;
+}
+
+type ExternalCommentFallbackRouteOutcome =
+  | {
+      action: "no_action" | "fail_open";
+      decision: FallbackRouteDecision;
+    }
+  | {
+      action: "append";
+      body: string;
+      decision: FallbackRouteDecision;
+    };
+
+async function resolveExternalCommentFallbackRoute(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  timeline: TimelineMessage[];
+  agentNames: string[];
+  context: FallbackRouteContext | undefined;
+  count: number;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<ExternalCommentFallbackRouteOutcome | null> {
+  const context = input.context;
+  if (context?.active !== true || input.issue.state !== "OPEN") {
+    return null;
+  }
+
+  const latestMessage = getLatestTimelineMessage(input.timeline);
+  if (latestMessage === null || latestMessage.source !== "comment" || latestMessage.speaker !== "user") {
+    return null;
+  }
+
+  const latestComment = input.issue.comments[latestMessage.index - 1];
+  if (latestComment === undefined || latestComment.id.trim() === "" || hasRunnerMetadata(latestComment.body)) {
+    return null;
+  }
+
+  const codexAgentNames = input.agentNames.filter((agentName) => agentName !== "ceo");
+  if (selectMentionedAgent(latestMessage.body, codexAgentNames) !== null) {
+    return null;
+  }
+
+  if (hasFallbackRouteDecision({ issueState: context.issueState, commentId: latestComment.id })) {
+    return null;
+  }
+
+  const result = await input.dependencies.formatExternalCommentFallbackRoute({
+    issueContext: buildCeoIssueContext(input.source, input.issue),
+    commentBody: latestComment.body,
+    availableAgentNames: codexAgentNames,
+    runDir: makeRunDir(input.count),
+    timeoutMs: context.timeoutMs,
+    runCodex: input.dependencies.runCodex,
+  });
+  const judgedAt = new Date().toISOString();
+
+  if (result.action === "APPEND") {
+    return {
+      action: "append",
+      body: result.body,
+      decision: {
+        commentId: latestComment.id,
+        outcome: "append",
+        judgedAt,
+        targetRole: result.targetRole,
+        ...(result.reason === undefined ? {} : { reason: result.reason }),
+      },
+    };
+  }
+
+  if (result.action === "NO_ACTION") {
+    return {
+      action: "no_action",
+      decision: {
+        commentId: latestComment.id,
+        outcome: "no_action",
+        judgedAt,
+        ...(result.reason === undefined ? {} : { reason: result.reason }),
+      },
+    };
+  }
+
+  return {
+    action: "fail_open",
+    decision: {
+      commentId: latestComment.id,
+      outcome: "fail_open",
+      judgedAt,
+      reason: result.reason,
+    },
+  };
+}
+
+function hasRunnerMetadata(body: string): boolean {
+  return /<!--\s*agent-moebius:/.test(body);
 }
 
 async function buildPublishableFinalText(input: {
@@ -1131,13 +1325,38 @@ function logCeoGuardrailResult(input: {
   });
 }
 
-function formatGuardedAgentComment(role: string, finalText: string): string {
+type CeoReviewAudit =
+  | {
+      action: "no_change" | "replace" | "append-original" | "append-ceo" | "fail_open";
+    }
+  | {
+      action: "bypass" | "not_applicable";
+      reason: "media-preparation-failed" | "artifact-publishing-failed" | "dead-letter" | "fallback-route-append";
+    };
+
+function formatReviewedAgentComment(role: string, finalText: string, audit: CeoReviewAudit): string {
+  return appendCeoReviewedMetadata(formatAgentComment(role, finalText), audit);
+}
+
+function appendCeoReviewedMetadata(body: string, audit: CeoReviewAudit): string {
+  return `${body.trimEnd()}\n\n${formatCeoReviewedMetadata(audit)}`;
+}
+
+function formatCeoReviewedMetadata(audit: CeoReviewAudit): string {
+  if ("reason" in audit) {
+    return `<!-- agent-moebius:ceo-reviewed action=${audit.action} reason=${audit.reason} -->`;
+  }
+
+  return `<!-- agent-moebius:ceo-reviewed action=${audit.action} -->`;
+}
+
+function formatGuardedAgentComment(role: string, finalText: string, audit: CeoReviewAudit): string {
   if (!finalText.includes(CEO_CORRECTED_METADATA)) {
-    return formatAgentComment(role, finalText);
+    return formatReviewedAgentComment(role, finalText, audit);
   }
 
   const withoutCeoMetadata = finalText.replaceAll(CEO_CORRECTED_METADATA, "").trimEnd();
-  return `${formatAgentComment(role, withoutCeoMetadata)}\n\n${CEO_CORRECTED_METADATA}`;
+  return `${formatReviewedAgentComment(role, withoutCeoMetadata, audit)}\n\n${CEO_CORRECTED_METADATA}`;
 }
 
 async function addCodexExecutionReaction(input: {
@@ -1273,7 +1492,9 @@ Failure count: ${String(input.failureCount)}
 
 Recovery: fix the underlying problem, then add any new comment to this issue to trigger processing again.
 
-<!-- agent-moebius:dead-letter -->`;
+<!-- agent-moebius:dead-letter -->
+
+${formatCeoReviewedMetadata({ action: "not_applicable", reason: "dead-letter" })}`;
 }
 
 function startAgentRunInterruptMonitor(input: {

@@ -31,6 +31,14 @@ describe("github response intake state store", () => {
           nextPollAt: "2026-06-28T00:02:00.000Z",
           failureCount: 2,
           lastFailureReason: "pre script failed",
+          fallbackRouteDecisions: {
+            "comment-node-1": {
+              commentId: "comment-node-1",
+              outcome: "no_action",
+              judgedAt: "2026-06-28T00:01:30.000Z",
+              reason: "no route intent",
+            },
+          },
         },
       },
     };
@@ -40,7 +48,7 @@ describe("github response intake state store", () => {
     await expect(loadGitHubResponseIntakeState(filePath)).resolves.toEqual(state);
   });
 
-  it("loads legacy issue state without failure accounting fields", async () => {
+  it("loads legacy issue state without failure accounting or fallback route fields", async () => {
     const filePath = path.join(await makeTempDir(), ".state", "github-response-intake.json");
     const state: GitHubResponseIntakeState = {
       repositories: {},

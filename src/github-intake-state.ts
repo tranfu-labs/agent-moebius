@@ -1,7 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { GITHUB_RESPONSE_INTAKE_STATE_PATH } from "./config.js";
-import type { GitHubResponseIntakeState, IntakeIssueState, IntakeRepositoryState } from "./github-response-intake.js";
+import type {
+  FallbackRouteDecision,
+  GitHubResponseIntakeState,
+  IntakeIssueState,
+  IntakeRepositoryState,
+} from "./github-response-intake.js";
 
 export async function loadGitHubResponseIntakeState(
   filePath = GITHUB_RESPONSE_INTAKE_STATE_PATH,
@@ -76,7 +81,26 @@ function isIntakeIssueState(value: unknown): value is IntakeIssueState {
     (state.nextPollAt === null || (typeof state.nextPollAt === "string" && state.nextPollAt.length > 0)) &&
     (state.failureCount === undefined || (Number.isInteger(state.failureCount) && state.failureCount >= 0)) &&
     (state.lastFailureReason === undefined ||
-      (typeof state.lastFailureReason === "string" && state.lastFailureReason.length > 0))
+      (typeof state.lastFailureReason === "string" && state.lastFailureReason.length > 0)) &&
+    (state.fallbackRouteDecisions === undefined ||
+      isRecord(state.fallbackRouteDecisions, isFallbackRouteDecision))
+  );
+}
+
+function isFallbackRouteDecision(value: unknown): value is FallbackRouteDecision {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const decision = value as Partial<FallbackRouteDecision>;
+  return (
+    typeof decision.commentId === "string" &&
+    decision.commentId.length > 0 &&
+    (decision.outcome === "no_action" || decision.outcome === "append" || decision.outcome === "fail_open") &&
+    typeof decision.judgedAt === "string" &&
+    decision.judgedAt.length > 0 &&
+    (decision.targetRole === undefined || (typeof decision.targetRole === "string" && decision.targetRole.length > 0)) &&
+    (decision.reason === undefined || (typeof decision.reason === "string" && decision.reason.length > 0))
   );
 }
 
