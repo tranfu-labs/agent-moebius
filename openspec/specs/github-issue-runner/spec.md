@@ -99,6 +99,14 @@
 - MUST 集中定义 stage 枚举于 `src/stages.ts`，供 CEO guardrail 与各 agent persona 契约测试共用；多处 MUST NOT 各自维护副本。
 - MUST 让 `AllStages = ["plan-written", "code-verified", "in-progress"]`。
 - MUST 让 CEO guardrail 承担阶段验收回流入口：当 Codex agent 的 `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified` 时，`agents/ceo.md` MUST 先查可用「验收语句」清单。`plan-written` 有可用清单时，CEO MUST `append as=ceo` mention `@qa` 要求按其测试设计流程审查本轮方案，MUST NOT 直接 mention 发起需求角色；不查历史 qa 结论——dev 每次重出 `plan-written` 都重审（幂等，防止拿旧结论放行新方案），qa 审查通过后由 qa 自行 mention 发起需求角色交棒。`code-verified` 有可用清单且发起本需求者是可达 agent 时，CEO MUST 返回 `append`，默认 `as=ceo`，正文 mention 发起需求角色并要求其按验收语句逐条验收实现证据。缺少可用验收语句时，CEO MUST `append as=ceo` mention `@dev` 要求补齐；`code-verified` 分支下若发起者是真人用户而非 agent，CEO MUST 输出 `no_change`，维持等真人用户验收。
+- MUST 让 `agents/ceo.md` 在 `plan-written` / `code-verified` 阶段验收回流中执行固定分发顺序：先识别 stage 与可用验收语句，再按场景套固定模板，最后只 mention 对应角色；缺验收语句、qa 交棒兜底、协议违规、验收治理违规、PR 冲突、死锁等待、外部无 mention 兜底等非阶段模板场景 MUST 继续按各自既有规则处理。
+- MUST 让 `plan-written` 且验收语句可用的 CEO append 正文套用“方案评审模板”，并保持现有路由：唯一合法 mention 指向 `@qa`，不得直接 mention 发起需求角色，不得复用历史 qa 结论。
+- MUST 让“方案评审模板”固定包含六项清单：对其他模块的影响（依赖边界 / module-map）、可行性（技术路径是否已验证或有先例）、核心目标贴合度（防跑偏）、过度设计（能否更小）、现有规范遵守（OpenSpec / AGENTS.md / GitHub 交互协议 / 验收治理）、周全性与鲁棒性（意外情况 / 失败路径 / 边界条件）。
+- MUST 让 `code-verified` 且历史方案验收语句可用、发起需求者是可触发 agent 的 CEO append 正文套用“执行后复盘模板”，并保持现有路由：唯一合法 mention 指向发起需求角色；若发起者是真人用户而非 agent，仍输出 `no_change`。
+- MUST 让“执行后复盘模板”固定包含三问：实现是否符合方案最初设计且偏差逐条列出；有无方案当时没考虑到且应该调整的新发现，并回流为后续任务或规范修订；本次执行有无值得沉淀到规范、persona 或文档的新经验。
+- MUST 在执行后复盘模板中用裸写 `dev` 指代执行方，MUST NOT 为了“提醒验收方与执行方”而在同一 append 正文中加入第二个 agent mention。
+- MUST 保留 CEO 对无剧本场景的自由判断能力：当场景不属于 `plan-written` / `code-verified` 固定模板分支时，CEO 仍按 `agents/ceo.md` 的其他 guardrail 场景输出 `no_change` 或 append。
+- MUST 让 CEO 阶段模板测试同时校验 persona 固定模板段落与 fake CEO append body 中的条目标签，避免 `agents/ceo.md` 模板缺项或 fake append body 与模板段落漂移时测试仍通过。
 - MUST 让 `agents/ceo.md` 承载「qa 交棒兜底」识别场景：`agent = qa` 的 `latestResponse` 含固定结论行时，检查交棒 mention 是否完整——结论行为 `QA 结论：通过` 但正文未 mention 发起需求角色时，CEO MUST `append as=ceo` mention 发起需求角色（识别优先级沿用既有规则）要求按含 QA 增补的「验收语句」逐条验收；结论行为 `QA 结论：不通过` 但正文未 mention `@dev` 时，CEO MUST `append as=ceo` mention `@dev` 要求按 qa 列出的缺陷修正方案后重新输出 `plan-written`；交棒 mention 正常时 MUST 输出 `no_change`，不重复催办。
 - MUST 让 `agents/ceo.md` 承载验收治理违规识别场景：发现执行方或 loop watcher 未经确认改写验收语句、缩小验收范围、扩大验收范围后自判通过、未经确认把 QA 增补当作已生效清单、声称已确认但时间线没有可追溯确认记录、或覆盖验收角色不通过结论时，CEO MUST 输出 `append`、`as=ceo`，指出变更未经确认，并要求需求持有者或真人用户表态。
 - MUST 让 CEO 在验收治理违规场景中只要求补确认或请需求持有者表态，MUST NOT 直接替需求持有者改写新验收语句，MUST NOT 直接宣布未经确认的 override 生效。需求持有者或真人用户已在时间线明确确认且记录可追溯时，CEO MUST NOT 仅因该变更本身介入。
@@ -968,6 +976,19 @@ And append body MUST NOT mention 发起需求角色
 And runner 先 post dev 原文，再以 `<ceo>:` 前缀 post CEO 追加评论
 And 日志包含 `event=ceo-guardrail-appended` 与 `as=ceo`
 
+### 场景 38.0：CEO guardrail — plan-written 使用方案评审模板且只移交 qa
+Given 最新消息包含 `@dev`
+And dev codex 本轮返回的 `${LAST_RESPONSE}` 末尾含 `<!-- agent-moebius:stage=plan-written -->`
+And `${LAST_RESPONSE}` 的最终 stage marker 前包含「验收语句」小节
+And 「验收语句」小节内包含逐条、可机械执行的检查
+And 完整公开 issue context 明确写明发起本需求角色是 `product-manager`
+When runner 在 `postComment` 之前调用 CEO guardrail
+Then CEO MUST 返回 `append`、`as=ceo`
+And append body MUST mention `@qa`
+And append body MUST 包含方案评审模板六项：对其他模块的影响、可行性、核心目标贴合度、过度设计、现有规范遵守、周全性与鲁棒性
+And append body MUST NOT mention `@product-manager`
+And append body MUST 只有一个合法 agent mention
+
 ### 场景 38.2：CEO guardrail — dev 重出方案后 qa 重审（历史结论不复用）
 Given qa 曾对旧 `plan-written` 输出 `QA 结论：不通过`
 And dev 修正后本轮重新返回带 `<!-- agent-moebius:stage=plan-written -->` 且验收语句齐全的新方案
@@ -1025,6 +1046,28 @@ And append body MUST mention `@product-manager`
 And append body MUST 要求 `@product-manager` 按验收语句逐条验收实现证据
 And runner 先 post dev 原文，再以 `<ceo>:` 前缀 post CEO 追加评论
 And 日志包含 `event=ceo-guardrail-appended` 与 `as=ceo`
+
+### 场景 39.0：CEO guardrail — code-verified 使用执行后复盘模板且不额外 mention dev
+Given 最新消息包含 `@dev`
+And dev codex 本轮返回的 `${LAST_RESPONSE}` 末尾含 `<!-- agent-moebius:stage=code-verified -->`
+And 完整公开 issue context 中存在一条历史 dev `plan-written` 方案
+And 该方案包含「验收语句」小节与逐条、可机械执行的检查
+And 完整公开 issue context 明确写明发起本需求角色是 `product-manager`
+When runner 在 `postComment` 之前调用 CEO guardrail
+Then CEO MUST 返回 `append`、`as=ceo`
+And append body MUST mention `@product-manager`
+And append body MUST 包含执行后复盘三问：实现是否符合方案最初设计、有无方案当时没考虑到的新发现、本次执行有无新经验值得沉淀
+And append body MAY 裸写 `dev`
+And append body MUST NOT mention `@dev`
+And append body MUST 只有一个合法 agent mention
+
+### 场景 39.0.1：CEO guardrail — 阶段模板测试防止模板与 fake 输出漂移
+Given `agents/ceo.md` 包含方案评审模板与执行后复盘模板的固定段落
+And `tests/format-ceo.test.ts` 使用 fake CEO append output 跑 `formatCeoComment`
+When 方案评审模板六项任一项在 `agents/ceo.md` 中缺失
+Then `pnpm vitest run tests/format-ceo.test.ts` MUST 失败
+When fake append body 与 `agents/ceo.md` 对应模板段落的条目标签不一致
+Then `pnpm vitest run tests/format-ceo.test.ts` MUST 失败
 
 ### 场景 39.1：CEO guardrail — 非 dev 普通 agent 也走 CEO
 Given 最新消息 mention 的是 `product-manager`、`hermes-user` 或 `secretary`

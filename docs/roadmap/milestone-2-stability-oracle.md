@@ -208,7 +208,7 @@
 - 测试：`tests/runner.test.ts` 覆盖 active changed / idle changed、append/no_action/fail_open、防重、metadata comment 排除、发布路径矩阵和 never-settle route；`tests/format-ceo.test.ts` 覆盖 route parser 正反例与 inline-code-only mention；`tests/github-response-intake.test.ts` 覆盖 ledger 与旧 state 兼容；`tests/conversation.test.ts` 覆盖 `ceo-reviewed` 不影响 speaker 归一化。
 - 验证：dev 复跑 `pnpm test` 24 files / 244 tests 通过，`pnpm typecheck` 通过，`git diff --check` 通过；product-manager 第 28 条评论按 10 条正式验收清单验收代码通过。
 
-### - [ ] T9 · CEO 阶段模板升级：方案评审清单 + 执行后复盘清单
+### - [x] T9 · CEO 阶段模板升级：方案评审清单 + 执行后复盘清单
 
 **目标**：把 CEO 在 `plan-written` / `code-verified` 的阶段介入从"泛化反思"升级为**固定模板输出**——CEO 不即兴思考，只识别场景、套对应模板、@对应角色（现有验收回流路由不变，模板是 append 正文的固定骨架）。两份模板：
 1. **方案评审模板**（`plan-written` 触发）：提醒验收方按固定清单审查方案——对其他模块的影响（依赖边界 / module-map）；可行性（技术路径是否已验证或有先例）；是否贴合核心目标（防跑偏）；是否过度设计（能否更小）；是否遵守现有规范（OpenSpec / AGENTS.md / 交互协议）；周全性与鲁棒性（意外情况、失败路径、边界条件）。
@@ -224,6 +224,13 @@
 3. 构造 dev `code-verified` 时间线跑 CEO 校正 → append 正文应含复盘三问且 mention 验收角色。
 
 **依赖**：无（与 T2/T5 的 `agents/ceo.md` 改动相邻，注意串行避免同文件冲突）。
+
+**阶段证据（2026-07-04，T9 已完成）**：
+- OpenSpec：本次 change 已归档到 `openspec/changes/archive/2026-07-04-ceo-stage-templates-t9/`，并已合并 spec-delta 到 `openspec/specs/github-issue-runner/spec.md`。
+- Persona：`agents/ceo.md` 的「阶段验收回流路由」已增加固定模板分发规则；`plan-written` 有可用验收语句时唯一合法 mention 指向 `@qa`，正文套方案评审六项；`code-verified` 有可用验收语句且发起者可触发时唯一合法 mention 指向发起需求角色，正文套执行后复盘三问，执行方 `dev` 只裸写。
+- 文档：`AGENTS.md` 已同步 CEO 阶段固定模板规则与 mention 约束。
+- 测试：`tests/format-ceo.test.ts` 覆盖 persona 中两份模板与分发规则存在；构造 dev `plan-written` 校正路径时断言 append 正文含方案评审六项且唯一合法 mention 指向 qa；构造 dev `code-verified` 校正路径时断言 append 正文含复盘三问且唯一合法 mention 指向 product-manager、正文不额外 mention dev；测试同时从 persona 模板段落和 fake append body 双侧校验条目标签与顺序，防止模板漂移。
+- 验证：`pnpm vitest run tests/format-ceo.test.ts` 通过（46 tests，exit 0）；`pnpm test` 通过（24 files / 245 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）。
 
 ## 非目标
 
