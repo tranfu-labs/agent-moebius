@@ -21,7 +21,7 @@
 │   ├── state-persister.ts      # intake state 单写者：写串行化 + 合并 + 原子落盘
 │   ├── github-response-intake.ts # GitHub 响应接入的纯业务调度规则
 │   ├── github-intake-state.ts  # .state/github-response-intake.json 状态读写适配
-│   ├── goal-ledger.ts          # 目标账本 schema、入账流程、ready gate 纯业务逻辑
+│   ├── goal-ledger.ts          # 目标账本 schema、入账流程、ready gate、阶段切换与上下文投影纯业务逻辑
 │   ├── goal-ledger-state.ts    # .state/goal-ledger.json 状态读写适配
 │   ├── issue-source.ts         # repo / issue source key 与 clone URL 生成
 │   ├── local-config.ts         # config.toml / config.local.toml 解析与 shape 校验
@@ -104,7 +104,7 @@
 - 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。并发 Codex 成功写回时必须使用 issue + role entry 级别的串行 merge helper，不能用旧 state snapshot 覆盖整文件。
 - agent pre script 上下文保存在被忽略的 `.state/agent-contexts.json`；当前 `@dev` 记录 issue、role、preScript、目标仓库、worktreePath 与 preparedFromMessageIndex。并发 pre script context 写回时必须使用 issue + role entry 级别的串行 merge helper。
 - GitHub response intake 状态保存在被忽略的 `.state/github-response-intake.json`，记录 repo 闲时扫描时间、issue `updatedAt`、active/idle 模式、active 无变化次数、失败次数 / 最近失败原因、下次轮询时间，以及可选的外部无 mention 兜底路由判定 ledger（按 comment id 记录 outcome、判定时间、reason 与 targetRole）。
-- 目标账本状态保存在被忽略的 `.state/goal-ledger.json`，记录 goal / milestone / task / phase、质量基准、验收语句、依赖、provenance、父子 issue reference 与 run manifest reference；`src/goal-ledger.ts` 只做纯业务 schema、部分入账与 ready gate，`src/goal-ledger-state.ts` 负责原子读写、entry-level merge、同文件写串行化、可注入 IO 与 timeout / AbortSignal 包装。目标账本不得成为 runner 心跳、observer UI、GitHub issue 创建或编排拓扑的隐式入口。
+- 目标账本状态保存在被忽略的 `.state/goal-ledger.json`，记录 goal / milestone / task / phase、质量基准、验收语句、依赖、provenance、父子 issue reference、run manifest reference 与阶段归档引用；`src/goal-ledger.ts` 只做纯业务 schema、部分入账、ready gate、阶段切换、当前阶段上下文投影与归档引用回查，`src/goal-ledger-state.ts` 负责原子读写、entry-level merge、同文件写串行化、可注入 IO 与 timeout / AbortSignal 包装。目标账本不得成为 runner 心跳、observer UI、GitHub issue 创建或编排拓扑的隐式入口。
 - Codex stdout/stderr 运行目录格式为 `/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/`；`<sequence>` 是 runner 进程内递增后缀，用来避免并发 runs 在同一 timestamp + count 下复用同一目录。本轮下载的输入媒体位于 `input-media/`，准备发布的输出产物位于 `output-artifacts/`。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
 - `github-response-intake.ts`、`goal-ledger.ts`、`local-config.ts`、`conversation.ts`、`conversation-interrupt.ts` 与 `issue-media.ts` 只做业务数据操作；`src/triggers/` 封装 mention 触发规则；`driver-pool.ts` 只承载 driver job 并发策略；`scanner.ts` 只做发现、`issue-dispatcher.ts` 只做派发与折叠、`state-persister.ts` 只做单写者状态持有与落盘；GitHub、Codex CLI、媒体 IO、状态文件读写分别由 `github.ts`、`codex.ts`、`media-assets.ts`、`state.ts`、`agent-context-state.ts`、`github-intake-state.ts`、`goal-ledger-state.ts` 适配；`runner.ts` 只做心跳编排与组装；`src/observer/` 是本地只读旁路，只读消费配置、`.state` 与 run manifest，禁止被 runner 主链路依赖。

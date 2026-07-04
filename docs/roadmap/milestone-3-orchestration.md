@@ -34,9 +34,16 @@
 - 测试：`tests/goal-ledger.test.ts`、`tests/goal-ledger-state.test.ts`
 - 验证命令：`pnpm test -- goal-ledger`、`pnpm test`、`pnpm typecheck` 均退出码 0。
 
-### - [ ] T2 · 阶段作用域隔离
+### - [x] T2 · 阶段作用域隔离
 
 阶段有显式边界：阶段切换时上一阶段产物归档，工作区上下文只呈现当前阶段的目标与质量基准（解决"跨阶段串扰"与"基准混淆"）。
+
+验收证据（2026-07-04）：
+- 方案与归档：`openspec/changes/archive/2026-07-04-goal-ledger-phase-scope-isolation-t2/`
+- 行为事实源：`openspec/specs/goal-ledger/spec.md`
+- 实现：`src/goal-ledger.ts`
+- 测试：`tests/goal-ledger.test.ts`
+- 验证命令：`pnpm test -- goal-ledger --reporter=verbose`、`rg -n "node:fs|from 'fs'|child_process|src/github|src/codex|shell" src/goal-ledger.ts`（无匹配）、`pnpm test`、`pnpm typecheck`。
 
 ### - [ ] T3 · CEO 升级为普通 agent（编排路径）
 
