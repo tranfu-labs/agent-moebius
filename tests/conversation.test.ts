@@ -169,6 +169,26 @@ describe("conversation", () => {
     expect(timeline[1]?.body).not.toContain("<!-- agent-moebius:role=ceo -->");
   });
 
+  it("does not treat ceo-reviewed metadata as role metadata during speaker normalization", () => {
+    const timeline = buildTimeline(
+      "initial",
+      [
+        {
+          body: "&lt;product-manager&gt;:\n方案验收通过。\n\n<!-- agent-moebius:role=product-manager -->\n\n<!-- agent-moebius:ceo-reviewed action=no_change -->",
+        },
+      ],
+      ["product-manager"],
+    );
+
+    expect(timeline[1]).toMatchObject({
+      speaker: "product-manager",
+      source: "comment",
+    });
+    expect(timeline[1]?.body).toContain("方案验收通过。");
+    expect(timeline[1]?.body).toContain("<!-- agent-moebius:ceo-reviewed action=no_change -->");
+    expect(timeline[1]?.body).not.toContain("<!-- agent-moebius:role=product-manager -->");
+  });
+
   it("formats agent comments with a visible role prefix and metadata", () => {
     expect(formatAgentComment("product-manager", "hello\n")).toBe(
       "&lt;product-manager&gt;:\nhello\n\n<!-- agent-moebius:role=product-manager -->",

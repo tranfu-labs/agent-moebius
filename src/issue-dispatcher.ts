@@ -4,6 +4,7 @@ import {
   recordActiveIssueUnchanged,
   recordIssueProcessingOutcome,
   type GitHubResponseIntakeState,
+  type IntakeIssueState,
   type IssueProcessingOutcome,
   type IssueSummary,
 } from "./github-response-intake.js";
@@ -15,12 +16,14 @@ export type IssueProcessingJob =
   | {
       kind: "changed";
       summary: IssueSummary;
+      previousIssueState?: IntakeIssueState;
     }
   | {
       kind: "active";
       source: IssueSource;
       previousUpdatedAt: string;
       previousActiveNoChangeCount: number;
+      previousIssueState?: IntakeIssueState;
     };
 
 export type IssueProcessingJobResult =

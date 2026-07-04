@@ -19,6 +19,7 @@ export interface IntakeIssueState extends RepositoryRef {
   nextPollAt: string | null;
   failureCount?: number;
   lastFailureReason?: string;
+  externalCommentFallbackRoutes?: Record<string, ExternalCommentFallbackRouteRecord>;
 }
 
 export interface GitHubResponseIntakeState {
@@ -32,10 +33,27 @@ export interface FailedIssueProcessingOutcome {
   agent?: string;
 }
 
+export type ExternalCommentFallbackRouteOutcome = "no_action" | "append" | "fail_open";
+
+export interface ExternalCommentFallbackRouteRecord {
+  commentId: string;
+  outcome: ExternalCommentFallbackRouteOutcome;
+  decidedAt: string;
+  targetRole?: string;
+  reason?: string;
+}
+
+export interface ExternalCommentFallbackRouteProcessingOutcome {
+  kind: "external-comment-fallback-route";
+  result: "no-trigger" | "triggered-success";
+  route: ExternalCommentFallbackRouteRecord;
+}
+
 export type IssueProcessingOutcome =
   | "triggered-success"
   | "no-trigger"
   | FailedIssueProcessingOutcome
+  | ExternalCommentFallbackRouteProcessingOutcome
   | "dead-lettered"
   | "interrupted"
   | "issue-not-found"
@@ -157,7 +175,12 @@ export function recordIssueProcessingOutcome(input: {
   activeIssueNoChangeLimit: number;
 }): GitHubResponseIntakeState {
   const source = makeIssueSource(input.summary);
-  if (isFailedIssueProcessingOutcome(input.outcome)) {
+  const routeRecord = isExternalCommentFallbackRouteProcessingOutcome(input.outcome) ? input.outcome.route : null;
+  const outcome = isExternalCommentFallbackRouteProcessingOutcome(input.outcome)
+    ? input.outcome.result
+    : input.outcome;
+
+  if (isFailedIssueProcessingOutcome(outcome)) {
     const previousIssue = input.state.issues[source.issueKey];
     const activeNoChangeCount = previousIssue?.mode === "active" ? previousIssue.activeNoChangeCount : 0;
     const failureCount = (previousIssue?.failureCount ?? 0) + 1;
@@ -175,13 +198,15 @@ export function recordIssueProcessingOutcome(input: {
           activeNoChangeCount,
           nextPollAt: addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString(),
           failureCount,
-          lastFailureReason: input.outcome.reason,
+          lastFailureReason: outcome.reason,
+          ...mergeExternalCommentFallbackRoutes(previousIssue, routeRecord),
         },
       },
     };
   }
 
-  if (input.outcome === "dead-lettered") {
+  if (outcome === "dead-lettered") {
+    const previousIssue = input.state.issues[source.issueKey];
     return {
       ...input.state,
       issues: {
@@ -195,12 +220,13 @@ export function recordIssueProcessingOutcome(input: {
           activeNoChangeCount: 0,
           nextPollAt: null,
           failureCount: 0,
+          ...mergeExternalCommentFallbackRoutes(previousIssue, routeRecord),
         },
       },
     };
   }
 
-  if (input.outcome === "issue-not-found" || input.outcome === "issue-closed") {
+  if (outcome === "issue-not-found" || outcome === "issue-closed") {
     const { [source.issueKey]: _removed, ...issues } = input.state.issues;
     return {
       ...input.state,
@@ -208,7 +234,8 @@ export function recordIssueProcessingOutcome(input: {
     };
   }
 
-  if (input.outcome === "interrupted") {
+  if (outcome === "interrupted") {
+    const previousIssue = input.state.issues[source.issueKey];
     return {
       ...input.state,
       issues: {
@@ -222,13 +249,15 @@ export function recordIssueProcessingOutcome(input: {
           activeNoChangeCount: 0,
           nextPollAt: input.processedAt.toISOString(),
           failureCount: 0,
+          ...mergeExternalCommentFallbackRoutes(previousIssue, routeRecord),
         },
       },
     };
   }
 
   const previousMode = input.state.issues[source.issueKey]?.mode ?? "idle";
-  const isActive = input.outcome === "triggered-success" || previousMode === "active";
+  const previousIssue = input.state.issues[source.issueKey];
+  const isActive = outcome === "triggered-success" || previousMode === "active";
   return {
     ...input.state,
     issues: {
@@ -242,6 +271,7 @@ export function recordIssueProcessingOutcome(input: {
         activeNoChangeCount: 0,
         nextPollAt: isActive ? addMilliseconds(input.processedAt, input.activeIssuePollIntervalMs).toISOString() : null,
         failureCount: 0,
+        ...mergeExternalCommentFallbackRoutes(previousIssue, routeRecord),
       },
     },
   };
@@ -255,6 +285,23 @@ export function failedIssueProcessingOutcome(input: { reason: string; agent?: st
 
 export function isFailedIssueProcessingOutcome(outcome: IssueProcessingOutcome): outcome is FailedIssueProcessingOutcome {
   return typeof outcome === "object" && outcome.kind === "failed";
+}
+
+export function externalCommentFallbackRouteProcessingOutcome(input: {
+  result: "no-trigger" | "triggered-success";
+  route: ExternalCommentFallbackRouteRecord;
+}): ExternalCommentFallbackRouteProcessingOutcome {
+  return {
+    kind: "external-comment-fallback-route",
+    result: input.result,
+    route: input.route,
+  };
+}
+
+export function isExternalCommentFallbackRouteProcessingOutcome(
+  outcome: IssueProcessingOutcome,
+): outcome is ExternalCommentFallbackRouteProcessingOutcome {
+  return typeof outcome === "object" && outcome.kind === "external-comment-fallback-route";
 }
 
 export function recordActiveIssueUnchanged(input: {
@@ -345,4 +392,21 @@ function makeRepositorySet(repositories: readonly RepositoryRef[]): Set<string> 
 
 function addMilliseconds(date: Date, milliseconds: number): Date {
   return new Date(date.getTime() + milliseconds);
+}
+
+function mergeExternalCommentFallbackRoutes(
+  previousIssue: IntakeIssueState | undefined,
+  routeRecord: ExternalCommentFallbackRouteRecord | null,
+): Pick<IntakeIssueState, "externalCommentFallbackRoutes"> {
+  const previousRoutes = previousIssue?.externalCommentFallbackRoutes ?? {};
+  if (routeRecord === null) {
+    return Object.keys(previousRoutes).length === 0 ? {} : { externalCommentFallbackRoutes: previousRoutes };
+  }
+
+  return {
+    externalCommentFallbackRoutes: {
+      ...previousRoutes,
+      [routeRecord.commentId]: routeRecord,
+    },
+  };
 }

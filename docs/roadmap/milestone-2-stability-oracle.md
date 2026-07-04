@@ -186,7 +186,7 @@
   - 提供 observer 演练 fixture 或只读导入能力，减少依赖本机 `config.local.toml` 与中心 `.state`。
   - 补充永久挂起 `gh` 的低成本演练入口，避免人工等待完整 120 秒 timeout。
 
-### - [ ] T8 · 外部评论兜底路由与 CEO 覆盖率
+### - [x] T8 · 外部评论兜底路由与 CEO 覆盖率
 
 **目标**：消除"对话级死锁"与"guardrail 盲区"（M1 dogfood 实测卡点，#41 上 loop watcher 曾手动补 ping 打补丁）。三个子目标：
 1. **无 mention 外部评论兜底路由**：active issue 上出现外部新评论且无任何合法 mention 时，不再静默 `no-trigger` 跳过——引入一次轻量无状态路由判定（CEO 式：输出"无需行动"或一条带单个 `@` 的 append），让"验收通过 / 你去做 X"这类有路由意图但没带 `@` 的真人评论不再使整个闭环停摆。需设防重与成本控制：同一评论只判定一次，判定失败 fail-open 保持现状。
@@ -201,6 +201,12 @@
 3. 打开本任务的 openspec change → 应看到矛盾结论对的取证结论与定性（双实例 / 伪装 / 误读三选一或其他），及据此裁剪的修复范围说明。
 
 **依赖**：T2（发言者身份与 `@` 语义先定），取证子项无依赖可先行。
+
+**验收证据（2026-07-04）**：
+- OpenSpec：`openspec/changes/archive/2026-07-04-external-comment-fallback-ceo-audit-t8/` 归档保留 proposal / design / tasks / spec-delta；`design.md` 记录 issue 41 两组相反 PM 结论对、原始日志不可得的“其他”定性，以及不扩入 T1/T2 的范围裁剪。
+- 实现：`src/runner.ts` 在 active no-trigger 分支执行外部无 mention 兜底路由，并为发布路径补 `ceo-reviewed` / bypass / not-applicable metadata；`src/format-ceo.ts` 增加外部 route parser、timeout/fail-open 与单 mention 校验；`src/github-response-intake.ts` 按 comment id 记录 `no_action` / `append` / `fail_open` ledger；`agents/ceo.md` 承载路由判据。
+- 测试：`tests/runner.test.ts` 覆盖 active changed / idle changed、append/no_action/fail_open、防重、metadata comment 排除、发布路径矩阵和 never-settle route；`tests/format-ceo.test.ts` 覆盖 route parser 正反例与 inline-code-only mention；`tests/github-response-intake.test.ts` 覆盖 ledger 与旧 state 兼容；`tests/conversation.test.ts` 覆盖 `ceo-reviewed` 不影响 speaker 归一化。
+- 验证：dev 复跑 `pnpm test` 24 files / 244 tests 通过，`pnpm typecheck` 通过，`git diff --check` 通过；product-manager 第 28 条评论按 10 条正式验收清单验收代码通过。
 
 ### - [ ] T9 · CEO 阶段模板升级：方案评审清单 + 执行后复盘清单
 

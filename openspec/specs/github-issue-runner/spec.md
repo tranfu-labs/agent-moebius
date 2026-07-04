@@ -35,10 +35,15 @@
 - MUST 在 active issue 观察到 `no-trigger` 变化时保持 active，重置无变化计数，并安排下一次 active poll。
 - MUST 在 active poll 或 idle-scan changed-issue 处理路径中发现 issue `state = CLOSED` 时，把该 issue 从 `.state/github-response-intake.json` 移除（与 `issue-not-found` 语义一致），不调用 trigger、不调用 Codex、不发评论；MUST 记录 `event = "skip"`、`reason = "issue-closed"` 与 `issueKey`。
 - MUST 限制当前 watched repositories 内的 active issues 数量；超出上限时，runner MUST 将多余 issue 降级到 idle 并记录原因。
-- MUST 把 GitHub response intake 状态保存在本地忽略目录 `.state/github-response-intake.json`，状态至少包含 repository idle scan 时间、issue `updatedAt`、mode、active 无变化计数、下次轮询时间，以及可选 `failureCount`（缺省 0）与 `lastFailureReason`。
+- MUST 把 GitHub response intake 状态保存在本地忽略目录 `.state/github-response-intake.json`，状态至少包含 repository idle scan 时间、issue `updatedAt`、mode、active 无变化计数、下次轮询时间，以及可选 `failureCount`（缺省 0）、`lastFailureReason` 与 external comment fallback route records。
 - MUST 在 `no-trigger` 后推进 intake `updatedAt`；`failed` 后 MUST 更新 `failureCount` / `lastFailureReason` / `nextPollAt` 但 MUST NOT 推进 `updatedAt`，重试节奏由既有 poll / scan 间隔约束，MUST NOT 每 tick 刷屏。
 - MUST 在单 issue 处理返回 `failed` 时保留既有 `updatedAt`、`failureCount` 累加 1（此前 idle 或缺失状态从 1 开始）、记录 `lastFailureReason`、`activeNoChangeCount` 保持不变、`mode = active`、`nextPollAt` 设为处理时间后 `activeIssuePollIntervalMs`。失败 MUST NOT 消耗安静降级预算（`activeNoChangeCount`），安静轮询 MUST NOT 消耗失败预算（`failureCount`）。
 - MUST 在 `triggered-success` / `no-trigger` / `dead-lettered` 结局折叠时清零 `failureCount` 与 `lastFailureReason`。存量状态文件（无新字段）MUST 可直接加载。
+- MUST 在 active issue 的最新外部 comment 归一化为 `speaker=user`、不带任何 `agent-moebius:*` runner 机器 metadata、且该 comment 没有合法 agent mention 时，执行一次 CEO 式无状态兜底路由判定；idle issue、issue body、runner metadata comment、已有合法 agent mention 的 comment MUST NOT 进入该兜底路由。
+- MUST 让外部 comment 兜底路由只输出两类业务结果：`no_action`（无需行动）或 `append`（一条以 `ceo` role envelope 发布的追加评论）。append 正文 MUST 且只能包含一个代码区域外的合法可触发 agent mention；TypeScript 层 MUST 校验 JSON shape、非空 body、单 mention、白名单和不得 mention `@ceo`，具体路由判据 MUST 放在 `agents/ceo.md`。
+- MUST 按 GitHub comment id 记录每次外部 comment 兜底路由判定结果，至少包含 comment id、`outcome`（`no_action` / `append` / `fail_open`）、判定时间，以及可用时的失败原因或目标角色；同一 comment id 已有记录时 MUST NOT 再次调用兜底路由判定。
+- MUST 在兜底路由判定失败、超时、非法 JSON、非法 append body 或 persona 加载失败时 fail-open：不发布评论，保持现有 no-trigger 语义，并记录 `outcome = fail_open`，避免同一 comment 重复消耗成本。
+- MUST 在兜底路由发布 append 成功后，让该 comment 成为下一轮 active poll 的最新消息，并由普通 mention trigger 在下一轮选择目标 agent；本轮 MUST NOT 直接运行 append 中 mention 的目标 agent。
 - MUST 在处理失败且折叠后 `failureCount` 将达到 `FAILURE_RETRY_LIMIT` 时，于同轮先完成本次真实处理尝试、确认仍失败后，向该 issue 发布死信评论；死信评论发布成功 MUST 折叠为 `dead-lettered`（推进 `updatedAt`、`mode = idle`、清零计数、`nextPollAt = null`），发布失败 MUST 保持 `failed` 并在后续轮次继续「先处理、后死信」。MUST NOT 在本轮处理成功时发布死信。
 - MUST 让死信评论以系统身份发布、不包含任何 agent mention、携带机器可识别标记 `<!-- agent-moebius:dead-letter -->`，并包含目标 agent 名、`lastFailureReason`、累计失败次数与恢复提示（在 issue 发表任意新评论即可重新触发）。
 - MUST 在死信评论被后续扫描读到时按 `no-trigger` 吸收，MUST NOT 形成自触发循环。
@@ -88,6 +93,9 @@
 - MUST NOT 把沉默、继续执行、执行方自述、执行方转述或 loop watcher 代述视为验收语句变更或验收结论 override 的有效确认。
 - MUST 保留 mention trigger：最新消息的非代码文本区域包含已存在 agent mention 时，触发对应 agent；fenced code block 与 inline backtick 内的 mention 不参与触发。
 - MUST NOT 提供 `agents/reflector.md` 或任何 reflector stage trigger；`@reflector` 在当前系统中只是未知 mention，不触发任何执行或评论。
+- MUST 让所有 runner 发布路径的 role envelope comment body 带可审计 CEO 覆盖标记，例如 `<!-- agent-moebius:ceo-reviewed action=... -->`；实际调用 CEO 的评论 MUST 标明 CEO 结果，不实际调用 CEO 的系统错误评论、dead-letter、兜底 route append MUST 标明 bypass 或 not-applicable reason。
+- MUST 保留 `<!-- agent-moebius:ceo-corrected -->` 作为 CEO replace / append 修正的子类标记；MUST NOT 再把它作为“是否经过 CEO 审阅”的唯一信号。
+- MUST 让 CEO 覆盖审计标记不影响 speaker 归一化；`speaker` 仍只由 `agent-moebius:role=<role>` metadata 或 legacy role envelope 决定。
 - MUST 集中定义 stage 枚举于 `src/stages.ts`，供 CEO guardrail 与各 agent persona 契约测试共用；多处 MUST NOT 各自维护副本。
 - MUST 让 `AllStages = ["plan-written", "code-verified", "in-progress"]`。
 - MUST 让 CEO guardrail 承担阶段验收回流入口：当 Codex agent 的 `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified` 时，`agents/ceo.md` MUST 先查可用「验收语句」清单。`plan-written` 有可用清单时，CEO MUST `append as=ceo` mention `@qa` 要求按其测试设计流程审查本轮方案，MUST NOT 直接 mention 发起需求角色；不查历史 qa 结论——dev 每次重出 `plan-written` 都重审（幂等，防止拿旧结论放行新方案），qa 审查通过后由 qa 自行 mention 发起需求角色交棒。`code-verified` 有可用清单且发起本需求者是可达 agent 时，CEO MUST 返回 `append`，默认 `as=ceo`，正文 mention 发起需求角色并要求其按验收语句逐条验收实现证据。缺少可用验收语句时，CEO MUST `append as=ceo` mention `@dev` 要求补齐；`code-verified` 分支下若发起者是真人用户而非 agent，CEO MUST 输出 `no_change`，维持等真人用户验收。
@@ -588,6 +596,7 @@ And `mode = idle`
 And `failureCount` 与 `lastFailureReason` 被清零
 And `nextPollAt = null`
 And issue 上可见一条不含 agent mention、含 `<!-- agent-moebius:dead-letter -->`、失败原因与恢复提示的死信评论
+And 死信评论含 `<!-- agent-moebius:ceo-reviewed action=not_applicable reason=dead-letter -->`
 And 用户之后的任意新评论能重新触发处理
 
 ### 场景 22.3：GitHub response intake — 死信发布失败不吞指令
@@ -608,6 +617,108 @@ Then 结局为 `triggered-success`
 And 系统正常发布 agent 评论
 And MUST NOT 发布死信评论
 And `failureCount` 与 `lastFailureReason` 被清零
+
+### 场景 22.5：GitHub response intake — active issue 最新外部无 mention 评论触发一次兜底路由
+Given issue 处于 active mode
+And 最新 GitHub comment 没有 `agent-moebius:role` metadata
+And 最新 GitHub comment 没有其他 `agent-moebius:*` 机器 metadata
+And 归一化后最新 timeline message 为 `speaker=user`
+And 最新 comment body 没有合法 agent mention
+And intake state 尚未记录该 comment id 的 fallback route decision
+When runner 处理该 issue
+Then runner MUST 调用 CEO 式 external comment route 判定一次
+And 判定结果 MUST 记录到 intake state，key 为该 comment id
+
+### 场景 22.6：GitHub response intake — 兜底路由 no_action 不发评论且不重复
+Given active issue 最新外部无 mention comment 已触发兜底路由
+And CEO 式路由返回 `{"action":"no_action"}`
+When runner 完成本轮处理
+Then runner MUST NOT 发布新评论
+And issue processing outcome 按 no-trigger 折叠
+And intake state MUST 记录该 comment id 的 `outcome = no_action`
+When 下一轮处理同一 comment id
+Then runner MUST NOT 再调用 external comment route 判定
+
+### 场景 22.7：GitHub response intake — 兜底路由 append 以 ceo envelope 发布并留给下一轮触发
+Given active issue 最新外部无 mention comment 有明确路由意图
+And CEO 式路由返回 `{"action":"append","body":"@dev 请继续处理已通过验收后的实现。"}`
+When runner 完成本轮处理
+Then runner MUST 发布一条 `<ceo>:` envelope comment
+And comment body MUST 包含 `<!-- agent-moebius:role=ceo -->`
+And comment body MUST 包含 `<!-- agent-moebius:ceo-reviewed ... -->`
+And intake state MUST 记录该 comment id 的 `outcome = append` 与 `targetRole = dev`
+And 本轮 MUST NOT 直接运行 dev
+When 下一轮 active poll 读取到该 CEO comment
+Then 普通 mention trigger MUST 选择 `dev`
+
+### 场景 22.8：GitHub response intake — 兜底路由 fail-open 记录失败并保持现状
+Given active issue 最新外部无 mention comment 尚未判定
+And external comment route 判定超时、Codex 失败、persona 加载失败、非法 JSON、append body 无 mention、多 mention 或 mention 非白名单
+When runner 完成本轮处理
+Then runner MUST NOT 发布新评论
+And issue processing outcome 按 no-trigger 折叠
+And intake state MUST 记录该 comment id 的 `outcome = fail_open` 与失败原因
+And 同一 comment id 后续 MUST NOT 重复判定
+
+### 场景 22.9：GitHub response intake — idle issue 不触发兜底路由
+Given issue 不处于 active mode
+And 最新外部 comment 没有合法 agent mention
+When runner 处理该 issue
+Then runner MUST NOT 调用 external comment route 判定
+And runner MUST 保持现有 no-trigger 行为
+
+### 场景 22.10：GitHub response intake — runner metadata comment 不触发兜底路由
+Given active issue 的最新 comment 归一化为 `speaker=user`
+And 最新 comment 含 `<!-- agent-moebius:dead-letter -->` 或其他 `agent-moebius:*` 机器 metadata
+When runner 处理该 issue
+Then runner MUST NOT 调用 external comment route 判定
+And runner MUST 保持现有 no-trigger 行为
+
+### 场景 22.11：GitHub response intake — active issue 由 idle scan changed job 命中时仍触发兜底
+Given intake state 中某 issue 已处于 active mode
+And idle repository scan 也发现该 issue updatedAt changed
+And 同一轮按 issueKey 去重后以 changed job 处理该 issue
+And 最新外部 comment 没有合法 agent mention
+When runner 处理该 issue
+Then runner MUST 仍按处理前 intake state 识别 active-only 语义
+And MUST 执行一次外部 comment 兜底路由判定
+
+### 场景 22.12：GitHub response intake — 外部 route parser 非法 append fail-open
+Given external comment route 返回 append
+And append body 为空、没有合法 mention、含多个合法 mention、mention 未知 role、mention `@ceo`、或合法 mention 只出现在 fenced code / inline code 中
+When TypeScript 后置校验 route 输出
+Then route result MUST 为 `FAIL_OPEN`
+And runner MUST NOT 发布 append 评论
+And intake state MUST 记录该 comment id 的 `outcome = fail_open`
+
+### 场景 22.13：GitHub response intake — 兜底路由调用有界完成
+Given active issue 最新外部无 mention comment 触发 external comment route
+And 该 route 的 Codex 调用超时、拒绝或慢失败
+When runner 处理该 issue
+Then issue job MUST 有界完成
+And 后续 heartbeat MUST NOT 被该 route 调用永久阻塞
+And intake state MUST 记录该 comment id 的 `outcome = fail_open`
+And 同一 comment id MUST NOT 重复刷屏或重复消耗 route 判定
+
+### 场景 22.14：GitHub response intake — 旧 intake state 缺少 route 字段仍兼容
+Given `.state/github-response-intake.json` 中某 active issue 只有 T8 前字段
+And 缺少 external comment fallback route 记录字段
+When runner 加载 state 并处理该 issue
+Then 缺失字段 MUST 按空 route 记录处理
+And 后续 outcome 折叠 MUST 保留既有 issue state 语义
+
+### 场景 22.15：GitHub response intake — ceo-reviewed metadata 不影响 speaker 归一化
+Given GitHub comment body 同时包含 `<!-- agent-moebius:role=product-manager -->` 与 `<!-- agent-moebius:ceo-reviewed action=no_change -->`
+When runner 构造 shared timeline
+Then 该 message 的 speaker MUST 仍为 `product-manager`
+And timeline body MUST NOT 因 `ceo-reviewed` metadata 被识别为其他 role
+
+### 场景 22.16：GitHub response intake — T8 取证结论限制修复范围
+Given issue 41 上存在相隔 19 秒与 44 秒的 product-manager 相反结论对
+And 当前可读 `.state/*`、`/tmp/agent-moebius-*` runDir 与仓库内日志均不能证明对应 PM Codex run 来源
+When 打开归档后的 T8 change `design.md`
+Then 必须看到取证结论为“其他：原始日志不可得，基于现有 issue metadata 与本地可读运行产物无法证明双实例 / 伪装 / 误读之一”
+And 必须看到修复范围裁剪为 T8 明确范围，不回灌 T1 进程级防重或 T2 协议约束
 
 ### 场景 23：agent 输出后不做同轮自反
 Given 最新消息包含 `@dev`
@@ -691,6 +802,7 @@ And 历史视频 URL 不重复进入本次 media manifest
 Given 最新消息包含 `@dev` 和一个不支持或不可下载的 media URL
 When runner 在 Codex 启动前准备媒体失败
 Then 系统发布一条带当前 agent role envelope 的可见错误评论
+And 错误评论含 `<!-- agent-moebius:ceo-reviewed action=bypass reason=media-preparation-failed -->`
 And 不调用 Codex driver
 And 不更新 `.state/role-threads.json`
 And intake 把本次触发视为已处理，避免同一坏链接每分钟重复刷屏
@@ -716,6 +828,7 @@ Given Codex 成功完成且产生了需要发布的 artifact
 And artifact publisher 上传失败
 When runner 处理该失败
 Then 系统发布一条带当前 agent role envelope 的可见错误评论
+And 错误评论含 `<!-- agent-moebius:ceo-reviewed action=bypass reason=artifact-publishing-failed -->`
 And 不发布声称 artifact 已交付的 agent comment
 And 不更新 `.state/role-threads.json`
 
@@ -801,8 +914,8 @@ When runner 在 `postComment` 之前调用 CEO guardrail
 Then CEO 以完整公开 issue context（`issueContext` + `latestResponse` + `agent = "dev"` + `allowedStages`）被调用
 And CEO 返回改写后完整文本，末尾含 `<!-- agent-moebius:stage=code-verified -->`
 And 后置宽容匹配验证通过
-And runner 在 post 前追加 `<!-- agent-moebius:ceo-corrected -->` metadata
-And runner post 的评论为 CEO 修正版，包含 CEO quote 标注、stage marker、role metadata、以及最终位于 body 最末尾的 `<!-- agent-moebius:ceo-corrected -->` metadata
+And runner 在 post 前追加 `<!-- agent-moebius:ceo-reviewed action=replace -->` 与 `<!-- agent-moebius:ceo-corrected -->` metadata
+And runner post 的评论为 CEO 修正版，包含 CEO quote 标注、stage marker、role metadata、`ceo-reviewed`、以及最终位于 body 最末尾的 `<!-- agent-moebius:ceo-corrected -->` metadata
 And 日志包含 `event = "ceo-guardrail-repaired"` 与 `issueKey`
 And 后续不会触发任何 deterministic stage hook
 
@@ -812,6 +925,8 @@ And dev codex 本轮返回的 `${LAST_RESPONSE}` 末尾已含合规 `<!-- agent-
 When runner 在 `postComment` 之前调用 CEO guardrail
 Then CEO 返回 `{"action":"no_change"}`（含前后空白或 markdown fence 包裹均视同合法 JSON）
 And runner post 的评论为 dev 原文，不追加 CEO quote 标注
+And comment body 包含 `<!-- agent-moebius:ceo-reviewed action=no_change -->`
+And comment body 不包含 `<!-- agent-moebius:ceo-corrected -->`
 And 日志包含 `event = "ceo-guardrail-noop"`
 
 ### 场景 35：CEO guardrail — 后置验证不通过 fail-open
@@ -821,12 +936,14 @@ When runner 调用 CEO guardrail
 Then CEO 返回一段“修正文本”，但末尾不含 `AllStages` 内的任何合规 marker
 And 后置宽容匹配验证不通过
 And runner fail-open post dev 原文
+And comment body 包含 `<!-- agent-moebius:ceo-reviewed action=fail_open reason=post-validate-failed -->`
 And 日志包含 `event = "ceo-guardrail-failopen"` 与 `reason = "post-validate-failed"`
 
 ### 场景 36：CEO guardrail — CEO 超时或异常 fail-open
 Given 最新消息包含 `@dev`
 When runner 调用 CEO guardrail 并遇到超时、CLI 非 0 退出、返回空 stdout 或返回非法输出
 Then runner fail-open post dev 原文
+And comment body 包含 `<!-- agent-moebius:ceo-reviewed action=fail_open ... -->`
 And 日志包含 `event = "ceo-guardrail-failopen"` 与错误原因
 And 若失败原因为超时，runner 取消对应底层 Codex 子进程
 And 不阻断主流程，不影响 role thread 状态推进条件
@@ -977,8 +1094,8 @@ And CEO 判定需要追加评论（走 `append`）
 When runner 在 `postComment` 之前调用 CEO guardrail
 Then CEO 返回 `{"action":"append","as":"ceo","body":"> CEO guardrail: 新建 change 分支属于 dev 自主裁决范围。\n\n@dev 同意你提出的分支方案，请自行创建并继续推进 plan-written。"}`
 And 后置校验通过（合法 JSON、`action=append`、`as=ceo` 在允许集合、`body` 非空）
-And runner 先 `postComment` 一次：body 为 dev 原文 + `role=dev` metadata（**不追加** `ceo-corrected`）
-And runner 再 `postComment` 一次：body 为 `<ceo>:\n${CEO body}` + `role=ceo` metadata + `ceo-corrected` metadata
+And runner 先 `postComment` 一次：body 为 dev 原文 + `role=dev` metadata + `ceo-reviewed action=append_original`（**不追加** `ceo-corrected`）
+And runner 再 `postComment` 一次：body 为 `<ceo>:\n${CEO body}` + `role=ceo` metadata + `ceo-reviewed action=append_ceo` + `ceo-corrected` metadata
 And 下一轮从 GitHub 拉取评论后，timeline 依次归一化为 `speaker=dev` → `speaker=ceo`
 And 日志包含 `event=ceo-guardrail-appended` 与 `agent=dev` / `as=ceo` / `issueKey`
 
@@ -989,7 +1106,7 @@ And CEO 判定应扮演 dev 直接推进（`as=dev`）
 When runner 调用 CEO guardrail
 Then CEO 返回 `{"action":"append","as":"dev","body":"> CEO guardrail: 新建 change 分支属于 dev 自主裁决范围。\n\n我自行按 change/foo 分支方案继续推进 plan-written。\n\n<!-- agent-moebius:stage=in-progress -->"}`
 And 后置校验通过（`as=dev` 在允许集合、`body` 非空；code 层不校验 stage marker，是 dev 语义自带）
-And runner 先 post dev 原文，再 post 一条 `<dev>:\n${CEO body}` + `role=dev` metadata + `ceo-corrected` metadata 的评论
+And runner 先 post dev 原文 + `ceo-reviewed action=append_original`，再 post 一条 `<dev>:\n${CEO body}` + `role=dev` metadata + `ceo-reviewed action=append_ceo` + `ceo-corrected` metadata 的评论
 And 下一轮从 GitHub 拉取评论后，timeline 依次归一化为两条 `speaker=dev` 评论，第二条含 `ceo-corrected` metadata
 And 日志包含 `event=ceo-guardrail-appended` 与 `as=dev`
 
@@ -1000,6 +1117,7 @@ And CEO 返回一段自然语言解释而非 JSON
 Then `parseCeoOutput` 判定为非法 JSON
 And `FormatCeoResult.action = "FAIL_OPEN"` 且 `reason = "invalid-json"`
 And runner fail-open 直接 post dev 原文（单次 `postComment`）
+And comment body 包含 `<!-- agent-moebius:ceo-reviewed action=fail_open reason=invalid-json -->`
 And 日志包含 `event=ceo-guardrail-failopen`
 
 ### 场景 45：CEO guardrail — `append.as` 未知 role fail-open
@@ -1009,6 +1127,7 @@ And CEO 返回 `{"action":"append","as":"nobody","body":"..."}`
 Then `format-ceo.ts` post-validate 拒绝
 And `FormatCeoResult.action = "FAIL_OPEN"` 且 `reason = "unknown-as"`
 And runner fail-open 直接 post dev 原文
+And comment body 包含 `<!-- agent-moebius:ceo-reviewed action=fail_open reason=unknown-as -->`
 And 日志包含 `event=ceo-guardrail-failopen`
 
 ### 场景 46：CEO speaker 命名空间独立于 mention 白名单
@@ -1297,6 +1416,7 @@ And 页面不把所有 repository 误报为“没有记录”
 
 ## 可验证行为
 - `pnpm vitest run tests/observer.test.ts` MUST 通过，覆盖 observer 的白名单聚合、状态来源标注、artifact 发布链接 / 图片预览、未发布 artifact 路径、缺 `.state` 文件、坏 state JSON、坏 JSONL、JSONL 尾行截断、manifest 缺字段、损坏 config 诊断、无写入边界、fake `gh` / `codex` 零调用，以及 observer 被强杀后 runner 测试不受影响。
+- `pnpm vitest run tests/runner.test.ts tests/format-ceo.test.ts tests/github-response-intake.test.ts tests/conversation.test.ts` MUST 通过，覆盖外部无 mention 兜底路由、route parser 负例、comment id ledger 防重、CEO 审阅 metadata 覆盖、旧 intake state 兼容与 speaker 归一化边界。
 - `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed 保留 `updatedAt` 并更新 `failureCount` / `lastFailureReason` / `nextPollAt`、`dead-lettered` 清零失败状态并降级 idle、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、Codex watchdog 超时后 failed 折叠并释放 queued driver pool 名额、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、`@secretary` 普通 mention 触发 Codex、secretary speaker 归一化、secretary current repo preScript cwd 传递、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO `append.as=secretary` 合法、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、dev workspace git 失败 stderr 摘要、dev workspace 本地分支名与 repo cache 串行化、codex jsonl 最终消息解析、thread id 解析、cached token 解析、Codex AbortSignal 中断与忽略温和信号时的强杀兜底、issue media 纯提取 / prompt manifest、SVG issue 输入过滤、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`gh` 子进程挂起 timeout、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、死信发布成功 / 失败 / 故障恢复不误发死信、持续 GitHub fetch 故障达到预算后死信、以及收尾中断检查抛错时 fail-open 照常发布。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。

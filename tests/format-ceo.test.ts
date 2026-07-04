@@ -5,8 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CEO_CORRECTED_METADATA,
   formatCeoComment,
+  formatExternalCommentRoute,
+  parseExternalCommentRouteOutput,
   parseCeoOutput,
   type FormatCeoInput,
+  type FormatExternalCommentRouteInput,
 } from "../src/format-ceo.js";
 
 describe("parseCeoOutput", () => {
@@ -43,6 +46,105 @@ describe("parseCeoOutput", () => {
   it("returns unknown_action for unknown action value", () => {
     const parsed = parseCeoOutput('{"action":"delete","body":"x"}');
     expect(parsed.kind).toBe("unknown_action");
+  });
+});
+
+describe("parseExternalCommentRouteOutput", () => {
+  it("parses no_action JSON", () => {
+    expect(parseExternalCommentRouteOutput('{"action":"no_action"}')).toEqual({ kind: "no_action" });
+  });
+
+  it("parses append JSON wrapped in fenced code", () => {
+    expect(parseExternalCommentRouteOutput('```json\n{"action":"append","body":"@dev please continue"}\n```')).toEqual({
+      kind: "append",
+      body: "@dev please continue",
+    });
+  });
+
+  it("rejects non-object JSON and unknown actions", () => {
+    expect(parseExternalCommentRouteOutput("[1,2,3]")).toMatchObject({ kind: "invalid_json" });
+    expect(parseExternalCommentRouteOutput('{"action":"replace","body":"x"}')).toMatchObject({
+      kind: "unknown_action",
+      detail: "replace",
+    });
+  });
+});
+
+describe("formatExternalCommentRoute", () => {
+  it("returns NO_ACTION when CEO says no_action", async () => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatExternalCommentRouteInput["runCodex"]>>[0]) =>
+      successfulCodexRun(options.runDir, '{"action":"no_action"}'),
+    );
+
+    await expect(formatExternalCommentRoute({ ...routeBaseInput, agentsDir, runCodex })).resolves.toEqual({
+      action: "NO_ACTION",
+      reason: "ceo-no-action",
+    });
+  });
+
+  it("returns APPEND and targetRole for a single valid non-code mention", async () => {
+    const agentsDir = await makeAgentsDir();
+    const body = "验收通过。\n\n@dev 请继续实现。";
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatExternalCommentRouteInput["runCodex"]>>[0]) =>
+      successfulCodexRun(options.runDir, JSON.stringify({ action: "append", body })),
+    );
+
+    await expect(formatExternalCommentRoute({ ...routeBaseInput, agentsDir, runCodex })).resolves.toEqual({
+      action: "APPEND",
+      body,
+      targetRole: "dev",
+      reason: "appended",
+    });
+
+    const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
+    expect(prompt).toContain("最新外部无 mention 评论");
+    expect(prompt).toContain("可触发 agent:");
+    expect(prompt).toContain("dev, product-manager");
+    expect(prompt).not.toContain("ceo,");
+    expect(prompt).toContain("latestExternalComment:");
+    expect(prompt).toContain(routeBaseInput.latestComment);
+  });
+
+  it.each([
+    ["non JSON output", "natural language", "invalid-json"],
+    ["empty output", "", "empty-output"],
+    ["unknown action", '{"action":"delete"}', "unknown-action"],
+    ["empty append body", '{"action":"append","body":"   "}', "empty-body"],
+    ["append without mention", '{"action":"append","body":"请继续实现。"}', "missing-mention"],
+    ["append with multiple mentions", '{"action":"append","body":"@dev 和 @product-manager 请处理。"}', "multiple-mentions"],
+    ["append with unknown mention", '{"action":"append","body":"@unknown 请处理。"}', "unknown-mention"],
+    ["append with ceo mention", '{"action":"append","body":"@ceo 请处理。"}', "unknown-mention"],
+    ["append with fenced-code-only mention", '{"action":"append","body":"```md\\n@dev\\n```"}', "missing-mention"],
+    ["append with inline-code-only mention", '{"action":"append","body":"`@dev`"}', "missing-mention"],
+  ])("fail-opens for %s", async (_name, output, reason) => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatExternalCommentRouteInput["runCodex"]>>[0]) =>
+      successfulCodexRun(options.runDir, output),
+    );
+
+    await expect(formatExternalCommentRoute({ ...routeBaseInput, agentsDir, runCodex })).resolves.toMatchObject({
+      action: "FAIL_OPEN",
+      reason,
+    });
+  });
+
+  it("fail-opens and aborts a never-settling route Codex run when the timeout fires", async () => {
+    const agentsDir = await makeAgentsDir();
+    let signal: AbortSignal | undefined;
+
+    const result = await formatExternalCommentRoute({
+      ...routeBaseInput,
+      agentsDir,
+      timeoutMs: 1,
+      runCodex: (options) => {
+        signal = options.signal;
+        return new Promise(() => {});
+      },
+    });
+
+    expect(result).toMatchObject({ action: "FAIL_OPEN", reason: "codex-timeout" });
+    expect(signal?.aborted).toBe(true);
   });
 });
 
@@ -597,8 +699,31 @@ const baseInput: Omit<FormatCeoInput, "agentsDir" | "runCodex"> = {
   runDir: path.join(os.tmpdir(), "agent-moebius-ceo-test"),
 };
 
+const routeBaseInput: Omit<FormatExternalCommentRouteInput, "agentsDir" | "runCodex"> = {
+  issueContext: {
+    issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+    issueBody: "@dev please fix",
+    comments: [{ body: "验收通过，请继续实现。" }],
+  },
+  latestComment: "验收通过，请继续实现。",
+  availableAgentNames: ["dev", "product-manager", "ceo"],
+  runDir: path.join(os.tmpdir(), "agent-moebius-external-route-test"),
+};
+
 async function makeAgentsDir(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-agents-"));
   await fs.writeFile(path.join(dir, "ceo.md"), "CEO persona", "utf8");
   return dir;
+}
+
+function successfulCodexRun(runDir: string, finalText: string) {
+  return {
+    ok: true as const,
+    finalText,
+    threadId: "ceo-thread",
+    cachedInputTokens: null,
+    runDir,
+    stdoutPath: path.join(runDir, "stdout.jsonl"),
+    stderrPath: path.join(runDir, "stderr.log"),
+  };
 }
