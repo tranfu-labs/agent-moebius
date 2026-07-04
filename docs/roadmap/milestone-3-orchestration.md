@@ -23,9 +23,16 @@
 
 ## 任务清单（粗粒度，验收语句待细化）
 
-### - [ ] T1 · 目标账本 schema 与落地
+### - [x] T1 · 目标账本 schema 与落地
 
 目标 / 里程碑 / 任务 / 阶段 / 质量基准 / 父子 issue 关系的一等公民本地状态；含目标采访入账流程（解决"部分接收"）；与 run manifest 的关系在方案阶段定（扩展或引用）。
+
+验收证据（2026-07-04）：
+- 方案与归档：`openspec/changes/archive/2026-07-04-goal-ledger-t1/`
+- 行为事实源：`openspec/specs/goal-ledger/spec.md`
+- 实现：`src/goal-ledger.ts`、`src/goal-ledger-state.ts`
+- 测试：`tests/goal-ledger.test.ts`、`tests/goal-ledger-state.test.ts`
+- 验证命令：`pnpm test -- goal-ledger`、`pnpm test`、`pnpm typecheck` 均退出码 0。
 
 ### - [ ] T2 · 阶段作用域隔离
 
