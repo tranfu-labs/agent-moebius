@@ -33,6 +33,7 @@
 │   ├── driver-pool.ts          # codex driver job 并发策略抽象，默认由 runner 注入 5 并发上限
 │   ├── stages.ts               # stage 枚举与 marker 宽容解析
 │   ├── format-ceo.ts           # CEO guardrail 完整公开 issue context 校正与 fail-open 处理
+│   ├── observer/               # 本地只读观察页：读配置、.state 与 run manifest，不写状态
 │   ├── triggers/               # mention 触发方式
 │   ├── agent-prescripts/       # agent 级 Codex 执行前准备脚本
 │   ├── agent-context-state.ts  # .state/agent-contexts.json 状态读写适配
@@ -57,6 +58,10 @@
   - 需要本机 `codex` CLI 在 `PATH` 中。
   - 需要已完成 `gh auth login`。
   - 会真实扫描 `config.local.toml` 中配置的白名单 repository 的最近更新 open issues；没有本机覆盖时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 mention trigger 时，可能调用 Codex 并发表评论；只有真正调用 Codex driver 前会先给本轮触发源消息添加 `eyes` reaction。
+- 运行本地只读观察页：`pnpm observer`
+  - 默认监听 `127.0.0.1:8787`，可用 `OBSERVER_PORT` 覆盖端口。
+  - 只读读取 `config.toml` / `config.local.toml`、`.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl`，渲染白名单 issue、阶段来源和 artifact 发布状态。
+  - 不调用 GitHub、Codex 或 artifact publisher，不写 `.state` / manifest / release / worktree 文件；观察页进程崩溃或关闭不影响 runner。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
@@ -99,7 +104,7 @@
 - GitHub response intake 状态保存在被忽略的 `.state/github-response-intake.json`，记录 repo 闲时扫描时间、issue `updatedAt`、active/idle 模式、active 无变化次数、失败次数 / 最近失败原因和下次轮询时间。
 - Codex stdout/stderr 运行目录格式为 `/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/`；`<sequence>` 是 runner 进程内递增后缀，用来避免并发 runs 在同一 timestamp + count 下复用同一目录。本轮下载的输入媒体位于 `input-media/`，准备发布的输出产物位于 `output-artifacts/`。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
-- `github-response-intake.ts`、`local-config.ts`、`conversation.ts`、`conversation-interrupt.ts` 与 `issue-media.ts` 只做业务数据操作；`src/triggers/` 封装 mention 触发规则；`driver-pool.ts` 只承载 driver job 并发策略；`scanner.ts` 只做发现、`issue-dispatcher.ts` 只做派发与折叠、`state-persister.ts` 只做单写者状态持有与落盘；GitHub、Codex CLI、媒体 IO、状态文件读写分别由 `github.ts`、`codex.ts`、`media-assets.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做心跳编排与组装。
+- `github-response-intake.ts`、`local-config.ts`、`conversation.ts`、`conversation-interrupt.ts` 与 `issue-media.ts` 只做业务数据操作；`src/triggers/` 封装 mention 触发规则；`driver-pool.ts` 只承载 driver job 并发策略；`scanner.ts` 只做发现、`issue-dispatcher.ts` 只做派发与折叠、`state-persister.ts` 只做单写者状态持有与落盘；GitHub、Codex CLI、媒体 IO、状态文件读写分别由 `github.ts`、`codex.ts`、`media-assets.ts`、`state.ts`、`github-intake-state.ts` 适配；`runner.ts` 只做心跳编排与组装；`src/observer/` 是本地只读旁路，只读消费配置、`.state` 与 run manifest，禁止被 runner 主链路依赖。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 
 ## 修改前检查

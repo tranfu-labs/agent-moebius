@@ -178,6 +178,30 @@
 - MUST 在无 output artifact 时记录空 `artifacts` 数组。
 - MUST 在 artifact publisher 成功时记录 artifact staged path 与 publisher URL；publisher 失败时记录 staged path 且 `publishedUrl = null`，并继续按既有语义发布 artifact 错误评论、不更新 role thread、不伪装成功。
 - MUST 把 run manifest writer failure 视为 best-effort observation failure：记录 `event = "run-manifest-write-failed"`，但不得改变成功 agent comment 发布、role thread 更新或 artifact 错误评论语义。
+- MUST 提供本地只读观察页入口 `pnpm observer`。
+- MUST 让观察页进程独立于 runner 进程：observer 启动、崩溃、退出或被强杀不得影响 runner heartbeat、issue processing、driver pool、role thread state、intake state、artifact publishing 或 CEO guardrail 行为。
+- MUST NOT 让 runner import、调用或依赖 `src/observer/` 模块。
+- MUST 让 observer 只读本地 `config.toml`、`config.local.toml`、`.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl`。
+- MUST NOT 让 observer 调用 GitHub、Codex、release upload、artifact publisher 或任何状态 save helper。
+- MUST NOT 让 observer 写 `.state/*.json`、`.state/run-manifests.jsonl`、run manifest 副本、release asset、worktree 文件或 runner state。
+- MUST 让 observer 只展示本地 watched repository 白名单内的 repository；非白名单 repository 的本地记录 MUST 被忽略。
+- MUST 在白名单 repository 没有本地 issue 记录时显示独立空态。
+- MUST 在 observer 输入文件存在但不可读、不可解析或 shape 校验失败时显示独立读取失败诊断。
+- MUST 让“没有记录”和“读取失败”在文案与视觉状态上可区分。
+- MUST 从 GitHub response intake state、role thread state、agent context state 与 run manifest records 聚合 issue 记录，且 MUST NOT 新增业务状态机。
+- MUST 标注每个 issue 状态来源，包括 intake mode / failure data、role thread `lastSeenIndex`、agent context worktree data，以及可用时的最新 run manifest stage。
+- MUST 逐行解析 `.state/run-manifests.jsonl`，跳过坏行或不完整 record，并保留被跳过行号的诊断。
+- MUST 把无换行结尾的截断 JSONL 尾行视为坏 manifest line，跳过该行并保留此前完整 records。
+- MUST 诊断 manifest 缺少 `issue` 或 `artifacts` 等必填字段的 record，且不得丢弃其他有效 manifest records。
+- MUST 在 `.state` 文件缺失、JSON state 文件损坏、JSONL 行损坏或 manifest record 不完整时继续渲染观察页。
+- MUST 把缺失 `.state` 文件分类为 missing diagnostic，而不是读取失败。
+- MUST 把损坏的 `config.toml` 或 `config.local.toml` 分类为配置读取失败，而不是空白白名单。
+- MUST 从 run manifest records 展示 artifact；`publishedUrl` 存在时显示链接，且 URL 看起来是图片时渲染图片预览。
+- MUST 在 `publishedUrl = null` 时把 staged artifact `path` 显示为“未发布”；observer MUST NOT 伪造 URL 或发布 artifact。
+- MUST NOT 在 observer UI 提供操作按钮或写动作。
+- MUST 在浏览器刷新或新 HTTP 请求时重新读取本地文件；v0 MUST NOT 要求 file watcher。
+- MUST 在 observer 启动、页面刷新、artifact 区域查看与 observer 停止后，保持 watched config files、`.state/*.json`、`.state/run-manifests.jsonl`、artifact directories 与 release directories 无新增、无修改。
+- MUST 在 `PATH` 前置 fake `gh` 与 fake `codex` 时仍能渲染 observer 页面，且这些 fake command 在 observer request 期间 MUST 没有调用记录。
 - MUST 让所有 Codex agent persona（`agents/dev.md`、`agents/dev-manager.md`、`agents/product-manager.md`、`agents/hermes-user.md` 及未来新增 Codex agent）契约要求：每条响应末尾必须以 `<!-- agent-moebius:stage=<enum> -->` marker 结尾，`<enum>` MUST 属于 `AllStages`。
 - MUST 让 `agents/dev.md` 要求 dev 在 `plan-written` 响应的方案正文末尾包含「验收语句」一节；该节 MUST 位于最终 stage marker 之前，stage marker 仍 MUST 是整条回复最后一行。
 - MUST 让 `agents/dev.md` 要求「验收语句」中的每条语句都是一句可机械执行的检查；UI 类使用 `打开 X → 做 Y → 应看到 Z` 格式，非 UI 类使用等价可执行断言格式，例如 `跑 X → 应输出/退出码 Z`。
@@ -1095,7 +1119,91 @@ When CEO guardrail 处理该响应
 Then CEO 输出 `append`、`as=ceo`
 And append 正文给出「第 6 条评论」与「验收语句 1」等文字形式改写
 
+### 场景 60：Observer — 白名单 issue 与阶段状态可见
+Given `config.local.toml` 包含 `tranfu-labs/agent-moebius`
+And 本地状态包含 `tranfu-labs/agent-moebius#50` 的记录
+When 用户运行 `pnpm observer` 并打开本地页面
+Then 页面显示 issue `50`
+And 页面按来源标注 intake、role thread、agent context 与 run manifest 中可用的阶段 / 状态数据
+
+### 场景 61：Observer — 有发布截图的 issue 显示预览或链接
+Given `.state/run-manifests.jsonl` 包含 `tranfu-labs/agent-moebius#50` 的 record
+And 该 record 包含 `publishedUrl` 非空且看起来是图片 URL 的 artifact
+When observer 页面渲染该 issue
+Then 页面显示该 published URL
+And 页面为该 artifact 渲染图片预览
+
+### 场景 62：Observer — 未发布 artifact 显示只读路径
+Given `.state/run-manifests.jsonl` 包含 `path = "output-artifacts/t4.png"` 的 artifact
+And `publishedUrl = null`
+When observer 页面渲染该 run
+Then 页面把该 artifact 标为“未发布”
+And 页面显示 `output-artifacts/t4.png`
+And observer 不尝试发布或 serve 该本地文件
+
+### 场景 63：Observer — 坏 JSONL 行不让页面崩溃
+Given `.state/run-manifests.jsonl` 包含一行损坏 JSON
+And 后续行包含有效 manifest records
+When observer 页面渲染
+Then 有效 records 仍被显示
+And 诊断区指出被跳过的损坏行
+
+### 场景 64：Observer — 没有记录与读取失败可区分
+Given 一个白名单 repository 没有本地 issue 记录
+And `.state/role-threads.json` 存在但内容损坏
+When observer 页面渲染
+Then 空 repository 显示“没有记录”状态
+And 诊断区单独显示 `role-threads.json` 读取或解析失败
+
+### 场景 65：Observer — 观察页进程被强杀不影响 runner
+Given observer server 正在运行
+When observer 进程被强杀
+And 随后触发一轮 runner heartbeat
+Then runner heartbeat 与 issue processing 不 import 或依赖 observer modules
+And runner 日志没有 observer 相关错误
+
+### 场景 66：Observer — 缺失状态文件是 missing 而不是读取失败
+Given 本地配置中存在一个白名单 repository
+And `.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl` 均缺失
+When observer 页面渲染
+Then 页面成功返回
+And 该 repository 显示“没有记录”状态
+And 诊断区把这些 state files 分类为 missing，而不是读取失败
+
+### 场景 67：Observer — 损坏状态与缺字段 manifest 保留合法记录
+Given 一个 state JSON 文件损坏
+And `.state/run-manifests.jsonl` 包含一个有效 record、一行损坏 JSON、一个缺少 `issue` 或 `artifacts` 的 record
+When observer 页面渲染
+Then 有效 manifest record 被显示
+And 诊断区指出损坏文件、损坏行与缺失 manifest 字段
+
+### 场景 68：Observer — 尾行截断不丢弃此前完整 run
+Given `.state/run-manifests.jsonl` 包含一个完整有效 run record
+And 最后一行是没有结尾换行的截断 JSON
+When observer 页面渲染
+Then 完整 run record 被显示
+And 诊断区指出截断尾行已跳过
+
+### 场景 69：Observer — 只读边界无文件修改
+Given observer fixture 目录已记录初始文件列表与内容哈希
+When observer 启动、页面刷新三次、artifact 区域被查看且 observer 停止
+Then watched config files、`.state/*.json`、`.state/run-manifests.jsonl`、artifact directories 与 release directories 没有新增或修改文件
+
+### 场景 70：Observer — 不调用 gh 或 codex
+Given fake `gh` 与 fake `codex` commands 被放到 `PATH` 前面
+And 这些 fake commands 会记录调用并在被调用时失败
+When observer 页面渲染
+Then 页面仍可用
+And fake invocation logs 为空
+
+### 场景 71：Observer — 配置损坏不是空白白名单
+Given `config.local.toml` 存在但无法解析
+When observer 页面渲染
+Then 诊断区显示配置读取失败
+And 页面不把所有 repository 误报为“没有记录”
+
 ## 可验证行为
+- `pnpm vitest run tests/observer.test.ts` MUST 通过，覆盖 observer 的白名单聚合、状态来源标注、artifact 发布链接 / 图片预览、未发布 artifact 路径、缺 `.state` 文件、坏 state JSON、坏 JSONL、JSONL 尾行截断、manifest 缺字段、损坏 config 诊断、无写入边界、fake `gh` / `codex` 零调用，以及 observer 被强杀后 runner 测试不受影响。
 - `pnpm test` MUST 通过，覆盖 local config TOML 解析与 shape 校验、缺失 `config.local.toml` 时默认空白名单、GitHub response intake 的 due 判断、首次 baseline、active/idle 状态转换、active 连续无变化降级、active poll 白名单过滤、active 上限、failed 保留 `updatedAt` 并更新 `failureCount` / `lastFailureReason` / `nextPollAt`、`dead-lettered` 清零失败状态并降级 idle、运行中断 outcome、closed issue 从 active state 移除、driver pool 默认无限制与显式 `maxConcurrent` 限流、runner 心跳扫描派发不等待 job 执行、长跑 job 不阻塞其他 issue 全流程处理、Codex watchdog 超时后 failed 折叠并释放 queued driver pool 名额、in-flight issue 跨心跳防重派发、同心跳批内 issue job 去重、并发 job 完成即独立折叠互不覆盖、state persister 写合并与写失败重试、active 上限策略豁免在跑 issue、扫描结果纯变换应用不覆盖执行侧折叠、并发 role thread / agent context entry merge 写入、并发 runDir 唯一性、对话计数、最新消息选择、agent mention 解析、agent 选择、driver-agnostic conversation interrupt 判断与 monitor、mention-only trigger 解析、普通 `@reflector` / `@ceo` 不触发 Codex、`@secretary` 普通 mention 触发 Codex、secretary speaker 归一化、secretary current repo preScript cwd 传递、stage 枚举、stage marker 宽容匹配、stage marker 单独存在不触发 hook、CEO `no_change` JSON 解析、CEO `append` / `replace` 解析、CEO `append.as=reflector` fail-open、CEO `append.as=secretary` 合法、CEO 修正版后置验证、CEO 异常 / 超时 / 空输出 / 非法 stage fail-open、CEO 超时取消底层 Codex 调用、runner 对所有 Codex agent 响应调用 CEO、CEO 修正版追加 `<!-- agent-moebius:ceo-corrected -->`、CEO append 先发原评论再发独立评论、CEO prompt 包含完整公开 issue context 且不包含 `lastReflectorHook`、speaker timeline、full/resume prompt、delta 消息选择、评论格式化、状态读写、agent manifest 解析、agent context 状态读写、dev workspace pre script stale worktree 自动重建与失败 fallback、dev workspace git 失败 stderr 摘要、dev workspace 本地分支名与 repo cache 串行化、codex jsonl 最终消息解析、thread id 解析、cached token 解析、Codex AbortSignal 中断与忽略温和信号时的强杀兜底、issue media 纯提取 / prompt manifest、SVG issue 输入过滤、media asset 下载校验 / 输出 artifact 发现与 Markdown、Codex `--image` 参数构造、runner 媒体准备失败与 artifact 发布失败路径、CEO append 中的有效 mention 留给下一轮 active poll、`buildAddIssueReactionArgs` 构造安全 GitHub reaction 参数、runner 在真实 Codex driver 路径添加 `eyes` reaction 且在非 Codex 执行路径不添加 reaction、reaction 添加失败时仍继续调用 Codex、`gh` 子进程挂起 timeout、`classifyGhError` 瞬时/确定性/未知三态分类、`withRetry` 重试瞬时错误 / 确定性 bail / 耗尽上抛 / signal 取消、死信发布成功 / 失败 / 故障恢复不误发死信、持续 GitHub fetch 故障达到预算后死信、以及收尾中断检查抛错时 fail-open 照常发布。
 - `pnpm typecheck` MUST 通过，确保 TypeScript 严格模式下无类型错误。
 - 启动真实 runner 前，运行环境 MUST 满足本机 `codex` CLI 在 `PATH` 中且已完成 `gh auth login`。

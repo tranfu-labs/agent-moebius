@@ -6,6 +6,7 @@
   "packageManager": "pnpm@9.15.4",
   "scripts": {
     "start": "tsx src/runner.ts",
+    "observer": "tsx src/observer/server.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
