@@ -26,6 +26,25 @@ export interface MediaPromptEntry {
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg"]);
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm"]);
 
+// Codex CLI 的 --image 不接受 SVG（vector 无法直接送模型），且 runner 曾在 20 张 SVG
+// 的时间线上触发 `codex-failed exit-code-1` 死锁 issue（见 #38 / #39）。
+// 这里按 URL 后缀显式过滤掉 SVG 引用，避免它们进入媒体准备。
+const SKIP_MEDIA_EXTENSIONS = new Set([".svg"]);
+
+function isSkippedMediaUrl(rawUrl: string): boolean {
+  const parsed = parseUrl(rawUrl);
+  if (parsed === null) {
+    return false;
+  }
+  const pathname = parsed.pathname.toLowerCase();
+  for (const extension of SKIP_MEDIA_EXTENSIONS) {
+    if (pathname.endsWith(extension)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function extractIssueMediaReferences(messages: TimelineMessage[]): IssueMediaReference[] {
   return messages.flatMap((message) => extractMediaReferencesFromMessage(message));
 }
@@ -42,6 +61,9 @@ export function extractMediaReferencesFromMessage(message: TimelineMessage): Iss
   ) => {
     const normalizedUrl = normalizeHttpUrl(rawUrl);
     if (normalizedUrl === null || seenUrls.has(normalizedUrl)) {
+      return;
+    }
+    if (isSkippedMediaUrl(normalizedUrl)) {
       return;
     }
 
