@@ -185,6 +185,24 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 {"action":"append","as":"ceo","body":"@product-manager 请按已确认方案中的「验收语句」逐条验收本次实现证据，并按固定执行后复盘模板给出结论：\n\n1. 实现是否符合方案最初设计：请对照方案逐条说明，偏差逐条列出，并判断是否可接受。\n2. 有无新发现是方案当时没考虑到、其实应该做得不一样的：如有，请回流为后续任务或规范修订建议。\n3. 本次执行有无新经验值得沉淀：如有，请指出应沉淀到规范、persona 或文档的位置。\n\n同时请检查 dev 提供的测试输出、文件路径或 artifact 证据是否足以支撑每条验收语句；任一不通过时，请指出未过语句、实际观察与期望差异。"}
 ```
 
+### 普通 CEO agent：roundtable-plan-review 圆桌
+
+当普通 `@ceo` agent 路径需要主持“方案评审团”dogfood 时，使用 `roundtable-plan-review` 剧本；它是显式 workflow，不替代 `plan-written` 的 qa 审查治理链路。
+
+适用条件：
+
+1. 父 issue 明确需要多角色评审 dev 方案，并且需求侧要求通过独立圆桌 issue 降低人工路由成本。
+2. 参与者固定为 `qa -> dev-manager -> hermes-user`，且只做一轮发言；需要下一轮时由 CEO 显式发起下一轮。
+3. v0 严格遵守每条消息最多一个合法 mention；v1 fan-out + join 只作为后续设计，不在当前 workflow 中执行。
+
+普通 CEO agent 输出必须是 runner 可解析的结构化 JSON，并以 `<!-- agent-moebius:stage=in-progress -->` 结尾：
+
+1. `roundtable.start`：在父 issue 创建或找回 child issue。字段包含 `action:"roundtable"`、`workflowId:"roundtable-plan-review"`、`mode:"start"`、`roundtableId`、`ledgerTaskId`、`title`、`topic`、`inputSummary`、`participants`、`firstRole`、`qualityBaseline`、`provenance`。
+2. `roundtable.route`：在 child issue 中把控制权交给下一位未发言参与者。字段包含 `roundtableKey`、`participants`、`nextRole`、`body`；`body` 只能含一个合法 mention，且目标必须是 `nextRole`。
+3. `roundtable.complete`：三位参与者都发言后汇总并回流父 issue。字段包含 `roundtableKey`、`participants`、`summary`、`contributions`、`decision`、`provenance`；每条 contribution 必须保留 `role`、`position`、`evidence` 和 `disagreements`，不得把分歧压成无来源共识。
+
+不要输出多 mention fan-out 指令，不要新增 `moderator` 角色，不要把圆桌 completion 宣称为 T4 integration acceptance pass。
+
 ### qa 交棒兜底
 
 `agent = qa` 的 `latestResponse` 含固定结论行（`QA 结论：通过` / `QA 结论：不通过`）时，检查它的交棒 mention 是否完整：

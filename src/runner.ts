@@ -33,12 +33,21 @@ import { runIssueWorktreeCapability } from "./agent-prescripts/issue-worktree.js
 import { formatCeoScriptsForPrompt, loadCeoScripts, type CeoScript } from "./ceo-scripts.js";
 import {
   buildCeoOrchestrationKey,
+  buildCeoRoundtableCompletionKey,
+  buildCeoRoundtableKey,
   ensureInProgressStage,
   extractCeoOrchestrationKeyFromNote,
+  extractCeoRoundtableCompletionKey,
+  extractCeoRoundtableKey,
   parseCeoOrchestrationOutput,
   renderCeoChildIssueBody,
+  renderCeoRoundtableChildIssueBody,
+  renderCeoRoundtableParentSummaryBody,
+  renderCeoRoundtableRouteBody,
   type CeoChildIssueDescriptor,
   type CeoOrchestrationGroup,
+  type CeoRoundtableContribution,
+  type ParsedCeoOrchestration,
 } from "./ceo-orchestration.js";
 import { resolveCeoLedgerPromptContext } from "./agent-prescripts/ceo-ledger-context.js";
 import {
@@ -48,6 +57,7 @@ import {
   countMessages,
   formatAgentComment,
   getLatestTimelineMessage,
+  parseAgentMentions,
   resolveNextRoleThreadState,
   type TimelineMessage,
 } from "./conversation.js";
@@ -617,6 +627,17 @@ export async function processIssueSource(
     });
     if (acceptancePrePassOutcome !== null) {
       return acceptancePrePassOutcome;
+    }
+
+    const roundtableRecoveryOutcome = await maybeRecoverRoundtableNoHandoff({
+      source: input.source,
+      issue: input.issue,
+      timeline,
+      intakeIssueState: input.intakeIssueState,
+      postVisibleComment,
+    });
+    if (roundtableRecoveryOutcome !== null) {
+      return roundtableRecoveryOutcome;
     }
 
     const trigger = resolveTrigger({ timeline, availableAgentNames: agentNames });
@@ -2131,6 +2152,68 @@ async function maybeRouteExternalNoMentionComment(input: {
   });
 }
 
+async function maybeRecoverRoundtableNoHandoff(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  timeline: TimelineMessage[];
+  intakeIssueState?: IntakeIssueState;
+  postVisibleComment: (body: string) => Promise<void>;
+}): Promise<IssueProcessingOutcome | null> {
+  if (input.intakeIssueState?.mode !== "active") {
+    return null;
+  }
+  const context = parseRoundtableIssueContext(input.issue.body);
+  if (context === null) {
+    return null;
+  }
+  const latestMessage = getLatestTimelineMessage(input.timeline);
+  if (latestMessage === null || latestMessage.source !== "comment" || !context.participants.includes(latestMessage.speaker)) {
+    return null;
+  }
+  const latestComment = input.issue.comments[latestMessage.index - 1];
+  if (latestComment === undefined) {
+    return null;
+  }
+  if (input.intakeIssueState.externalCommentFallbackRoutes?.[latestComment.id] !== undefined) {
+    log({
+      event: "roundtable-recovery-skip",
+      reason: "already-routed",
+      issueKey: input.source.issueKey,
+      commentId: latestComment.id,
+    });
+    return null;
+  }
+  const mentions = parseAgentMentions(latestMessage.body);
+  if (mentions.length === 1 && mentions[0]?.name === "ceo") {
+    return null;
+  }
+  const decidedAt = new Date().toISOString();
+  const reason =
+    mentions.length === 0
+      ? `roundtable participant ${latestMessage.speaker} spoke without handing control back to CEO`
+      : `roundtable participant ${latestMessage.speaker} handed control to ${mentions.map((mention) => mention.name).join(",")} instead of CEO`;
+  const body =
+    mentions.length === 0
+      ? `@ceo 圆桌参与者 ${latestMessage.speaker} 已发言，但没有把控制权交回 CEO 主持人。请继续按圆桌参与者顺序 route 或在全员发言后 complete。`
+      : `@ceo 圆桌参与者 ${latestMessage.speaker} 已发言，但把控制权交给了非 CEO 角色。runner 已拦截该错误 handoff；请按圆桌参与者顺序继续 route 或在全员发言后 complete。`;
+  await input.postVisibleComment(
+    appendCeoReviewedMetadata(formatAgentComment("ceo", ensureInProgressStage(body)), {
+      action: "bypass",
+      reason: "roundtable_recovery",
+    }),
+  );
+  return externalCommentFallbackRouteProcessingOutcome({
+    result: "triggered-success",
+    route: {
+      commentId: latestComment.id,
+      outcome: "append",
+      decidedAt,
+      targetRole: "ceo",
+      reason,
+    },
+  });
+}
+
 async function handleCeoAgentResult(input: {
   source: IssueSource;
   issue: GitHubIssue;
@@ -2210,6 +2293,20 @@ async function handleCeoAgentResult(input: {
       dependencies: input.dependencies,
     });
     return "triggered-success";
+  }
+
+  if (parsed.value.action === "roundtable") {
+    return await handleCeoRoundtableResult({
+      source: input.source,
+      issue: input.issue,
+      parsed: parsed.value,
+      nextState: input.nextState,
+      runDir: input.runDir,
+      startedAtMs: input.startedAtMs,
+      count: input.count,
+      postVisibleComment: input.postVisibleComment,
+      dependencies: input.dependencies,
+    });
   }
 
   const completed: CeoSpawnCompletedItem[] = [];
@@ -2334,6 +2431,269 @@ async function handleCeoAgentResult(input: {
   return "triggered-success";
 }
 
+type ParsedCeoRoundtable = Extract<ParsedCeoOrchestration, { action: "roundtable" }>;
+
+interface RoundtableIssueContext {
+  parentSource: IssueSource;
+  roundtableKey: string;
+  workflowId: string;
+  ledgerTaskId: string;
+  topic: string;
+  participants: string[];
+}
+
+async function handleCeoRoundtableResult(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  parsed: ParsedCeoRoundtable;
+  nextState: NonNullable<ReturnType<typeof resolveNextRoleThreadState>>;
+  runDir: string;
+  startedAtMs: number;
+  count: number;
+  postVisibleComment: (body: string) => Promise<void>;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<IssueProcessingOutcome> {
+  try {
+    if (input.parsed.mode === "start") {
+      return await handleCeoRoundtableStart(input as typeof input & { parsed: Extract<ParsedCeoRoundtable, { mode: "start" }> });
+    }
+    if (input.parsed.mode === "route") {
+      return await handleCeoRoundtableRoute(input as typeof input & { parsed: Extract<ParsedCeoRoundtable, { mode: "route" }> });
+    }
+    return await handleCeoRoundtableComplete(input as typeof input & { parsed: Extract<ParsedCeoRoundtable, { mode: "complete" }> });
+  } catch (error) {
+    try {
+      await input.postVisibleComment(
+        formatBypassedAgentComment(
+          "ceo",
+          formatCeoRoundtableFailureBody({ reason: formatFailureReason(error) }),
+          "ceo-roundtable-failed",
+        ),
+      );
+      return "triggered-success";
+    } catch (postError) {
+      throw new Error(
+        `ceo-roundtable-failed:${formatFailureReason(error)}; fail-closed-comment-failed:${formatFailureReason(postError)}`,
+      );
+    }
+  }
+}
+
+async function handleCeoRoundtableStart(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  parsed: Extract<ParsedCeoRoundtable, { mode: "start" }>;
+  nextState: NonNullable<ReturnType<typeof resolveNextRoleThreadState>>;
+  runDir: string;
+  startedAtMs: number;
+  count: number;
+  postVisibleComment: (body: string) => Promise<void>;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<IssueProcessingOutcome> {
+  const roundtableKey = buildCeoRoundtableKey({
+    source: input.source,
+    workflowId: input.parsed.workflowId,
+    roundtableId: input.parsed.roundtableId,
+  });
+  let completedIssue: CreatedIssue | null = null;
+  const existingRef = findTaskChildIssueRefByRoundtableKey(
+    await input.dependencies.loadGoalLedgerState(),
+    input.parsed.ledgerTaskId,
+    roundtableKey,
+  );
+  if (existingRef !== null) {
+    completedIssue = issueFromReference(existingRef);
+  } else {
+    const lookup = await withTimeout(
+      input.dependencies.findIssueByOrchestrationKey(input.source, roundtableKey),
+      CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+      "findRoundtableIssueByKey",
+    );
+    if (lookup.kind === "multiple") {
+      throw new Error(`roundtable-key-multiple-matches:${roundtableKey}:${lookup.issues.map((issue) => issue.url).join(",")}`);
+    }
+    if (lookup.kind === "one") {
+      completedIssue = lookup.issue;
+      await saveTaskRoundtableChildIssueRef({
+        dependencies: input.dependencies,
+        ledgerTaskId: input.parsed.ledgerTaskId,
+        issue: completedIssue,
+        roundtableKey,
+        provenance: input.parsed.provenance,
+      });
+    } else {
+      const body = renderCeoRoundtableChildIssueBody({
+        parentIssueUrl: issueUrl(input.source),
+        workflowId: input.parsed.workflowId,
+        ledgerTaskId: input.parsed.ledgerTaskId,
+        roundtableKey,
+        title: input.parsed.title,
+        topic: input.parsed.topic,
+        inputSummary: input.parsed.inputSummary,
+        participants: input.parsed.participants,
+        firstRole: input.parsed.firstRole,
+        qualityBaseline: input.parsed.qualityBaseline,
+        provenance: input.parsed.provenance,
+      });
+      completedIssue = await withTimeout(
+        input.dependencies.createIssue(input.source, { title: input.parsed.title, body }),
+        CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+        "createRoundtableIssue",
+      );
+      try {
+        await saveTaskRoundtableChildIssueRef({
+          dependencies: input.dependencies,
+          ledgerTaskId: input.parsed.ledgerTaskId,
+          issue: completedIssue,
+          roundtableKey,
+          provenance: input.parsed.provenance,
+        });
+      } catch (error) {
+        throw new Error(`roundtable-ledger-save-failed:${formatFailureReason(error)}; child=${completedIssue.url}; key=${roundtableKey}`);
+      }
+    }
+  }
+
+  await publishCeoVisibleResult({
+    source: input.source,
+    issue: input.issue,
+    body: `圆桌已启动。
+
+Child issue: ${completedIssue.url}
+Workflow id: ${input.parsed.workflowId}
+Participants: ${input.parsed.participants.join(" -> ")}
+Current waiting role: ${input.parsed.firstRole}
+
+<!-- ${roundtableKey} -->`,
+    runDir: input.runDir,
+    startedAtMs: input.startedAtMs,
+    count: input.count,
+    nextState: input.nextState,
+    postVisibleComment: input.postVisibleComment,
+    dependencies: input.dependencies,
+  });
+  return "triggered-success";
+}
+
+async function handleCeoRoundtableRoute(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  parsed: Extract<ParsedCeoRoundtable, { mode: "route" }>;
+  nextState: NonNullable<ReturnType<typeof resolveNextRoleThreadState>>;
+  runDir: string;
+  startedAtMs: number;
+  count: number;
+  postVisibleComment: (body: string) => Promise<void>;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<IssueProcessingOutcome> {
+  const context = requireRoundtableIssueContext(input.issue.body);
+  if (context.roundtableKey !== input.parsed.roundtableKey) {
+    throw new Error(`roundtable-key-mismatch:${input.parsed.roundtableKey}`);
+  }
+  const nextRole = nextRoundtableParticipant(input.issue, context.participants);
+  if (nextRole === null) {
+    throw new Error("roundtable-route-no-pending-participant");
+  }
+  if (input.parsed.nextRole !== nextRole) {
+    throw new Error(`roundtable-route-wrong-next-role:${input.parsed.nextRole}:expected:${nextRole}`);
+  }
+  const rendered = renderCeoRoundtableRouteBody({ nextRole, body: input.parsed.body });
+  if (!rendered.ok) {
+    throw new Error(rendered.reason);
+  }
+  await publishCeoVisibleResult({
+    source: input.source,
+    issue: input.issue,
+    body: rendered.body,
+    runDir: input.runDir,
+    startedAtMs: input.startedAtMs,
+    count: input.count,
+    nextState: input.nextState,
+    postVisibleComment: input.postVisibleComment,
+    dependencies: input.dependencies,
+  });
+  return "triggered-success";
+}
+
+async function handleCeoRoundtableComplete(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  parsed: Extract<ParsedCeoRoundtable, { mode: "complete" }>;
+  nextState: NonNullable<ReturnType<typeof resolveNextRoleThreadState>>;
+  runDir: string;
+  startedAtMs: number;
+  count: number;
+  postVisibleComment: (body: string) => Promise<void>;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<IssueProcessingOutcome> {
+  const context = requireRoundtableIssueContext(input.issue.body);
+  if (context.roundtableKey !== input.parsed.roundtableKey) {
+    throw new Error(`roundtable-key-mismatch:${input.parsed.roundtableKey}`);
+  }
+  const participantIndexes = roundtableParticipantMessageIndexes(input.issue, context.participants);
+  const missing = context.participants.filter((participant) => participantIndexes[participant] === undefined);
+  if (missing.length > 0) {
+    await input.postVisibleComment(
+      formatBypassedAgentComment(
+        "ceo",
+        formatCeoRoundtableFailureBody({ reason: `roundtable-participants-missing:${missing.join(",")}` }),
+        "ceo-roundtable-failed",
+      ),
+    );
+    return "triggered-success";
+  }
+  const completionKey = buildCeoRoundtableCompletionKey({
+    roundtableKey: context.roundtableKey,
+    participants: context.participants,
+    participantMessageIndexes: context.participants.map((participant) => participantIndexes[participant]!),
+  });
+  const parentIssue = await withTimeout(
+    input.dependencies.fetchIssueWithComments(context.parentSource),
+    CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+    "fetchRoundtableParent",
+  );
+  const childUrl = issueUrl(input.source);
+  if (!issueContainsHiddenKey(parentIssue, completionKey)) {
+    await withTimeout(
+      input.dependencies.postComment(
+        context.parentSource,
+        appendCeoReviewedMetadata(
+          formatAgentComment(
+            "ceo",
+            renderCeoRoundtableParentSummaryBody({
+              childIssueUrl: childUrl,
+              topic: context.topic,
+              summary: input.parsed.summary,
+              contributions: input.parsed.contributions,
+              decision: input.parsed.decision,
+              provenance: input.parsed.provenance,
+              completionKey,
+            }),
+          ),
+          { action: "bypass", reason: "roundtable_parent_summary" },
+        ),
+      ),
+      CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+      "postRoundtableParentSummary",
+    );
+  }
+  await publishCeoVisibleResult({
+    source: input.source,
+    issue: input.issue,
+    body: `圆桌已完成并回流父 issue。
+
+Parent issue: ${issueUrl(context.parentSource)}
+Completion key: ${completionKey}`,
+    runDir: input.runDir,
+    startedAtMs: input.startedAtMs,
+    count: input.count,
+    nextState: input.nextState,
+    postVisibleComment: input.postVisibleComment,
+    dependencies: input.dependencies,
+  });
+  return "triggered-success";
+}
+
 async function publishCeoVisibleResult(input: {
   source: IssueSource;
   issue: GitHubIssue;
@@ -2411,6 +2771,19 @@ function findTaskChildIssueRefByOrchestrationKey(
   return task.childIssueRefs.find((reference) => extractCeoOrchestrationKeyFromNote(reference.note) === orchestrationKey) ?? null;
 }
 
+function findTaskChildIssueRefByRoundtableKey(
+  ledger: GoalLedgerState,
+  ledgerTaskId: string,
+  roundtableKey: string,
+): IssueReference | null {
+  const task = ledger.tasks[ledgerTaskId];
+  if (task === undefined) {
+    return null;
+  }
+
+  return task.childIssueRefs.find((reference) => extractCeoRoundtableKey(reference.note) === roundtableKey) ?? null;
+}
+
 async function saveTaskChildIssueRef(input: {
   dependencies: ProcessIssueSourceDependencies;
   ledgerTaskId: string;
@@ -2432,6 +2805,54 @@ async function saveTaskChildIssueRef(input: {
 
         const note = truncateForComment(
           `${input.orchestrationKey}; provenance=${input.provenance.replace(/\s+/g, " ").trim()}`,
+          500,
+        );
+        const repo = parseIssueUrl(input.issue.url);
+        return {
+          ...entry,
+          childIssueRefs: [
+            ...entry.childIssueRefs,
+            {
+              owner: repo.owner,
+              repo: repo.repo,
+              number: input.issue.number,
+              relation: "child",
+              status: "open",
+              note,
+            },
+          ],
+          updatedAt: new Date().toISOString(),
+        };
+      },
+      undefined,
+      { timeoutMs: CEO_ORCHESTRATION_ACTION_TIMEOUT_MS },
+    ),
+    CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+    "saveGoalLedgerEntry",
+  );
+}
+
+async function saveTaskRoundtableChildIssueRef(input: {
+  dependencies: ProcessIssueSourceDependencies;
+  ledgerTaskId: string;
+  issue: CreatedIssue;
+  roundtableKey: string;
+  provenance: string;
+}): Promise<void> {
+  await withTimeout(
+    input.dependencies.saveGoalLedgerEntry(
+      "tasks",
+      input.ledgerTaskId,
+      (entry) => {
+        if (entry === null || !isTaskRecord(entry)) {
+          throw new Error(`missing-ledger-task:${input.ledgerTaskId}`);
+        }
+        if (entry.childIssueRefs.some((reference) => extractCeoRoundtableKey(reference.note) === input.roundtableKey)) {
+          return entry;
+        }
+
+        const note = truncateForComment(
+          `${input.roundtableKey}; provenance=${input.provenance.replace(/\s+/g, " ").trim()}`,
           500,
         );
         const repo = parseIssueUrl(input.issue.url);
@@ -2512,6 +2933,98 @@ ${pending}
 本轮不会继续创建后续 issue，也不会更新 ceo role thread。下一轮会先按稳定 orchestration key 查 ledger 和 GitHub，避免重复创建。
 
 <!-- agent-moebius:stage=in-progress -->`;
+}
+
+function formatCeoRoundtableFailureBody(input: { reason: string }): string {
+  return `CEO 圆桌路径 fail-closed：${input.reason}
+
+本轮不会继续推进圆桌，也不会更新 ceo role thread。若已有 child issue 或父 issue 可见结果，下一轮会先按 hidden key 查找并恢复，避免重复创建或重复回流。
+
+<!-- agent-moebius:stage=in-progress -->`;
+}
+
+function parseRoundtableIssueContext(body: string): RoundtableIssueContext | null {
+  const roundtableKey = extractCeoRoundtableKey(body);
+  if (roundtableKey === null) {
+    return null;
+  }
+  const parentUrl = matchField(body, "Parent issue");
+  const workflowId = matchField(body, "Workflow id");
+  const ledgerTaskId = matchField(body, "Ledger task id");
+  if (parentUrl === null || workflowId === null || ledgerTaskId === null) {
+    return null;
+  }
+  const parentSource = parseIssueSourceUrl(parentUrl);
+  if (parentSource === null) {
+    return null;
+  }
+  const participants = parseRoundtableParticipants(body);
+  if (participants.length === 0) {
+    return null;
+  }
+  return {
+    parentSource,
+    roundtableKey,
+    workflowId,
+    ledgerTaskId,
+    topic: matchMultilineSection(body, "Topic") ?? "",
+    participants,
+  };
+}
+
+function requireRoundtableIssueContext(body: string): RoundtableIssueContext {
+  const context = parseRoundtableIssueContext(body);
+  if (context === null) {
+    throw new Error("roundtable-context-missing");
+  }
+  return context;
+}
+
+function parseRoundtableParticipants(body: string): string[] {
+  const match = body.match(/Participants in order:\s*\n([\s\S]*?)(?:\n\n|$)/u);
+  if (match?.[1] === undefined) {
+    return [];
+  }
+  return match[1]
+    .split(/\r?\n/u)
+    .map((line) => line.replace(/^\s*\d+[.)]\s*/u, "").trim())
+    .filter((line) => line !== "");
+}
+
+function matchField(body: string, label: string): string | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = body.match(new RegExp(`^${escaped}:\\s*(.+)$`, "mu"));
+  return match?.[1]?.trim() ?? null;
+}
+
+function matchMultilineSection(body: string, label: string): string | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = body.match(new RegExp(`^${escaped}:\\s*\\n([\\s\\S]*?)(?:\\n\\n|$)`, "mu"));
+  return match?.[1]?.trim() ?? null;
+}
+
+function parseIssueSourceUrl(url: string): IssueSource | null {
+  const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/u);
+  if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) {
+    return null;
+  }
+  return makeIssueSource({ owner: match[1], repo: match[2], issueNumber: Number.parseInt(match[3], 10) });
+}
+
+function roundtableParticipantMessageIndexes(issue: GitHubIssue, participants: readonly string[]): Record<string, number> {
+  const timeline = buildTimeline(issue.body, issue.comments, [...participants, "ceo"]);
+  const result: Record<string, number> = {};
+  for (const message of timeline) {
+    if (message.source === "comment" && participants.includes(message.speaker)) {
+      result[message.speaker] = message.index;
+    }
+  }
+  return result;
+}
+
+function nextRoundtableParticipant(issue: GitHubIssue, participants: readonly string[]): string | null {
+  const indexes = roundtableParticipantMessageIndexes(issue, participants);
+  return participants.find((participant) => indexes[participant] === undefined) ?? null;
 }
 
 function issueFromReference(reference: IssueReference): CreatedIssue {

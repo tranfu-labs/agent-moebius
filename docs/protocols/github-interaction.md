@@ -19,6 +19,8 @@
 
 每条 issue 消息最多出现一个合法 agent mention，且只能在明确把下一步交给该 agent 时使用。纯提及角色名时裸写角色名，不加 `@`。触发器只看最新消息中的第一个合法 mention；误写 `@` 会真实移交控制权并占用 driver 名额。
 
+v0 圆桌 workflow 也遵守本规则：主持人每次只发布一个参与者 handoff mention，参与者发言后回交 CEO 时也只使用一个合法 mention。后续 v1 fan-out + join 若需要“一条消息触发多个 agent”，必须先作为协议例外另行设计和确认；默认 mention trigger 不因 T6 v0 改为多 agent 扇出。
+
 正例：
 
 ```text
