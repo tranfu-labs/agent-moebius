@@ -33,7 +33,7 @@
 
 ### - [ ] T3 · CEO 升级为普通 agent（编排路径）
 
-`@ceo` 进入 `availableAgentNames`，获得独立 role thread 与账本访问 prescript；编排职责：读账本、按 `milestone-standards.md` 拆解、冲突感知分组、spawn 子 issue、注入质量基准与验收语句；编排动作 fail-closed。guardrail hook 路径保持无状态 fail-open 不变，两条路径共用 persona 素材但判据分节。防自激环：guardrail 对 CEO agent 评论的 append 必须有界；CEO agent 响应仍照常过 guardrail 格式红线。与里程碑 2 T8 汇合：无 mention 外部评论的兜底路由可实现为自动移交 `@ceo`，真人 / watcher 也可手动 `@ceo` 索取路由裁决。
+`@ceo` 进入 `availableAgentNames`，获得独立 role thread 与账本访问 prescript；编排职责：读账本、按 `milestone-standards.md` 拆解、冲突感知分组、spawn 子 issue、注入质量基准与验收语句；编排动作 fail-closed。**CEO 的工作模型是剧本库分发，不是即兴思考**：每次调用只做"识别场景 → 识别工作流 → 套对应模板 + `@` 对应角色"三步（里程碑 2 T9 的方案评审 / 执行后复盘模板是首批剧本）；剧本是数据（模板文件），新增工作流 = 新增剧本，不改 CEO 判断逻辑；只有剧本覆盖不到的场景才动用自由判断托举项目继续前进（T8 兜底路由即托举入口）。guardrail hook 路径保持无状态 fail-open 不变，两条路径共用 persona 素材但判据分节。防自激环：guardrail 对 CEO agent 评论的 append 必须有界；CEO agent 响应仍照常过 guardrail 格式红线。与里程碑 2 T8 汇合：无 mention 外部评论的兜底路由可实现为自动移交 `@ceo`，真人 / watcher 也可手动 `@ceo` 索取路由裁决。
 
 ### - [ ] T4 · 验收路由与集成验收点
 
