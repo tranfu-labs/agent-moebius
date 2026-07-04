@@ -114,7 +114,7 @@
 - OpenSpec：已归档到 `openspec/changes/archive/2026-07-04-read-only-observer-t4/`，并把 spec-delta 合入 `openspec/specs/github-issue-runner/spec.md`，线框回流到 `docs/wireframes/`。
 - 验证：`pnpm vitest run tests/observer.test.ts` 通过（5 tests，exit 0）；`pnpm test` 通过（24 files / 216 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）；`OBSERVER_PORT=8799 pnpm observer` 后 `curl http://127.0.0.1:8799/` 返回 200；`kill -9 <observer-pid>` 后 `pnpm vitest run tests/runner.test.ts` 通过（37 tests，exit 0）。
 
-### - [ ] T5 · 验收治理规则
+### - [x] T5 · 验收治理规则
 
 **目标**：堵上里程碑 1 T4 暴露的治理口子：验收语句是需求侧资产——执行方或 loop watcher 不得自行 rescope 验收语句或 override 验收结论；变更须由需求持有者（agent 角色）或用户确认后生效，确认记录须出现在 issue 时间线。CEO 增加识别规则：发现未经确认的验收语句变更或 override 时介入要求补确认。
 
@@ -125,6 +125,13 @@
 2. 构造执行方擅自改写验收语句并自判通过的时间线跑 CEO 校正 → CEO 应介入指出变更未经确认，要求需求持有者表态。
 
 **依赖**：T2（挂在协议文档上）。
+
+**阶段证据（2026-07-04，T5 已完成）**：
+- 代码落地：commit `a7d7d8b feat(governance): acceptance statement change requires initiator confirmation (M2 T5, closes #52) (#53)`；关联 issue #52、PR #53。
+- 协议：`docs/protocols/github-interaction.md#验收治理` 明确验收语句变更 / 范围调整 / override 需由需求持有者或真人用户在时间线确认，QA 增补先视为测试设计建议、只有并入确认后才生效。
+- Persona：`agents/ceo.md` 增补「验收治理违规」识别规则并给出 6 类命中场景；`agents/dev.md` 增加验收治理约束段落；产品 / QA persona 同步引用。
+- 验证：T5 场景在 M2 T7 端到端演练中的 QA 增补 1 未确认路径被引用，PM 明确表态并入或降级，属于治理路径 dogfood。
+- 说明：本轮 T7 阶段证据里保留了 “T5 checkbox 尚未勾选” 的历史观察，本次仅补勾并追证据。
 
 ### - [x] T6 · 里程碑设定标准文档
 
