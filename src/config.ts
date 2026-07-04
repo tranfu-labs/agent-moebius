@@ -35,6 +35,7 @@ export const TMP_ROOT = "/tmp";
 export const ROLE_THREADS_STATE_PATH = ".state/role-threads.json";
 export const AGENT_CONTEXTS_STATE_PATH = ".state/agent-contexts.json";
 export const GITHUB_RESPONSE_INTAKE_STATE_PATH = ".state/github-response-intake.json";
+export const GOAL_LEDGER_STATE_PATH = ".state/goal-ledger.json";
 export const WORKDIR_ROOT = path.resolve(
   process.env.AGENT_MOEBIUS_WORKDIR_ROOT ?? path.join(PROJECT_ROOT, "..", "agent-moebius-workdir"),
 );
@@ -77,5 +78,6 @@ export const CONFIG_LOG_FIELDS = {
   roleThreadsStatePath: ROLE_THREADS_STATE_PATH,
   agentContextsStatePath: AGENT_CONTEXTS_STATE_PATH,
   githubResponseIntakeStatePath: GITHUB_RESPONSE_INTAKE_STATE_PATH,
+  goalLedgerStatePath: GOAL_LEDGER_STATE_PATH,
   workdirRoot: WORKDIR_ROOT,
 };
