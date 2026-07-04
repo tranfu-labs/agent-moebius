@@ -93,7 +93,7 @@
 - OpenSpec：本次 change 已归档到 `openspec/changes/archive/2026-07-04-artifact-run-manifest-t3/`，并已合并 spec-delta 到 `openspec/specs/github-issue-runner/spec.md`。
 - 验证：`pnpm vitest run tests/media-assets.test.ts tests/runner.test.ts` 通过（2 files / 42 tests，exit 0）；`pnpm test` 通过（23 files / 211 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）。
 
-### - [ ] T4 · 只读观察页 v0
+### - [x] T4 · 只读观察页 v0
 
 **目标**：一个本地只读页面回答"系统现在在干嘛、每个 issue 走到哪、验收证据长什么样"：读 `.state/*.json`（intake 状态、role threads、agent contexts）与 T3 的 run manifest，渲染白名单 issue 列表、阶段状态、每轮 run 的产物与发布链接。**只读**：不写任何状态、不加操作按钮；观察页进程与 runner 零耦合，崩溃或关闭不影响 runner。
 
@@ -105,6 +105,14 @@
 3. 强杀观察页进程后触发一轮 runner 心跳 → runner 日志无错误，处理不受影响。
 
 **依赖**：T3（manifest 契约）。
+
+**阶段证据（2026-07-04，T4 已完成）**：
+- 入口与边界：新增 `src/observer/` 与 `pnpm observer`，`AGENTS.md` 和 `docs/architecture/module-map.md` 已记录只读观察页命令与模块边界；runner 主链路不依赖 observer。
+- 展示能力：观察页只读聚合 `config*.toml`、`.state/*.json` 与 `.state/run-manifests.jsonl`，展示白名单 issue、intake / role thread / agent context / run manifest 来源标注、发布 artifact 预览 / 链接，以及 `publishedUrl = null` 的“未发布”路径。
+- 故障与空态：测试覆盖缺 `.state` 文件、坏 state JSON、坏 JSONL、JSONL 尾行截断、manifest 缺字段、损坏 `config.local.toml`，并区分“没有记录”和“读取失败”。
+- 只读与零耦合：测试覆盖 fixture 启动 / 刷新 / 停止前后无文件新增或修改，fake `gh` / `codex` 无调用，observer `kill -9` 后 runner 测试通过。
+- OpenSpec：已归档到 `openspec/changes/archive/2026-07-04-read-only-observer-t4/`，并把 spec-delta 合入 `openspec/specs/github-issue-runner/spec.md`，线框回流到 `docs/wireframes/`。
+- 验证：`pnpm vitest run tests/observer.test.ts` 通过（5 tests，exit 0）；`pnpm test` 通过（24 files / 216 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）；`OBSERVER_PORT=8799 pnpm observer` 后 `curl http://127.0.0.1:8799/` 返回 200；`kill -9 <observer-pid>` 后 `pnpm vitest run tests/runner.test.ts` 通过（37 tests，exit 0）。
 
 ### - [ ] T5 · 验收治理规则
 
