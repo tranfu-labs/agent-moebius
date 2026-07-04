@@ -11,7 +11,7 @@
 ## 核心设计立场（先行固化）
 
 - **GitHub 仍是对话与执行介质**：一个子任务 = 一个 issue，时间线、mention、验收回流机制全部沿用。账本是编排状态层，不是对话基座替代品。
-- **编排者与 CEO guardrail 分离**：CEO 是发布时无状态守门人，fail-open（失败放行原文）语义正确；编排者持久有状态、spawn issue、做排程决策，必须 **fail-closed**（失败停下留痕，不带病编排）。两者关注点、失败语义、代码路径分开，不让一个 persona 兼任。
+- **CEO 一个身份、两条调用路径**：需要分离的是调用路径与失败语义，不是身份。发布时 guardrail hook 保持现状——无状态、每评论必经、fail-open（失败放行原文）；在此之上把 CEO 升级为可 mention 的普通 agent（`@ceo` 进 `availableAgentNames`，独立 role thread），承载编排职责，编排动作 **fail-closed**（失败停下留痕，不带病编排）。如同真人 CEO 既审外发公告也主持规划会。防自激环：guardrail 对 CEO agent 自身评论的 append 必须有界。
 - **拆解的产物是验收语句清单**，任务只是验收语句的实现；分组依据是冲突面最小（按页面 / 模块分组，不按问题类型分组）。
 - **质量基准是里程碑 / 阶段的显式属性**，写入账本，由编排者注入每个子任务 issue，不靠执行方悟。
 - **worktree 是 issue 级资源，不是 dev 专属**：同 issue 严格串行保证共享 worktree 天然无竞态；角色按 frontmatter 声明访问模式（dev 写、验收 / qa 读 + 运行），解锁"验收角色亲自执行验收语句"。
@@ -31,9 +31,9 @@
 
 阶段有显式边界：阶段切换时上一阶段产物归档，工作区上下文只呈现当前阶段的目标与质量基准（解决"跨阶段串扰"与"基准混淆"）。
 
-### - [ ] T3 · 编排者角色
+### - [ ] T3 · CEO 升级为普通 agent（编排路径）
 
-读账本、按 `milestone-standards.md` 拆解、冲突感知分组、spawn 子 issue、注入质量基准与验收语句、fail-closed。与 CEO guardrail 分离。
+`@ceo` 进入 `availableAgentNames`，获得独立 role thread 与账本访问 prescript；编排职责：读账本、按 `milestone-standards.md` 拆解、冲突感知分组、spawn 子 issue、注入质量基准与验收语句；编排动作 fail-closed。guardrail hook 路径保持无状态 fail-open 不变，两条路径共用 persona 素材但判据分节。防自激环：guardrail 对 CEO agent 评论的 append 必须有界；CEO agent 响应仍照常过 guardrail 格式红线。与里程碑 2 T8 汇合：无 mention 外部评论的兜底路由可实现为自动移交 `@ceo`，真人 / watcher 也可手动 `@ceo` 索取路由裁决。
 
 ### - [ ] T4 · 验收路由与集成验收点
 
