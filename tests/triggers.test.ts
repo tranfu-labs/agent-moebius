@@ -43,6 +43,34 @@ describe("triggers", () => {
     });
   });
 
+  it("does not run an agent mentioned only inside inline backtick code", () => {
+    const timeline = buildTimeline("example `@dev please handle this`", [], agents);
+
+    expect(resolveTrigger({ timeline, availableAgentNames: agents })).toEqual({
+      kind: "skip",
+      reason: "no-trigger",
+    });
+  });
+
+  it("does not run an agent mentioned only inside a fenced code block", () => {
+    const timeline = buildTimeline("```md\n@dev please handle this\n```", [], agents);
+
+    expect(resolveTrigger({ timeline, availableAgentNames: agents })).toEqual({
+      kind: "skip",
+      reason: "no-trigger",
+    });
+  });
+
+  it("still runs an agent mentioned outside backtick code", () => {
+    const timeline = buildTimeline("```md\n@dev example\n```\n@product-manager please review", [], agents);
+
+    expect(resolveTrigger({ timeline, availableAgentNames: agents })).toEqual({
+      kind: "run-agent",
+      role: "product-manager",
+      reason: "mention",
+    });
+  });
+
   it("does not post a hook when an agent emits plan-written without a mention", () => {
     const timeline = buildTimeline(
       "initial",

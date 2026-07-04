@@ -151,8 +151,9 @@ export function resolveNextRoleThreadState(input: {
 export function parseAgentMentions(text: string): AgentMention[] {
   const mentions: AgentMention[] = [];
   const pattern = /(^|[^A-Za-z0-9_-])@([a-z0-9]+(?:-[a-z0-9]+)*)(?![A-Za-z0-9_-])/g;
+  const mentionText = maskMarkdownBacktickCode(text);
 
-  for (const match of text.matchAll(pattern)) {
+  for (const match of mentionText.matchAll(pattern)) {
     const prefix = match[1] ?? "";
     const name = match[2];
     if (name === undefined || match.index === undefined) {
@@ -166,6 +167,116 @@ export function parseAgentMentions(text: string): AgentMention[] {
   }
 
   return mentions;
+}
+
+function maskMarkdownBacktickCode(text: string): string {
+  const chars = text.split("");
+  maskFencedBacktickBlocks(text, chars);
+  maskInlineBacktickCode(chars);
+  return chars.join("");
+}
+
+function maskFencedBacktickBlocks(text: string, chars: string[]): void {
+  let lineStart = 0;
+
+  while (lineStart < text.length) {
+    const fenceStart = findOpeningBacktickFence(text, lineStart);
+    const lineEnd = findLineEnd(text, lineStart);
+
+    if (fenceStart === null || fenceStart >= lineEnd) {
+      lineStart = lineEnd + 1;
+      continue;
+    }
+
+    const closeLineStart = findClosingBacktickFenceLine(text, lineEnd + 1);
+    const maskEnd =
+      closeLineStart === null ? text.length : Math.min(findLineEnd(text, closeLineStart) + 1, text.length);
+    maskRange(chars, lineStart, maskEnd);
+    lineStart = maskEnd;
+  }
+}
+
+function findOpeningBacktickFence(text: string, lineStart: number): number | null {
+  let cursor = lineStart;
+  let spaces = 0;
+
+  while (cursor < text.length && text[cursor] === " " && spaces < 3) {
+    cursor += 1;
+    spaces += 1;
+  }
+
+  return text.startsWith("```", cursor) ? cursor : null;
+}
+
+function findClosingBacktickFenceLine(text: string, start: number): number | null {
+  let lineStart = start;
+
+  while (lineStart < text.length) {
+    if (findOpeningBacktickFence(text, lineStart) !== null) {
+      return lineStart;
+    }
+    lineStart = findLineEnd(text, lineStart) + 1;
+  }
+
+  return null;
+}
+
+function findLineEnd(text: string, start: number): number {
+  const newlineIndex = text.indexOf("\n", start);
+  return newlineIndex === -1 ? text.length : newlineIndex;
+}
+
+function maskInlineBacktickCode(chars: string[]): void {
+  let index = 0;
+
+  while (index < chars.length) {
+    if (chars[index] !== "`") {
+      index += 1;
+      continue;
+    }
+
+    const delimiterLength = countBacktickRun(chars, index);
+    const endIndex = findInlineBacktickEnd(chars, index + delimiterLength, delimiterLength);
+    if (endIndex === null) {
+      index += delimiterLength;
+      continue;
+    }
+
+    maskRange(chars, index, endIndex + delimiterLength);
+    index = endIndex + delimiterLength;
+  }
+}
+
+function countBacktickRun(chars: string[], start: number): number {
+  let end = start;
+  while (end < chars.length && chars[end] === "`") {
+    end += 1;
+  }
+
+  return end - start;
+}
+
+function findInlineBacktickEnd(chars: string[], start: number, delimiterLength: number): number | null {
+  for (let index = start; index < chars.length; index += 1) {
+    if (chars[index] === "\n") {
+      return null;
+    }
+    if (chars[index] === "`") {
+      const runLength = countBacktickRun(chars, index);
+      if (runLength === delimiterLength) {
+        return index;
+      }
+      index += runLength - 1;
+    }
+  }
+
+  return null;
+}
+
+function maskRange(chars: string[], start: number, end: number): void {
+  for (let index = start; index < end; index += 1) {
+    chars[index] = chars[index] === "\n" ? "\n" : " ";
+  }
 }
 
 export function selectMentionedAgent(text: string, availableAgentNames: string[]): string | null {

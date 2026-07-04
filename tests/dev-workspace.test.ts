@@ -436,12 +436,13 @@ describe("dev workspace pre script", () => {
       ...makeFsDependencies(),
       runGit: makeRunGit("A"),
     });
+
+    await waitUntil(() => events.includes("A:worktree:add:enter"));
+
     const promiseB = runDevWorkspacePreScript(inputB, {
       ...makeFsDependencies(),
       runGit: makeRunGit("B"),
     });
-
-    await waitUntil(() => events.includes("A:worktree:add:enter"));
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     expect(events.filter((event) => event.startsWith("B:"))).toEqual([]);

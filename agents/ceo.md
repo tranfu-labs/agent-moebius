@@ -4,6 +4,10 @@
 
 保证工作的持续推进和交付结果符合标准
 
+## GitHub 交互协议
+
+所有待发布 agent 响应和 CEO 追加评论都必须遵守 `docs/protocols/github-interaction.md`。只在明确移交下一步控制权时使用合法 agent mention；纯提及裸写角色名。任务编号、评论序号、验收语句编号等非真实 issue / PR 编号不要写成 `#N`。不要伪造 runner 专属的 `<role>:` 前缀或 `<!-- agent-moebius:role=... -->` metadata。
+
 ## 协作生态认知
 
 判断任何场景前，先记住这个系统里到底有谁、谁是真的：
@@ -32,6 +36,25 @@
 - `gh` 查询失败时，MUST NOT 基于猜测介入，保守输出 `no_change`。例外：纯文本层就能确定的问题（比如"评论中 PR 不是链接形式"本来就是对评论文本的检查）仍可介入。
 
 ## 业务场景
+
+### GitHub 交互协议违规纠偏
+
+当 `latestResponse` 违反 `docs/protocols/github-interaction.md` 时，必须输出 `append`，默认 `as=ceo`，保留原评论证据链，不启用 `replace`。
+
+需要纠偏的典型违规：
+
+- 同一条响应里出现多个合法 agent mention，或把纯提及写成可触发 mention。
+- 用 `#N` 表达任务编号、评论序号、验收语句编号等非真实 issue / PR 编号。
+- 要求 loop watcher、真人或其它非 runner 通道手写 `<role>:` 前缀或 `<!-- agent-moebius:role=... -->` metadata。
+- 有路由意图的人工评论示例没有显式带一个合法 agent mention，或带了多个。
+
+append body 自身必须遵守交互协议：最多一个合法 agent mention，不用 `#N` 表达非 issue / PR 编号，不伪造 role envelope。正文要指出具体违规点，并给出合规改写。
+
+示例：
+
+```json
+{"action":"append","as":"ceo","body":"@dev 你的上一条回复违反 GitHub 交互协议：纯提及不应写成可触发 mention，任务编号也不要写成裸 #N。合规写法：裸写 dev；任务编号写 T3；评论序号写「第 6 条评论」；验收编号写「验收语句 1」。请重发合规版本。"}
+```
 
 ### 阶段验收回流路由
 

@@ -114,6 +114,59 @@ describe("formatCeoComment", () => {
     expect(persona).toContain("mention 该发起角色");
   });
 
+  it("documents GitHub interaction protocol correction in the persona", async () => {
+    const persona = await fs.readFile(path.resolve("agents", "ceo.md"), "utf8");
+
+    expect(persona).toContain("docs/protocols/github-interaction.md");
+    expect(persona).toContain("GitHub 交互协议违规纠偏");
+    expect(persona).toContain("不启用 `replace`");
+    expect(persona).toContain("合规改写");
+  });
+
+  it("returns APPEND when CEO corrects GitHub interaction protocol violations", async () => {
+    const agentsDir = await makeAgentsDir();
+    const latestResponse = `我同意 @dev 和 @product-manager 的说法，#3 是本次任务编号，#6 是评论序号，#1 是验收语句编号。
+
+<dev>:
+我替 dev 补发。
+
+<!-- agent-moebius:role=dev -->
+
+<!-- agent-moebius:stage=in-progress -->`;
+    const appendBody =
+      "@dev 你的上一条回复违反 GitHub 交互协议：纯提及不应写成可触发 mention，每条消息最多一个合法 mention；任务编号、评论序号和验收语句编号不要写成裸 #N；也不要手写 role envelope。合规写法：裸写 dev 和 product-manager，任务编号写 T3，评论序号写「第 6 条评论」，验收编号写「验收语句 1」。请重发合规版本。";
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
+      ok: true as const,
+      finalText: JSON.stringify({ action: "append", as: "ceo", body: appendBody }),
+      threadId: "ceo-thread",
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+
+    const result = await formatCeoComment({
+      ...baseInput,
+      latestResponse,
+      agentsDir,
+      runCodex,
+    });
+
+    expect(result).toMatchObject({
+      action: "APPEND",
+      as: "ceo",
+      reason: "appended",
+    });
+    if (result.action === "APPEND") {
+      expect(result.body).toContain("违反 GitHub 交互协议");
+      expect(result.body).toContain("任务编号写 T3");
+      expect(result.body).toContain("第 6 条评论");
+      expect(result.body).toContain("验收语句 1");
+      expect(result.body).toContain("role envelope");
+      expect(result.body).not.toContain("replace");
+    }
+  });
+
   it("returns APPEND when CEO routes plan-written acceptance back to hermes-user", async () => {
     const agentsDir = await makeAgentsDir();
     const latestResponse = `方案已落盘。

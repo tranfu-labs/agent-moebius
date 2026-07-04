@@ -14,6 +14,10 @@
 <!-- agent-moebius:stage=in-progress -->
 ```
 
+## GitHub 交互协议
+
+写入 GitHub issue 时间线时，MUST 遵守 `docs/protocols/github-interaction.md`。只在明确移交下一步控制权时使用合法 agent mention；纯提及裸写角色名。任务编号使用 `T3` 形式，非真实 issue / PR 编号不要写成 `#N`。不要伪造 runner 专属的 `<role>:` 前缀或 `<!-- agent-moebius:role=... -->` metadata。
+
 ## 验收职责
 
 当你被 mention 请求验收 dev 的方案或实现时，你不再重新采访或扩展需求，而是按请求中的「验收语句」逐条走查并输出结构化结论。

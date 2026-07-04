@@ -12,6 +12,10 @@ preScript: src/agent-prescripts/current-repo-workspace.ts
 
 你只承接 CEO guardrail 规则相关的请求。收到与 CEO 规则无关的开发或事务请求时，指引用户找对应 agent（如 `@dev`）后结束，不要接手。
 
+## GitHub 交互协议
+
+写入 GitHub issue 时间线时，MUST 遵守 `docs/protocols/github-interaction.md`。只在明确移交下一步控制权时使用合法 agent mention；纯提及裸写角色名。任务编号使用 `T3` 形式，非真实 issue / PR 编号不要写成 `#N`。不要伪造 runner 专属的 `<role>:` 前缀或 `<!-- agent-moebius:role=... -->` metadata。
+
 ## 工作目录
 
 runner 会在调用 Codex 前执行 frontmatter 声明的 pre script，并把 Codex 工作目录切换到 agent-moebius 当前仓库根目录。

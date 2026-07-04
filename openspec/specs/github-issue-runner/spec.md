@@ -79,9 +79,17 @@
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
 - MUST 将 agent 触发决策封装为独立触发器；runner 只消费触发器结果，不把具体触发方式写死在编排流程中。
 - MUST 保留 mention trigger：最新消息包含已存在 agent mention 时，触发对应 agent。
+- MUST 让 `src/conversation.ts` 的 `parseAgentMentions` 忽略 fenced code block 与 inline backtick 内的 agent mention；代码区域外的 mention 解析与选中顺序保持既有行为，解析 index MUST 保持为原文位置。
+- MUST 保持 mention 解析为纯业务数据操作，不因代码区域屏蔽引入 GitHub、Codex CLI、文件系统或 runner 状态依赖。
 - MUST NOT 提供 `agents/reflector.md` 或任何 reflector stage trigger；`@reflector` 在当前系统中只是未知 mention，不触发任何执行或评论。
 - MUST 集中定义 stage 枚举于 `src/stages.ts`，供 CEO guardrail 与各 agent persona 契约测试共用；多处 MUST NOT 各自维护副本。
 - MUST 让 `AllStages = ["plan-written", "code-verified", "in-progress"]`。
+- MUST 提供 `docs/protocols/github-interaction.md` 作为 GitHub issue 共享时间线交互协议的单一事实源。
+- MUST 让 GitHub 交互协议至少覆盖：agent mention 语义为移交控制权且每条消息最多一个；`#N` 只用于真实 GitHub issue / PR 引用、任务编号使用 `T3` 形式、评论序号使用「第 N 条评论」或完整评论 URL、验收语句编号使用「验收语句 N」；runner 的 role envelope 仅由 runner 发布，人工评论不得伪装；带路由意图的人工评论必须显式带一个合法 agent mention 才能唤醒角色。
+- MUST 在协议文档中为每条规则提供正例、反例与合规改写，示例 SHOULD 使用抽象角色与任务编号，避免引用真实历史 issue 制造误关联。
+- MUST 让所有 `agents/*.md` persona 明确引用并遵守 `docs/protocols/github-interaction.md`；persona 文件 SHOULD 只做最小引用与硬性遵守声明，不复制协议全文。
+- MUST 让 `agents/ceo.md` 承载 GitHub 交互协议违规纠偏规则：当待发布 agent 响应违反协议时，CEO MUST 使用 `append` 指出违规点并给出合规写法；本协议纠偏场景 MUST NOT 要求 CEO 使用 `replace`。
+- MUST 让 CEO 的协议纠偏 append body 自身遵守 GitHub 交互协议：最多一个合法 agent mention，不使用 `#N` 表达非 issue / PR 编号，不伪造 runner role envelope。
 - MUST 让 CEO guardrail 承担阶段验收回流入口：当 Codex agent 的 `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified` 时，`agents/ceo.md` MUST 先查可用「验收语句」清单。`plan-written` 有可用清单时，CEO MUST `append as=ceo` mention `@qa` 要求按其测试设计流程审查本轮方案，MUST NOT 直接 mention 发起需求角色；不查历史 qa 结论——dev 每次重出 `plan-written` 都重审（幂等，防止拿旧结论放行新方案），qa 审查通过后由 qa 自行 mention 发起需求角色交棒。`code-verified` 有可用清单且发起本需求者是可达 agent 时，CEO MUST 返回 `append`，默认 `as=ceo`，正文 mention 发起需求角色并要求其按验收语句逐条验收实现证据。缺少可用验收语句时，CEO MUST `append as=ceo` mention `@dev` 要求补齐；`code-verified` 分支下若发起者是真人用户而非 agent，CEO MUST 输出 `no_change`，维持等真人用户验收。
 - MUST 让 `agents/ceo.md` 承载「qa 交棒兜底」识别场景：`agent = qa` 的 `latestResponse` 含固定结论行时，检查交棒 mention 是否完整——结论行为 `QA 结论：通过` 但正文未 mention 发起需求角色时，CEO MUST `append as=ceo` mention 发起需求角色（识别优先级沿用既有规则）要求按含 QA 增补的「验收语句」逐条验收；结论行为 `QA 结论：不通过` 但正文未 mention `@dev` 时，CEO MUST `append as=ceo` mention `@dev` 要求按 qa 列出的缺陷修正方案后重新输出 `plan-written`；交棒 mention 正常时 MUST 输出 `no_change`，不重复催办。
 - MUST 让 `agents/ceo.md` 在 `plan-written` 阶段判断本轮 `latestResponse` 是否包含「验收语句」小节且小节内有逐条、可机械执行的检查；在 `code-verified` 阶段优先使用历史有效 `plan-written` 方案中的「验收语句」进行验收回流，若完整公开 issue context 中找不到可用验收语句，则要求 `@dev` 补齐。
@@ -322,6 +330,25 @@ And 两个对应 agent Markdown 都存在
 When 一次轮询取回该 issue
 Then 系统选择文本中最早出现的有效 agent mention
 
+### 场景 6.1：对话型 — inline backtick 内 mention 不触发
+Given 最新消息只在 inline backtick 内包含合法 agent mention
+When 一次轮询取回该 issue
+Then mention trigger 返回 no-trigger
+And 系统不调用该 agent 的 Codex driver
+
+### 场景 6.2：对话型 — fenced code block 内 mention 不触发
+Given 最新消息只在 fenced code block 内包含合法 agent mention
+When 一次轮询取回该 issue
+Then mention trigger 返回 no-trigger
+And 系统不调用该 agent 的 Codex driver
+
+### 场景 6.3：对话型 — 代码区域外 mention 仍触发
+Given 最新消息在 fenced code block 内包含 `@dev`
+And 代码区域外包含 `@product-manager`
+When 一次轮询取回该 issue
+Then mention trigger 选择 `product-manager`
+And 解析出的 mention index 对应原文位置
+
 ### 场景 7：stage marker 本身不触发 hook
 Given 最新消息 speaker 是 `dev`
 And 最新消息 body 包含 `<!-- agent-moebius:stage=plan-written -->`
@@ -352,6 +379,37 @@ And 最新消息 body 包含 `@dev`
 When 一次轮询取回该 issue
 Then mention trigger 选择 `dev`
 And 系统按 `dev` role thread 执行 Codex
+
+### 场景 9.1：协议文档定义控制权移交规则
+Given 仓库包含 `docs/protocols/github-interaction.md`
+When 读取该文档
+Then 文档说明 agent mention 只用于移交控制权
+And 每条消息最多一个 agent mention
+And 纯提及应裸写角色名
+And 该规则包含正例、反例与合规改写
+
+### 场景 9.2：协议文档定义 `#N` 规则
+Given 仓库包含 `docs/protocols/github-interaction.md`
+When 读取该文档
+Then 文档说明 `#N` 只用于真实 GitHub issue / PR 引用
+And 文档要求任务编号使用 `T3` 形式
+And 文档要求评论序号和验收语句编号使用文字形式或完整评论 URL
+And 该规则包含正例、反例与合规改写
+
+### 场景 9.3：所有 persona 引用交互协议
+Given 仓库存在多个 `agents/*.md` persona 文件
+When 搜索 `github-interaction` 或 `交互协议`
+Then 每个 persona 文件均能命中协议引用或内嵌要求
+
+### 场景 9.4：CEO append-only 纠正协议违规
+Given 某 agent 的 `latestResponse` 把纯提及写成可触发 agent mention
+And 同一响应用 `#N` 表达任务编号、评论序号或验收语句编号
+And 响应包含手写 role envelope 示例
+When CEO guardrail 处理该响应
+Then CEO 输出 `append`
+And append body 指出这些协议违规
+And append body 给出裸写角色名、`T3` 任务编号、「第 N 条评论」和「验收语句 N」形式的合规写法
+And CEO 不要求使用 `replace` 改写原响应
 
 ### 场景 10：对话型 — resume 失败时回退 full prompt
 Given `.state/role-threads.json` 中已有 `hermes-user.threadId = stale-thread`

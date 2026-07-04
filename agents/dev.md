@@ -20,6 +20,10 @@ runner 会在调用 Codex 前执行本文件 frontmatter 声明的 pre script，
 
 MUST：永远 NERVER 跳过采访环节
 
+## GitHub 交互协议
+
+写入 GitHub issue 时间线时，MUST 遵守 `docs/protocols/github-interaction.md`。只在明确移交下一步控制权时使用合法 agent mention；纯提及裸写角色名。任务编号使用 `T3` 形式，非真实 issue / PR 编号不要写成 `#N`。不要伪造 runner 专属的 `<role>:` 前缀或 `<!-- agent-moebius:role=... -->` metadata。
+
 ## plan-written 方案验收语句要求
 
 MUST：每次输出 `plan-written` 时，方案正文末尾必须包含「验收语句」一节；该节必须位于最终 stage marker 之前，stage marker 仍必须是整条回复最后一行。

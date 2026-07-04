@@ -100,11 +100,18 @@
 - 禁止依赖：MUST NOT 理解 GitHub / Codex / trigger 语义；MUST NOT 主动读文件（初始状态由组装方注入）。
 
 ### conversation-protocol
-- 职责边界：纯业务数据操作，负责共享时间线归一化、speaker 判定、agent mention 选择、full/resume prompt 构造、delta 消息选择、agent 评论格式化、role thread 状态更新计算。不负责 GitHub、Codex CLI 或文件系统。
+- 职责边界：纯业务数据操作，负责共享时间线归一化、speaker 判定、agent mention 选择、full/resume prompt 构造、delta 消息选择、agent 评论格式化、role thread 状态更新计算；agent mention 选择会忽略反引号代码区域内的 mention，避免代码示例误触发。不负责 GitHub、Codex CLI 或文件系统。
 - 入口：`src/conversation.ts`
 - 上游：`github-issue-runner`
 - 下游：无真实外部操作。
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 把 issue 内容拼成 shell 命令。
+
+### github-interaction-protocol
+- 职责边界：GitHub issue 共享时间线的交互协议事实源，定义 `@` 控制权移交、`#N` 引用、runner role envelope 与人工路由评论的写法；它约束 persona 与 CEO guardrail 文案，不承担运行时状态或外部 IO。
+- 入口：`docs/protocols/github-interaction.md`
+- 上游：里程碑任务、OpenSpec spec、agent persona 约束。
+- 下游：`agents/*.md` 的最小协议引用、`agents/ceo.md` 的违规纠偏规则、`conversation-protocol` 中的 mention 解析加固。
+- 禁止依赖：MUST NOT 存储 runner 状态；MUST NOT 包含 token 或本地配置；MUST NOT 要求人工伪造 runner role envelope。
 
 ### issue-media
 - 职责边界：纯业务数据操作，负责从共享时间线消息中提取图片 / 视频候选引用，并把已准备好的媒体文件格式化为 prompt media manifest。它只做 URL shape、协议与文本模式判断，不下载、不读取文件、不知道 Codex runDir。

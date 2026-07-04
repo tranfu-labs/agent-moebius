@@ -14,6 +14,10 @@
 <!-- agent-moebius:stage=in-progress -->
 ```
 
+## GitHub 交互协议
+
+写入 GitHub issue 时间线时，MUST 遵守 `docs/protocols/github-interaction.md`。只在明确移交下一步控制权时使用合法 agent mention；纯提及裸写角色名。任务编号使用 `T3` 形式，非真实 issue / PR 编号不要写成 `#N`。不要伪造 runner 专属的 `<role>:` 前缀或 `<!-- agent-moebius:role=... -->` metadata。
+
 ## 技术决策与架构
 
 你做每一个关键技术决策时，都显式走「上下文 → 候选方案 → 取舍依据 → 接受的后果」这条链，而不是直接抛一个结论。你先讲清约束和要解决的技术问题，再列出至少两个可行候选，说明各自代价，最后给出选择和它换来了什么、放弃了什么。

@@ -28,6 +28,28 @@ describe("conversation", () => {
     expect(parseAgentMentions("a@product-manager @Product_Manager @bad_agent")).toEqual([]);
   });
 
+  it("ignores agent mentions inside inline backtick code", () => {
+    const text = "literal `@dev` then @product-manager";
+
+    expect(parseAgentMentions(text)).toEqual([{ name: "product-manager", index: text.indexOf("@product-manager") }]);
+  });
+
+  it("ignores agent mentions inside multi-backtick inline code", () => {
+    const text = "literal ``@dev`` then @qa";
+
+    expect(parseAgentMentions(text)).toEqual([{ name: "qa", index: text.indexOf("@qa") }]);
+  });
+
+  it("ignores agent mentions inside fenced backtick code blocks", () => {
+    const text = "before\n```ts\n@dev\n```\nafter @secretary";
+
+    expect(parseAgentMentions(text)).toEqual([{ name: "secretary", index: text.indexOf("@secretary") }]);
+  });
+
+  it("ignores all mentions when they only appear in backtick code", () => {
+    expect(parseAgentMentions("`@dev`\n```md\n@product-manager\n```")).toEqual([]);
+  });
+
   it("selects the first mentioned agent that exists", () => {
     expect(selectMentionedAgent("@unknown please ask @product-manager", ["product-manager"])).toBe("product-manager");
   });

@@ -49,7 +49,7 @@
 - OpenSpec：本次 change 已归档到 `openspec/changes/archive/2026-07-04-harden-runner-stability-t1/`，并已合并 spec-delta 到 `openspec/specs/github-issue-runner/spec.md`。
 - 验证：`pnpm test` 通过（23 files / 198 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）。
 
-### - [ ] T2 · 全局 GitHub 交互协议
+### - [x] T2 · 全局 GitHub 交互协议
 
 **目标**：制定单一事实源的 GitHub 交互协议并让所有角色遵守，CEO 发布前兜底。协议至少覆盖：**`@` 语义 = 移交控制权**——每条消息最多一个 `@`，只在明确移交下一步时使用，纯提及一律裸写角色名（触发器只认最新消息第一个合法 mention，误 `@` 会真实移交控制权并占用 driver 名额）；**`#数字` 只用于真实引用 issue / PR**——GitHub 把一切 `#N` 渲染为 issue/PR 链接并在被引用 issue 生成反向引用，因此任何非 issue/PR 编号都禁止写成 `#N`：任务编号用 `T3` 类前缀；时间线评论指代用完整评论 URL 或「第 N 条评论」文字形式；验收语句编号用「验收语句 N」文字形式（实测案例，T2 实施期间发现：issue 45 的 qa 审查评论用 `#6` 指代第 6 条评论、`#1`/`#3`/`#4` 指代验收语句编号，评论 id 4880506810——该评论恰是 T2 方案的审查评论，违反了它正在审查的规则）；**发言者身份约束**——role envelope（`<role>:` 前缀 + `<!-- agent-moebius:role=... -->` metadata）为 runner 发布专属，loop watcher / 真人补发评论必须以自己身份平文发言、不得伪装 agent 格式（所有评论出自同一 gh 账号，metadata 是时间线 speaker 归一化的唯一依据，伪装会污染各 role thread 的对话事实）；**带路由意图的人工评论必须显式带一个 `@`**，否则触发器不会唤醒任何角色（见 T8 死锁背景）；每条规则附正例与反例。各 persona 同步该协议；`agents/ceo.md` 增加违规纠正规则（用 append 要求改正，或经方案论证后启用 replace 直接纠正——执行方决策并记录理由）。
 
@@ -63,6 +63,15 @@
 5. （若做运行时加固）构造代码块内 `@dev` 的时间线 → 不应触发 dev。
 
 **依赖**：无。
+
+**阶段证据（2026-07-04，T2 已完成）**：
+- 协议事实源：新增 `docs/protocols/github-interaction.md`，覆盖 `@` 控制权移交、`#N` 仅真实 issue / PR、runner role envelope 专属、人工路由评论必须显式带一个合法 mention 四条规则；每条规则均包含正例、反例与合规改写。`rg -n "移交控制权|#N|role envelope|合规改写|第 6 条评论|验收语句 1" docs/protocols/github-interaction.md` 可见覆盖。
+- Persona 同步：`rg -l "github-interaction|交互协议" agents/` 命中 `agents/ceo.md`、`agents/dev.md`、`agents/dev-manager.md`、`agents/hermes-user.md`、`agents/product-manager.md`、`agents/qa.md`、`agents/secretary.md`、`agents/tranfu-agents-manager.md`。
+- CEO 纠偏：`agents/ceo.md` 新增「GitHub 交互协议违规纠偏」场景，明确 append-only、不启用 replace；`tests/format-ceo.test.ts` 覆盖 persona 文本合约与 fake CEO append，包含裸 `@dev` 纯提及、裸 `#3` 任务编号的违规校正。
+- `#N` 扩展规则：协议文档要求任务编号写 `T3`，评论序号写「第 N 条评论」或完整评论 URL，验收语句编号写「验收语句 N」；CEO 纠偏规则覆盖裸 `#N` 表达任务编号、评论序号或验收语句编号的违规。
+- 运行时加固：`src/conversation.ts` 的 `parseAgentMentions` 会 mask fenced code block 与 inline backtick 内的 mention，且保持代码区域外 mention 的原文 index；`tests/conversation.test.ts` 覆盖 inline code、fenced code block、代码区域外 index；`tests/triggers.test.ts` 覆盖 inline / fenced code 内 no-trigger，以及代码块外 mention 仍触发。
+- OpenSpec：本次 change 已归档到 `openspec/changes/archive/2026-07-04-global-github-interaction-protocol-t2/`，并已合并 spec-delta 到 `openspec/specs/github-issue-runner/spec.md`；`AGENTS.md` 与 `docs/architecture/module-map.md` 已同步新增协议入口与边界。
+- 验证：`pnpm test` 通过（23 files / 207 tests，exit 0）；`pnpm typecheck` 通过（exit 0）；`git diff --check` 通过（exit 0）。
 
 ### - [ ] T3 · artifact publisher 发现 worktree 验收截图 + run manifest 契约
 
