@@ -143,6 +143,60 @@ export interface ObserverIssueView {
   roleThreads: Array<{ role: string; state: ObserverRoleThreadState }>;
   agentContexts: Array<{ role: string; state: ObserverAgentContextState }>;
   runs: ObserverRunManifestRecord[];
+  execution: ObserverIssueExecutionView;
+}
+
+export interface ObserverIssueExecutionView {
+  nodes: ObserverExecutionNodeView[];
+  edges: ObserverExecutionEdgeView[];
+  tokenSummary: ObserverTokenSummaryView;
+}
+
+export interface ObserverExecutionNodeView {
+  id: string;
+  kind: "codex-run" | "stuck-no-trigger" | "dead-letter" | "failed" | "waiting";
+  status: "completed" | "stuck" | "dead-letter" | "failed" | "waiting";
+  title: string;
+  completedAt: string;
+  role?: string;
+  stage?: ObserverRunManifestStage;
+  reason?: string;
+  failureCount?: number;
+  deadLetter?: boolean;
+  run?: ObserverRunManifestRecord;
+}
+
+export interface ObserverExecutionEdgeView {
+  from: string;
+  to: string;
+  label: string;
+}
+
+export interface ObserverTokenSummaryView {
+  inputTokens: ObserverTokenValueView;
+  outputTokens: ObserverTokenValueView;
+  cachedInputTokens: ObserverTokenValueView;
+  cachedShare: string;
+  unknownDenominator: boolean;
+  runs: ObserverRunTokenView[];
+}
+
+export interface ObserverTokenValueView {
+  value: number;
+  unknown: boolean;
+}
+
+export interface ObserverRunTokenView {
+  runId: string;
+  role: string;
+  stage: ObserverRunManifestStage;
+  completedAt: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedInputTokens: number | null;
+  cachedShare: string;
+  unknownDenominator: boolean;
+  cacheSuspicious: boolean;
 }
 
 interface IssueAccumulator {
@@ -702,6 +756,7 @@ function uniqueStrings(values: string[]): string[] {
 
 function toIssueView(issue: IssueAccumulator): ObserverIssueView {
   const runs = [...issue.runs].sort(compareRunsDesc);
+  const execution = buildIssueExecutionView(issue, runs);
   return {
     owner: issue.owner,
     repo: issue.repo,
@@ -717,11 +772,212 @@ function toIssueView(issue: IssueAccumulator): ObserverIssueView {
       .map(([role, state]) => ({ role, state }))
       .sort((left, right) => left.role.localeCompare(right.role)),
     runs,
+    execution,
   };
+}
+
+function buildIssueExecutionView(issue: IssueAccumulator, runsDesc: ObserverRunManifestRecord[]): ObserverIssueExecutionView {
+  const runsAsc = [...runsDesc].sort(compareRunsAsc);
+  const nodes: ObserverExecutionNodeView[] = runsAsc.map((run, index) => ({
+    id: runNodeId(run, index),
+    kind: "codex-run",
+    status: "completed",
+    title: `Codex run ${run.role} ${run.stage}`,
+    completedAt: run.completedAt,
+    role: run.role,
+    stage: run.stage,
+    run,
+  }));
+
+  const intakeNode = buildIntakeOutcomeNode(issue.intake);
+  if (intakeNode !== null) {
+    nodes.push(intakeNode);
+  }
+
+  const edges: ObserverExecutionEdgeView[] = [];
+  for (let index = 1; index < nodes.length; index += 1) {
+    const previous = nodes[index - 1];
+    const current = nodes[index];
+    if (previous === undefined || current === undefined) {
+      continue;
+    }
+
+    const sameRole =
+      previous.kind === "codex-run" &&
+      current.kind === "codex-run" &&
+      previous.role !== undefined &&
+      previous.role === current.role;
+    edges.push({
+      from: previous.id,
+      to: current.id,
+      label: sameRole ? "resume" : "next",
+    });
+  }
+
+  return {
+    nodes,
+    edges,
+    tokenSummary: buildTokenSummary(runsAsc),
+  };
+}
+
+function buildIntakeOutcomeNode(intake: ObserverIntakeIssueState | null): ObserverExecutionNodeView | null {
+  if (intake === null) {
+    return null;
+  }
+
+  const failureCount = intake.lastOutcome?.failureCount ?? intake.failureCount ?? 0;
+  const reason = intake.lastOutcome?.reason ?? intake.lastFailureReason ?? "unknown";
+  const completedAt = intake.lastOutcome?.recordedAt ?? intake.nextPollAt ?? intake.updatedAt;
+
+  if (intake.lastOutcome?.result === "no-trigger" && intake.lastOutcome.reason === "skip:no-trigger") {
+    return {
+      id: "intake-stuck-no-trigger",
+      kind: "stuck-no-trigger",
+      status: "stuck",
+      title: "Stuck: no trigger",
+      completedAt,
+      reason: intake.lastOutcome.reason,
+      failureCount,
+    };
+  }
+
+  if (intake.lastOutcome?.result === "dead-lettered" || failureCount >= 5) {
+    return {
+      id: "intake-dead-letter",
+      kind: "dead-letter",
+      status: "dead-letter",
+      title: "Dead letter",
+      completedAt,
+      reason: reason === "unknown" ? "dead-lettered:unknown" : reason,
+      failureCount,
+      deadLetter: true,
+    };
+  }
+
+  if (intake.lastOutcome?.result === "failed" || failureCount > 0) {
+    return {
+      id: "intake-failed",
+      kind: "failed",
+      status: "failed",
+      title: "Processing failed",
+      completedAt,
+      reason,
+      failureCount,
+    };
+  }
+
+  if (intake.lastOutcome?.result === "interrupted") {
+    return {
+      id: "intake-interrupted",
+      kind: "waiting",
+      status: "waiting",
+      title: "Interrupted",
+      completedAt,
+      reason,
+      failureCount,
+    };
+  }
+
+  return null;
+}
+
+function buildTokenSummary(runsAsc: ObserverRunManifestRecord[]): ObserverTokenSummaryView {
+  const inputTokens = sumTokenField(runsAsc, "inputTokens");
+  const outputTokens = sumTokenField(runsAsc, "outputTokens");
+  const cachedInputTokens = sumTokenField(runsAsc, "cachedInputTokens");
+  const tokenRuns: ObserverRunTokenView[] = runsAsc.map((run, index) => {
+    const usage = run.usage;
+    const input = usage?.inputTokens ?? null;
+    const output = usage?.outputTokens ?? null;
+    const cached = usage?.cachedInputTokens ?? null;
+    const cachedShareValue = computeCachedShare(input, cached);
+    return {
+      runId: runNodeId(run, index),
+      role: run.role,
+      stage: run.stage,
+      completedAt: run.completedAt,
+      inputTokens: input,
+      outputTokens: output,
+      cachedInputTokens: cached,
+      cachedShare: cachedShareValue === null ? "unknown" : formatPercent(cachedShareValue),
+      unknownDenominator: cachedShareValue === null,
+      cacheSuspicious: false,
+    };
+  });
+
+  const previousByRole = new Map<string, number>();
+  for (const run of tokenRuns) {
+    const currentShare = parseShare(run.cachedShare);
+    const previousShare = previousByRole.get(run.role);
+    if (currentShare !== null && previousShare !== undefined) {
+      run.cacheSuspicious = previousShare > 0 && (currentShare === 0 || currentShare < previousShare * 0.2);
+    }
+    if (currentShare !== null) {
+      previousByRole.set(run.role, currentShare);
+    }
+  }
+
+  const totalCachedShare = computeCachedShare(inputTokens.value, cachedInputTokens.value);
+  return {
+    inputTokens,
+    outputTokens,
+    cachedInputTokens,
+    cachedShare: totalCachedShare === null ? "unknown" : formatPercent(totalCachedShare),
+    unknownDenominator: inputTokens.unknown || cachedInputTokens.unknown || totalCachedShare === null,
+    runs: tokenRuns,
+  };
+}
+
+function sumTokenField(
+  runs: ObserverRunManifestRecord[],
+  field: "inputTokens" | "outputTokens" | "cachedInputTokens",
+): ObserverTokenValueView {
+  let value = 0;
+  let unknown = false;
+  for (const run of runs) {
+    const fieldValue = run.usage?.[field];
+    if (fieldValue === undefined) {
+      unknown = true;
+    } else {
+      value += fieldValue;
+    }
+  }
+  return { value, unknown };
+}
+
+function computeCachedShare(inputTokens: number | null | undefined, cachedInputTokens: number | null | undefined): number | null {
+  if (inputTokens === undefined || inputTokens === null || inputTokens <= 0 || cachedInputTokens === undefined || cachedInputTokens === null) {
+    return null;
+  }
+  return cachedInputTokens / inputTokens;
+}
+
+function parseShare(value: string): number | null {
+  if (value === "unknown" || !value.endsWith("%")) {
+    return null;
+  }
+  const parsed = Number(value.slice(0, -1));
+  return Number.isFinite(parsed) ? parsed / 100 : null;
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+export function runNodeId(run: ObserverRunManifestRecord, index: number): string {
+  if (run.lineNumber !== undefined) {
+    return `run-line-${run.lineNumber}`;
+  }
+  return `run-${index + 1}-${run.role}-${run.completedAt}`.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
 function compareRunsDesc(left: ObserverRunManifestRecord, right: ObserverRunManifestRecord): number {
   return right.completedAt.localeCompare(left.completedAt);
+}
+
+function compareRunsAsc(left: ObserverRunManifestRecord, right: ObserverRunManifestRecord): number {
+  return left.completedAt.localeCompare(right.completedAt);
 }
 
 function compareById(left: { id: string }, right: { id: string }): number {

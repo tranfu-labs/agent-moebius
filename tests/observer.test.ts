@@ -326,6 +326,140 @@ describe("observer", () => {
     expect(html).not.toContain("other/repo#1");
   });
 
+  it("renders project issue DAG, selected run details, intake outcomes, and token cache diagnostics", async () => {
+    const root = await makeFixtureRoot();
+    await writeConfig(root, [
+      { owner: "tranfu-labs", repo: "agent-moebius" },
+      { owner: "tranfu-labs", repo: "other-tool" },
+    ]);
+    await fs.mkdir(path.join(root, ".state"), { recursive: true });
+    const firstDevRunDir = await writeRunDetails(root, "run-dev-first", {
+      input: "dev first input context",
+      output: "dev first output",
+    });
+    const secondDevRunDir = await writeRunDetails(root, "run-dev-second", {
+      input:
+        "dev selected input context agent-moebius-orchestration-key:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ghp_abcdefghijklmnopqrstuvwxyz123456 /Users/wing/private/path",
+      output: "dev selected output full text",
+    });
+    const qaRunDir = await writeRunDetails(root, "run-qa", {
+      input: "qa private input context must not render with selected dev run",
+      output: "qa private output text must not render with selected dev run",
+    });
+    await fs.writeFile(
+      path.join(root, ".state", "github-response-intake.json"),
+      JSON.stringify({
+        repositories: {},
+        issues: {
+          "tranfu-labs/agent-moebius#88": {
+            owner: "tranfu-labs",
+            repo: "agent-moebius",
+            issueNumber: 88,
+            updatedAt: NOW,
+            mode: "active",
+            activeNoChangeCount: 0,
+            nextPollAt: null,
+            lastOutcome: {
+              result: "no-trigger",
+              reason: "skip:no-trigger",
+              recordedAt: "2026-07-04T00:04:00.000Z",
+            },
+          },
+          "tranfu-labs/agent-moebius#89": {
+            owner: "tranfu-labs",
+            repo: "agent-moebius",
+            issueNumber: 89,
+            updatedAt: NOW,
+            mode: "active",
+            activeNoChangeCount: 0,
+            nextPollAt: null,
+            failureCount: 5,
+            lastFailureReason: "codex:usage-limit",
+          },
+        },
+      }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, ".state", "run-manifests.jsonl"),
+      [
+        JSON.stringify(
+          makeManifest({
+            issueNumber: 88,
+            runDir: firstDevRunDir,
+            completedAt: "2026-07-04T00:01:00.000Z",
+            usage: { inputTokens: 100, outputTokens: 30, cachedInputTokens: 80 },
+          }),
+        ),
+        JSON.stringify(
+          makeManifest({
+            issueNumber: 88,
+            runDir: secondDevRunDir,
+            completedAt: "2026-07-04T00:02:00.000Z",
+            usage: { inputTokens: 100, outputTokens: 25, cachedInputTokens: 0 },
+          }),
+        ),
+        JSON.stringify(
+          makeManifest({
+            issueNumber: 88,
+            role: "qa",
+            runDir: qaRunDir,
+            completedAt: "2026-07-04T00:03:00.000Z",
+            usage: { outputTokens: 12 },
+          }),
+        ),
+      ].join("\n"),
+      "utf8",
+    );
+
+    const snapshot = await readObserverState({ projectRoot: root });
+    const model = buildObserverModel(snapshot, new Date(NOW));
+    const issue88 = model.repositories[0]?.issues.find((issue) => issue.number === 88);
+    const issue89 = model.repositories[0]?.issues.find((issue) => issue.number === 89);
+    const issue88Html = renderObserverPage(model, {
+      projectKey: "tranfu-labs/agent-moebius",
+      issueKey: "tranfu-labs/agent-moebius#88",
+      runId: "run-line-2",
+    });
+    const issue89Html = renderObserverPage(model, {
+      projectKey: "tranfu-labs/agent-moebius",
+      issueKey: "tranfu-labs/agent-moebius#89",
+    });
+
+    expect(model.repositories.map((repository) => repository.key)).toEqual(["tranfu-labs/agent-moebius", "tranfu-labs/other-tool"]);
+    expect(issue88?.execution.nodes.map((node) => node.kind)).toEqual([
+      "codex-run",
+      "codex-run",
+      "codex-run",
+      "stuck-no-trigger",
+    ]);
+    expect(issue89?.execution.nodes.map((node) => node.kind)).toEqual(["dead-letter"]);
+    expect(issue88Html).toContain("Project filter");
+    expect(issue88Html).toContain("source WATCH_REPOSITORIES");
+    expect(issue88Html).toContain("Issue execution DAG");
+    expect(issue88Html).toContain("tranfu-labs/agent-moebius#88");
+    expect(issue88Html).toContain("kind=codex-run");
+    expect(issue88Html).toContain("kind=stuck-no-trigger");
+    expect(issue88Html).toContain("reason=skip:no-trigger");
+    expect(issue88Html).toContain("dev selected input context");
+    expect(issue88Html).toContain("dev selected output full text");
+    expect(issue88Html).not.toContain("qa private input context");
+    expect(issue88Html).not.toContain("qa private output text");
+    expect(issue88Html).toContain("[hidden-key]");
+    expect(issue88Html).toContain("[redacted]");
+    expect(issue88Html).toContain("[local-path]");
+    expect(issue88Html).not.toContain("agent-moebius-orchestration-key:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    expect(issue88Html).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz123456");
+    expect(issue88Html).not.toContain("/Users/wing/private/path");
+    expect(issue88Html).toContain("Token panel");
+    expect(issue88Html).toContain("unknown 分母");
+    expect(issue88Html).toContain("unknown denominator");
+    expect(issue88Html).toContain("缓存疑似失效");
+    expect(issue89Html).toContain("kind=dead-letter");
+    expect(issue89Html).toContain("deadLetter=true");
+    expect(issue89Html).toContain("reason=codex:usage-limit");
+  });
+
   it("diagnoses malformed local config without reporting all repos as no records", async () => {
     const root = await makeFixtureRoot();
     await fs.writeFile(
@@ -684,6 +818,10 @@ function makeManifest(input: {
   owner?: string;
   repo?: string;
   issueNumber: number;
+  role?: string;
+  completedAt?: string;
+  runDir?: string;
+  usage?: ObserverRunManifestRecord["usage"];
   publishedUrl?: string | null;
   extraArtifacts?: ObserverRunManifestRecord["artifacts"];
 }): ObserverRunManifestRecord {
@@ -693,7 +831,8 @@ function makeManifest(input: {
       repo: input.repo ?? "agent-moebius",
       number: input.issueNumber,
     },
-    role: "dev",
+    ...(input.runDir === undefined ? {} : { runDir: input.runDir }),
+    role: input.role ?? "dev",
     stage: "code-verified",
     artifacts: [
       {
@@ -703,8 +842,21 @@ function makeManifest(input: {
       ...(input.extraArtifacts ?? []),
     ],
     startedAt: NOW,
-    completedAt: "2026-07-04T00:01:00.000Z",
+    completedAt: input.completedAt ?? "2026-07-04T00:01:00.000Z",
+    ...(input.usage === undefined ? {} : { usage: input.usage }),
   };
+}
+
+async function writeRunDetails(
+  root: string,
+  name: string,
+  content: { input: string; output: string },
+): Promise<string> {
+  const runDir = path.join(root, "runs", name);
+  await fs.mkdir(runDir, { recursive: true });
+  await fs.writeFile(path.join(runDir, "input.jsonl"), content.input, "utf8");
+  await fs.writeFile(path.join(runDir, "stdout.jsonl"), content.output, "utf8");
+  return runDir;
 }
 
 async function snapshotFiles(root: string): Promise<Record<string, string>> {
