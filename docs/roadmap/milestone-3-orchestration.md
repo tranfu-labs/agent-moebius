@@ -138,11 +138,11 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - 验证命令：`pnpm typecheck`（退出码 0）、`pnpm test -- --run`（30 个 test files / 334 tests，退出码 0）、`git diff --check`（退出码 0）。
 - 验收清单：product-manager 已确认第 11 条方案中的 14 条验收语句为正式实现清单，并明确接受 QA 增补；实现证据覆盖 issue body/comment 路由 key 分离、无 mention 目标兜底只 handoff CEO、有界采访 ≤4 问、pending ledger 不暴露 active projection、提案评论 hidden proposal key、确认后复用既有 spawn executor、幂等重试不重复创建 child、ledger child-ref save timeout 后 hidden key 恢复、ledger save fail-closed、fail-closed 评论发布失败仍保持 failed、可见写有界、支付宝 demo 不触发真实 dogfood、不承诺真实资金/牌照/清结算，以及 issue 文本不进入 shell。
 
-### - [x] T9 ·【人工】多任务目标端到端 dogfood
+### - [ ] T9 ·【人工】多任务目标端到端 dogfood
 
 真实多子任务目标完整走成功标准闭环（含至少一次圆桌评审与一次 goal-intake 入账），记录卡点。
 
-**执行证据（2026-07-05）**：
+**进行中证据（2026-07-05，未收尾）**：
 - 父目标：tranfu-labs/tranfu-agents-app#96 `QA: skills`，17 条已侦察缺陷（loop watcher 3 fable subagent 采样 · 内容/数字 · 跳转/路由 · 布局/对齐 三视角）
 - goal-intake：真产生。CEO agent 在 tranfu-agents-app#96 上产出 propose-then-confirm 提案；`.state/goal-ledger.json` 出现 `m3-t9-skills-defects-dogfood` pending 记录；loop watcher 代真人 confirm 后 CEO 激活账本
 - CEO spawn：CEO agent 真 spawn 6 个子 issue（tranfu-agents-app #97 #98 #99 #100 #101 #102），按页面 / 模块 / 共享实现面分组，非机械按 3 类
@@ -159,7 +159,7 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - **E · code-verified stage marker 遗漏**：#100 dev 输出 code-verified 内容但 runner 未 track（缺 marker 或格式）；下游 T4 join 判断依赖 stage 事件，需要在 `agents/dev.md` 强化 marker + runner 兜底解析。
 - **F · 无 mention 外部评论仅由 loop watcher 手动兜底**：M2 T8 落地的兜底路由未在本轮真实触发，可能 gating 太严；建议 T9 反馈复审。
 
-**验收角度**：本轮不追求"6/6 全 code-verified 后触发目标级集成验收通过 + 观察页勾"，而是达到"编排链路真跑通 + 卡点被记录 + 回流为待细化候选"的 T9 目标。产品实际修复 PR 是否 merge 交给真人在 tranfu-agents-app 上定；本任务范围不做。
+**未收尾原因**：T9 原文要求"每个子任务经验收角色走查 → 集成验收点确认合并后整体成立"。当前 5 子 issue 仍 open（PM 走查了但 in-progress verdict 无 @-mention → runner skip:no-trigger），loop watcher 不代真人裁决 PR merge → T9 目标级集成验收未触发。链路侧证据充分，但产品侧闭环差最后一步。等真人在 tranfu-agents-app 上对 5 个 open PR / issue 分别裁决 → 再决定 T9 勾选。
 
 ### - [ ] T10 ·【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收（tranfu-agents-app）
 
