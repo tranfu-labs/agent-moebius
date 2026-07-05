@@ -44,10 +44,19 @@ export interface ObserverIntakeIssueState {
   nextPollAt: string | null;
   failureCount?: number;
   lastFailureReason?: string;
+  lastOutcome?: ObserverIntakeLastOutcome;
 }
 
 export interface ObserverIntakeState {
   issues: Record<string, ObserverIntakeIssueState>;
+}
+
+export interface ObserverIntakeLastOutcome {
+  result: "triggered-success" | "no-trigger" | "failed" | "dead-lettered" | "interrupted";
+  reason: string;
+  recordedAt: string;
+  targetRole?: string;
+  failureCount?: number;
 }
 
 export interface ObserverRoleThreadState {
@@ -77,6 +86,7 @@ export interface ObserverRunManifestRecord {
     number: number;
   };
   lineNumber?: number;
+  runDir?: string;
   role: string;
   stage: ObserverRunManifestStage;
   artifacts: Array<{
@@ -85,6 +95,45 @@ export interface ObserverRunManifestRecord {
   }>;
   startedAt: string;
   completedAt: string;
+  promptMode?: string;
+  trigger?: ObserverRunManifestTrigger;
+  detailLocators?: ObserverRunDetailLocators;
+  usage?: ObserverRunUsage;
+  details?: ObserverRunDetails;
+}
+
+export interface ObserverRunManifestTrigger {
+  source: string;
+  messageIndex?: number;
+  reason?: string;
+  targetRole?: string;
+}
+
+export interface ObserverRunDetailLocators {
+  inputContextPath?: string;
+  outputPath?: string;
+  stdoutPath?: string;
+  stderrPath?: string;
+}
+
+export interface ObserverRunUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+}
+
+export interface ObserverRunDetails {
+  inputContext: ObserverRunDetailReadResult;
+  output: ObserverRunDetailReadResult;
+}
+
+export type ObserverRunDetailStatus = "ok" | "missing" | "error" | "timeout" | "escaped" | "unavailable";
+
+export interface ObserverRunDetailReadResult {
+  status: ObserverRunDetailStatus;
+  source: string;
+  content?: string;
+  message?: string;
 }
 
 export type ObserverGoalLedgerStatus = "ok" | "missing" | "timeout" | "error";
@@ -105,7 +154,9 @@ export interface ObserverStateSnapshot {
 export interface ReadObserverStateInput {
   projectRoot?: string;
   goalLedgerReadTimeoutMs?: number;
+  runDetailReadTimeoutMs?: number;
   readGoalLedgerFile?: (filePath: string) => Promise<string>;
+  readRunDetailFile?: (filePath: string) => Promise<string>;
 }
 
 interface ValidationResult<T> {
@@ -132,11 +183,19 @@ const EMPTY_GOAL_LEDGER: GoalLedgerState = {
   phases: {},
 };
 const DEFAULT_GOAL_LEDGER_READ_TIMEOUT_MS = 1_000;
+const DEFAULT_RUN_DETAIL_READ_TIMEOUT_MS = 250;
 const RUN_MANIFEST_STAGES = new Set<ObserverRunManifestStage>([
   "plan-written",
   "code-verified",
   "in-progress",
   "unknown",
+]);
+const INTAKE_OUTCOME_RESULTS = new Set<ObserverIntakeLastOutcome["result"]>([
+  "triggered-success",
+  "no-trigger",
+  "failed",
+  "dead-lettered",
+  "interrupted",
 ]);
 const QUALITY_BASELINES = new Set<QualityBaseline>(["demo", "data-correct", "production"]);
 const READINESS_STATUSES = new Set<LedgerReadinessStatus>(["draft", "pending", "ready"]);
@@ -183,7 +242,11 @@ export async function readObserverState(input: ReadObserverStateInput = {}): Pro
     empty: EMPTY_AGENT_CONTEXTS,
     validate: validateAgentContextStore,
   });
-  const runManifests = await readRunManifestJsonl(path.join(projectRoot, ".state", "run-manifests.jsonl"));
+  const runManifests = await readRunManifestJsonl({
+    filePath: path.join(projectRoot, ".state", "run-manifests.jsonl"),
+    timeoutMs: input.runDetailReadTimeoutMs ?? DEFAULT_RUN_DETAIL_READ_TIMEOUT_MS,
+    readDetailFile: input.readRunDetailFile ?? ((filePath) => fs.readFile(filePath, "utf8")),
+  });
 
   return {
     projectRoot,
@@ -405,13 +468,15 @@ async function readJsonState<T>(input: {
   };
 }
 
-async function readRunManifestJsonl(
-  filePath: string,
-): Promise<{ data: ObserverRunManifestRecord[]; diagnostics: ObserverDiagnostic[] }> {
+async function readRunManifestJsonl(input: {
+  filePath: string;
+  timeoutMs: number;
+  readDetailFile: (filePath: string) => Promise<string>;
+}): Promise<{ data: ObserverRunManifestRecord[]; diagnostics: ObserverDiagnostic[] }> {
   const source = ".state/run-manifests.jsonl";
   let raw: string;
   try {
-    raw = await fs.readFile(filePath, "utf8");
+    raw = await fs.readFile(input.filePath, "utf8");
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
       return {
@@ -429,10 +494,10 @@ async function readRunManifestJsonl(
   const records: ObserverRunManifestRecord[] = [];
   const diagnostics: ObserverDiagnostic[] = [];
   const lines = raw.split(/\r?\n/);
-  lines.forEach((line, index) => {
+  for (const [index, line] of lines.entries()) {
     const lineNumber = index + 1;
     if (line.trim().length === 0) {
-      return;
+      continue;
     }
 
     let parsed: unknown;
@@ -445,7 +510,7 @@ async function readRunManifestJsonl(
         line: lineNumber,
         message: `第 ${lineNumber} 行跳过：JSON 解析失败：${formatError(error)}`,
       });
-      return;
+      continue;
     }
 
     const manifest = validateRunManifestRecord(parsed, lineNumber);
@@ -456,11 +521,11 @@ async function readRunManifestJsonl(
         line: lineNumber,
         message: `第 ${lineNumber} 行跳过：${manifest.reason}`,
       });
-      return;
+      continue;
     }
 
-    records.push(manifest.record);
-  });
+    records.push(await attachRunDetails(manifest.record, input));
+  }
 
   return {
     data: records,
@@ -707,18 +772,201 @@ function validateRunManifestRecord(
     artifacts.push({ path: artifact.path, publishedUrl: artifact.publishedUrl });
   }
 
+  const runDir = typeof value.runDir === "string" && value.runDir.length > 0 ? value.runDir : undefined;
+  const promptMode = typeof value.promptMode === "string" && value.promptMode.length > 0 ? value.promptMode : undefined;
+  const trigger = readRunManifestTrigger(value.trigger);
+  const detailLocators = readRunDetailLocators(value.detailLocators);
+  const usage = readRunUsage(value.usage);
+
   return {
     ok: true,
     record: {
       issue: { owner: issue.owner, repo: issue.repo, number: issue.number },
       lineNumber,
+      ...(runDir === undefined ? {} : { runDir }),
       role: value.role,
       stage: value.stage as ObserverRunManifestStage,
       artifacts,
       startedAt: value.startedAt,
       completedAt: value.completedAt,
+      ...(promptMode === undefined ? {} : { promptMode }),
+      ...(trigger === undefined ? {} : { trigger }),
+      ...(detailLocators === undefined ? {} : { detailLocators }),
+      ...(usage === undefined ? {} : { usage }),
     },
   };
+}
+
+async function attachRunDetails(
+  record: ObserverRunManifestRecord,
+  input: { timeoutMs: number; readDetailFile: (filePath: string) => Promise<string> },
+): Promise<ObserverRunManifestRecord> {
+  if (record.runDir === undefined) {
+    return record;
+  }
+
+  const inputContext = await readRunDetailCandidates({
+    runDir: record.runDir,
+    explicitPath: record.detailLocators?.inputContextPath,
+    fallbackPaths: ["run-details/input-context.md", "input.jsonl"],
+    label: "input context",
+    timeoutMs: input.timeoutMs,
+    readDetailFile: input.readDetailFile,
+  });
+  const output = await readRunDetailCandidates({
+    runDir: record.runDir,
+    explicitPath: record.detailLocators?.outputPath ?? record.detailLocators?.stdoutPath,
+    fallbackPaths: ["run-details/agent-output.md", "stdout.jsonl"],
+    label: "agent output",
+    timeoutMs: input.timeoutMs,
+    readDetailFile: input.readDetailFile,
+  });
+
+  return { ...record, details: { inputContext, output } };
+}
+
+async function readRunDetailCandidates(input: {
+  runDir: string;
+  explicitPath?: string;
+  fallbackPaths: string[];
+  label: string;
+  timeoutMs: number;
+  readDetailFile: (filePath: string) => Promise<string>;
+}): Promise<ObserverRunDetailReadResult> {
+  const candidates = input.explicitPath === undefined ? input.fallbackPaths : [input.explicitPath];
+  let lastMissing: ObserverRunDetailReadResult | null = null;
+
+  for (const candidate of candidates) {
+    const resolved = resolveRunDetailPath(input.runDir, candidate);
+    if (!resolved.ok) {
+      return {
+        status: "escaped",
+        source: candidate,
+        message: `${input.label} locator escaped runDir`,
+      };
+    }
+
+    try {
+      const content = await withTimeout(input.readDetailFile(resolved.filePath), input.timeoutMs);
+      return {
+        status: "ok",
+        source: candidate,
+        content,
+      };
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        return {
+          status: "timeout",
+          source: candidate,
+          message: `detail-read-timeout:${input.timeoutMs}ms`,
+        };
+      }
+
+      if (isNodeError(error) && error.code === "ENOENT") {
+        lastMissing = {
+          status: "missing",
+          source: candidate,
+          message: "detail-read-missing",
+        };
+        continue;
+      }
+
+      return {
+        status: "error",
+        source: candidate,
+        message: `detail-read-error:${formatError(error)}`,
+      };
+    }
+  }
+
+  return (
+    lastMissing ?? {
+      status: "unavailable",
+      source: candidates.join(", "),
+      message: "detail-read-unavailable",
+    }
+  );
+}
+
+function resolveRunDetailPath(runDir: string, locator: string): { ok: true; filePath: string } | { ok: false } {
+  if (locator.length === 0 || path.isAbsolute(locator)) {
+    return { ok: false };
+  }
+
+  const normalized = path.posix.normalize(locator.replaceAll(path.sep, path.posix.sep));
+  if (normalized === "." || normalized.startsWith("../") || normalized === "..") {
+    return { ok: false };
+  }
+
+  const runDirPath = path.resolve(runDir);
+  const filePath = path.resolve(runDirPath, normalized);
+  const relative = path.relative(runDirPath, filePath);
+  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return { ok: false };
+  }
+
+  return { ok: true, filePath };
+}
+
+function readRunManifestTrigger(value: unknown): ObserverRunManifestTrigger | undefined {
+  if (!isPlainObject(value) || !isNonEmptyString(value.source)) {
+    return undefined;
+  }
+
+  return {
+    source: value.source,
+    ...(isNonNegativeInteger(value.messageIndex) ? { messageIndex: value.messageIndex } : {}),
+    ...(isNonEmptyString(value.reason) ? { reason: value.reason } : {}),
+    ...(isNonEmptyString(value.targetRole) ? { targetRole: value.targetRole } : {}),
+  };
+}
+
+function readRunDetailLocators(value: unknown): ObserverRunDetailLocators | undefined {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const locators: ObserverRunDetailLocators = {};
+  if (isNonEmptyString(value.inputContextPath)) {
+    locators.inputContextPath = value.inputContextPath;
+  }
+  if (isNonEmptyString(value.outputPath)) {
+    locators.outputPath = value.outputPath;
+  }
+  if (isNonEmptyString(value.stdoutPath)) {
+    locators.stdoutPath = value.stdoutPath;
+  }
+  if (isNonEmptyString(value.stderrPath)) {
+    locators.stderrPath = value.stderrPath;
+  }
+
+  return Object.keys(locators).length === 0 ? undefined : locators;
+}
+
+function readRunUsage(value: unknown): ObserverRunUsage | undefined {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const usage: ObserverRunUsage = {};
+  const inputTokens = readFiniteNumber(value.inputTokens) ?? readFiniteNumber(value.input_tokens);
+  const outputTokens = readFiniteNumber(value.outputTokens) ?? readFiniteNumber(value.output_tokens);
+  const cachedInputTokens = readFiniteNumber(value.cachedInputTokens) ?? readFiniteNumber(value.cached_input_tokens);
+  if (inputTokens !== undefined) {
+    usage.inputTokens = inputTokens;
+  }
+  if (outputTokens !== undefined) {
+    usage.outputTokens = outputTokens;
+  }
+  if (cachedInputTokens !== undefined) {
+    usage.cachedInputTokens = cachedInputTokens;
+  }
+
+  return Object.keys(usage).length === 0 ? undefined : usage;
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function isIntakeIssueState(value: unknown): value is ObserverIntakeIssueState {
@@ -739,7 +987,20 @@ function isIntakeIssueState(value: unknown): value is ObserverIntakeIssueState {
     (value.nextPollAt === null || (typeof value.nextPollAt === "string" && value.nextPollAt.length > 0)) &&
     (value.failureCount === undefined || isNonNegativeInteger(value.failureCount)) &&
     (value.lastFailureReason === undefined ||
-      (typeof value.lastFailureReason === "string" && value.lastFailureReason.length > 0))
+      (typeof value.lastFailureReason === "string" && value.lastFailureReason.length > 0)) &&
+    (value.lastOutcome === undefined || isIntakeLastOutcome(value.lastOutcome))
+  );
+}
+
+function isIntakeLastOutcome(value: unknown): value is ObserverIntakeLastOutcome {
+  return (
+    isPlainObject(value) &&
+    typeof value.result === "string" &&
+    INTAKE_OUTCOME_RESULTS.has(value.result as ObserverIntakeLastOutcome["result"]) &&
+    isNonEmptyString(value.reason) &&
+    isNonEmptyString(value.recordedAt) &&
+    (value.targetRole === undefined || isNonEmptyString(value.targetRole)) &&
+    (value.failureCount === undefined || isNonNegativeInteger(value.failureCount))
   );
 }
 

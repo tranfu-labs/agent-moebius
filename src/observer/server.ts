@@ -43,7 +43,11 @@ export function createObserverServer(options: ObserverServerOptions = {}): http.
         goalLedgerReadTimeoutMs: options.goalLedgerReadTimeoutMs,
         readGoalLedgerFile: options.readGoalLedgerFile,
       });
-      const body = renderObserverPage(buildObserverModel(snapshot));
+      const body = renderObserverPage(buildObserverModel(snapshot), {
+        projectKey: url.searchParams.get("project") ?? undefined,
+        issueKey: url.searchParams.get("issue") ?? undefined,
+        runId: url.searchParams.get("run") ?? undefined,
+      });
       response.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",

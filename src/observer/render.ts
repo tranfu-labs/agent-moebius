@@ -1,20 +1,30 @@
-import type { ObserverDiagnostic, ObserverRunManifestRecord, ObserverSourceStatus } from "./read-state.js";
-import type {
-  ObserverGateView,
-  ObserverGoalView,
-  ObserverIssueRefView,
-  ObserverIssueView,
-  ObserverLedgerView,
-  ObserverMilestoneView,
-  ObserverModel,
-  ObserverOwnerPhaseView,
-  ObserverPhaseView,
-  ObserverRepositoryView,
-  ObserverRunEvidenceView,
-  ObserverTaskView,
+import type { ObserverDiagnostic, ObserverRunDetailReadResult, ObserverRunManifestRecord, ObserverSourceStatus } from "./read-state.js";
+import {
+  runNodeId,
+  type ObserverExecutionNodeView,
+  type ObserverGateView,
+  type ObserverGoalView,
+  type ObserverIssueRefView,
+  type ObserverIssueView,
+  type ObserverLedgerView,
+  type ObserverMilestoneView,
+  type ObserverModel,
+  type ObserverOwnerPhaseView,
+  type ObserverPhaseView,
+  type ObserverRepositoryView,
+  type ObserverRunEvidenceView,
+  type ObserverRunTokenView,
+  type ObserverTaskView,
 } from "./model.js";
 
-export function renderObserverPage(model: ObserverModel): string {
+export interface ObserverRenderSelection {
+  projectKey?: string;
+  issueKey?: string;
+  runId?: string;
+}
+
+export function renderObserverPage(model: ObserverModel, selection: ObserverRenderSelection = {}): string {
+  const selected = resolveSelection(model, selection);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -73,6 +83,74 @@ export function renderObserverPage(model: ObserverModel): string {
     }
     .content {
       padding: 16px 20px 32px;
+    }
+    .observer-workspace {
+      display: grid;
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 320px);
+      gap: 12px;
+      align-items: start;
+    }
+    .selector-panel, .dag-panel, .token-panel, .detail-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .dag-panel {
+      min-width: 0;
+    }
+    .dag {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .dag-node {
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #fbfcfe;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .dag-node:hover { text-decoration: none; border-color: #99d6cd; }
+    .dag-node[data-status="completed"] { border-left: 4px solid var(--accent); }
+    .dag-node[data-status="stuck"], .dag-node[data-status="failed"] { border-left: 4px solid var(--warn); }
+    .dag-node[data-status="dead-letter"] { border-left: 4px solid var(--error); }
+    .dag-node-title {
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .dag-edge {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+      padding-left: 10px;
+    }
+    .run-detail {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      max-height: 360px;
+      overflow: auto;
+      background: var(--code);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 12px;
+    }
+    .token-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    .token-table th, .token-table td {
+      border-top: 1px solid var(--line);
+      padding: 6px 4px;
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
     }
     section {
       margin-bottom: 20px;
@@ -225,6 +303,7 @@ export function renderObserverPage(model: ObserverModel): string {
       main { display: block; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
       .content { padding: 14px; }
+      .observer-workspace { grid-template-columns: 1fr; }
       dl { grid-template-columns: 1fr; }
       .subtree { margin-left: 0; }
     }
@@ -238,21 +317,22 @@ export function renderObserverPage(model: ObserverModel): string {
   <main>
     <aside>
       <section>
-        <h2>Goals</h2>
-        ${renderGoalNav(model.ledger)}
-      </section>
-      <section>
-        <h2>Legacy issue records</h2>
-        ${renderRepositoryList(model)}
+        <h2>Project filter</h2>
+        ${renderProjectFilter(model, selected)}
       </section>
     </aside>
     <div class="content">
+      <section>
+        <h2>Issue execution DAG</h2>
+        ${renderExecutionWorkspace(model, selected)}
+      </section>
       <section>
         <h2>Diagnostics</h2>
         ${renderDiagnostics(model)}
       </section>
       <section>
         <h2>Goal ledger tree</h2>
+        ${renderGoalNav(model.ledger)}
         ${renderLedgerTree(model.ledger)}
       </section>
       <section>
@@ -272,6 +352,263 @@ export function renderObserverPage(model: ObserverModel): string {
 export function isImageUrl(url: string): boolean {
   const pathname = url.split(/[?#]/, 1)[0]?.toLowerCase() ?? "";
   return /\.(png|jpe?g|gif|webp|svg)$/.test(pathname);
+}
+
+interface ResolvedSelection {
+  project: ObserverRepositoryView | null;
+  issue: ObserverIssueView | null;
+  runId: string | null;
+}
+
+function resolveSelection(model: ObserverModel, selection: ObserverRenderSelection): ResolvedSelection {
+  const project =
+    model.repositories.find((repository) => repository.key === selection.projectKey) ??
+    model.repositories.find((repository) => repository.hasRecords) ??
+    model.repositories[0] ??
+    null;
+  const issue =
+    project?.issues.find((candidate) => candidate.key === selection.issueKey) ??
+    project?.issues[0] ??
+    null;
+  const runIds = new Set(
+    issue?.execution.nodes.filter((node) => node.kind === "codex-run").map((node) => node.id) ?? [],
+  );
+  const runId =
+    selection.runId !== undefined && runIds.has(selection.runId)
+      ? selection.runId
+      : issue?.execution.nodes.find((node) => node.kind === "codex-run")?.id ?? null;
+
+  return { project, issue, runId };
+}
+
+function renderProjectFilter(model: ObserverModel, selected: ResolvedSelection): string {
+  if (!model.configUsable) {
+    return `<p class="empty">配置读取失败，无法确认 WATCH_REPOSITORIES。</p>`;
+  }
+
+  if (model.repositories.length === 0) {
+    return `<p class="empty">WATCH_REPOSITORIES 为空。</p>`;
+  }
+
+  return `<div class="nav-item">
+    <div class="tag-row"><span class="tag">source WATCH_REPOSITORIES</span></div>
+    ${model.repositories
+      .map((repository) => {
+        const active = selected.project?.key === repository.key;
+        return `<a class="issue-link" href="${escapeAttribute(selectionHref({ project: repository.key }))}">
+          ${active ? "› " : ""}${escapeHtml(repository.key)} · issues ${repository.issues.length}${
+            repository.hasRecords ? "" : " · 没有记录"
+          }
+        </a>`;
+      })
+      .join("")}
+  </div>`;
+}
+
+function renderExecutionWorkspace(model: ObserverModel, selected: ResolvedSelection): string {
+  if (!model.configUsable) {
+    return `<p class="empty">配置读取失败，暂不展示 issue 执行 DAG。</p>`;
+  }
+  if (selected.project === null) {
+    return `<p class="empty">没有配置 WATCH_REPOSITORIES。</p>`;
+  }
+
+  return `<div class="observer-workspace">
+    <div class="selector-panel">
+      <h3>Project</h3>
+      <div class="tag-row"><span class="tag ok">${escapeHtml(selected.project.key)}</span></div>
+      <h3>Issue</h3>
+      ${renderIssueSelector(selected.project, selected.issue)}
+    </div>
+    <div class="dag-panel">
+      ${selected.issue === null ? `<p class="empty">该项目没有本地 issue 记录。</p>` : renderIssueDag(selected.issue, selected)}
+    </div>
+    <div class="token-panel">
+      ${selected.issue === null ? `<p class="empty">没有 token manifest。</p>` : renderTokenPanel(selected.issue)}
+    </div>
+  </div>`;
+}
+
+function renderIssueSelector(repository: ObserverRepositoryView, selectedIssue: ObserverIssueView | null): string {
+  if (repository.issues.length === 0) {
+    return `<p class="empty">没有记录</p>`;
+  }
+
+  return `<div>
+    ${repository.issues
+      .map((issue) => {
+        const active = selectedIssue?.key === issue.key;
+        return `<a class="issue-link" href="${escapeAttribute(selectionHref({ project: repository.key, issue: issue.key }))}">
+          ${active ? "› " : ""}issue ${issue.number} · ${escapeHtml(issue.latestRunStage ?? "no manifest")}
+        </a>`;
+      })
+      .join("")}
+  </div>`;
+}
+
+function renderIssueDag(issue: ObserverIssueView, selected: ResolvedSelection): string {
+  return `<article>
+    <h3>${escapeHtml(issue.key)}</h3>
+    <div class="tag-row">
+      ${issue.sources.map((source) => `<span class="tag">${escapeHtml(source)}</span>`).join("")}
+      <span class="tag">nodes ${issue.execution.nodes.length}</span>
+      <span class="tag">edges ${issue.execution.edges.length}</span>
+    </div>
+    ${renderDagNodes(issue, selected)}
+    ${renderDagEdges(issue)}
+    ${renderSelectedRunDetail(issue, selected.runId)}
+  </article>`;
+}
+
+function renderDagNodes(issue: ObserverIssueView, selected: ResolvedSelection): string {
+  if (issue.execution.nodes.length === 0) {
+    return `<p class="empty">没有可构造 DAG 的本地事实。</p>`;
+  }
+
+  return `<div class="dag">
+    ${issue.execution.nodes.map((node, index) => renderDagNode(issue, node, index, selected)).join("")}
+  </div>`;
+}
+
+function renderDagNode(issue: ObserverIssueView, node: ObserverExecutionNodeView, index: number, selected: ResolvedSelection): string {
+  const tags = [
+    `kind=${node.kind}`,
+    `status=${node.status}`,
+    node.role === undefined ? null : `role=${node.role}`,
+    node.stage === undefined ? null : `stage=${node.stage}`,
+    node.reason === undefined ? null : `reason=${node.reason}`,
+    node.failureCount === undefined ? null : `failureCount=${node.failureCount}`,
+    node.deadLetter === true ? "deadLetter=true" : null,
+  ].filter((tag): tag is string => tag !== null);
+  const body = `<div class="dag-node-title">${escapeHtml(`${index + 1}. ${node.title}`)}</div>
+    <div class="tag-row">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>
+    <div class="muted">${escapeHtml(node.completedAt)}</div>`;
+
+  if (node.kind !== "codex-run") {
+    return `<div class="dag-node" data-status="${escapeAttribute(node.status)}">${body}</div>`;
+  }
+
+  return `<a class="dag-node" data-status="${escapeAttribute(node.status)}" href="${escapeAttribute(
+    selectionHref({ project: `${issue.owner}/${issue.repo}`, issue: issue.key, run: node.id }),
+  )}" aria-current="${selected.runId === node.id ? "true" : "false"}">${body}</a>`;
+}
+
+function renderDagEdges(issue: ObserverIssueView): string {
+  if (issue.execution.edges.length === 0) {
+    return `<p class="empty">没有 DAG edge。</p>`;
+  }
+
+  return `<section>
+    <h4>Edges</h4>
+    ${issue.execution.edges
+      .map((edge) => `<div class="dag-edge"><code>${escapeHtml(edge.from)}</code><span>→</span><code>${escapeHtml(edge.to)}</code><span>${escapeHtml(edge.label)}</span></div>`)
+      .join("")}
+  </section>`;
+}
+
+function renderSelectedRunDetail(issue: ObserverIssueView, runId: string | null): string {
+  const runNode = issue.execution.nodes.find((node) => node.id === runId && node.kind === "codex-run");
+  const run = runNode?.run;
+  if (run === undefined || runNode === undefined) {
+    return `<section class="detail-panel"><h4>Codex run detail</h4><p class="empty">选择 Codex run 节点查看输入上下文与输出全文。</p></section>`;
+  }
+
+  return `<section class="detail-panel">
+    <h4>Codex run detail</h4>
+    <div class="tag-row">
+      <span class="tag ok">selected ${escapeHtml(runNode.id)}</span>
+      <span class="tag">${escapeHtml(run.role)}</span>
+      <span class="tag">${escapeHtml(run.stage)}</span>
+    </div>
+    <h5>Agent input context</h5>
+    ${renderRunDetailBlock(run.details?.inputContext ?? unavailableDetail("input context"))}
+    <h5>Agent output full text</h5>
+    ${renderRunDetailBlock(run.details?.output ?? unavailableDetail("agent output"))}
+  </section>`;
+}
+
+function renderRunDetailBlock(detail: ObserverRunDetailReadResult): string {
+  const status = detail.status === "ok" ? "ok" : detail.status === "timeout" || detail.status === "missing" ? "partial" : "error";
+  const content = detail.status === "ok" ? sanitizeDetail(detail.content ?? "") : (detail.message ?? detail.status);
+  return `<div class="tag-row"><span class="tag ${status}">${escapeHtml(detail.status)}</span><span class="tag">${escapeHtml(
+    detail.source,
+  )}</span></div><pre class="run-detail">${escapeHtml(content)}</pre>`;
+}
+
+function unavailableDetail(source: string): ObserverRunDetailReadResult {
+  return { status: "unavailable", source, message: "detail-read-unavailable" };
+}
+
+function renderTokenPanel(issue: ObserverIssueView): string {
+  const summary = issue.execution.tokenSummary;
+  return `<h3>Token panel</h3>
+    <div class="tag-row">
+      <span class="tag">input ${formatTokenValue(summary.inputTokens.value, summary.inputTokens.unknown)}</span>
+      <span class="tag">output ${formatTokenValue(summary.outputTokens.value, summary.outputTokens.unknown)}</span>
+      <span class="tag">cached ${formatTokenValue(summary.cachedInputTokens.value, summary.cachedInputTokens.unknown)}</span>
+      <span class="tag ${summary.unknownDenominator ? "partial" : "ok"}">cached share ${escapeHtml(summary.cachedShare)}${
+        summary.unknownDenominator ? " · unknown 分母" : ""
+      }</span>
+    </div>
+    ${summary.runs.length === 0 ? `<p class="empty">没有 token usage manifest。</p>` : renderRunTokenTable(summary.runs)}`;
+}
+
+function renderRunTokenTable(runs: ObserverRunTokenView[]): string {
+  return `<table class="token-table">
+    <thead>
+      <tr><th>run</th><th>input</th><th>output</th><th>cached</th><th>share</th><th>health</th></tr>
+    </thead>
+    <tbody>
+      ${runs
+        .map(
+          (run) => `<tr>
+            <td>${escapeHtml(run.role)}<br><code>${escapeHtml(run.runId)}</code></td>
+            <td>${renderTokenCell(run.inputTokens)}</td>
+            <td>${renderTokenCell(run.outputTokens)}</td>
+            <td>${renderTokenCell(run.cachedInputTokens)}</td>
+            <td>${escapeHtml(run.cachedShare)}${run.unknownDenominator ? "<br>unknown denominator" : ""}</td>
+            <td>${run.cacheSuspicious ? `<span class="tag warn">缓存疑似失效</span>` : `<span class="tag ok">normal</span>`}</td>
+          </tr>`,
+        )
+        .join("")}
+    </tbody>
+  </table>`;
+}
+
+function renderTokenCell(value: number | null): string {
+  return value === null ? "unknown" : String(value);
+}
+
+function formatTokenValue(value: number, unknown: boolean): string {
+  return unknown ? `${value} known + unknown` : String(value);
+}
+
+function selectionHref(input: { project?: string; issue?: string; run?: string }): string {
+  const params = new URLSearchParams();
+  if (input.project !== undefined) {
+    params.set("project", input.project);
+  }
+  if (input.issue !== undefined) {
+    params.set("issue", input.issue);
+  }
+  if (input.run !== undefined) {
+    params.set("run", input.run);
+  }
+  const query = params.toString();
+  return query.length === 0 ? "/" : `/?${query}`;
+}
+
+const DETAIL_HIDDEN_KEY_PATTERN =
+  /agent-moebius-(?:orchestration|roundtable|roundtable-completion|integration-acceptance)-key:[a-f0-9]{16,64}/giu;
+const TOKEN_LIKE_PATTERN =
+  /\b(?:ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b/gu;
+const LOCAL_ABSOLUTE_PATH_PATTERN = /(?:\/Users\/[^\s"'<>]+|\/tmp\/[^\s"'<>]+|[A-Za-z]:\\[^\s"'<>]+)/gu;
+
+function sanitizeDetail(value: string): string {
+  return value
+    .replace(DETAIL_HIDDEN_KEY_PATTERN, "[hidden-key]")
+    .replace(TOKEN_LIKE_PATTERN, "[redacted]")
+    .replace(LOCAL_ABSOLUTE_PATH_PATTERN, "[local-path]");
 }
 
 function renderGoalNav(ledger: ObserverLedgerView): string {
