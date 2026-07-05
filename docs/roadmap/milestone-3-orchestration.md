@@ -161,7 +161,47 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 
 **未收尾原因**：T9 原文要求"每个子任务经验收角色走查 → 集成验收点确认合并后整体成立"。当前 5 子 issue 仍 open（PM 走查了但 in-progress verdict 无 @-mention → runner skip:no-trigger），loop watcher 不代真人裁决 PR merge → T9 目标级集成验收未触发。链路侧证据充分，但产品侧闭环差最后一步。等真人在 tranfu-agents-app 上对 5 个 open PR / issue 分别裁决 → 再决定 T9 勾选。
 
-### - [ ] T10 ·【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收（tranfu-agents-app）
+### - [ ] T10 · 观察页 v2：issue 进程有向图 + agent 视角对话 + token / 缓存观测
+
+**背景（2026-07-05 换题）**：原 T10「【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收」全文留档见文末「留档 · 原 T10」，方案设计（三案生成、托举预案）保留待后续复用。换入的直接动因来自 T9 dogfood 的真实痛点：判断"进程是否卡住 / 额度是否挤兑 / 缓存是否失效"目前只能 tail runDir、手工翻 `.state`，缺一个直接回答这三个问题的页面。本任务即对 agent-moebius 自身的可观测性优化。
+
+**形态**（在 T7 观察页基座 `src/observer/*` 上演进，只读立场不变）：
+
+1. **导航**：项目 → issue 两级筛选（项目即 runner 监听的 repo；issue 列表含状态与最近活动时间）。
+2. **issue 进程有向图（主区）**：一个 issue 的执行历程渲染为有向图——节点是一次 agent 运行（issue + role 的一次 Codex run），边是移交关系（mention / handoff / spawn / join）。节点按状态区分：进行中 / 等待他人 / 已完成 / 卡住 / dead-letter。**"是否卡住"是本图的第一问题**：卡住判定复用 runner 既有语义（skip:no-trigger、失败预算耗尽 dead-letter、长时间无新事件），卡住节点须附机器可读原因，不是只变红。
+3. **agent 视角对话**：点击节点 → 展示该 agent 该次运行**自身视角**的对话记录（注入它的输入上下文 + 它的输出，来源 runDir transcript / stdout.jsonl），而非整条 issue 时间线——回答"它当时看到了什么、为什么这么答"。
+4. **token 统计（右侧面板）**：issue 级与 run 级两层。总量（input / output / cached input）之外，**缓存健康是一等指标**：每 run 的 cachedInputTokens 占比；同 role thread 相邻 run 缓存命中骤降为 0 时标注"缓存疑似失效"（`src/codex.ts` 已从 usage 抽取 `cachedInputTokens` 并入 manifest）。
+
+**数据源**：`.state/run-manifests.jsonl`（run 与 token 事实）、`.state/goal-ledger.json`（父子 issue / 阶段）、runDir transcript（agent 视角对话）。均已存在，本任务不新增写路径。
+
+**验收场景（细化时保留）**：
+1. 打开观察页 → 可按项目筛选；选中项目 → 列出该项目的 issue；选中 issue → 主区呈现有向图，节点数与该 issue 实际 agent 运行次数一致，边与时间线移交顺序一致。
+2. 点击任一节点 → 看到该 agent 该次运行的输入上下文与输出全文，且不混入其他 agent 的私有视角。
+3. 回放 T9 dogfood 的卡死场景（dev 裸称 mention → skip:no-trigger）→ 对应节点标记"卡住"并显示原因；回放 dead-letter 场景（codex 额度耗尽 failureCount=5）→ 节点标记 dead-letter。
+4. 右侧面板显示 issue 级 token 总量（input / output / cached）与每 run 缓存命中占比；构造同 role thread 相邻两 run、后一 run `cachedInputTokens=0` 的 manifest → 面板出现"缓存疑似失效"标注。
+5. 全程只读：fake `gh` / `codex` 零调用，页面不提供任何写操作。
+
+**依赖**：T7（观察页基座）、T1（goal-ledger）；token 数据依赖 run manifest 既有 `cachedInputTokens` 字段。
+
+### - [ ] T11 · 无 mention 兜底路由扩展至 agent 自身评论
+
+**背景**（M3 T9 dogfood 卡点 B 直接催生）：M2 T8 兜底路由目前只覆盖 `speaker=user` 的外部无 mention 评论；agent 自己（dev / product-manager / qa 等）发的裸称 verdict（如结尾写 "product-manager" 而非 "@product-manager"）不算 external，兜底不触发 → runner skip:no-trigger → issue 5 tick 后 demote idle → 编排链路死锁。T9 dogfood 中 5 open 子 issue 全部因此卡死。
+
+**目标**：把 M2 T8 兜底路由的触发条件从 `speaker=user` 放宽到 **"latest comment 无合法 `@` 且 goal-ledger 判定任务未闭环"**。CEO 判定：`no_action`（任务其实已终局）或 `append`（补一条带单个合法 `@` 的接续，指向下一个待发言角色）。防重靠既有 comment-id ledger；fail-open 语义不变（判定失败保持现状不阻塞）。
+
+**范围**：`src/github-response-intake.ts` 中 `speaker=user` 条件放宽；`agents/ceo.md` 的兜底路由判据扩展"任务未闭环"判定；配合 goal-ledger 状态查询；ledger provenance 记录本条 comment 的 fallback 决策；测试注入 dev-authored 裸称 → 应触发 CEO 兜底 → append 合法 @ → runner 继续派单。不改运行时其他路径。
+
+**验收语句**：
+1. 构造 tranfu-agents-app 上 dev / product-manager 裸称 verdict 的时间线 → 跑一轮 intake → 应看到 CEO 兜底判定被执行，产出 no_action 记录或带单个 `@` 的 append；同 comment id 第二轮不重复判定。
+2. 构造 dev-authored 无 mention 且 goal-ledger 显示所有相关 child issue 已 pass → 判定应为 `no_action` 并记录理由。
+3. 构造 dev-authored 无 mention 且 goal-ledger 显示至少一条待办 → 判定应为 `append`，mention 目标是账本"下一个待发言角色"。
+4. 打开 M3 T9 issue（#79）复放本次 tranfu-agents-app 5 子 issue 场景 → runner 应在 5 min 内自动派下一个角色，无需 loop watcher 补 ping。
+
+**依赖**：M2 T8（无 mention 兜底路由）、M3 T1（goal-ledger）、M3 T4（child ledger pass/fail）。
+
+## 留档 · 原 T10【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收（tranfu-agents-app）
+
+> 2026-07-05 换题为「观察页 v2」，全文留档。方案设计（三案生成 fallback、tranfu-agents-manager 观察对象与托举预案）保留待后续复用；若重启，作为新任务立项。
 
 第一个纯产品域垂直切片：在 tranfu-agents-app 新建一个页面 / 新功能，验证"设计提案 → 决策 → 自动实现 → 视觉对照验收"的完整价值链。它同时是 Figma 对齐流程的先导实验——先证明"按图实现 + 按图验收"成立。流程五步：
 
@@ -186,22 +226,6 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 5. 全程用户零介入（观战除外）；出现卡点时按演练惯例记录回流，不现场改规则。
 
 **依赖**：T5（非 dev 角色 / 目标 app worktree 链路先被 spike 验证）、T4（验收路由）；建议与 T9 相邻执行或作为 T9 的素材场景之一。
-
-### - [ ] T11 · 无 mention 兜底路由扩展至 agent 自身评论
-
-**背景**（M3 T9 dogfood 卡点 B 直接催生）：M2 T8 兜底路由目前只覆盖 `speaker=user` 的外部无 mention 评论；agent 自己（dev / product-manager / qa 等）发的裸称 verdict（如结尾写 "product-manager" 而非 "@product-manager"）不算 external，兜底不触发 → runner skip:no-trigger → issue 5 tick 后 demote idle → 编排链路死锁。T9 dogfood 中 5 open 子 issue 全部因此卡死。
-
-**目标**：把 M2 T8 兜底路由的触发条件从 `speaker=user` 放宽到 **"latest comment 无合法 `@` 且 goal-ledger 判定任务未闭环"**。CEO 判定：`no_action`（任务其实已终局）或 `append`（补一条带单个合法 `@` 的接续，指向下一个待发言角色）。防重靠既有 comment-id ledger；fail-open 语义不变（判定失败保持现状不阻塞）。
-
-**范围**：`src/github-response-intake.ts` 中 `speaker=user` 条件放宽；`agents/ceo.md` 的兜底路由判据扩展"任务未闭环"判定；配合 goal-ledger 状态查询；ledger provenance 记录本条 comment 的 fallback 决策；测试注入 dev-authored 裸称 → 应触发 CEO 兜底 → append 合法 @ → runner 继续派单。不改运行时其他路径。
-
-**验收语句**：
-1. 构造 tranfu-agents-app 上 dev / product-manager 裸称 verdict 的时间线 → 跑一轮 intake → 应看到 CEO 兜底判定被执行，产出 no_action 记录或带单个 `@` 的 append；同 comment id 第二轮不重复判定。
-2. 构造 dev-authored 无 mention 且 goal-ledger 显示所有相关 child issue 已 pass → 判定应为 `no_action` 并记录理由。
-3. 构造 dev-authored 无 mention 且 goal-ledger 显示至少一条待办 → 判定应为 `append`，mention 目标是账本"下一个待发言角色"。
-4. 打开 M3 T9 issue（#79）复放本次 tranfu-agents-app 5 子 issue 场景 → runner 应在 5 min 内自动派下一个角色，无需 loop watcher 补 ping。
-
-**依赖**：M2 T8（无 mention 兜底路由）、M3 T1（goal-ledger）、M3 T4（child ledger pass/fail）。
 
 ## 非目标
 
