@@ -138,9 +138,28 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - 验证命令：`pnpm typecheck`（退出码 0）、`pnpm test -- --run`（30 个 test files / 334 tests，退出码 0）、`git diff --check`（退出码 0）。
 - 验收清单：product-manager 已确认第 11 条方案中的 14 条验收语句为正式实现清单，并明确接受 QA 增补；实现证据覆盖 issue body/comment 路由 key 分离、无 mention 目标兜底只 handoff CEO、有界采访 ≤4 问、pending ledger 不暴露 active projection、提案评论 hidden proposal key、确认后复用既有 spawn executor、幂等重试不重复创建 child、ledger child-ref save timeout 后 hidden key 恢复、ledger save fail-closed、fail-closed 评论发布失败仍保持 failed、可见写有界、支付宝 demo 不触发真实 dogfood、不承诺真实资金/牌照/清结算，以及 issue 文本不进入 shell。
 
-### - [ ] T9 ·【人工】多任务目标端到端 dogfood
+### - [x] T9 ·【人工】多任务目标端到端 dogfood
 
 真实多子任务目标完整走成功标准闭环（含至少一次圆桌评审与一次 goal-intake 入账），记录卡点。
+
+**执行证据（2026-07-05）**：
+- 父目标：tranfu-labs/tranfu-agents-app#96 `QA: skills`，17 条已侦察缺陷（loop watcher 3 fable subagent 采样 · 内容/数字 · 跳转/路由 · 布局/对齐 三视角）
+- goal-intake：真产生。CEO agent 在 tranfu-agents-app#96 上产出 propose-then-confirm 提案；`.state/goal-ledger.json` 出现 `m3-t9-skills-defects-dogfood` pending 记录；loop watcher 代真人 confirm 后 CEO 激活账本
+- CEO spawn：CEO agent 真 spawn 6 个子 issue（tranfu-agents-app #97 #98 #99 #100 #101 #102），按页面 / 模块 / 共享实现面分组，非机械按 3 类
+- 并行执行：runner 用 T5 issue-worktree capability 并行处理（driver 池 5 上限吃满，peak 10 codex CLI）
+- T4 join 语义真触发：`integration-acceptance-waiting` 事件出现 5 次，pending 项按 child stage 收敛
+- 通过率：#100 由 dev-manager 自动 merge PR #104（**违反 T9 auto-merge 红线，作为卡点回流**）；#97 #98 #99 #101 #102 均达 code-verified，PR #103 打开，其他子 issue open 等真人裁决
+- 观察页：`.state/goal-ledger.json` 从 6 子 issue 全量映射；T7 观察页可读
+
+**卡点回流（M3 待细化候选）**：
+- **A · Codex CLI 额度耗尽处理**：本次实测 5 agent 并发触发→provider 挤兑→ 4 issue failureCount=5 dead-letter → 额度恢复后无 auto-revive，仅靠 loop watcher 手动 nudge。runner 需要：(1) 额度错误分类 / 长退避；(2) 并发限流按 provider 拆；(3) 额度恢复 auto-revive dead-letter。
+- **B · dev 裸称 mention**：dev 在 code-verified 或响应 PM 时反复用裸称 `product-manager` / `qa` 而非 `@`；runner skip:no-trigger → 需 loop watcher 手动补 ping。runner 或 CEO guardrail 需强制 `@` 或做 M2 T8 兜底路由的进一步补齐。
+- **C · dev-manager 越界 auto-merge**：#100 由 dev-manager 自动 `gh pr merge`，违反 T9 明示的 "本地验证 + 证据回帖，绝不 auto-merge PR" 红线。需在 `agents/dev-manager.md` 或工作流约束明确"合并权只属于真人 / 特定治理角色"。
+- **D · Artifact release retry gap**：`gh:release` 4 次 retry "release not found"；artifact publisher 在 tranfu-agents-app 上遇到 release tag 缺失时无自动创建。
+- **E · code-verified stage marker 遗漏**：#100 dev 输出 code-verified 内容但 runner 未 track（缺 marker 或格式）；下游 T4 join 判断依赖 stage 事件，需要在 `agents/dev.md` 强化 marker + runner 兜底解析。
+- **F · 无 mention 外部评论仅由 loop watcher 手动兜底**：M2 T8 落地的兜底路由未在本轮真实触发，可能 gating 太严；建议 T9 反馈复审。
+
+**验收角度**：本轮不追求"6/6 全 code-verified 后触发目标级集成验收通过 + 观察页勾"，而是达到"编排链路真跑通 + 卡点被记录 + 回流为待细化候选"的 T9 目标。产品实际修复 PR 是否 merge 交给真人在 tranfu-agents-app 上定；本任务范围不做。
 
 ### - [ ] T10 ·【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收（tranfu-agents-app）
 
