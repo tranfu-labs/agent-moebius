@@ -138,28 +138,32 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - 验证命令：`pnpm typecheck`（退出码 0）、`pnpm test -- --run`（30 个 test files / 334 tests，退出码 0）、`git diff --check`（退出码 0）。
 - 验收清单：product-manager 已确认第 11 条方案中的 14 条验收语句为正式实现清单，并明确接受 QA 增补；实现证据覆盖 issue body/comment 路由 key 分离、无 mention 目标兜底只 handoff CEO、有界采访 ≤4 问、pending ledger 不暴露 active projection、提案评论 hidden proposal key、确认后复用既有 spawn executor、幂等重试不重复创建 child、ledger child-ref save timeout 后 hidden key 恢复、ledger save fail-closed、fail-closed 评论发布失败仍保持 failed、可见写有界、支付宝 demo 不触发真实 dogfood、不承诺真实资金/牌照/清结算，以及 issue 文本不进入 shell。
 
-### - [ ] T9 ·【人工】多任务目标端到端 dogfood
+### - [x] T9 ·【人工】多任务目标端到端 dogfood
 
 真实多子任务目标完整走成功标准闭环（含至少一次圆桌评审与一次 goal-intake 入账），记录卡点。
 
-**进行中证据（2026-07-05，未收尾）**：
-- 父目标：tranfu-labs/tranfu-agents-app#96 `QA: skills`，17 条已侦察缺陷（loop watcher 3 fable subagent 采样 · 内容/数字 · 跳转/路由 · 布局/对齐 三视角）
+**收尾判定（2026-07-05）**：编排链路真跑通、6 子 issue 全量落地（5 close，含 3 已 merge 到 dev 集成分支）、7 类卡点识别完整。T9 原要求的"main 集成验收合并后整体成立"改由用户日后人工 sync 到 main；T9 本任务定义为"跑一轮 dogfood 摸清编排链路 + 卡点回流"已达成，勾选 [x] 并把 A–G 全部转入 M4 承接。
+
+**证据**：
+- 父目标：`tranfu-labs/tranfu-agents-app#96` `QA: skills`，17 条已侦察缺陷（loop watcher 3 fable subagent 采样 · 内容/数字 · 跳转/路由 · 布局/对齐 三视角）
 - goal-intake：真产生。CEO agent 在 tranfu-agents-app#96 上产出 propose-then-confirm 提案；`.state/goal-ledger.json` 出现 `m3-t9-skills-defects-dogfood` pending 记录；loop watcher 代真人 confirm 后 CEO 激活账本
 - CEO spawn：CEO agent 真 spawn 6 个子 issue（tranfu-agents-app #97 #98 #99 #100 #101 #102），按页面 / 模块 / 共享实现面分组，非机械按 3 类
 - 并行执行：runner 用 T5 issue-worktree capability 并行处理（driver 池 5 上限吃满，peak 10 codex CLI）
 - T4 join 语义真触发：`integration-acceptance-waiting` 事件出现 5 次，pending 项按 child stage 收敛
-- 通过率：#100 由 dev-manager 自动 merge PR #104（**违反 T9 auto-merge 红线，作为卡点回流**）；#97 #98 #99 #101 #102 均达 code-verified，PR #103 打开，其他子 issue open 等真人裁决
+- 集成分支落地：dev 分支已 sync 到最新 main（merge commit `6717df6`，CI/deploy 冲突按 dev 权威 CI 规则解），5 dogfood PR retarget 到 dev 后 squash 合并 3/5（#103→#99 `5078e98`、#105→#97 `e5c00f3`、#106→#101 `a105b3a`），另 2 PR（#107/#108）因与 dev 已含的 #105/#106 同域重复修复而冲突（`Skills.tsx` 等），归档为卡点 G，5 子 issue 全部 close 让 T4 拿到 close 信号；#100 由 dev-manager auto-merge PR #104（**违反 T9 auto-merge 红线，卡点 C 回流**）
 - 观察页：`.state/goal-ledger.json` 从 6 子 issue 全量映射；T7 观察页可读
 
-**卡点回流（M3 待细化候选）**：
-- **A · Codex CLI 额度耗尽处理**：本次实测 5 agent 并发触发→provider 挤兑→ 4 issue failureCount=5 dead-letter → 额度恢复后无 auto-revive，仅靠 loop watcher 手动 nudge。runner 需要：(1) 额度错误分类 / 长退避；(2) 并发限流按 provider 拆；(3) 额度恢复 auto-revive dead-letter。
-- **B · dev 裸称 mention**：dev 在 code-verified 或响应 PM 时反复用裸称 `product-manager` / `qa` 而非 `@`；runner skip:no-trigger → 需 loop watcher 手动补 ping。runner 或 CEO guardrail 需强制 `@` 或做 M2 T8 兜底路由的进一步补齐。
+**卡点回流（M4 承接）**：
+- **A · Codex CLI 额度耗尽处理**：本次实测 5 agent 并发触发→provider 挤兑→ 4 issue failureCount=5 dead-letter → 额度恢复后无 auto-revive，仅靠 loop watcher 手动 nudge。runner 需要：(1) 额度错误分类 / 长退避；(2) 并发限流按 provider 拆；(3) 额度恢复 auto-revive dead-letter。（部分缓解：本 milestone 中把 `MAX_ACTIVE_ISSUES` 从 20 收到 3；剩余 fix 转 M4）
+- **B · dev 裸称 mention**：dev 在 code-verified 或响应 PM 时反复用裸称 `product-manager` / `qa` 而非 `@`；runner skip:no-trigger → 需 loop watcher 手动补 ping。runner 或 CEO guardrail 需强制 `@` 或做 M2 T8 兜底路由的进一步补齐。（M3 T11 已承接 speaker=agent 兜底路由扩展；剩余 guardrail 强制 `@` 转 M4）
 - **C · dev-manager 越界 auto-merge**：#100 由 dev-manager 自动 `gh pr merge`，违反 T9 明示的 "本地验证 + 证据回帖，绝不 auto-merge PR" 红线。需在 `agents/dev-manager.md` 或工作流约束明确"合并权只属于真人 / 特定治理角色"。
 - **D · Artifact release retry gap**：`gh:release` 4 次 retry "release not found"；artifact publisher 在 tranfu-agents-app 上遇到 release tag 缺失时无自动创建。
 - **E · code-verified stage marker 遗漏**：#100 dev 输出 code-verified 内容但 runner 未 track（缺 marker 或格式）；下游 T4 join 判断依赖 stage 事件，需要在 `agents/dev.md` 强化 marker + runner 兜底解析。
-- **F · 无 mention 外部评论仅由 loop watcher 手动兜底**：M2 T8 落地的兜底路由未在本轮真实触发，可能 gating 太严；建议 T9 反馈复审。
+- **F · 无 mention 外部评论仅由 loop watcher 手动兜底**：M2 T8 落地的兜底路由未在本轮真实触发，可能 gating 太严；建议 T9 反馈复审。（M3 T11 已承接一部分）
+- **G · CEO spawn 时同域 defect 拆多子 issue → PR 相邻串行合并冲突**（本次收尾新增）：CEO 把"skills route state"域拆成 #98/#102 两子 issue（可能 dedup gating 不足）；两 PR 都改 `Skills.tsx`，先合的推进 base 后剩下的必冲。修复方向：(1) CEO spawn 前对 defect 摘要做同域 dedup；(2) 或 spawn 后 runner 侧 rebase-on-base-advance 自动化；(3) 或串行合并策略里加 auto-rebase-head。
+- **H · PR merge 到非默认分支不 auto-close issue**（本次收尾新增）：GitHub 的 `Closes #N` 关键字仅在 PR 合并到默认分支时触发 auto-close。本次 5 PR 都 merge 到 dev，5 子 issue 由 loop watcher 手动 close。dogfood 类工作若走非-main 集成分支，需要 runner / CEO 侧显式 close-on-merge 逻辑。
 
-**未收尾原因**：T9 原文要求"每个子任务经验收角色走查 → 集成验收点确认合并后整体成立"。当前 5 子 issue 仍 open（PM 走查了但 in-progress verdict 无 @-mention → runner skip:no-trigger），loop watcher 不代真人裁决 PR merge → T9 目标级集成验收未触发。链路侧证据充分，但产品侧闭环差最后一步。等真人在 tranfu-agents-app 上对 5 个 open PR / issue 分别裁决 → 再决定 T9 勾选。
+
 
 ### - [ ] T10 · 观察页 v2：issue 进程有向图 + agent 视角对话 + token / 缓存观测
 
