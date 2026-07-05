@@ -120,6 +120,32 @@ describe("formatExternalCommentRoute", () => {
     expect(prompt).toContain("dev, product-manager, ceo");
     expect(prompt).toContain("latestExternalComment:");
     expect(prompt).toContain(routeBaseInput.latestComment);
+    expect(prompt).not.toContain("ledgerTaskContext:");
+  });
+
+  it("injects ledgerTaskContext and the agent-authored intro when ledgerContext is provided", async () => {
+    const agentsDir = await makeAgentsDir();
+    const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatExternalCommentRouteInput["runCodex"]>>[0]) =>
+      successfulCodexRun(options.runDir, '{"action":"no_action"}'),
+    );
+
+    await expect(
+      formatExternalCommentRoute({
+        ...routeBaseInput,
+        agentsDir,
+        runCodex,
+        ledgerContext: "taskId: task-1\ntitle: child 1\n最新验收事实: 无",
+      }),
+    ).resolves.toEqual({
+      action: "NO_ACTION",
+      reason: "ceo-no-action",
+    });
+
+    const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
+    expect(prompt).toContain("agent 自身的无 mention 评论");
+    expect(prompt).toContain("ledgerTaskContext:");
+    expect(prompt).toContain("taskId: task-1");
+    expect(prompt).toContain("指向下一个待发言角色");
   });
 
   it.each([

@@ -1896,11 +1896,13 @@ function assertSafeRelativePath(value: unknown, path: string): asserts value is 
   }
 }
 
-function latestAcceptanceFactForIssue(
+export function latestAcceptanceFactForIssue(
   facts: readonly TaskAcceptanceRecord[],
-  reference: IssueReference,
+  reference: { owner: string; repo: string; number: number },
 ): TaskAcceptanceRecord | undefined {
-  const matching = facts.filter((fact) => issueReferenceMatchesIssue(reference, fact.issue));
+  const matching = facts.filter(
+    (fact) => reference.owner === fact.issue.owner && reference.repo === fact.issue.repo && reference.number === fact.issue.number,
+  );
   return matching.sort(compareTaskAcceptanceFacts).at(-1);
 }
 

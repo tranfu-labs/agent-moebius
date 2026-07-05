@@ -3,6 +3,7 @@ import {
   buildAddReactionArgs,
   buildAddIssueReactionArgs,
   buildCreateIssueArgs,
+  buildFetchIssueStateArgs,
   buildFetchIssueWithCommentsArgs,
   buildFindIssueByOrchestrationKeyArgs,
   buildListOpenIssueSummariesArgs,
@@ -61,6 +62,15 @@ describe("github issue errors", () => {
       "tranfu-labs/agent-moebius",
       "--json",
       "body,comments,updatedAt,state",
+    ]);
+    expect(buildFetchIssueStateArgs(source)).toEqual([
+      "issue",
+      "view",
+      "4",
+      "--repo",
+      "tranfu-labs/agent-moebius",
+      "--json",
+      "state",
     ]);
     expect(buildPostCommentArgs(source)).toEqual([
       "issue",
