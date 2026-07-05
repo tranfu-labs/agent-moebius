@@ -183,7 +183,7 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 
 **依赖**：T7（观察页基座）、T1（goal-ledger）；token 数据依赖 run manifest 既有 `cachedInputTokens` 字段。
 
-### - [ ] T11 · 无 mention 兜底路由扩展至 agent 自身评论
+### - [x] T11 · 无 mention 兜底路由扩展至 agent 自身评论
 
 **背景**（M3 T9 dogfood 卡点 B 直接催生）：M2 T8 兜底路由目前只覆盖 `speaker=user` 的外部无 mention 评论；agent 自己（dev / product-manager / qa 等）发的裸称 verdict（如结尾写 "product-manager" 而非 "@product-manager"）不算 external，兜底不触发 → runner skip:no-trigger → issue 5 tick 后 demote idle → 编排链路死锁。T9 dogfood 中 5 open 子 issue 全部因此卡死。
 
@@ -199,7 +199,13 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 
 **依赖**：M2 T8（无 mention 兜底路由）、M3 T1（goal-ledger）、M3 T4（child ledger pass/fail）。
 
-## 留档 · 原 T10【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收（tranfu-agents-app）
+验收证据（2026-07-05，PR [#82](https://github.com/tranfu-labs/agent-moebius/pull/82) 已 merge）：
+- 方案与归档：`openspec/changes/archive/2026-07-05-acceptance-join-resilience/`（修复 D 即本任务；同批落地走查解析失败可见化、closed child 阻断上报、走查格式硬约束三项 join 韧性修复，共同解除 T9 dogfood 死锁根因链）
+- 行为事实源：`openspec/specs/github-issue-runner/spec.md` 新增「T11 agent-authored no-mention fallback route」节（场景 T11.1–T11.4）+ T4 增补规则与场景 T4.9–T4.11
+- 实现：`src/runner.ts`（`maybeRouteExternalNoMentionComment` agent 分支 + `resolveAgentAuthoredRouteGate` 账本门；触发条件真实所在处是 runner.ts 而非 roadmap 预估的 github-response-intake.ts）、`src/format-ceo.ts`（`ledgerContext` prompt 注入）、`agents/ceo.md` 兜底判据第 5 条；fallback 决策记录沿用 intake state 的 comment-id route ledger
+- 测试：`tests/runner.test.ts`「processIssueSource acceptance join resilience」（未闭环 → CEO append 单 mention / 已 pass → 确定性 `no_action` reason `ledger-task-closed` 且零 codex 调用 / 同 comment id 防重 / 非编排 issue 不触发）+ `tests/format-ceo.test.ts` ledgerContext 用例；`pnpm test` 349/349、`pnpm typecheck` 通过
+- 验收语句 1–3 由上述单测覆盖；实现口径备注：语句 2 的「所有相关 child 已 pass」落地为「本 child issue 的最新验收事实已 pass」即确定性 no_action（跨 child 的收尾由集成验收 join 负责，语义不重叠）
+- 残留：验收语句 4（#79 复放 5 子 issue 场景 → 5 min 内自动派单）需 runner 拉起新代码后 dogfood 验证；属部署验证而非实现缺口，验证结果回帖 #79
 
 > 2026-07-05 换题为「观察页 v2」，全文留档。方案设计（三案生成 fallback、tranfu-agents-manager 观察对象与托举预案）保留待后续复用；若重启，作为新任务立项。
 
