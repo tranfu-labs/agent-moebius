@@ -1956,6 +1956,9 @@ And 不存在 T7 observer UI 写入或展示改动
 - MUST bound ledger IO, parent issue fetch/post, hidden key lookup, and child issue creation.
 - MUST return failed and not advance intake `updatedAt` when required ledger save or parent request publish fails before a visible result.
 - MUST leave a visible current-issue or dead-letter trail when a child ref exists but parent issue ref cannot be resolved.
+- MUST log a visible event and post one bounded CEO format reminder (mentioning the reviewer role, capped at 2 reminders per issue via a hidden reminder marker) when an acceptance reviewer comment states an overall pass conclusion but the per-statement walkthrough cannot be parsed; beyond the cap the runner MUST log and fall through without posting.
+- MUST verify the GitHub state of `missing` pending child issues when the integration join evaluates to waiting; when any missing child issue is closed, the runner MUST post one blocked report on the parent issue (deduped by hidden integration-blocked key) instead of waiting silently, and MUST fail open (keep waiting, log only) when the state query fails.
+- MUST accept relaxed walkthrough statement-line prefixes: optional list bullet, optional table pipe, optional `原验收` / `正式验收` / `验收` / `验收语句` prefix before the statement number.
 - MUST NOT add worktree provisioning, observer writes, fixed ledger phases, GitHub lifecycle sync, cross-repo joins, or T6 round-table topology.
 
 ### 场景 T4.1：all children passed triggers parent request
@@ -1998,6 +2001,42 @@ Then the current child issue receives a fail-closed explanation or the existing 
 Given T4 is implemented
 When tests inspect runner and ledger behavior
 Then worktree provisioning, observer writes, fixed phase names, issue lifecycle sync, cross-repo join, and round-table topology are not introduced
+
+### 场景 T4.9：整体通过结论但走查不可解析时发格式提醒
+Given an acceptance reviewer comment states an overall pass conclusion
+And the per-statement walkthrough cannot be parsed against the child task acceptance statements
+When the acceptance pre-pass runs
+Then an `acceptance-walkthrough-unparsed` event is logged
+And one CEO comment is posted mentioning the reviewer role with the canonical walkthrough format
+And the comment carries a hidden acceptance-format-reminder marker
+
+### 场景 T4.9a：格式提醒每 issue 封顶两次
+Given the issue timeline already contains two acceptance-format-reminder comments
+And another unparsable overall-pass reviewer comment arrives
+When the acceptance pre-pass runs
+Then no further reminder comment is posted
+And the event is logged with a cap reason
+And processing falls through to normal trigger handling
+
+### 场景 T4.10：missing 子 issue 已 closed 时上报 blocked
+Given the integration join evaluates to waiting
+And a pending child with reason missing is a closed GitHub issue
+When the acceptance pre-pass processes a child acceptance comment
+Then the parent issue receives one blocked report listing the closed child issues
+And the report is deduped by a hidden integration-blocked key on repeat evaluations
+
+### 场景 T4.10a：子 issue 状态查询失败 fail-open
+Given the integration join evaluates to waiting
+And the GitHub state query for a missing child issue fails
+When the acceptance pre-pass processes a child acceptance comment
+Then the runner keeps the waiting behavior and logs a fail-open event
+And no blocked report is posted
+
+### 场景 T4.11：放宽的走查行前缀可解析
+Given a reviewer walkthrough uses lines like `- 原验收 1 通过：…` or `| 2 | 通过 |` or `验收 3：通过`
+And the comment states an overall pass conclusion
+When the acceptance pre-pass parses the walkthrough
+Then each statement line is recognized and the passed acceptance fact is recorded
 
 ## T8 goal-intake runtime
 - MUST support a new required CEO script `goal-intake` whose action is `goal_intake`.
@@ -2127,6 +2166,38 @@ Given an issue goal title contains shell metacharacters
 When no-mention routing, goal-intake proposal, confirmation, and spawn rendering run
 Then no code path passes issue text through `exec`, `execSync`, or `shell: true`
 And any child process invocation uses controlled argv through existing adapters
+
+## T11 agent-authored no-mention fallback route
+- MUST extend the no-mention fallback route to agent-authored latest comments on active issues that resolve to a goal-ledger child task.
+- MUST keep the existing user-authored fallback route behavior unchanged.
+- MUST record a deterministic `no_action` route (reason `ledger-task-closed`, no codex call) when the ledger already holds a passed acceptance fact for that child issue.
+- MUST invoke the CEO fallback route judgment with ledger task context when the child task is not closed, and publish `append` results with exactly one legal mention under the existing route semantics.
+- MUST dedupe agent-authored route decisions by comment id via the existing fallback route ledger, and keep fail-open semantics unchanged.
+- MUST NOT trigger the agent-authored branch for issues that do not resolve to a ledger child task.
+
+### 场景 T11.1：agent 无 mention 且任务未闭环时 CEO 兜底补路由
+Given the latest comment on an active ledger child issue is agent-authored and contains no legal mention
+And the ledger holds no passed acceptance fact for that child issue
+When the fallback route runs
+Then the CEO route judgment is invoked with ledger task context
+And an append decision publishes one CEO comment containing exactly one legal mention
+
+### 场景 T11.2：任务已闭环时确定性 no_action
+Given the latest comment on an active ledger child issue is agent-authored and contains no legal mention
+And the ledger holds a passed acceptance fact for that child issue
+When the fallback route runs
+Then a `no_action` route decision with reason `ledger-task-closed` is recorded without any codex call
+
+### 场景 T11.3：同 comment id 不重复判定
+Given an agent-authored comment id already has a fallback route decision recorded
+When the same comment is reprocessed
+Then no route judgment runs again and no comment is posted
+
+### 场景 T11.4：非编排 issue 的 agent 评论不触发
+Given the latest comment is agent-authored with no legal mention
+And the issue does not resolve to any goal-ledger child task
+When the fallback route runs
+Then the agent-authored branch does not trigger and the skip behavior matches the current runner
 
 ## 可验证行为
 - `pnpm vitest run tests/observer.test.ts` MUST 通过，覆盖 observer 的白名单聚合、状态来源标注、artifact 发布链接 / 图片预览、未发布 artifact 路径、缺 `.state` 文件、坏 state JSON、坏 JSONL、JSONL 尾行截断、manifest 缺字段、损坏 config 诊断、无写入边界、fake `gh` / `codex` 零调用，以及 observer 被强杀后 runner 测试不受影响。

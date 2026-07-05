@@ -41,6 +41,7 @@ export interface FormatExternalCommentRouteInput {
   agentsDir?: string;
   timeoutMs?: number;
   runCodex?: typeof runCodex;
+  ledgerContext?: string;
 }
 
 export type FormatCeoResult =
@@ -221,6 +222,7 @@ export async function formatExternalCommentRoute(
           issueContext: input.issueContext,
           latestComment: input.latestComment,
           availableAgentNames: input.availableAgentNames,
+          ledgerContext: input.ledgerContext,
         }),
         runDir,
         mode: { kind: "full" },
@@ -418,19 +420,32 @@ function buildExternalCommentRoutePrompt(input: {
   issueContext: CeoIssueContext;
   latestComment: string;
   availableAgentNames: string[];
+  ledgerContext?: string;
 }): string {
   const triggerableAgents = input.availableAgentNames;
+  const intro =
+    input.ledgerContext === undefined
+      ? `请根据以下完整公开 issue 上下文，对最新外部无 mention 评论做一次轻量路由判定。
+这是 active issue 上的 no-trigger 兜底：如果最新评论没有明确下一步控制权移交意图，输出 no_action；如果有明确路由意图，只能输出一条 append 正文，正文必须包含且只包含一个合法 agent mention。`
+      : `请根据以下完整公开 issue 上下文，对账本 child issue 上最新一条 agent 自身的无 mention 评论做一次轻量路由判定。
+这是 active issue 上的 no-trigger 兜底：账本显示该任务尚未闭环。如果该评论已是任务终局（无事可做、等待真人裁决），输出 no_action；否则只能输出一条 append 正文，正文必须包含且只包含一个合法 agent mention，指向下一个待发言角色。`;
+  const ledgerSection =
+    input.ledgerContext === undefined
+      ? ""
+      : `
+
+ledgerTaskContext:
+${input.ledgerContext.trimEnd()}`;
   return `${input.persona.trimEnd()}
 
-请根据以下完整公开 issue 上下文，对最新外部无 mention 评论做一次轻量路由判定。
-这是 active issue 上的 no-trigger 兜底：如果最新评论没有明确下一步控制权移交意图，输出 no_action；如果有明确路由意图，只能输出一条 append 正文，正文必须包含且只包含一个合法 agent mention。
+${intro}
 
 输出格式只能是以下 JSON 之一：
 {"action":"no_action"}
 {"action":"append","body":"<一条只含单个合法 agent mention 的追加评论>"}
 
 可触发 agent:
-${triggerableAgents.join(", ")}
+${triggerableAgents.join(", ")}${ledgerSection}
 
 issueContext.issueUrl:
 ${input.issueContext.issueUrl}

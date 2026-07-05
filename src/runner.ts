@@ -89,6 +89,7 @@ import {
 import {
   addReaction,
   createIssue,
+  fetchIssueState,
   fetchIssueWithComments,
   findIssueByOrchestrationKey,
   isGitHubIssueNotFoundError,
@@ -110,6 +111,7 @@ import {
   applyGoalIntakeProposal,
   confirmGoalIntakeProposal,
   evaluateIntegrationAcceptanceJoin,
+  latestAcceptanceFactForIssue,
   recordIntegrationAcceptanceEvent,
   recordTaskAcceptanceFact,
   resolveGoalIntakeProposal,
@@ -167,6 +169,7 @@ export interface ProcessIssueSourceDependencies {
   runCodex: typeof runCodex;
   addReaction: typeof addReaction;
   createIssue: typeof createIssue;
+  fetchIssueState: typeof fetchIssueState;
   fetchIssueWithComments: typeof fetchIssueWithComments;
   findIssueByOrchestrationKey: typeof findIssueByOrchestrationKey;
   postComment: typeof postComment;
@@ -189,6 +192,7 @@ const DEFAULT_PROCESS_ISSUE_SOURCE_DEPENDENCIES: ProcessIssueSourceDependencies 
   runCodex,
   addReaction,
   createIssue,
+  fetchIssueState,
   fetchIssueWithComments,
   findIssueByOrchestrationKey,
   postComment,
@@ -1223,7 +1227,7 @@ async function processChildTaskAcceptance(input: {
   const statements = input.task.acceptanceStatements ?? [];
   const parsed = parseAcceptanceWalkthrough(input.latestMessage.body, statements);
   if (parsed === null) {
-    return null;
+    return maybeEscalateUnparsedAcceptanceWalkthrough(input);
   }
 
   let ledgerAfterFact: GoalLedgerState | null = null;
@@ -1312,7 +1316,14 @@ async function processChildTaskAcceptance(input: {
       issueKey: input.source.issueKey,
       pending: evaluation.pending.map((item) => `${item.taskId}:${item.reason}`),
     });
-    return "no-trigger";
+    return maybeReportClosedChildJoinBlock({
+      source: input.source,
+      pending: evaluation.pending,
+      phaseId: evaluation.phaseId,
+      parentIssue: ownerResolution.parentIssue,
+      reviewerRole,
+      dependencies: input.dependencies,
+    });
   }
 
   if (evaluation.status === "blocked") {
@@ -1346,6 +1357,173 @@ async function processChildTaskAcceptance(input: {
     evaluation,
     dependencies: input.dependencies,
   });
+}
+
+const ACCEPTANCE_FORMAT_REMINDER_METADATA = "<!-- agent-moebius:acceptance-format-reminder -->";
+const ACCEPTANCE_FORMAT_REMINDER_LIMIT = 2;
+
+async function maybeEscalateUnparsedAcceptanceWalkthrough(input: {
+  source: IssueSource;
+  issue: GitHubIssue;
+  postVisibleComment: (body: string) => Promise<void>;
+  latestMessage: TimelineMessage;
+  latestCommentId: string;
+  task: TaskRecord;
+  reviewerRole: string;
+}): Promise<IssueProcessingOutcome | null> {
+  const statements = input.task.acceptanceStatements ?? [];
+  if (statements.length === 0) {
+    return null;
+  }
+  if (parseOverallAcceptanceStatus(input.latestMessage.body) !== "passed") {
+    return null;
+  }
+  const reminderCount = input.issue.comments.filter((comment) =>
+    comment.body.includes(ACCEPTANCE_FORMAT_REMINDER_METADATA),
+  ).length;
+  if (reminderCount >= ACCEPTANCE_FORMAT_REMINDER_LIMIT) {
+    log({
+      event: "acceptance-walkthrough-unparsed",
+      issueKey: input.source.issueKey,
+      taskId: input.task.id,
+      reviewerRole: input.reviewerRole,
+      commentId: input.latestCommentId,
+      reminderCount,
+      reason: "reminder-cap-reached",
+    });
+    return null;
+  }
+  log({
+    event: "acceptance-walkthrough-unparsed",
+    issueKey: input.source.issueKey,
+    taskId: input.task.id,
+    reviewerRole: input.reviewerRole,
+    commentId: input.latestCommentId,
+    reminderCount,
+  });
+  await input.postVisibleComment(
+    formatBypassedAgentComment(
+      "ceo",
+      formatAcceptanceFormatReminderBody({ reviewerRole: input.reviewerRole, statements }),
+      "acceptance-format-reminder",
+    ),
+  );
+  return "triggered-success";
+}
+
+function formatAcceptanceFormatReminderBody(input: { reviewerRole: string; statements: readonly string[] }): string {
+  const statementLines = input.statements.map((statement, index) => `${index + 1}. ${statement}`).join("\n");
+  return `@${input.reviewerRole} 你最新的验收结论声明整体通过，但逐条走查无法被 runner 解析，账本没有记录本次验收事实，集成验收 join 无法推进。请重新输出一条符合规范格式的走查评论：每条验收语句独立一行 \`N. 通过/不通过 — 依据\`（编号与下列验收语句序号一致，不要使用表格、不要加「原验收」等前缀变体），并包含独立一行 \`验收结论：通过\` 或 \`验收结论：不通过\`。
+
+待走查的验收语句：
+${statementLines}
+
+${ACCEPTANCE_FORMAT_REMINDER_METADATA}`;
+}
+
+const INTEGRATION_BLOCKED_KEY_PREFIX = "agent-moebius-integration-blocked-key:";
+
+async function maybeReportClosedChildJoinBlock(input: {
+  source: IssueSource;
+  pending: ReadonlyArray<{ taskId: string; issue: { owner: string; repo: string; number: number }; reason: "missing" | "failed" }>;
+  phaseId: string;
+  parentIssue: { owner: string; repo: string; number: number };
+  reviewerRole: string;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<IssueProcessingOutcome> {
+  const missing = input.pending.filter((item) => item.reason === "missing");
+  if (missing.length === 0) {
+    return "no-trigger";
+  }
+
+  const closed: typeof missing = [];
+  for (const item of missing) {
+    const childSource = makeIssueSource({
+      owner: item.issue.owner,
+      repo: item.issue.repo,
+      issueNumber: item.issue.number,
+    });
+    let state: "OPEN" | "CLOSED";
+    try {
+      state = await withTimeout(
+        input.dependencies.fetchIssueState(childSource),
+        CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+        "fetchIssueState",
+      );
+    } catch (error) {
+      // fail-open：状态查询失败不应把瞬断误报成阻断，维持原 waiting 行为。
+      log({
+        event: "integration-acceptance-child-state-check-failopen",
+        issueKey: input.source.issueKey,
+        taskId: item.taskId,
+        childIssueKey: childSource.issueKey,
+        error: formatError(error),
+      });
+      return "no-trigger";
+    }
+    if (state === "CLOSED") {
+      closed.push(item);
+    }
+  }
+
+  if (closed.length === 0) {
+    return "no-trigger";
+  }
+
+  const closedIssueKeys = closed
+    .map((item) => `${item.issue.owner}/${item.issue.repo}#${item.issue.number}`)
+    .sort();
+  const blockedKey = `${INTEGRATION_BLOCKED_KEY_PREFIX}${crypto
+    .createHash("sha256")
+    .update([input.phaseId, ...closedIssueKeys].join("\n"))
+    .digest("hex")}`;
+  const parentSource = makeIssueSource({
+    owner: input.parentIssue.owner,
+    repo: input.parentIssue.repo,
+    issueNumber: input.parentIssue.number,
+  });
+  const parent = await withTimeout(
+    input.dependencies.fetchIssueWithComments(parentSource),
+    CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+    "fetchParentIssueForBlockedReport",
+  );
+  if (issueContainsHiddenKey(parent, blockedKey)) {
+    log({
+      event: "integration-acceptance-blocked",
+      issueKey: input.source.issueKey,
+      reason: "closed-child-without-acceptance",
+      closed: closedIssueKeys,
+      deduped: true,
+    });
+    return "no-trigger";
+  }
+
+  const closedLines = closed
+    .map((item) => `- ${item.issue.owner}/${item.issue.repo}#${item.issue.number}（task ${item.taskId}）`)
+    .join("\n");
+  await input.dependencies.postComment(
+    parentSource,
+    formatBypassedAgentComment(
+      "ceo",
+      formatIntegrationAcceptanceBlockedBody({
+        reason: "closed-child-without-acceptance",
+        detail: `@${input.reviewerRole} 以下子 issue 已关闭，但账本缺少可解析的验收事实，集成验收 join 无法完成：
+${closedLines}
+
+请重开对应子 issue 并补一条规范逐条走查评论（每条验收语句一行 \`N. 通过/不通过 — 依据\` + 独立一行 \`验收结论：通过/不通过\`）；如认为应豁免，请在本 issue 说明理由，等待真人裁决。
+
+${blockedKey}`,
+      }),
+      "integration-acceptance-blocked",
+    ),
+  );
+  log({
+    event: "integration-acceptance-blocked",
+    issueKey: input.source.issueKey,
+    reason: "closed-child-without-acceptance",
+    closed: closedIssueKeys,
+  });
+  return "triggered-success";
 }
 
 async function processParentIntegrationAcceptance(input: {
@@ -1946,7 +2124,10 @@ function parseAcceptanceWalkthrough(body: string, statements: readonly string[])
 }
 
 function findAcceptanceLineForStatement(lines: readonly string[], statementNumber: number): string | null {
-  const prefix = new RegExp(`^\\s*(?:[-*]\\s*)?(?:验收语句\\s*)?${String(statementNumber)}[.、)．:：\\s]`, "u");
+  const prefix = new RegExp(
+    `^\\s*(?:[-*]\\s*)?(?:\\|\\s*)?(?:(?:原|正式)?验收(?:语句)?\\s*)?${String(statementNumber)}[.、)．:：\\s|]`,
+    "u",
+  );
   return lines.find((line) => prefix.test(line) && /(通过|不通过|失败)/u.test(line)) ?? null;
 }
 
@@ -2069,7 +2250,15 @@ async function maybeRouteExternalNoMentionComment(input: {
   dependencies: ProcessIssueSourceDependencies;
 }): Promise<IssueProcessingOutcome | null> {
   const latestMessage = getLatestTimelineMessage(input.timeline);
-  if (latestMessage === null || latestMessage.speaker !== "user") {
+  if (latestMessage === null) {
+    return null;
+  }
+  const speakerKind =
+    latestMessage.speaker === "user" ? "user" : input.agentNames.includes(latestMessage.speaker) ? "agent" : null;
+  if (speakerKind === null) {
+    return null;
+  }
+  if (speakerKind === "agent" && latestMessage.source !== "comment") {
     return null;
   }
 
@@ -2082,7 +2271,8 @@ async function maybeRouteExternalNoMentionComment(input: {
     return null;
   }
 
-  if (hasAgentMoebiusMetadata(routeTarget.body)) {
+  // agent 评论必然携带 stage marker 等 runner metadata，该守卫只用于隔离 user 路径里 runner 自己的评论。
+  if (speakerKind === "user" && hasAgentMoebiusMetadata(routeTarget.body)) {
     return null;
   }
 
@@ -2096,6 +2286,32 @@ async function maybeRouteExternalNoMentionComment(input: {
     return null;
   }
 
+  let ledgerContext: string | undefined;
+  if (speakerKind === "agent") {
+    const gate = await resolveAgentAuthoredRouteGate({ source: input.source, dependencies: input.dependencies });
+    if (gate === null) {
+      return null;
+    }
+    if (gate.kind === "closed") {
+      log({
+        event: "external-comment-route-no-action",
+        issueKey: input.source.issueKey,
+        commentId: routeTarget.routeKey,
+        reason: "ledger-task-closed",
+      });
+      return externalCommentFallbackRouteProcessingOutcome({
+        result: "no-trigger",
+        route: {
+          commentId: routeTarget.routeKey,
+          outcome: "no_action",
+          decidedAt: new Date().toISOString(),
+          reason: "ledger-task-closed",
+        },
+      });
+    }
+    ledgerContext = gate.context;
+  }
+
   const runDir = makeRunDir(input.count);
   log({
     event: "external-comment-route-start",
@@ -2103,6 +2319,7 @@ async function maybeRouteExternalNoMentionComment(input: {
     runDir,
     issueKey: input.source.issueKey,
     commentId: routeTarget.routeKey,
+    speaker: latestMessage.speaker,
   });
 
   const routeResult = await input.dependencies.formatExternalCommentRoute({
@@ -2111,6 +2328,7 @@ async function maybeRouteExternalNoMentionComment(input: {
     availableAgentNames: input.agentNames,
     runDir,
     runCodex: input.dependencies.runCodex,
+    ...(ledgerContext === undefined ? {} : { ledgerContext }),
   });
 
   logExternalCommentRouteResult({
@@ -2189,6 +2407,52 @@ function resolveExternalNoMentionRouteTarget(
 
 function digestRouteMessage(body: string): string {
   return crypto.createHash("sha256").update(body).digest("hex").slice(0, 32);
+}
+
+async function resolveAgentAuthoredRouteGate(input: {
+  source: IssueSource;
+  dependencies: ProcessIssueSourceDependencies;
+}): Promise<{ kind: "closed" } | { kind: "open"; context: string } | null> {
+  let ledger: GoalLedgerState;
+  try {
+    ledger = await withTimeout(
+      input.dependencies.loadGoalLedgerState(),
+      CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
+      "loadGoalLedgerState",
+    );
+  } catch (error) {
+    // fail-open：账本读取失败维持现状（不触发 agent 兜底路由），不阻塞其余处理。
+    log({
+      event: "external-comment-route-skip",
+      reason: "ledger-load-failed",
+      issueKey: input.source.issueKey,
+      error: formatError(error),
+    });
+    return null;
+  }
+  const task = findTaskByChildIssue(ledger, input.source);
+  if (task === null) {
+    return null;
+  }
+  const latest = latestAcceptanceFactForIssue(task.acceptanceFacts ?? [], {
+    owner: input.source.owner,
+    repo: input.source.repo,
+    number: input.source.issueNumber,
+  });
+  if (latest?.status === "passed") {
+    return { kind: "closed" };
+  }
+  const statements = (task.acceptanceStatements ?? [])
+    .map((statement, index) => `${index + 1}. ${statement}`)
+    .join("\n");
+  return {
+    kind: "open",
+    context: `taskId: ${task.id}
+title: ${task.title}
+最新验收事实: ${latest === undefined ? "无" : latest.status}
+验收语句:
+${statements === "" ? "(none)" : statements}`,
+  };
 }
 
 function isLikelyGoalShapeMessage(body: string): boolean {

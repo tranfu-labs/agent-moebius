@@ -35,6 +35,7 @@ import {
   confirmGoalIntakeProposal,
   type GoalLedgerEntry,
   type GoalLedgerState,
+  type TaskRecord,
 } from "../src/goal-ledger.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
@@ -2980,6 +2981,7 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
     runCodex: async (options) => successfulCodexRun(options.runDir),
     addReaction: async () => {},
     createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/agent-moebius/issues/101" }),
+    fetchIssueState: async () => "OPEN",
     fetchIssueWithComments: async () => makeIssue("@dev please run"),
     findIssueByOrchestrationKey: async () => ({ kind: "none" }),
     postComment: async () => {},
@@ -3344,6 +3346,418 @@ function makeGoalIntakeProposalLedgerInput(): Parameters<typeof applyGoalIntakeP
     ),
   };
 }
+
+describe("processIssueSource acceptance join resilience", () => {
+  it("posts one CEO format reminder when a pass-claiming walkthrough cannot be parsed", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const posted: Array<{ issueNumber: number; body: string }> = [];
+    const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async () => {});
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          {
+            id: "comment-table-pass",
+            body: pmEnvelope("| 验收语句 | 结论 |\n| 跑 child 1 | 通过 |\n\n验收结论：通过"),
+          },
+        ]),
+        agentFiles: [dev, productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry,
+        postComment: async (target, body) => {
+          posted.push({ issueNumber: target.issueNumber, body });
+        },
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(saveGoalLedgerEntry).not.toHaveBeenCalled();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ issueNumber: 101 });
+    expect(posted[0]?.body).toContain("@product-manager");
+    expect(posted[0]?.body).toContain("跑 child 1");
+    expect(posted[0]?.body).toContain("验收结论：通过");
+    expect(posted[0]?.body).toContain("<!-- agent-moebius:acceptance-format-reminder -->");
+    expect(posted[0]?.body).toContain("reason=acceptance-format-reminder");
+  });
+
+  it("caps the format reminder at two per issue and falls through afterwards", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          { id: "reminder-1", body: "first\n\n<!-- agent-moebius:acceptance-format-reminder -->" },
+          { id: "reminder-2", body: "second\n\n<!-- agent-moebius:acceptance-format-reminder -->" },
+          {
+            id: "comment-table-pass",
+            body: pmEnvelope("| 验收语句 | 结论 |\n| 跑 child 1 | 通过 |\n\n验收结论：通过"),
+          },
+        ]),
+        agentFiles: [dev, productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        postComment,
+      }),
+    );
+
+    expect(outcome).toBe("no-trigger");
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
+  it("does not post a reminder for reviewer comments without an overall pass conclusion", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          { id: "comment-progress", body: pmEnvelope("我还在核对证据，稍后补充。") },
+        ]),
+        agentFiles: [dev, productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        postComment,
+      }),
+    );
+
+    expect(outcome).toBe("no-trigger");
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["- 原验收 1 通过：证据 A\n\n验收结论：通过"],
+    ["| 1 | 通过 | 证据 A |\n\n验收结论：通过"],
+    ["验收 1：通过（证据 A）\n\n验收结论：通过"],
+  ])("parses relaxed walkthrough line prefixes: %s", async (body) => {
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [{ id: "comment-relaxed-pass", body: pmEnvelope(body) }]),
+        agentFiles: [productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+      }),
+    );
+
+    expect(outcome).toBe("no-trigger");
+    expect(ledger.tasks["task-1"]?.acceptanceFacts?.[0]).toMatchObject({ status: "passed" });
+  });
+
+  it("does not treat a narrative statement reference without a verdict as a walkthrough line", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const posted: string[] = [];
+    const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async () => {});
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          {
+            id: "comment-narrative-pass",
+            body: pmEnvelope("验收 1 的相关证据我复查了一遍，见上文截图。\n\n验收结论：通过"),
+          },
+        ]),
+        agentFiles: [dev, productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry,
+        postComment: async (_target, body) => {
+          posted.push(body);
+        },
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(saveGoalLedgerEntry).not.toHaveBeenCalled();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toContain("<!-- agent-moebius:acceptance-format-reminder -->");
+  });
+
+  it("reports a blocked join on the parent when a missing child issue is closed", async () => {
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const posted: Array<{ issueNumber: number; body: string }> = [];
+    const fetchIssueState = vi.fn<ProcessIssueSourceDependencies["fetchIssueState"]>(async () => "CLOSED");
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          { id: "comment-child-pass", body: pmEnvelope("验收结论：通过\n1. 通过：跑 child 1") },
+        ]),
+        agentFiles: [productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+        fetchIssueState,
+        fetchIssueWithComments: async () => makeIssue("parent"),
+        postComment: async (target, body) => {
+          posted.push({ issueNumber: target.issueNumber, body });
+        },
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(fetchIssueState).toHaveBeenCalledTimes(1);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ issueNumber: source.issueNumber });
+    expect(posted[0]?.body).toContain("closed-child-without-acceptance");
+    expect(posted[0]?.body).toContain("#102");
+    expect(posted[0]?.body).toContain("@product-manager");
+    expect(posted[0]?.body).toContain("agent-moebius-integration-blocked-key:");
+  });
+
+  it("dedupes the blocked report by hidden key on the parent issue", async () => {
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const posted: string[] = [];
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+    const childIssue = makeIssue("child", [
+      { id: "comment-child-pass", body: pmEnvelope("验收结论：通过\n1. 通过：跑 child 1") },
+    ]);
+
+    const firstOutcome = await processIssueSource(
+      { source: childSource, issue: childIssue, agentFiles: [productManager] },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+        fetchIssueState: async () => "CLOSED",
+        fetchIssueWithComments: async () => makeIssue("parent"),
+        postComment: async (_target, body) => {
+          posted.push(body);
+        },
+      }),
+    );
+    expect(firstOutcome).toBe("triggered-success");
+    const blockedKey = posted[0]?.match(/agent-moebius-integration-blocked-key:[0-9a-f]{64}/u)?.[0];
+    expect(blockedKey).toBeDefined();
+
+    const secondPost = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const secondOutcome = await processIssueSource(
+      { source: childSource, issue: childIssue, agentFiles: [productManager] },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+        fetchIssueState: async () => "CLOSED",
+        fetchIssueWithComments: async () => makeIssue(`parent ${blockedKey ?? ""}`),
+        postComment: secondPost,
+      }),
+    );
+    expect(secondOutcome).toBe("no-trigger");
+    expect(secondPost).not.toHaveBeenCalled();
+  });
+
+  it("fails open and keeps waiting when the child state query fails", async () => {
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          { id: "comment-child-pass", body: pmEnvelope("验收结论：通过\n1. 通过：跑 child 1") },
+        ]),
+        agentFiles: [productManager],
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        saveGoalLedgerEntry: ledgerSaveMutator(ledger),
+        fetchIssueState: async () => {
+          throw new Error("gh state failed");
+        },
+        postComment,
+      }),
+    );
+
+    expect(outcome).toBe("no-trigger");
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
+  it("routes an agent-authored naked comment on an unclosed ledger child through the CEO fallback", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const posted: string[] = [];
+    const routeInputs: Array<{ ledgerContext?: string }> = [];
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          { id: "dev-naked-comment", body: agentEnvelope("dev", "实现完成，自检通过，等待下一步。") },
+        ]),
+        agentFiles: [dev, productManager],
+        intakeIssueState: activeIntakeIssueState(),
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        formatExternalCommentRoute: async (input) => {
+          routeInputs.push({ ledgerContext: input.ledgerContext });
+          return {
+            action: "APPEND",
+            body: "@product-manager 请按验收语句逐条验收本次实现。",
+            targetRole: "product-manager",
+            reason: "appended",
+          };
+        },
+        postComment: async (_target, body) => {
+          posted.push(body);
+        },
+      }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "triggered-success",
+      route: { commentId: "dev-naked-comment", outcome: "append", targetRole: "product-manager" },
+    });
+    expect(routeInputs).toHaveLength(1);
+    expect(routeInputs[0]?.ledgerContext).toContain("task-1");
+    expect(routeInputs[0]?.ledgerContext).toContain("跑 child 1");
+    expect(posted).toHaveLength(1);
+    expect(parseAgentMentions(posted[0] ?? "").map((mention) => mention.name)).toEqual(["product-manager"]);
+  });
+
+  it("records a deterministic no_action for agent comments when the ledger child already passed", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    ledger.tasks["task-1"] = {
+      ...(ledger.tasks["task-1"] as TaskRecord),
+      acceptanceFacts: [
+        {
+          factKey: `task-acceptance:${"e".repeat(64)}`,
+          issue: { owner: source.owner, repo: source.repo, number: 101 },
+          role: "product-manager",
+          status: "passed",
+          statementResults: [{ id: "1", status: "passed", statement: "跑 child 1" }],
+          messageIndex: 1,
+          capturedAt: "2026-07-04T00:06:00.000Z",
+        },
+      ],
+    };
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(
+      async () => ({ action: "NO_ACTION", reason: "ceo-no-action" }),
+    );
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          { id: "dev-naked-comment", body: agentEnvelope("dev", "交付说明已补齐。") },
+        ]),
+        agentFiles: [dev, productManager],
+        intakeIssueState: activeIntakeIssueState(),
+      },
+      makeDependencies({
+        loadGoalLedgerState: async () => ledger,
+        formatExternalCommentRoute,
+        postComment,
+      }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "no-trigger",
+      route: { commentId: "dev-naked-comment", outcome: "no_action", reason: "ledger-task-closed" },
+    });
+    expect(formatExternalCommentRoute).not.toHaveBeenCalled();
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
+  it("does not trigger the agent-authored branch for issues outside the ledger", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(
+      async () => ({ action: "NO_ACTION", reason: "ceo-no-action" }),
+    );
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          { id: "dev-naked-comment", body: agentEnvelope("dev", "实现完成，等待下一步。") },
+        ]),
+        agentFiles: [dev],
+        intakeIssueState: activeIntakeIssueState(),
+      },
+      makeDependencies({ formatExternalCommentRoute }),
+    );
+
+    expect(outcome).toBe("no-trigger");
+    expect(formatExternalCommentRoute).not.toHaveBeenCalled();
+  });
+
+  it("does not re-judge an agent-authored comment id that already has a route decision", async () => {
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const productManager = await makeAgentFile("product-manager", "PM persona");
+    const ledger = makeIntegrationLedgerState();
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(
+      async () => ({ action: "NO_ACTION", reason: "ceo-no-action" }),
+    );
+    const childSource = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 101 });
+
+    const outcome = await processIssueSource(
+      {
+        source: childSource,
+        issue: makeIssue("child", [
+          { id: "dev-naked-comment", body: agentEnvelope("dev", "实现完成，等待下一步。") },
+        ]),
+        agentFiles: [dev, productManager],
+        intakeIssueState: {
+          ...activeIntakeIssueState(),
+          externalCommentFallbackRoutes: {
+            "dev-naked-comment": {
+              commentId: "dev-naked-comment",
+              outcome: "no_action",
+              decidedAt: "2026-07-01T00:04:00.000Z",
+              reason: "ledger-task-closed",
+            },
+          },
+        },
+      },
+      makeDependencies({ loadGoalLedgerState: async () => ledger, formatExternalCommentRoute }),
+    );
+
+    expect(outcome).toBe("no-trigger");
+    expect(formatExternalCommentRoute).not.toHaveBeenCalled();
+  });
+});
 
 function makeConfirmedGoalIntakeLedgerWithoutChildRefs(): GoalLedgerState {
   const proposed = applyGoalIntakeProposal(emptyLedgerState(), makeGoalIntakeProposalLedgerInput());

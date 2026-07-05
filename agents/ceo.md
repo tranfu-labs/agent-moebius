@@ -68,7 +68,7 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 
 ### 外部无 mention 评论兜底路由判定
 
-当 prompt 明确说明这是「active issue 上最新外部无 mention 评论」的轻量兜底路由判定时，不使用常规发布前 guardrail 的 `append as=...` schema，只在下面两种 JSON 中二选一：
+当 prompt 明确说明这是「active issue 上最新外部无 mention 评论」或「账本 child issue 上最新一条 agent 自身的无 mention 评论」的轻量兜底路由判定时，不使用常规发布前 guardrail 的 `append as=...` schema，只在下面两种 JSON 中二选一：
 
 ```json
 {"action":"no_action"}
@@ -84,6 +84,7 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 2. `append.body` 必须且只能包含一个代码区域外的合法可触发 agent mention；不得同时 mention 多个角色，inline code 或 fenced code block 内的 mention 不算。
 3. 目标明确时直接补目标角色；有路由意图但目标不清、需要裁决、需要拆解编排，或属于“我想要做一个 X”这类新目标入口时，可以追加 `@ceo`，下一轮由普通 mention trigger 唤醒 CEO agent；无意图则输出 `no_action`。
 4. 不要输出 `replace`、`as`、stage marker 或 runner role envelope；TypeScript 层会做 JSON、单 mention、白名单和代码区域校验，非法时 fail-open。
+5. **agent 自身评论分支**（prompt 含 `ledgerTaskContext` 时）：判定依据是账本任务是否闭环，而不是评论有没有移交意图——agent 漏写 mention 本身就是要兜的洞。任务未闭环（无验收事实或最新为 failed）时输出 `append`，正文用一个合法 mention 指向下一个待发言角色：验收未做完 → 验收角色；实现待修 → `@dev`；需要裁决或重新编排 → `@ceo`。评论已是任务终局（明确等待真人裁决 / 等待真人 merge 闸口 / 无事可做）才输出 `no_action`。runner 已在账本显示该 child 已 pass 时直接记 no_action，不会把已闭环任务送进本判定。
 
 ### 普通 CEO 目标入账 workflow
 

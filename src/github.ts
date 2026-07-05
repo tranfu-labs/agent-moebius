@@ -86,6 +86,27 @@ export async function fetchIssueWithComments(
   return parsed;
 }
 
+export async function fetchIssueState(
+  source: IssueSource,
+  options: { signal?: AbortSignal } = {},
+): Promise<"OPEN" | "CLOSED"> {
+  const result = await runCommand("gh", buildFetchIssueStateArgs(source), { signal: options.signal });
+  const parsed: unknown = JSON.parse(result.stdout);
+  if (!isIssueStatePayload(parsed)) {
+    throw new Error("gh issue view returned an unexpected issue state shape");
+  }
+  return parsed.state;
+}
+
+function isIssueStatePayload(value: unknown): value is { state: "OPEN" | "CLOSED" } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "state" in value &&
+    ((value as { state: unknown }).state === "OPEN" || (value as { state: unknown }).state === "CLOSED")
+  );
+}
+
 export async function postComment(source: IssueSource, body: string): Promise<void> {
   // 写操作默认不自动重试：无幂等去重标记前，重发可能造成重复评论。
   await runCommand("gh", buildPostCommentArgs(source), { stdin: body, retry: false });
@@ -183,6 +204,10 @@ export function buildFetchIssueWithCommentsArgs(source: IssueSource): string[] {
     "--json",
     "body,comments,updatedAt,state",
   ];
+}
+
+export function buildFetchIssueStateArgs(source: IssueSource): string[] {
+  return ["issue", "view", String(source.issueNumber), "--repo", `${source.owner}/${source.repo}`, "--json", "state"];
 }
 
 export function buildPostCommentArgs(source: IssueSource): string[] {
