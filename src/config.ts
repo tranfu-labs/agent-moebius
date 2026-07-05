@@ -16,8 +16,8 @@ export const RUNNING_AGENT_INTERRUPT_POLL_INTERVAL_MS = 15 * 1000;
 export const ACTIVE_ISSUE_NO_CHANGE_LIMIT = 5;
 export const FAILURE_RETRY_LIMIT = 5;
 export const ISSUE_DISCOVERY_LIMIT = 20;
-export const MAX_ACTIVE_ISSUES = 20;
-export const CODEX_DRIVER_POOL_MAX_CONCURRENT = 3;
+export const MAX_ACTIVE_ISSUES = 3;
+export const CODEX_DRIVER_POOL_MAX_CONCURRENT = 5;
 export const GITHUB_CLI_RETRY_POLICY = {
   retries: 4,
   minTimeoutMs: 500,
