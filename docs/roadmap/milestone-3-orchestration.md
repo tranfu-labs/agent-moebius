@@ -165,7 +165,19 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 
 
 
-### - [ ] T10 · 观察页 v2：issue 进程有向图 + agent 视角对话 + token / 缓存观测
+### - [x] T10 · 观察页 v2：issue 进程有向图 + agent 视角对话 + token / 缓存观测
+
+**验收证据（2026-07-05）**：
+- 实现 PR：[#91](https://github.com/tranfu-labs/agent-moebius/pull/91) merged 07:05:37 UTC（merge commit `166b6fc`，squash `92ccfcb` `feat(observer): add project issue DAG view`）
+- 覆盖文件：`src/observer/model.ts` · `src/observer/read-state.ts` · `src/observer/render.ts` · `src/observer/server.ts` · `tests/observer.test.ts`（+1046/-36）
+- T4 集成验收真事件：runner 07:03:58 UTC 发出 `integration-acceptance-passed`（key `3a8031f777602326763e30e5e5648a0e281f9b1feca1a1992445bf5ede2d0f9a`），父级 PM 走查 5 条验收语句全通过：`render.ts:290` project filter · `render.ts:301` DAG · `render.ts:445-464` agent private view · `model.ts:794-848` stuck/dead-letter · `model.ts:853-884` token panel + 缓存疑似失效
+- 测试：`pnpm typecheck` 退 0；`pnpm vitest run tests/observer.test.ts --reporter=verbose` 14/14；`pnpm test` 30 files / 350 tests 全 pass
+- 编排事实：CEO milestone-spawn 拆 4 子 issue（#84 共享面 · #85 DAG · #86 agent 视角对话 · #87 token 面板）→ 父级 integration-acceptance-waiting → PM 走查发现代码未落地 → CEO integration-repair-child-issues 回流 → 子 issue #88/#89 → dev 实现 → PM 通过 → PR #91 → merge → 父级 integration-acceptance-passed → 收敛
+
+**卡点回流（M4 承接）**：
+- **I · child issue plan-approval 被记为 task pass**：qa 对方案（非代码）approval 直接 push ledger "child pass" 事实，触发父级 integration acceptance 过早跑，PM 走查失败 → CEO 再 spawn repair → 死循环。本轮 loop watcher 强行 @dev 指令跳采访直接 code-write 才破局。需在 CEO integration-acceptance 剧本或 ledger 判据里区分 `plan-approved` vs `code-verified` 两阶段。
+- **J · integration-repair 与 integration-acceptance verdict 之间的 race**：CEO 07:02:00 spawn #90 repair，24 秒后 07:02:24 PM 才发"通过" verdict，导致 #90 冗余（本轮 loop watcher 手动关）。需要在 CEO 剧本里加"等 PM verdict 事实入账后再决定是否 spawn repair"的顺序约束。
+- **K · dev 采访/plan → code-write 阶段无强制路由**：dev 在 `interviewing → interview-confirmed → plan-written → code-written → code-verified` 五阶段里，PM 方案 approval 后没有明确 `@dev + 请 code-write` 移交，导致 dev 停在 `plan-written`。需在 agents/dev.md 或 CEO plan-review 剧本里强制"方案通过 → @dev 请 code-write"路由。
 
 **背景（2026-07-05 换题）**：原 T10「【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收」全文留档见文末「留档 · 原 T10」，方案设计（三案生成、托举预案）保留待后续复用。换入的直接动因来自 T9 dogfood 的真实痛点：判断"进程是否卡住 / 额度是否挤兑 / 缓存是否失效"目前只能 tail runDir、手工翻 `.state`，缺一个直接回答这三个问题的页面。本任务即对 agent-moebius 自身的可观测性优化。
 
