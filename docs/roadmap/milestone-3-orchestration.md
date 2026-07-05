@@ -138,27 +138,28 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - 验证命令：`pnpm typecheck`（退出码 0）、`pnpm test -- --run`（30 个 test files / 334 tests，退出码 0）、`git diff --check`（退出码 0）。
 - 验收清单：product-manager 已确认第 11 条方案中的 14 条验收语句为正式实现清单，并明确接受 QA 增补；实现证据覆盖 issue body/comment 路由 key 分离、无 mention 目标兜底只 handoff CEO、有界采访 ≤4 问、pending ledger 不暴露 active projection、提案评论 hidden proposal key、确认后复用既有 spawn executor、幂等重试不重复创建 child、ledger child-ref save timeout 后 hidden key 恢复、ledger save fail-closed、fail-closed 评论发布失败仍保持 failed、可见写有界、支付宝 demo 不触发真实 dogfood、不承诺真实资金/牌照/清结算，以及 issue 文本不进入 shell。
 
-### - [ ] T9 · 观察页 v2：issue 进程有向图 + agent 视角对话 + token / 缓存观测
+### - [ ] T9 ·【人工】多任务目标端到端 dogfood
 
-**背景（2026-07-05 换题）**：原 T9「【人工】多任务目标端到端 dogfood」链路侧证据已充分、产品侧闭环只差真人对 5 个 open PR / issue 的裁决，不再占任务位（证据与卡点全文见文末「留档 · 原 T9」；卡点 B 已回流为 T11）。dogfood 过程同时暴露了真实痛点：判断"进程是否卡住 / 额度是否挤兑 / 缓存是否失效"目前只能 tail runDir、手工翻 `.state`，缺一个直接回答这三个问题的页面。本任务即对 agent-moebius 自身的可观测性优化。
+真实多子任务目标完整走成功标准闭环（含至少一次圆桌评审与一次 goal-intake 入账），记录卡点。
 
-**形态**（在 T7 观察页基座 `src/observer/*` 上演进，只读立场不变）：
+**进行中证据（2026-07-05，未收尾）**：
+- 父目标：tranfu-labs/tranfu-agents-app#96 `QA: skills`，17 条已侦察缺陷（loop watcher 3 fable subagent 采样 · 内容/数字 · 跳转/路由 · 布局/对齐 三视角）
+- goal-intake：真产生。CEO agent 在 tranfu-agents-app#96 上产出 propose-then-confirm 提案；`.state/goal-ledger.json` 出现 `m3-t9-skills-defects-dogfood` pending 记录；loop watcher 代真人 confirm 后 CEO 激活账本
+- CEO spawn：CEO agent 真 spawn 6 个子 issue（tranfu-agents-app #97 #98 #99 #100 #101 #102），按页面 / 模块 / 共享实现面分组，非机械按 3 类
+- 并行执行：runner 用 T5 issue-worktree capability 并行处理（driver 池 5 上限吃满，peak 10 codex CLI）
+- T4 join 语义真触发：`integration-acceptance-waiting` 事件出现 5 次，pending 项按 child stage 收敛
+- 通过率：#100 由 dev-manager 自动 merge PR #104（**违反 T9 auto-merge 红线，作为卡点回流**）；#97 #98 #99 #101 #102 均达 code-verified，PR #103 打开，其他子 issue open 等真人裁决
+- 观察页：`.state/goal-ledger.json` 从 6 子 issue 全量映射；T7 观察页可读
 
-1. **导航**：项目 → issue 两级筛选（项目即 runner 监听的 repo；issue 列表含状态与最近活动时间）。
-2. **issue 进程有向图（主区）**：一个 issue 的执行历程渲染为有向图——节点是一次 agent 运行（issue + role 的一次 Codex run），边是移交关系（mention / handoff / spawn / join）。节点按状态区分：进行中 / 等待他人 / 已完成 / 卡住 / dead-letter。**"是否卡住"是本图的第一问题**：卡住判定复用 runner 既有语义（skip:no-trigger、失败预算耗尽 dead-letter、长时间无新事件），卡住节点须附机器可读原因，不是只变红。
-3. **agent 视角对话**：点击节点 → 展示该 agent 该次运行**自身视角**的对话记录（注入它的输入上下文 + 它的输出，来源 runDir transcript / stdout.jsonl），而非整条 issue 时间线——回答"它当时看到了什么、为什么这么答"。
-4. **token 统计（右侧面板）**：issue 级与 run 级两层。总量（input / output / cached input）之外，**缓存健康是一等指标**：每 run 的 cachedInputTokens 占比；同 role thread 相邻 run 缓存命中骤降为 0 时标注"缓存疑似失效"（`src/codex.ts` 已从 usage 抽取 `cachedInputTokens` 并入 manifest）。
+**卡点回流（M3 待细化候选）**：
+- **A · Codex CLI 额度耗尽处理**：本次实测 5 agent 并发触发→provider 挤兑→ 4 issue failureCount=5 dead-letter → 额度恢复后无 auto-revive，仅靠 loop watcher 手动 nudge。runner 需要：(1) 额度错误分类 / 长退避；(2) 并发限流按 provider 拆；(3) 额度恢复 auto-revive dead-letter。
+- **B · dev 裸称 mention**：dev 在 code-verified 或响应 PM 时反复用裸称 `product-manager` / `qa` 而非 `@`；runner skip:no-trigger → 需 loop watcher 手动补 ping。runner 或 CEO guardrail 需强制 `@` 或做 M2 T8 兜底路由的进一步补齐。
+- **C · dev-manager 越界 auto-merge**：#100 由 dev-manager 自动 `gh pr merge`，违反 T9 明示的 "本地验证 + 证据回帖，绝不 auto-merge PR" 红线。需在 `agents/dev-manager.md` 或工作流约束明确"合并权只属于真人 / 特定治理角色"。
+- **D · Artifact release retry gap**：`gh:release` 4 次 retry "release not found"；artifact publisher 在 tranfu-agents-app 上遇到 release tag 缺失时无自动创建。
+- **E · code-verified stage marker 遗漏**：#100 dev 输出 code-verified 内容但 runner 未 track（缺 marker 或格式）；下游 T4 join 判断依赖 stage 事件，需要在 `agents/dev.md` 强化 marker + runner 兜底解析。
+- **F · 无 mention 外部评论仅由 loop watcher 手动兜底**：M2 T8 落地的兜底路由未在本轮真实触发，可能 gating 太严；建议 T9 反馈复审。
 
-**数据源**：`.state/run-manifests.jsonl`（run 与 token 事实）、`.state/goal-ledger.json`（父子 issue / 阶段）、runDir transcript（agent 视角对话）。均已存在，本任务不新增写路径。
-
-**验收场景（细化时保留）**：
-1. 打开观察页 → 可按项目筛选；选中项目 → 列出该项目的 issue；选中 issue → 主区呈现有向图，节点数与该 issue 实际 agent 运行次数一致，边与时间线移交顺序一致。
-2. 点击任一节点 → 看到该 agent 该次运行的输入上下文与输出全文，且不混入其他 agent 的私有视角。
-3. 回放原 T9 dogfood 的卡死场景（dev 裸称 mention → skip:no-trigger）→ 对应节点标记"卡住"并显示原因；回放 dead-letter 场景（codex 额度耗尽 failureCount=5）→ 节点标记 dead-letter。
-4. 右侧面板显示 issue 级 token 总量（input / output / cached）与每 run 缓存命中占比；构造同 role thread 相邻两 run、后一 run `cachedInputTokens=0` 的 manifest → 面板出现"缓存疑似失效"标注。
-5. 全程只读：fake `gh` / `codex` 零调用，页面不提供任何写操作。
-
-**依赖**：T7（观察页基座）、T1（goal-ledger）；token 数据依赖 run manifest 既有 `cachedInputTokens` 字段。
+**未收尾原因**：T9 原文要求"每个子任务经验收角色走查 → 集成验收点确认合并后整体成立"。当前 5 子 issue 仍 open（PM 走查了但 in-progress verdict 无 @-mention → runner skip:no-trigger），loop watcher 不代真人裁决 PR merge → T9 目标级集成验收未触发。链路侧证据充分，但产品侧闭环差最后一步。等真人在 tranfu-agents-app 上对 5 个 open PR / issue 分别裁决 → 再决定 T9 勾选。
 
 ### - [ ] T10 ·【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收（tranfu-agents-app）
 
@@ -184,11 +185,11 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 4. 应看到验收角色的对照结论：逐条验收语句 + 与选定方案的一致性判断。
 5. 全程用户零介入（观战除外）；出现卡点时按演练惯例记录回流，不现场改规则。
 
-**依赖**：T5（非 dev 角色 / 目标 app worktree 链路先被 spike 验证）、T4（验收路由）；可作为后续多任务目标 dogfood（见文末留档 · 原 T9）的素材场景之一。
+**依赖**：T5（非 dev 角色 / 目标 app worktree 链路先被 spike 验证）、T4（验收路由）；建议与 T9 相邻执行或作为 T9 的素材场景之一。
 
 ### - [ ] T11 · 无 mention 兜底路由扩展至 agent 自身评论
 
-**背景**（原 T9 dogfood 卡点 B 直接催生，见文末留档）：M2 T8 兜底路由目前只覆盖 `speaker=user` 的外部无 mention 评论；agent 自己（dev / product-manager / qa 等）发的裸称 verdict（如结尾写 "product-manager" 而非 "@product-manager"）不算 external，兜底不触发 → runner skip:no-trigger → issue 5 tick 后 demote idle → 编排链路死锁。原 T9 dogfood 中 5 open 子 issue 全部因此卡死。
+**背景**（M3 T9 dogfood 卡点 B 直接催生）：M2 T8 兜底路由目前只覆盖 `speaker=user` 的外部无 mention 评论；agent 自己（dev / product-manager / qa 等）发的裸称 verdict（如结尾写 "product-manager" 而非 "@product-manager"）不算 external，兜底不触发 → runner skip:no-trigger → issue 5 tick 后 demote idle → 编排链路死锁。T9 dogfood 中 5 open 子 issue 全部因此卡死。
 
 **目标**：把 M2 T8 兜底路由的触发条件从 `speaker=user` 放宽到 **"latest comment 无合法 `@` 且 goal-ledger 判定任务未闭环"**。CEO 判定：`no_action`（任务其实已终局）或 `append`（补一条带单个合法 `@` 的接续，指向下一个待发言角色）。防重靠既有 comment-id ledger；fail-open 语义不变（判定失败保持现状不阻塞）。
 
@@ -198,32 +199,9 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 1. 构造 tranfu-agents-app 上 dev / product-manager 裸称 verdict 的时间线 → 跑一轮 intake → 应看到 CEO 兜底判定被执行，产出 no_action 记录或带单个 `@` 的 append；同 comment id 第二轮不重复判定。
 2. 构造 dev-authored 无 mention 且 goal-ledger 显示所有相关 child issue 已 pass → 判定应为 `no_action` 并记录理由。
 3. 构造 dev-authored 无 mention 且 goal-ledger 显示至少一条待办 → 判定应为 `append`，mention 目标是账本"下一个待发言角色"。
-4. 打开原 T9 dogfood issue（#79）复放本次 tranfu-agents-app 5 子 issue 场景 → runner 应在 5 min 内自动派下一个角色，无需 loop watcher 补 ping。
+4. 打开 M3 T9 issue（#79）复放本次 tranfu-agents-app 5 子 issue 场景 → runner 应在 5 min 内自动派下一个角色，无需 loop watcher 补 ping。
 
 **依赖**：M2 T8（无 mention 兜底路由）、M3 T1（goal-ledger）、M3 T4（child ledger pass/fail）。
-
-## 留档 · 原 T9【人工】多任务目标端到端 dogfood（2026-07-05 换题）
-
-原任务：真实多子任务目标完整走成功标准闭环（含至少一次圆桌评审与一次 goal-intake 入账），记录卡点。换题原因：链路侧证据已充分，产品侧闭环只差真人对 5 个 open PR / issue 的裁决，不再占任务位；剩余收尾（真人裁决 5 个 open PR / issue）作为独立事项跟进，不阻塞里程碑。卡点 B 已回流为 T11，其余卡点保留为待细化候选。
-
-**进行中证据（2026-07-05，未收尾）**：
-- 父目标：tranfu-labs/tranfu-agents-app#96 `QA: skills`，17 条已侦察缺陷（loop watcher 3 fable subagent 采样 · 内容/数字 · 跳转/路由 · 布局/对齐 三视角）
-- goal-intake：真产生。CEO agent 在 tranfu-agents-app#96 上产出 propose-then-confirm 提案；`.state/goal-ledger.json` 出现 `m3-t9-skills-defects-dogfood` pending 记录；loop watcher 代真人 confirm 后 CEO 激活账本
-- CEO spawn：CEO agent 真 spawn 6 个子 issue（tranfu-agents-app #97 #98 #99 #100 #101 #102），按页面 / 模块 / 共享实现面分组，非机械按 3 类
-- 并行执行：runner 用 T5 issue-worktree capability 并行处理（driver 池 5 上限吃满，peak 10 codex CLI）
-- T4 join 语义真触发：`integration-acceptance-waiting` 事件出现 5 次，pending 项按 child stage 收敛
-- 通过率：#100 由 dev-manager 自动 merge PR #104（**违反 dogfood auto-merge 红线，作为卡点回流**）；#97 #98 #99 #101 #102 均达 code-verified，PR #103 打开，其他子 issue open 等真人裁决
-- 观察页：`.state/goal-ledger.json` 从 6 子 issue 全量映射；T7 观察页可读
-
-**卡点回流（M3 待细化候选）**：
-- **A · Codex CLI 额度耗尽处理**：本次实测 5 agent 并发触发→provider 挤兑→ 4 issue failureCount=5 dead-letter → 额度恢复后无 auto-revive，仅靠 loop watcher 手动 nudge。runner 需要：(1) 额度错误分类 / 长退避；(2) 并发限流按 provider 拆；(3) 额度恢复 auto-revive dead-letter。
-- **B · dev 裸称 mention**（→ 已立项为 T11）：dev 在 code-verified 或响应 PM 时反复用裸称 `product-manager` / `qa` 而非 `@`；runner skip:no-trigger → 需 loop watcher 手动补 ping。runner 或 CEO guardrail 需强制 `@` 或做 M2 T8 兜底路由的进一步补齐。
-- **C · dev-manager 越界 auto-merge**：#100 由 dev-manager 自动 `gh pr merge`，违反 dogfood 明示的 "本地验证 + 证据回帖，绝不 auto-merge PR" 红线。需在 `agents/dev-manager.md` 或工作流约束明确"合并权只属于真人 / 特定治理角色"。
-- **D · Artifact release retry gap**：`gh:release` 4 次 retry "release not found"；artifact publisher 在 tranfu-agents-app 上遇到 release tag 缺失时无自动创建。
-- **E · code-verified stage marker 遗漏**：#100 dev 输出 code-verified 内容但 runner 未 track（缺 marker 或格式）；下游 T4 join 判断依赖 stage 事件，需要在 `agents/dev.md` 强化 marker + runner 兜底解析。
-- **F · 无 mention 外部评论仅由 loop watcher 手动兜底**：M2 T8 落地的兜底路由未在本轮真实触发，可能 gating 太严；建议结合 dogfood 反馈复审。
-
-**未收尾原因**：原 T9 要求"每个子任务经验收角色走查 → 集成验收点确认合并后整体成立"。当前 5 子 issue 仍 open（PM 走查了但 in-progress verdict 无 @-mention → runner skip:no-trigger），loop watcher 不代真人裁决 PR merge → 目标级集成验收未触发。链路侧证据充分，但产品侧闭环差最后一步。等真人在 tranfu-agents-app 上对 5 个 open PR / issue 分别裁决。
 
 ## 非目标
 
