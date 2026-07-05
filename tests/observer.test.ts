@@ -326,6 +326,172 @@ describe("observer", () => {
     expect(html).not.toContain("other/repo#1");
   });
 
+  it("renders project filtering, issue selection, and an issue execution DAG from run manifests", async () => {
+    const root = await makeFixtureRoot();
+    await writeConfig(root, [
+      { owner: "tranfu-labs", repo: "agent-moebius" },
+      { owner: "tranfu-labs", repo: "empty-repo" },
+    ]);
+    await fs.mkdir(path.join(root, ".state"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, ".state", "run-manifests.jsonl"),
+      `${JSON.stringify(makeManifest({ issueNumber: 88, role: "dev", completedAt: "2026-07-04T00:01:00.000Z" }))}\n${JSON.stringify(
+        makeManifest({ issueNumber: 88, role: "qa", completedAt: "2026-07-04T00:02:00.000Z" }),
+      )}\n`,
+      "utf8",
+    );
+
+    const html = renderObserverPage(buildObserverModel(await readObserverState({ projectRoot: root })));
+
+    expect(html).toContain("Project filter");
+    expect(html).toContain("tranfu-labs/agent-moebius");
+    expect(html).toContain("tranfu-labs/empty-repo");
+    expect(html).toContain("issue 88 · 2 nodes");
+    expect(html).toContain("Issue execution DAG");
+    expect(html).toContain("kind=codex-run;stage=code-verified;role=dev");
+    expect(html).toContain("edge run-line-1 -&gt; run-line-2");
+  });
+
+  it("renders Codex run node input context and output without mixing another agent private view", async () => {
+    const root = await makeFixtureRoot();
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await fs.mkdir(path.join(root, ".state"), { recursive: true });
+    const devRunDir = path.join(root, "runs", "dev");
+    const pmRunDir = path.join(root, "runs", "pm");
+    await fs.mkdir(devRunDir, { recursive: true });
+    await fs.mkdir(pmRunDir, { recursive: true });
+    await fs.writeFile(path.join(devRunDir, "input.jsonl"), '{"prompt":"dev private input context"}\n', "utf8");
+    await fs.writeFile(
+      path.join(devRunDir, "stdout.jsonl"),
+      `${JSON.stringify({ type: "assistant_message", message: { role: "assistant", content: "dev output full text" } })}\n`,
+      "utf8",
+    );
+    await fs.writeFile(path.join(pmRunDir, "input.jsonl"), '{"prompt":"product-manager private input context"}\n', "utf8");
+    await fs.writeFile(
+      path.join(pmRunDir, "stdout.jsonl"),
+      `${JSON.stringify({ type: "assistant_message", message: { role: "assistant", content: "product-manager private output" } })}\n`,
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, ".state", "run-manifests.jsonl"),
+      `${JSON.stringify(
+        makeManifest({
+          issueNumber: 88,
+          role: "dev",
+          runDir: devRunDir,
+          completedAt: "2026-07-04T00:01:00.000Z",
+        }),
+      )}\n${JSON.stringify(
+        makeManifest({
+          issueNumber: 88,
+          role: "product-manager",
+          runDir: pmRunDir,
+          completedAt: "2026-07-04T00:02:00.000Z",
+        }),
+      )}\n`,
+      "utf8",
+    );
+
+    const html = renderObserverPage(buildObserverModel(await readObserverState({ projectRoot: root })));
+    const devNodeStart = html.indexOf("Codex run node · dev");
+    const pmNodeStart = html.indexOf("Codex run node · product-manager");
+    const devNode = html.slice(devNodeStart, pmNodeStart);
+
+    expect(devNode).toContain("Agent input context");
+    expect(devNode).toContain("dev private input context");
+    expect(devNode).toContain("Agent output full text");
+    expect(devNode).toContain("dev output full text");
+    expect(devNode).not.toContain("product-manager private");
+  });
+
+  it("renders skip no-trigger and dead-letter local facts as machine-readable DAG nodes", async () => {
+    const root = await makeFixtureRoot();
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await fs.mkdir(path.join(root, ".state"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, ".state", "github-response-intake.json"),
+      JSON.stringify({
+        repositories: {},
+        issues: {
+          "tranfu-labs/agent-moebius#88": {
+            owner: "tranfu-labs",
+            repo: "agent-moebius",
+            issueNumber: 88,
+            updatedAt: NOW,
+            mode: "active",
+            activeNoChangeCount: 0,
+            nextPollAt: null,
+            failureCount: 5,
+            lastFailureReason: "codex quota exhausted",
+            externalCommentFallbackRoutes: {
+              "skip:no-trigger": {
+                commentId: "skip:no-trigger",
+                outcome: "no_action",
+                decidedAt: NOW,
+                reason: "skip:no-trigger",
+              },
+            },
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const html = renderObserverPage(buildObserverModel(await readObserverState({ projectRoot: root })));
+
+    expect(html).toContain("kind=stuck-no-trigger");
+    expect(html).toContain("reason=skip:no-trigger");
+    expect(html).toContain("deadLetter=true");
+    expect(html).toContain("failureCount=5");
+    expect(html).toContain("codex quota exhausted");
+  });
+
+  it("renders token summaries, unknown denominators, and cache health warnings", async () => {
+    const root = await makeFixtureRoot();
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await fs.mkdir(path.join(root, ".state"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, ".state", "run-manifests.jsonl"),
+      `${JSON.stringify(
+        makeManifest({
+          issueNumber: 88,
+          role: "dev",
+          inputTokens: 1_000,
+          outputTokens: 100,
+          cachedInputTokens: 800,
+          completedAt: "2026-07-04T00:01:00.000Z",
+        }),
+      )}\n${JSON.stringify(
+        makeManifest({
+          issueNumber: 88,
+          role: "dev",
+          inputTokens: 1_200,
+          outputTokens: 200,
+          cachedInputTokens: 0,
+          completedAt: "2026-07-04T00:02:00.000Z",
+        }),
+      )}\n${JSON.stringify(
+        makeManifest({
+          issueNumber: 88,
+          role: "qa",
+          outputTokens: 50,
+          cachedInputTokens: 10,
+          completedAt: "2026-07-04T00:03:00.000Z",
+        }),
+      )}\n`,
+      "utf8",
+    );
+
+    const html = renderObserverPage(buildObserverModel(await readObserverState({ projectRoot: root })));
+
+    expect(html).toContain("Token panel");
+    expect(html).toContain("<dt>inputTokens</dt><dd>2200</dd>");
+    expect(html).toContain("<dt>outputTokens</dt><dd>350</dd>");
+    expect(html).toContain("<dt>cachedInputTokens</dt><dd>810</dd>");
+    expect(html).toContain("unknown 分母");
+    expect(html).toContain("缓存疑似失效");
+  });
+
   it("diagnoses malformed local config without reporting all repos as no records", async () => {
     const root = await makeFixtureRoot();
     await fs.writeFile(
@@ -684,6 +850,12 @@ function makeManifest(input: {
   owner?: string;
   repo?: string;
   issueNumber: number;
+  role?: string;
+  runDir?: string;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cachedInputTokens?: number | null;
+  completedAt?: string;
   publishedUrl?: string | null;
   extraArtifacts?: ObserverRunManifestRecord["artifacts"];
 }): ObserverRunManifestRecord {
@@ -693,8 +865,12 @@ function makeManifest(input: {
       repo: input.repo ?? "agent-moebius",
       number: input.issueNumber,
     },
-    role: "dev",
+    role: input.role ?? "dev",
     stage: "code-verified",
+    ...(input.runDir === undefined ? {} : { runDir: input.runDir }),
+    ...(input.inputTokens === undefined ? {} : { inputTokens: input.inputTokens }),
+    ...(input.outputTokens === undefined ? {} : { outputTokens: input.outputTokens }),
+    ...(input.cachedInputTokens === undefined ? {} : { cachedInputTokens: input.cachedInputTokens }),
     artifacts: [
       {
         path: "output-artifacts/t7.png",
@@ -703,7 +879,7 @@ function makeManifest(input: {
       ...(input.extraArtifacts ?? []),
     ],
     startedAt: NOW,
-    completedAt: "2026-07-04T00:01:00.000Z",
+    completedAt: input.completedAt ?? "2026-07-04T00:01:00.000Z",
   };
 }
 

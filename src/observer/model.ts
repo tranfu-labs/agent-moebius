@@ -143,6 +143,41 @@ export interface ObserverIssueView {
   roleThreads: Array<{ role: string; state: ObserverRoleThreadState }>;
   agentContexts: Array<{ role: string; state: ObserverAgentContextState }>;
   runs: ObserverRunManifestRecord[];
+  executionGraph: ObserverIssueExecutionGraphView;
+}
+
+export interface ObserverIssueExecutionGraphView {
+  nodes: ObserverExecutionNodeView[];
+  edges: ObserverExecutionEdgeView[];
+  tokenSummary: ObserverTokenSummaryView;
+}
+
+export type ObserverExecutionNodeKind = "codex-run" | "stuck-no-trigger" | "dead-letter";
+
+export interface ObserverExecutionNodeView {
+  id: string;
+  kind: ObserverExecutionNodeKind;
+  label: string;
+  status: "completed" | "waiting" | "stuck" | "dead-letter";
+  reason: string;
+  machineReason: string;
+  deadLetter: boolean;
+  run: ObserverRunManifestRecord | null;
+}
+
+export interface ObserverExecutionEdgeView {
+  from: string;
+  to: string;
+  reason: string;
+}
+
+export interface ObserverTokenSummaryView {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedInputTokens: number;
+  cachedShare: number | null;
+  unknownInputTokenDenominator: boolean;
+  cacheHealthWarning: boolean;
 }
 
 interface IssueAccumulator {
@@ -717,11 +752,162 @@ function toIssueView(issue: IssueAccumulator): ObserverIssueView {
       .map(([role, state]) => ({ role, state }))
       .sort((left, right) => left.role.localeCompare(right.role)),
     runs,
+    executionGraph: buildIssueExecutionGraph(issue, runs),
   };
+}
+
+function buildIssueExecutionGraph(issue: IssueAccumulator, runsDesc: ObserverRunManifestRecord[]): ObserverIssueExecutionGraphView {
+  const runsAsc = [...runsDesc].sort(compareRunsAsc);
+  const nodes: ObserverExecutionNodeView[] = runsAsc.map((run) => {
+    const line = run.lineNumber === undefined ? `${run.startedAt}-${run.role}` : `line-${run.lineNumber}`;
+    return {
+      id: `run-${line}`,
+      kind: "codex-run",
+      label: `${run.role} ${run.stage}`,
+      status: run.stage === "in-progress" ? "waiting" : "completed",
+      reason: `run manifest ${run.lineNumber === undefined ? run.completedAt : `line ${run.lineNumber}`}`,
+      machineReason: `kind=codex-run;stage=${run.stage};role=${run.role}`,
+      deadLetter: false,
+      run,
+    };
+  });
+
+  nodes.push(...buildStuckNoTriggerNodes(issue.intake));
+  const deadLetterNode = buildDeadLetterNode(issue.intake);
+  if (deadLetterNode !== null) {
+    nodes.push(deadLetterNode);
+  }
+
+  const edges = nodes.slice(1).map((node, index) => ({
+    from: nodes[index]?.id ?? node.id,
+    to: node.id,
+    reason: "chronological",
+  }));
+
+  return {
+    nodes,
+    edges,
+    tokenSummary: summarizeTokens(runsAsc),
+  };
+}
+
+function buildStuckNoTriggerNodes(intake: ObserverIntakeIssueState | null): ObserverExecutionNodeView[] {
+  if (intake === null) {
+    return [];
+  }
+
+  const nodes: ObserverExecutionNodeView[] = [];
+  const routeRecords = Object.values(intake.externalCommentFallbackRoutes ?? {});
+  for (const route of routeRecords) {
+    const reason = route.reason ?? "";
+    if (!reason.includes("no-trigger") && !route.commentId.includes("no-trigger")) {
+      continue;
+    }
+    nodes.push({
+      id: `stuck-no-trigger-${route.commentId}`.replace(/[^a-zA-Z0-9_-]/g, "-"),
+      kind: "stuck-no-trigger",
+      label: "skip:no-trigger",
+      status: "stuck",
+      reason: reason.length === 0 ? "skip:no-trigger" : reason,
+      machineReason: `kind=stuck-no-trigger;commentId=${route.commentId};outcome=${route.outcome};reason=${reason.length === 0 ? "skip:no-trigger" : reason}`,
+      deadLetter: false,
+      run: null,
+    });
+  }
+
+  if (intake.lastFailureReason?.includes("skip:no-trigger") === true) {
+    nodes.push({
+      id: "stuck-no-trigger-last-failure",
+      kind: "stuck-no-trigger",
+      label: "skip:no-trigger",
+      status: "stuck",
+      reason: intake.lastFailureReason,
+      machineReason: `kind=stuck-no-trigger;reason=${intake.lastFailureReason}`,
+      deadLetter: false,
+      run: null,
+    });
+  }
+
+  return nodes;
+}
+
+function buildDeadLetterNode(intake: ObserverIntakeIssueState | null): ObserverExecutionNodeView | null {
+  const failureCount = intake?.failureCount ?? 0;
+  if (failureCount < 5) {
+    return null;
+  }
+
+  const reason = intake?.lastFailureReason ?? "failure retry limit reached";
+  return {
+    id: "dead-letter-failure-budget",
+    kind: "dead-letter",
+    label: "dead-letter",
+    status: "dead-letter",
+    reason,
+    machineReason: `deadLetter=true;failureCount=${failureCount};reason=${reason}`,
+    deadLetter: true,
+    run: null,
+  };
+}
+
+function summarizeTokens(runsAsc: ObserverRunManifestRecord[]): ObserverTokenSummaryView {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cachedInputTokens = 0;
+  let hasInputTokens = false;
+  let hasOutputTokens = false;
+  let unknownInputTokenDenominator = false;
+
+  for (const run of runsAsc) {
+    if (run.inputTokens === undefined || run.inputTokens === null || run.inputTokens === 0) {
+      unknownInputTokenDenominator = true;
+    } else {
+      hasInputTokens = true;
+      inputTokens += run.inputTokens;
+    }
+    if (run.outputTokens !== undefined && run.outputTokens !== null) {
+      hasOutputTokens = true;
+      outputTokens += run.outputTokens;
+    }
+    if (run.cachedInputTokens !== undefined && run.cachedInputTokens !== null) {
+      cachedInputTokens += run.cachedInputTokens;
+    }
+  }
+
+  return {
+    inputTokens: hasInputTokens ? inputTokens : null,
+    outputTokens: hasOutputTokens ? outputTokens : null,
+    cachedInputTokens,
+    cachedShare: hasInputTokens && inputTokens > 0 ? cachedInputTokens / inputTokens : null,
+    unknownInputTokenDenominator,
+    cacheHealthWarning: hasCacheHealthDrop(runsAsc),
+  };
+}
+
+function hasCacheHealthDrop(runsAsc: ObserverRunManifestRecord[]): boolean {
+  const previousByRole = new Map<string, ObserverRunManifestRecord>();
+  for (const run of runsAsc) {
+    const previous = previousByRole.get(run.role);
+    previousByRole.set(run.role, run);
+    if (
+      previous?.cachedInputTokens !== undefined &&
+      previous.cachedInputTokens !== null &&
+      previous.cachedInputTokens > 0 &&
+      run.cachedInputTokens === 0
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function compareRunsDesc(left: ObserverRunManifestRecord, right: ObserverRunManifestRecord): number {
   return right.completedAt.localeCompare(left.completedAt);
+}
+
+function compareRunsAsc(left: ObserverRunManifestRecord, right: ObserverRunManifestRecord): number {
+  const started = left.startedAt.localeCompare(right.startedAt);
+  return started === 0 ? left.completedAt.localeCompare(right.completedAt) : started;
 }
 
 function compareById(left: { id: string }, right: { id: string }): number {

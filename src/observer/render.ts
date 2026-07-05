@@ -1,8 +1,10 @@
 import type { ObserverDiagnostic, ObserverRunManifestRecord, ObserverSourceStatus } from "./read-state.js";
 import type {
+  ObserverExecutionNodeView,
   ObserverGateView,
   ObserverGoalView,
   ObserverIssueRefView,
+  ObserverIssueExecutionGraphView,
   ObserverIssueView,
   ObserverLedgerView,
   ObserverMilestoneView,
@@ -221,10 +223,57 @@ export function renderObserverPage(model: ObserverModel): string {
       background: #fff;
       object-fit: contain;
     }
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+      gap: 16px;
+      align-items: start;
+    }
+    .dag {
+      display: grid;
+      gap: 10px;
+    }
+    .dag-node {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+    }
+    .dag-node[data-kind="stuck-no-trigger"] { border-color: #fed7aa; background: var(--warn-soft); }
+    .dag-node[data-kind="dead-letter"] { border-color: #fecaca; background: var(--error-soft); }
+    .dag-node summary {
+      font-weight: 700;
+      color: var(--text);
+    }
+    .dag-edge {
+      margin-left: 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .token-panel {
+      position: sticky;
+      top: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 12px;
+    }
+    pre.transcript {
+      max-height: 320px;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: var(--code);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 12px;
+    }
     @media (max-width: 760px) {
       main { display: block; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
       .content { padding: 14px; }
+      .content-grid { display: block; }
+      .token-panel { position: static; }
       dl { grid-template-columns: 1fr; }
       .subtree { margin-left: 0; }
     }
@@ -235,36 +284,46 @@ export function renderObserverPage(model: ObserverModel): string {
     <h1>Agent Moebius Observer</h1>
     <div class="meta">read on load · ${escapeHtml(model.generatedAt)}</div>
   </header>
-  <main>
-    <aside>
-      <section>
-        <h2>Goals</h2>
-        ${renderGoalNav(model.ledger)}
-      </section>
-      <section>
-        <h2>Legacy issue records</h2>
-        ${renderRepositoryList(model)}
-      </section>
-    </aside>
-    <div class="content">
-      <section>
-        <h2>Diagnostics</h2>
-        ${renderDiagnostics(model)}
-      </section>
-      <section>
-        <h2>Goal ledger tree</h2>
-        ${renderLedgerTree(model.ledger)}
-      </section>
-      <section>
-        <h2>Unlinked local runs</h2>
-        ${renderUnlinkedRuns(model.ledger.unlinkedRuns)}
-      </section>
-      <section>
-        <h2>Legacy issue/run records</h2>
-        ${renderIssues(model)}
-      </section>
-    </div>
-  </main>
+	  <main>
+	    <aside>
+	      <section>
+	        <h2>Project filter</h2>
+	        ${renderProjectIssueSelector(model)}
+	      </section>
+	      <section>
+	        <h2>Goals</h2>
+	        ${renderGoalNav(model.ledger)}
+	      </section>
+	    </aside>
+	    <div class="content">
+	      <div class="content-grid">
+	        <section>
+	          <h2>Issue execution DAG</h2>
+	          ${renderIssueExecutionDags(model)}
+	        </section>
+	        <section>
+	          <h2>Token panel</h2>
+	          ${renderTokenPanels(model)}
+	        </section>
+	      </div>
+	      <details open>
+	        <summary>Diagnostics</summary>
+	        ${renderDiagnostics(model)}
+	      </details>
+	      <details>
+	        <summary>Goal ledger tree</summary>
+	        ${renderLedgerTree(model.ledger)}
+	      </details>
+	      <details>
+	        <summary>Unlinked local runs</summary>
+	        ${renderUnlinkedRuns(model.ledger.unlinkedRuns)}
+	      </details>
+	      <details>
+	        <summary>Legacy issue/run records</summary>
+	        ${renderIssues(model)}
+	      </details>
+	    </div>
+	  </main>
 </body>
 </html>`;
 }
@@ -291,6 +350,158 @@ function renderGoalNav(ledger: ObserverLedgerView): string {
       <span class="tag">Unlinked local runs ${ledger.unlinkedRuns.length}</span>
     </div>
     ${goalLinks.length === 0 ? `<p class="empty">${ledgerStatusEmptyText(ledger)}</p>` : goalLinks}
+  </div>`;
+}
+
+function renderProjectIssueSelector(model: ObserverModel): string {
+  if (!model.configUsable) {
+    return `<p class="empty">配置读取失败，无法筛选项目。</p>`;
+  }
+  if (model.repositories.length === 0) {
+    return `<p class="empty">没有配置白名单 repository。</p>`;
+  }
+
+  return model.repositories
+    .map((repository) => {
+      const issues =
+        repository.issues.length === 0
+          ? `<p class="empty">没有记录</p>`
+          : repository.issues
+              .map(
+                (issue) => `<a class="issue-link" href="#${escapeAttribute(issueDagDomId(issue))}">issue ${issue.number} · ${
+                  issue.executionGraph.nodes.length
+                } nodes · ${escapeHtml(issue.latestRunStage ?? "no manifest")}</a>`,
+              )
+              .join("");
+      return `<details class="repo" open>
+        <summary class="repo-title">${escapeHtml(repository.key)}</summary>
+        ${issues}
+      </details>`;
+    })
+    .join("");
+}
+
+function renderIssueExecutionDags(model: ObserverModel): string {
+  const issues = model.repositories.flatMap((repository) => repository.issues);
+  if (issues.length === 0) {
+    return model.configUsable
+      ? `<p class="empty">没有可展示的 issue 执行 DAG。</p>`
+      : `<p class="empty">配置读取失败，暂不展示 issue 执行 DAG。</p>`;
+  }
+
+  return issues.map(renderIssueExecutionDag).join("");
+}
+
+function renderIssueExecutionDag(issue: ObserverIssueView): string {
+  return `<article class="issue" id="${escapeAttribute(issueDagDomId(issue))}">
+    <h3>${escapeHtml(issue.key)}</h3>
+    <div class="tag-row">
+      ${issue.sources.map((source) => `<span class="tag">${escapeHtml(source)}</span>`).join("")}
+      <span class="tag">nodes ${issue.executionGraph.nodes.length}</span>
+      <span class="tag">edges ${issue.executionGraph.edges.length}</span>
+      ${issue.executionGraph.nodes.some((node) => node.status === "stuck") ? `<span class="tag warn">stuck</span>` : ""}
+      ${issue.executionGraph.nodes.some((node) => node.deadLetter) ? `<span class="tag error">deadLetter=true</span>` : ""}
+    </div>
+    ${renderExecutionGraph(issue.executionGraph)}
+  </article>`;
+}
+
+function renderExecutionGraph(graph: ObserverIssueExecutionGraphView): string {
+  if (graph.nodes.length === 0) {
+    return `<p class="empty">没有 run manifest、skip 或 dead-letter 本地事实。</p>`;
+  }
+
+  return `<div class="dag">
+    ${graph.nodes
+      .map((node, index) => `${index === 0 ? "" : renderDagEdge(graph.edges[index - 1])}${renderDagNode(node)}`)
+      .join("")}
+  </div>`;
+}
+
+function renderDagEdge(edge: ObserverIssueExecutionGraphView["edges"][number] | undefined): string {
+  if (edge === undefined) {
+    return "";
+  }
+
+  return `<div class="dag-edge">edge ${escapeHtml(edge.from)} -&gt; ${escapeHtml(edge.to)} · ${escapeHtml(edge.reason)}</div>`;
+}
+
+function renderDagNode(node: ObserverExecutionNodeView): string {
+  if (node.run === null) {
+    return `<section class="dag-node" data-kind="${escapeAttribute(node.kind)}">
+      <div class="tag-row">
+        <span class="tag ${node.deadLetter ? "error" : "warn"}">${escapeHtml(node.label)}</span>
+        <span class="tag">${escapeHtml(node.machineReason)}</span>
+      </div>
+      <dl>
+        <dt>status</dt><dd>${escapeHtml(node.status)}</dd>
+        <dt>reason</dt><dd>${escapeHtml(node.reason)}</dd>
+        <dt>deadLetter</dt><dd>${node.deadLetter ? "true" : "false"}</dd>
+      </dl>
+    </section>`;
+  }
+
+  const run = node.run;
+  return `<details class="dag-node" data-kind="${escapeAttribute(node.kind)}">
+    <summary>Codex run node · ${escapeHtml(run.role)} · ${escapeHtml(run.stage)} · ${escapeHtml(run.completedAt)}</summary>
+    <div class="tag-row">
+      <span class="tag">${escapeHtml(node.machineReason)}</span>
+      ${run.lineNumber === undefined ? "" : `<span class="tag">manifest line ${run.lineNumber}</span>`}
+      ${run.runDir === undefined ? "" : `<span class="tag">runDir ${escapeHtml(run.runDir)}</span>`}
+    </div>
+    <dl>
+      <dt>issue</dt><dd>${escapeHtml(`${run.issue.owner}/${run.issue.repo} issue ${run.issue.number}`)}</dd>
+      <dt>startedAt</dt><dd>${escapeHtml(run.startedAt)}</dd>
+      <dt>completedAt</dt><dd>${escapeHtml(run.completedAt)}</dd>
+      <dt>inputTokens</dt><dd>${formatToken(run.inputTokens)}</dd>
+      <dt>outputTokens</dt><dd>${formatToken(run.outputTokens)}</dd>
+      <dt>cachedInputTokens</dt><dd>${formatToken(run.cachedInputTokens)}</dd>
+      <dt>cached ratio</dt><dd>${formatCachedRatio(run)}</dd>
+    </dl>
+    <h4>Agent input context</h4>
+    <pre class="transcript">${escapeHtml(run.inputContext ?? "input.jsonl unavailable")}</pre>
+    <h4>Agent output full text</h4>
+    <pre class="transcript">${escapeHtml(run.outputText ?? "stdout.jsonl unavailable")}</pre>
+    ${run.artifacts.length === 0 ? `<p class="empty">没有 artifact。</p>` : run.artifacts.map(renderArtifact).join("")}
+  </details>`;
+}
+
+function renderTokenPanels(model: ObserverModel): string {
+  const issues = model.repositories.flatMap((repository) => repository.issues);
+  if (issues.length === 0) {
+    return `<p class="empty">没有 token manifest 记录。</p>`;
+  }
+
+  return issues
+    .map((issue) => {
+      const summary = issue.executionGraph.tokenSummary;
+      return `<section class="token-panel" aria-labelledby="${escapeAttribute(issueTokenDomId(issue))}">
+        <h3 id="${escapeAttribute(issueTokenDomId(issue))}">${escapeHtml(issue.key)}</h3>
+        <dl>
+          <dt>inputTokens</dt><dd>${formatToken(summary.inputTokens)}</dd>
+          <dt>outputTokens</dt><dd>${formatToken(summary.outputTokens)}</dd>
+          <dt>cachedInputTokens</dt><dd>${summary.cachedInputTokens}</dd>
+          <dt>cached share</dt><dd>${summary.cachedShare === null ? "unknown 分母" : `${Math.round(summary.cachedShare * 100)}%`}</dd>
+        </dl>
+        <div class="tag-row">
+          ${summary.unknownInputTokenDenominator ? `<span class="tag warn">unknown 分母</span>` : ""}
+          ${summary.cacheHealthWarning ? `<span class="tag error">缓存疑似失效</span>` : ""}
+        </div>
+        ${issue.runs.map(renderRunTokenRow).join("")}
+      </section>`;
+    })
+    .join("");
+}
+
+function renderRunTokenRow(run: ObserverRunManifestRecord): string {
+  return `<div class="run">
+    <div><strong>${escapeHtml(run.role)}</strong> · ${escapeHtml(run.completedAt)}</div>
+    <dl>
+      <dt>inputTokens</dt><dd>${formatToken(run.inputTokens)}</dd>
+      <dt>outputTokens</dt><dd>${formatToken(run.outputTokens)}</dd>
+      <dt>cachedInputTokens</dt><dd>${formatToken(run.cachedInputTokens)}</dd>
+      <dt>cached ratio</dt><dd>${formatCachedRatio(run)}</dd>
+    </dl>
   </div>`;
 }
 
@@ -710,12 +921,34 @@ function issueDomId(issue: ObserverIssueView): string {
   return `issue-${issue.owner}-${issue.repo}-${issue.number}`.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
+function issueDagDomId(issue: ObserverIssueView): string {
+  return `issue-dag-${issue.owner}-${issue.repo}-${issue.number}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function issueTokenDomId(issue: ObserverIssueView): string {
+  return `issue-token-${issue.owner}-${issue.repo}-${issue.number}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
 function goalDomId(goal: ObserverGoalView): string {
   return `goal-${goal.id}`.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
 function shorten(value: string): string {
   return value.length <= 16 ? value : `${value.slice(0, 8)}...${value.slice(-4)}`;
+}
+
+function formatToken(value: number | null | undefined): string {
+  return value === undefined || value === null ? "unknown" : String(value);
+}
+
+function formatCachedRatio(run: ObserverRunManifestRecord): string {
+  if (run.inputTokens === undefined || run.inputTokens === null || run.inputTokens === 0) {
+    return "unknown 分母";
+  }
+  if (run.cachedInputTokens === undefined || run.cachedInputTokens === null) {
+    return "unknown";
+  }
+  return `${Math.round((run.cachedInputTokens / run.inputTokens) * 100)}%`;
 }
 
 function escapeHtml(value: string): string {

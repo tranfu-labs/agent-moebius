@@ -44,10 +44,19 @@ export interface ObserverIntakeIssueState {
   nextPollAt: string | null;
   failureCount?: number;
   lastFailureReason?: string;
+  externalCommentFallbackRoutes?: Record<string, ObserverExternalCommentFallbackRouteRecord>;
 }
 
 export interface ObserverIntakeState {
   issues: Record<string, ObserverIntakeIssueState>;
+}
+
+export interface ObserverExternalCommentFallbackRouteRecord {
+  commentId: string;
+  outcome: "no_action" | "append" | "fail_open";
+  decidedAt: string;
+  targetRole?: string;
+  reason?: string;
 }
 
 export interface ObserverRoleThreadState {
@@ -79,6 +88,12 @@ export interface ObserverRunManifestRecord {
   lineNumber?: number;
   role: string;
   stage: ObserverRunManifestStage;
+  runDir?: string;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cachedInputTokens?: number | null;
+  inputContext?: string | null;
+  outputText?: string | null;
   artifacts: Array<{
     path: string;
     publishedUrl: string | null;
@@ -183,7 +198,7 @@ export async function readObserverState(input: ReadObserverStateInput = {}): Pro
     empty: EMPTY_AGENT_CONTEXTS,
     validate: validateAgentContextStore,
   });
-  const runManifests = await readRunManifestJsonl(path.join(projectRoot, ".state", "run-manifests.jsonl"));
+  const runManifests = await readRunManifestJsonl(path.join(projectRoot, ".state", "run-manifests.jsonl"), projectRoot);
 
   return {
     projectRoot,
@@ -407,6 +422,7 @@ async function readJsonState<T>(input: {
 
 async function readRunManifestJsonl(
   filePath: string,
+  projectRoot: string,
 ): Promise<{ data: ObserverRunManifestRecord[]; diagnostics: ObserverDiagnostic[] }> {
   const source = ".state/run-manifests.jsonl";
   let raw: string;
@@ -429,10 +445,10 @@ async function readRunManifestJsonl(
   const records: ObserverRunManifestRecord[] = [];
   const diagnostics: ObserverDiagnostic[] = [];
   const lines = raw.split(/\r?\n/);
-  lines.forEach((line, index) => {
+  for (const [index, line] of lines.entries()) {
     const lineNumber = index + 1;
     if (line.trim().length === 0) {
-      return;
+      continue;
     }
 
     let parsed: unknown;
@@ -445,7 +461,7 @@ async function readRunManifestJsonl(
         line: lineNumber,
         message: `第 ${lineNumber} 行跳过：JSON 解析失败：${formatError(error)}`,
       });
-      return;
+      continue;
     }
 
     const manifest = validateRunManifestRecord(parsed, lineNumber);
@@ -456,11 +472,11 @@ async function readRunManifestJsonl(
         line: lineNumber,
         message: `第 ${lineNumber} 行跳过：${manifest.reason}`,
       });
-      return;
+      continue;
     }
 
-    records.push(manifest.record);
-  });
+    records.push(await hydrateRunTranscript(manifest.record, projectRoot));
+  }
 
   return {
     data: records,
@@ -690,6 +706,10 @@ function validateRunManifestRecord(
     return { ok: false, reason: "缺字段 completedAt" };
   }
 
+  const runDir = readOptionalString(value.runDir);
+  const inputTokens = readOptionalToken(value.inputTokens);
+  const outputTokens = readOptionalToken(value.outputTokens);
+  const cachedInputTokens = readOptionalToken(value.cachedInputTokens);
   const artifacts: ObserverRunManifestRecord["artifacts"] = [];
   for (const artifact of value.artifacts) {
     if (!isPlainObject(artifact)) {
@@ -714,11 +734,126 @@ function validateRunManifestRecord(
       lineNumber,
       role: value.role,
       stage: value.stage as ObserverRunManifestStage,
+      ...(runDir === undefined ? {} : { runDir }),
+      ...(inputTokens === undefined ? {} : { inputTokens }),
+      ...(outputTokens === undefined ? {} : { outputTokens }),
+      ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
       artifacts,
       startedAt: value.startedAt,
       completedAt: value.completedAt,
     },
   };
+}
+
+async function hydrateRunTranscript(record: ObserverRunManifestRecord, projectRoot: string): Promise<ObserverRunManifestRecord> {
+  if (record.runDir === undefined) {
+    return record;
+  }
+
+  const runDir = path.isAbsolute(record.runDir) ? record.runDir : path.resolve(projectRoot, record.runDir);
+  const inputContext = await readOptionalTextFile(path.join(runDir, "input.jsonl"));
+  const stdout = await readOptionalTextFile(path.join(runDir, "stdout.jsonl"));
+  return {
+    ...record,
+    inputContext,
+    outputText: stdout === null ? null : extractAssistantOutputText(stdout),
+  };
+}
+
+async function readOptionalTextFile(filePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function extractAssistantOutputText(stdout: string): string {
+  const assistantMessages: string[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    if (line.trim().length === 0) {
+      continue;
+    }
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (isAssistantEvent(parsed)) {
+        const text = extractText(parsed);
+        if (text !== null && text.length > 0) {
+          assistantMessages.push(text);
+        }
+      }
+    } catch {
+      return stdout;
+    }
+  }
+
+  return assistantMessages.length === 0 ? stdout : assistantMessages.join("\n\n");
+}
+
+function isAssistantEvent(value: unknown): boolean {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  const role = findRole(value);
+  if (role !== undefined) {
+    return role === "assistant";
+  }
+
+  const type = typeof value.type === "string" ? value.type : undefined;
+  if (type === "agent_message" || type === "assistant_message" || type === "message") {
+    return true;
+  }
+
+  for (const key of ["item", "data"]) {
+    const nested = value[key];
+    if (isAssistantEvent(nested)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function findRole(value: Record<string, unknown>): string | undefined {
+  if (typeof value.role === "string") {
+    return value.role;
+  }
+
+  for (const key of ["message", "item", "data"]) {
+    const nested = value[key];
+    if (isPlainObject(nested) && typeof nested.role === "string") {
+      return nested.role;
+    }
+  }
+
+  return undefined;
+}
+
+function extractText(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const parts = value.map(extractText).filter((part): part is string => part !== null);
+    return parts.length === 0 ? null : parts.join("");
+  }
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  for (const key of ["message", "content", "text"]) {
+    const text = extractText(value[key]);
+    if (text !== null) {
+      return text;
+    }
+  }
+  for (const key of ["item", "data"]) {
+    const text = extractText(value[key]);
+    if (text !== null) {
+      return text;
+    }
+  }
+  return null;
 }
 
 function isIntakeIssueState(value: unknown): value is ObserverIntakeIssueState {
@@ -739,7 +874,20 @@ function isIntakeIssueState(value: unknown): value is ObserverIntakeIssueState {
     (value.nextPollAt === null || (typeof value.nextPollAt === "string" && value.nextPollAt.length > 0)) &&
     (value.failureCount === undefined || isNonNegativeInteger(value.failureCount)) &&
     (value.lastFailureReason === undefined ||
-      (typeof value.lastFailureReason === "string" && value.lastFailureReason.length > 0))
+      (typeof value.lastFailureReason === "string" && value.lastFailureReason.length > 0)) &&
+    (value.externalCommentFallbackRoutes === undefined ||
+      isRecord(value.externalCommentFallbackRoutes, isExternalCommentFallbackRouteRecord))
+  );
+}
+
+function isExternalCommentFallbackRouteRecord(value: unknown): value is ObserverExternalCommentFallbackRouteRecord {
+  return (
+    isPlainObject(value) &&
+    isNonEmptyString(value.commentId) &&
+    (value.outcome === "no_action" || value.outcome === "append" || value.outcome === "fail_open") &&
+    isNonEmptyString(value.decidedAt) &&
+    (value.targetRole === undefined || isNonEmptyString(value.targetRole)) &&
+    (value.reason === undefined || isNonEmptyString(value.reason))
   );
 }
 
@@ -1006,6 +1154,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isRecord<T>(value: unknown, isValue: (item: unknown) => item is T): value is Record<string, T> {
+  return isPlainObject(value) && Object.values(value).every(isValue);
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
@@ -1016,6 +1168,20 @@ function isPositiveInteger(value: unknown): value is number {
 
 function isNonNegativeInteger(value: unknown): value is number {
   return Number.isInteger(value) && typeof value === "number" && value >= 0;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return isNonEmptyString(value) ? value : undefined;
+}
+
+function readOptionalToken(value: unknown): number | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  return isNonNegativeInteger(value) ? value : undefined;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

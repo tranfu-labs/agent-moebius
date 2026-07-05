@@ -165,7 +165,7 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 
 
 
-### - [ ] T10 · 观察页 v2：issue 进程有向图 + agent 视角对话 + token / 缓存观测
+### - [x] T10 · 观察页 v2：issue 进程有向图 + agent 视角对话 + token / 缓存观测
 
 **背景（2026-07-05 换题）**：原 T10「【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收」全文留档见文末「留档 · 原 T10」，方案设计（三案生成、托举预案）保留待后续复用。换入的直接动因来自 T9 dogfood 的真实痛点：判断"进程是否卡住 / 额度是否挤兑 / 缓存是否失效"目前只能 tail runDir、手工翻 `.state`，缺一个直接回答这三个问题的页面。本任务即对 agent-moebius 自身的可观测性优化。
 
@@ -186,6 +186,8 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 5. 全程只读：fake `gh` / `codex` 零调用，页面不提供任何写操作。
 
 **依赖**：T7（观察页基座）、T1（goal-ledger）；token 数据依赖 run manifest 既有 `cachedInputTokens` 字段。
+
+完成证据（2026-07-05）：父级集成验收在 #88 repair worktree 通过，基线为 `change/observer-issue-execution-dag-repair`；实现集中在 `src/observer/model.ts`、`src/observer/read-state.ts`、`src/observer/render.ts` 与 `tests/observer.test.ts`。验收覆盖项目 / issue 选择后的执行 DAG、Codex run agent 私有视角详情、`skip:no-trigger` 与 dead-letter 诊断节点、token/cache 汇总与缓存疑似失效标注，以及 fake `gh` / `codex` 零调用和只读页面约束。验证命令：`pnpm vitest run tests/observer.test.ts --reporter=verbose`（14 tests，退出码 0）、`pnpm typecheck`（退出码 0）、`git diff --check`（退出码 0）、`pnpm test`（30 个 test files / 353 tests，退出码 0）。
 
 ### - [x] T11 · 无 mention 兜底路由扩展至 agent 自身评论
 
