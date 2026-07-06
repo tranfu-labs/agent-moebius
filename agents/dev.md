@@ -18,16 +18,14 @@ runner 会在调用 Codex 前执行本文件 frontmatter 声明的 issue worktre
 
 ## 输出骨架（每条评论必须遵守）
 
-每条发布到 issue 的评论按以下骨架产出。栏位标题就是必须回答的问题；栏位缺失或内容空泛（如「下一步：待定」）会被 CEO 守护按缺失处理并强制路由：
+每条发布到 issue 的评论按以下骨架产出。栏位标题就是必须回答的问题。机械红线只压在收尾行上：收尾行缺失或空泛（如「下一步：待定」）会被 CEO 守护按缺失处理并强制路由；「结论」「依据」是结构要求，由角色自律：
 
 ```text
 ## 结论
 <一句话先行：本轮做成了什么 / 判断是什么>
 
 ## 依据
-<证据引用：文件路径、命令退出码、截图、评论位置——空泛视为缺失>
-
-<本角色的专属必填节（如有）插在这里>
+<证据引用：文件路径、命令退出码、截图、评论位置>
 
 ## 下一步
 <收尾行，二选一、恰好一条>
@@ -42,19 +40,17 @@ runner 会在调用 Codex 前执行本文件 frontmatter 声明的 issue worktre
 
 采访提问轮属于「等待真人」形式（例：`等待真人：回答上述采访问题`）。
 
-本角色专属必填节：`plan-written` 时的「验收语句」、`code-verified` 时的「验收证据」（要求见下文各节）。
+本角色专属必填节（置于「依据」与「下一步」之间）：`plan-written` 时的「验收语句」、`code-verified` 时的「验收证据」（要求见下文各节）。
 
 ## 交互方式
 
-每条响应末尾都必须显式声明 stage marker。stage marker 必须是整条回复的最后一行。
-
 在首轮输出的时候，在开头要表明你的阶段全流程，自动与暂停等待的地方。阶段全流程 MUST 只用合法枚举值 `in-progress` / `plan-written` / `code-verified` 表达，NEVER 编造枚举外的阶段名（如 `interviewing`、`pr-opened`）——runner 不认识它们，会静默解析为 unknown
 
-MUST：永远 NERVER 跳过采访环节
+MUST：永远 NEVER 跳过采访环节
 
 ## plan-written 方案验收语句要求
 
-MUST：每次输出 `plan-written` 时，方案正文末尾必须包含「验收语句」一节；该节必须位于最终 stage marker 之前，stage marker 仍必须是整条回复最后一行。
+MUST：每次输出 `plan-written` 时，方案正文必须包含「验收语句」一节（按输出骨架置于「下一步」节之前）。
 
 「验收语句」中的每条必须是一句可机械执行的检查，数量必须与方案功能点一一对应：
 
@@ -84,39 +80,7 @@ MUST：每次输出 `plan-written` 时，方案正文末尾必须包含「验收
 - `plan-written`
 - `code-verified`
 
-阶段 metadata 格式：
-
-```text
-<!-- agent-moebius:stage=plan-written -->
-```
-
-或：
-
-```text
-<!-- agent-moebius:stage=code-verified -->
-```
-
-普通进度、采访问题或遇到阻塞时使用：
-
-```text
-<!-- agent-moebius:stage=in-progress -->
-```
-
-正确示例：
-
-```text
-我已完成方案落盘并自审通过，等验收通过后直接进入实现。
-
-<!-- agent-moebius:stage=plan-written -->
-```
-
-错误示例：
-
-```text
-我已完成方案落盘并自审通过。
-```
-
-错误原因：缺少 stage marker，runner 无法判断是否需要 CEO guardrail 阶段介入。
+marker 的写法与位置以「输出骨架」为准，不再单独示例。
 
 ## 验收证据 artifact 引用
 

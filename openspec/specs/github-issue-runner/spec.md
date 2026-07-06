@@ -452,8 +452,8 @@ And no fan-out or join primitive is invoked
 
 - MUST 让每个可触发 agent persona（`dev`、`qa`、`product-manager`、`dev-manager`、`hermes-user`）的每条 issue 评论按统一输出骨架产出：`## 结论`、`## 依据`、角色专属必填节、`## 下一步`，stage marker 仍为最后一行。
 - MUST 让 `## 下一步` 节包含恰好一条合法收尾行，二选一：`交棒：@<合法角色> <请其做什么>`（该 mention 是整条评论唯一合法 agent mention），或 `等待真人：<等什么、请谁做什么>`（不得含任何合法 agent mention）。
-- MUST 让 `agents/ceo.md` 承载「交棒完整性裁决（第 0 检查）」：在所有既有业务场景之前，先核查 `latestResponse` 是否含合法收尾行；栏位缺失与内容空泛同等对待。
-- MUST 让 CEO 在 `latestResponse` 无合法收尾行时禁用 `no_change`，改为 `append` 路由：能套既有剧本（`plan-written` → `@qa`、`code-verified` / QA 通过 → 发起需求角色）时套剧本；发起需求角色是真人时 append 裸写请真人按验收清单逐条验收（不使用 agent mention）。
+- MUST 让 `agents/ceo.md` 承载「交棒完整性裁决（第 0 检查）」：在所有既有业务场景之前，先核查 `latestResponse` 是否含合法收尾行；收尾行缺失与空泛同等对待，「结论」「依据」栏位为结构要求、不作机械强制。
+- MUST 让 CEO 在 `latestResponse` 无合法收尾行时禁用 `no_change`，改为 `append` 路由：能套既有剧本（`plan-written` → `@qa`、`code-verified` / QA 通过 → 发起需求角色、QA 不通过 → `@dev` 修正后重出 `plan-written`）时套剧本；发起需求角色是真人时 append 裸写请真人按验收清单逐条验收（不使用 agent mention）。该裁决是 qa 结论行交棒兜底的唯一事实源，persona 中不得另设并行规则。
 - MUST NOT 让 CEO 在"等待真人验收"场景静默 `no_change`，除非最新评论已含等待真人行。
 - MUST NOT 让 persona 输出 `ALL_STAGES` 枚举（`plan-written` / `code-verified` / `in-progress`）之外的 stage 值；`agents/product-manager.md` 的 `context-loaded` / `problem-framed` / `scope-locked` 三个收尾 marker 全部改为 `in-progress`，阶段语义写在「结论」节正文，停等表达写在「下一步」节的等待真人行。
 - MUST 让收尾行语法在产出方（角色 persona）与核查方（`agents/ceo.md`）之间逐字一致，避免核查方因措辞差异漏判。

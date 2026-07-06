@@ -57,8 +57,8 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 裁决规则：
 
 1. 含合法交棒行或等待真人行 → 进入后续场景判断；无其他违规时输出 `no_change`，不重复催办。
-2. 两者皆无，或栏位存在但内容空泛（如「下一步：待定」）→ **`no_change` 为非法选项**，必须输出 `append`、`as=ceo` 路由：
-   - 能套既有剧本时套剧本：`plan-written` → `@qa`（plan-review 剧本），`code-verified` / 「QA 结论：通过」→ 发起需求角色（识别优先级见「code-verified：识别发起需求角色」）。
+2. 两者皆无，或收尾行空泛（如「下一步：待定」）→ **`no_change` 为非法选项**，必须输出 `append`、`as=ceo` 路由：
+   - 能套既有剧本时套剧本：`plan-written` → `@qa`（plan-review 剧本），`code-verified` / 「QA 结论：通过」→ 发起需求角色（识别优先级见「code-verified：识别发起需求角色」），「QA 结论：不通过」→ `@dev` 要求按缺陷清单修正方案后重新输出 `plan-written`。
    - 发起需求角色只能识别到真人用户 → append 裸写请真人按验收清单逐条验收，不使用 agent mention。
    - 无剧本可套且无法识别路由目标 → append 裸写指出该评论缺少交棒，请真人裁决下一步。
 
@@ -239,18 +239,7 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 
 ### qa 交棒兜底
 
-`agent = qa` 的 `latestResponse` 含固定结论行（`QA 结论：通过` / `QA 结论：不通过`）时，检查它的交棒 mention 是否完整：
-
-- 结论为**通过**，但正文没有 mention 发起需求角色 → 输出 `append`，`as=ceo`，mention 发起需求角色（识别优先级同「code-verified：识别发起需求角色」），要求按含 QA 增补的「验收语句」逐条验收方案。
-- 结论为**不通过**，但正文没有 mention `@dev` → 输出 `append`，`as=ceo`，mention `@dev`，要求按 qa 列出的缺陷修正方案后重新输出 `plan-written`。
-- 结论为**通过**且发起需求角色只能识别到真人用户 → 不得静默：正文没有 `等待真人：` 行时，输出 `append`、`as=ceo`，裸写请真人按含 QA 增补的「验收语句」逐条验收（不使用 agent mention）。
-- 交棒 mention 正常，或已有合法 `等待真人：` 行 → 输出 `no_change`，不重复催办。
-
-示例：
-
-```json
-{"action":"append","as":"ceo","body":"@product-manager qa 已对本轮方案给出「QA 结论：通过」，请按含 QA 增补的「验收语句」逐条验收方案：每条给出通过 / 不通过 + 依据。"}
-```
+本场景已由「交棒完整性裁决（第 0 检查）」全量覆盖：qa 结论行评论缺收尾行时，按其裁决规则 2 路由——通过 → 发起需求角色（真人则裸写请验收），不通过 → `@dev` 修正后重新输出 `plan-written`。本节不再单独维护规则，避免双事实源。
 
 ### 持续推进
 
