@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildAddReactionArgs,
   buildAddIssueReactionArgs,
+  buildReleaseAssetDownloadArgs,
+  parseGitHubReleaseAssetUrl,
   buildCreateIssueArgs,
   buildFetchIssueStateArgs,
   buildFetchIssueWithCommentsArgs,
@@ -128,6 +130,47 @@ describe("github issue errors", () => {
       "subjectId=IC_kwDOTGDJNs8AAAABIUjPpQ",
       "-f",
       "content=EYES",
+    ]);
+  });
+
+  it("parses GitHub release asset URLs and rejects non-release URLs", () => {
+    expect(
+      parseGitHubReleaseAssetUrl(
+        "https://github.com/tranfu-labs/tranfucom/releases/download/agent-moebius-artifacts/home-375-86e2556573.png",
+      ),
+    ).toEqual({
+      owner: "tranfu-labs",
+      repo: "tranfucom",
+      tag: "agent-moebius-artifacts",
+      assetName: "home-375-86e2556573.png",
+    });
+    expect(parseGitHubReleaseAssetUrl("https://github.com/tranfu-labs/tranfucom/raw/main/a.png")).toBeNull();
+    expect(parseGitHubReleaseAssetUrl("https://example.test/releases/download/v1/a.png")).toBeNull();
+    expect(parseGitHubReleaseAssetUrl("https://github.com/user-attachments/assets/abc123")).toBeNull();
+  });
+
+  it("builds safe gh argument arrays for authenticated release asset download", () => {
+    expect(
+      buildReleaseAssetDownloadArgs(
+        {
+          owner: "tranfu-labs",
+          repo: "tranfucom",
+          tag: "agent-moebius-artifacts",
+          assetName: "home-375-86e2556573.png",
+        },
+        "/tmp/run/input-media/0004-01-image.png",
+      ),
+    ).toEqual([
+      "release",
+      "download",
+      "agent-moebius-artifacts",
+      "--repo",
+      "tranfu-labs/tranfucom",
+      "--pattern",
+      "home-375-86e2556573.png",
+      "--output",
+      "/tmp/run/input-media/0004-01-image.png",
+      "--clobber",
     ]);
   });
 

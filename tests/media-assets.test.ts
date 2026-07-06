@@ -41,6 +41,84 @@ describe("media assets", () => {
     await expect(fs.stat(result.prepared[0]?.filePath ?? "")).resolves.toBeTruthy();
   });
 
+  it("downloads GitHub release assets through the authenticated gh downloader instead of anonymous fetch", async () => {
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-media-test-"));
+    const url =
+      "https://github.com/tranfu-labs/tranfucom/releases/download/agent-moebius-artifacts/home-375-86e2556573.png";
+    const downloadedAssets: Array<{ owner: string; repo: string; tag: string; assetName: string }> = [];
+
+    const result = await prepareIssueMedia({
+      references: [makeReference("image", url, 1)],
+      runDir,
+      fetchImpl: async () => {
+        throw new Error("anonymous fetch must not be used for GitHub release assets");
+      },
+      downloadReleaseAssetImpl: async (asset, destinationPath) => {
+        downloadedAssets.push(asset);
+        await fs.writeFile(destinationPath, "png-bytes");
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(downloadedAssets).toEqual([
+      {
+        owner: "tranfu-labs",
+        repo: "tranfucom",
+        tag: "agent-moebius-artifacts",
+        assetName: "home-375-86e2556573.png",
+      },
+    ]);
+    expect(result.prepared).toHaveLength(1);
+    expect(result.prepared[0]?.kind).toBe("image");
+    expect(result.prepared[0]?.filePath.endsWith(".png")).toBe(true);
+    expect(result.imagePaths).toHaveLength(1);
+    await expect(fs.readFile(result.prepared[0]?.filePath ?? "", "utf8")).resolves.toBe("png-bytes");
+  });
+
+  it("still enforces size limits for GitHub release assets", async () => {
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-media-test-"));
+    const url = "https://github.com/tranfu-labs/tranfucom/releases/download/agent-moebius-artifacts/huge.png";
+
+    const result = await prepareIssueMedia({
+      references: [makeReference("image", url, 1)],
+      runDir,
+      limits: { imageMaxBytes: 4, videoMaxBytes: 4 },
+      downloadReleaseAssetImpl: async (_asset, destinationPath) => {
+        await fs.writeFile(destinationPath, "way-more-than-four-bytes");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.failures[0]?.reason).toBe("too-large:24>4");
+    await expect(fs.readdir(path.join(runDir, "input-media"))).resolves.toEqual([]);
+  });
+
+  it("reports gh download failures for GitHub release assets", async () => {
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-media-test-"));
+    const url = "https://github.com/tranfu-labs/tranfucom/releases/download/agent-moebius-artifacts/missing.png";
+
+    const result = await prepareIssueMedia({
+      references: [makeReference("image", url, 1)],
+      runDir,
+      downloadReleaseAssetImpl: async () => {
+        throw new Error("release asset not found");
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.failures[0]?.reason).toBe("download-error:release asset not found");
+  });
+
   it("reports media preparation failures instead of silently dropping bad media", async () => {
     const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-media-test-"));
     const result = await prepareIssueMedia({

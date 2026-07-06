@@ -288,6 +288,62 @@ export function buildReleaseCreateArgs(source: IssueSource): string[] {
   ];
 }
 
+export interface GitHubReleaseAssetLocator {
+  owner: string;
+  repo: string;
+  tag: string;
+  assetName: string;
+}
+
+const GITHUB_RELEASE_ASSET_URL_PATTERN =
+  /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/releases\/download\/([^/]+)\/([^/?#]+)$/u;
+
+export function parseGitHubReleaseAssetUrl(url: string): GitHubReleaseAssetLocator | null {
+  const match = url.match(GITHUB_RELEASE_ASSET_URL_PATTERN);
+  if (match === null) {
+    return null;
+  }
+
+  try {
+    return {
+      owner: decodeURIComponent(match[1]!),
+      repo: decodeURIComponent(match[2]!),
+      tag: decodeURIComponent(match[3]!),
+      assetName: decodeURIComponent(match[4]!),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function buildReleaseAssetDownloadArgs(asset: GitHubReleaseAssetLocator, destinationPath: string): string[] {
+  return [
+    "release",
+    "download",
+    asset.tag,
+    "--repo",
+    `${asset.owner}/${asset.repo}`,
+    "--pattern",
+    escapeGlobPattern(asset.assetName),
+    "--output",
+    destinationPath,
+    "--clobber",
+  ];
+}
+
+export async function downloadReleaseAsset(
+  asset: GitHubReleaseAssetLocator,
+  destinationPath: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<void> {
+  // 私有仓库的 release 资产不允许匿名 HTTP 下载（必然 404），必须走带认证的 gh CLI。
+  await runCommand("gh", buildReleaseAssetDownloadArgs(asset, destinationPath), { signal: options.signal });
+}
+
+function escapeGlobPattern(value: string): string {
+  return value.replace(/[*?[\]\\]/gu, "\\$&");
+}
+
 export function buildReleaseUploadArgs(source: IssueSource, file: PreparedOutputArtifact): string[] {
   return [
     "release",

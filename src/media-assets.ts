@@ -7,6 +7,7 @@ import {
   OUTPUT_ARTIFACT_IMAGE_MAX_BYTES,
   OUTPUT_ARTIFACT_VIDEO_MAX_BYTES,
 } from "./config.js";
+import { downloadReleaseAsset, parseGitHubReleaseAssetUrl } from "./github.js";
 import type { IssueMediaKind, IssueMediaReference, MediaPromptEntry } from "./issue-media.js";
 
 export interface PreparedIssueMedia extends MediaPromptEntry {
@@ -81,6 +82,7 @@ export async function prepareIssueMedia(input: {
   references: IssueMediaReference[];
   runDir: string;
   fetchImpl?: typeof fetch;
+  downloadReleaseAssetImpl?: typeof downloadReleaseAsset;
   signal?: AbortSignal;
   limits?: MediaLimits;
 }): Promise<MediaPreparationResult> {
@@ -89,6 +91,7 @@ export async function prepareIssueMedia(input: {
   }
 
   const fetchImpl = input.fetchImpl ?? fetch;
+  const downloadReleaseAssetImpl = input.downloadReleaseAssetImpl ?? downloadReleaseAsset;
   const limits = input.limits ?? DEFAULT_INPUT_LIMITS;
   const outputDir = path.join(input.runDir, "input-media");
   await fs.mkdir(outputDir, { recursive: true });
@@ -98,6 +101,26 @@ export async function prepareIssueMedia(input: {
 
   for (const reference of input.references) {
     try {
+      // github.com 的 release 资产在私有仓库下匿名 HTTP 下载必然 404，改走带认证的 gh CLI；
+      // 非 github.com release 资产的 URL 保持原有 fetch 逻辑。
+      const releaseAsset = parseGitHubReleaseAssetUrl(reference.url);
+      if (releaseAsset !== null) {
+        const outcome = await prepareGitHubReleaseAsset({
+          reference,
+          releaseAsset,
+          outputDir,
+          limits,
+          downloadReleaseAssetImpl,
+          signal: input.signal,
+        });
+        if (outcome.ok) {
+          prepared.push(outcome.media);
+        } else {
+          failures.push(outcome.failure);
+        }
+        continue;
+      }
+
       const response = await fetchImpl(reference.url, { signal: input.signal });
       if (!response.ok) {
         failures.push({ reference, reason: `download-failed:http-${String(response.status)}` });
@@ -125,8 +148,7 @@ export async function prepareIssueMedia(input: {
       }
 
       const extension = extensionForMedia({ contentType, url: reference.url, kind });
-      const fileName = `${String(reference.messageIndex).padStart(4, "0")}-${String(reference.ordinalInMessage).padStart(2, "0")}-${kind}${extension}`;
-      const filePath = path.join(outputDir, fileName);
+      const filePath = buildInputMediaFilePath({ outputDir, reference, kind, extension });
       await fs.writeFile(filePath, bytes);
       prepared.push({
         reference,
@@ -152,6 +174,60 @@ export async function prepareIssueMedia(input: {
     prepared,
     imagePaths: prepared.filter((media) => media.kind === "image").map((media) => media.filePath),
   };
+}
+
+async function prepareGitHubReleaseAsset(input: {
+  reference: IssueMediaReference;
+  releaseAsset: NonNullable<ReturnType<typeof parseGitHubReleaseAssetUrl>>;
+  outputDir: string;
+  limits: MediaLimits;
+  downloadReleaseAssetImpl: typeof downloadReleaseAsset;
+  signal?: AbortSignal;
+}): Promise<{ ok: true; media: PreparedIssueMedia } | { ok: false; failure: MediaPreparationFailure }> {
+  const { reference, releaseAsset, limits } = input;
+  // gh CLI 直接落盘，拿不到 content-type 响应头，媒体类型只能靠引用标注或 URL 扩展名判断。
+  const kind = detectMediaKind({ reference, contentType: "" });
+  if (kind === null) {
+    return { ok: false, failure: { reference, reason: "unsupported-content-type:missing" } };
+  }
+
+  const extension = extensionForMedia({ contentType: "", url: reference.url, kind });
+  const filePath = buildInputMediaFilePath({ outputDir: input.outputDir, reference, kind, extension });
+  await input.downloadReleaseAssetImpl(releaseAsset, filePath, { signal: input.signal });
+
+  const stat = await fs.stat(filePath);
+  const byteLength = Number(stat.size);
+  const maxBytes = maxBytesForKind(kind, limits);
+  if (byteLength > maxBytes) {
+    await fs.rm(filePath, { force: true });
+    return { ok: false, failure: { reference, reason: `too-large:${String(byteLength)}>${String(maxBytes)}` } };
+  }
+
+  return {
+    ok: true,
+    media: {
+      reference,
+      messageIndex: reference.messageIndex,
+      kind,
+      filePath,
+      originalUrl: reference.url,
+      label: reference.label,
+      contentType: `${kind}/unknown`,
+      byteLength,
+    },
+  };
+}
+
+function buildInputMediaFilePath(input: {
+  outputDir: string;
+  reference: IssueMediaReference;
+  kind: IssueMediaKind;
+  extension: string;
+}): string {
+  const fileName = `${String(input.reference.messageIndex).padStart(4, "0")}-${String(
+    input.reference.ordinalInMessage,
+  ).padStart(2, "0")}-${input.kind}${input.extension}`;
+  return path.join(input.outputDir, fileName);
 }
 
 export async function discoverOutputArtifacts(input: {
