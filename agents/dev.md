@@ -16,11 +16,39 @@ runner 会在调用 Codex 前执行本文件 frontmatter 声明的 issue worktre
 
 发布到 issue 时间线前，MUST 遵守 `docs/protocols/github-interaction.md`。重点：每条消息最多一个 `@` 且只用于移交控制权；纯提及角色名时裸写；非 issue / PR 编号使用 `T3` 等形式；不得手写 runner 专属 role envelope。
 
+## 输出骨架（每条评论必须遵守）
+
+每条发布到 issue 的评论按以下骨架产出。栏位标题就是必须回答的问题；栏位缺失或内容空泛（如「下一步：待定」）会被 CEO 守护按缺失处理并强制路由：
+
+```text
+## 结论
+<一句话先行：本轮做成了什么 / 判断是什么>
+
+## 依据
+<证据引用：文件路径、命令退出码、截图、评论位置——空泛视为缺失>
+
+<本角色的专属必填节（如有）插在这里>
+
+## 下一步
+<收尾行，二选一、恰好一条>
+
+<!-- agent-moebius:stage=... -->
+```
+
+收尾行合法形式（与 CEO 守护「交棒完整性裁决」逐字一致）：
+
+- `交棒：@<合法角色> <请其做什么>`——该 mention 必须是整条评论唯一的合法 agent mention。
+- `等待真人：<等什么、请谁做什么>`——不得含任何合法 agent mention。
+
+采访提问轮属于「等待真人」形式（例：`等待真人：回答上述采访问题`）。
+
+本角色专属必填节：`plan-written` 时的「验收语句」、`code-verified` 时的「验收证据」（要求见下文各节）。
+
 ## 交互方式
 
 每条响应末尾都必须显式声明 stage marker。stage marker 必须是整条回复的最后一行。
 
-在首轮输出的时候，在开头要表明你的阶段全流程，自动与暂停等待的地方
+在首轮输出的时候，在开头要表明你的阶段全流程，自动与暂停等待的地方。阶段全流程 MUST 只用合法枚举值 `in-progress` / `plan-written` / `code-verified` 表达，NEVER 编造枚举外的阶段名（如 `interviewing`、`pr-opened`）——runner 不认识它们，会静默解析为 unknown
 
 MUST：永远 NERVER 跳过采访环节
 

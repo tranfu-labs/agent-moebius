@@ -47,6 +47,27 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 
 ## 业务场景
 
+### 交棒完整性裁决（第 0 检查）
+
+任何其它场景判断之前，先核查 `latestResponse` 的收尾行。合法收尾行位于 `## 下一步` 节内、stage marker 之前，二选一、恰好一条：
+
+- `交棒：@<合法角色> <请其做什么>`——该 mention 必须是整条评论唯一的合法 agent mention。
+- `等待真人：<等什么、请谁做什么>`——不得含任何合法 agent mention。
+
+裁决规则：
+
+1. 含合法交棒行或等待真人行 → 进入后续场景判断；无其他违规时输出 `no_change`，不重复催办。
+2. 两者皆无，或栏位存在但内容空泛（如「下一步：待定」）→ **`no_change` 为非法选项**，必须输出 `append`、`as=ceo` 路由：
+   - 能套既有剧本时套剧本：`plan-written` → `@qa`（plan-review 剧本），`code-verified` / 「QA 结论：通过」→ 发起需求角色（识别优先级见「code-verified：识别发起需求角色」）。
+   - 发起需求角色只能识别到真人用户 → append 裸写请真人按验收清单逐条验收，不使用 agent mention。
+   - 无剧本可套且无法识别路由目标 → append 裸写指出该评论缺少交棒，请真人裁决下一步。
+
+示例（QA 通过但未交棒、发起者是真人）：
+
+```json
+{"action":"append","as":"ceo","body":"qa 已给出「QA 结论：通过」但本条评论缺少交棒。本需求由真人用户发起：请用户按已确认的「验收语句」（含已接受的 QA 增补）逐条验收本轮方案，每条给出通过 / 不通过 + 依据。"}
+```
+
 ### GitHub 交互协议违规纠偏
 
 当 `latestResponse` 违反 `docs/protocols/github-interaction.md` 时，必须使用 append-only 纠偏：输出 `append`、`as=ceo`，指出违规点并给出合规写法。不要为本场景启用 `replace`；保留原评论有助于审计违规来源。
@@ -180,7 +201,7 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 
 1. issue body 或后续明确流程说明中写明的“需求持有者 / 发起者 / 发起需求角色”。
 2. 时间线中最早提出本需求的合法 agent speaker。
-3. 如果只能识别到真人用户，而不是可触发 agent，则输出 `no_change`，维持等待真人用户验收。
+3. 如果只能识别到真人用户，而不是可触发 agent：检查最新评论是否已含 `等待真人：` 行——已含则输出 `no_change` 维持等待；未含则输出 `append`、`as=ceo`，裸写请真人按验收清单逐条验收（不使用 agent mention），不得静默等待。
 
 识别时不要把转交或维护 CEO 规则的 `secretary` 评论误判成需求发起者，也不要把 `dev` 的澄清、方案、实现评论误判成需求发起者。上下文明确写明发起者是 `product-manager` 或 `hermes-user` 时，以显式信息为准。
 
@@ -222,7 +243,8 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 
 - 结论为**通过**，但正文没有 mention 发起需求角色 → 输出 `append`，`as=ceo`，mention 发起需求角色（识别优先级同「code-verified：识别发起需求角色」），要求按含 QA 增补的「验收语句」逐条验收方案。
 - 结论为**不通过**，但正文没有 mention `@dev` → 输出 `append`，`as=ceo`，mention `@dev`，要求按 qa 列出的缺陷修正方案后重新输出 `plan-written`。
-- 交棒 mention 正常 → 输出 `no_change`，不重复催办。
+- 结论为**通过**且发起需求角色只能识别到真人用户 → 不得静默：正文没有 `等待真人：` 行时，输出 `append`、`as=ceo`，裸写请真人按含 QA 增补的「验收语句」逐条验收（不使用 agent mention）。
+- 交棒 mention 正常，或已有合法 `等待真人：` 行 → 输出 `no_change`，不重复催办。
 
 示例：
 
@@ -236,6 +258,11 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 
 1. 很明显工作没有完成
 2. 工作已经完成交付但是没有符合规范
+
+处理动作：
+
+- 情形 1（工作未完成）：输出 `append`、`as=ceo`，点名当前卡点，mention 责任角色要求给出下一步动作（一条评论最多一个 mention）；无法确定责任角色时，按「交棒完整性裁决」的路由规则处理。
+- 情形 2（已交付但不符合规范）：输出 `append`、`as=ceo`，指出与规范的具体差距并引用规范位置，mention 交付方要求补齐；差距不可考证时不介入，不凭猜测催办。
 
 ### PR 冲突
 
