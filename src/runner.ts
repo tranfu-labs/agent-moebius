@@ -7,6 +7,7 @@ import {
   AGENT_CONTEXTS_STATE_PATH,
   AGENTS_DIR,
   CODEX_DRIVER_POOL_MAX_CONCURRENT,
+  CODEX_RUN_IDLE_TIMEOUT_MS,
   CODEX_RUN_MAX_DURATION_MS,
   CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
   CONFIG_LOG_FIELDS,
@@ -61,7 +62,7 @@ import {
   resolveNextRoleThreadState,
   type TimelineMessage,
 } from "./conversation.js";
-import { isInterruptedCodexRunResult, run as runCodex } from "./codex.js";
+import { codexTimeoutKind, isInterruptedCodexRunResult, run as runCodex } from "./codex.js";
 import { createDriverPool, type DriverPool } from "./driver-pool.js";
 import {
   createIssueDispatcher,
@@ -851,47 +852,34 @@ export async function processIssueSource(
       fetchIssueWithComments: dependencies.fetchIssueWithComments,
     });
 
-    // 看门狗：单次 codex run 的总时长上限，兜底 in-flight job 永不返回导致的 skip-inflight 死锁。
-    const codexWatchdog = { fired: false };
-    let currentCodexRunDir = runDir;
-    let resolveWatchdogResult: (result: Awaited<ReturnType<ProcessIssueSourceDependencies["runCodex"]>>) => void = () => {};
-    const watchdogResult = new Promise<Awaited<ReturnType<ProcessIssueSourceDependencies["runCodex"]>>>((resolve) => {
-      resolveWatchdogResult = resolve;
-    });
-    const runCodexWithWatchdog = (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) => {
-      currentCodexRunDir = options.runDir;
-      return Promise.race([dependencies.runCodex(options), watchdogResult]);
+    // 看门狗已下沉到 codex.run() 内部（空闲 + 总时长硬上限，每次 run 独立计时，
+    // 含有限时间 settle 保障）；runner 只按 reason 前缀分流日志并把超时折叠为 failed。
+    const codexRunTimeouts = {
+      idleTimeoutMs: CODEX_RUN_IDLE_TIMEOUT_MS,
+      maxDurationMs: CODEX_RUN_MAX_DURATION_MS,
     };
-    const watchdogTimer = setTimeout(() => {
-      codexWatchdog.fired = true;
-      const reason = `codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`;
-      interruptController.abort(reason);
-      resolveWatchdogResult({
-        ok: false,
-        reason: `interrupted:${reason}`,
-        runDir: currentCodexRunDir,
-        stdoutPath: path.join(currentCodexRunDir, "stdout.jsonl"),
-        stderrPath: path.join(currentCodexRunDir, "stderr.log"),
-      });
-    }, CODEX_RUN_MAX_DURATION_MS);
-    watchdogTimer.unref();
 
-    const resolveInterruptedOutcome = (interruptedResult: { runDir: string; reason: string }): IssueProcessingOutcome => {
-      if (codexWatchdog.fired) {
-        log({
-          event: "codex-watchdog-timeout",
-          count,
-          runDir: interruptedResult.runDir,
-          agent: selectedAgent.name,
-          issueKey: input.source.issueKey,
-          timeoutMs: CODEX_RUN_MAX_DURATION_MS,
-        });
-        return failedIssueProcessingOutcome({
-          reason: `codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`,
-          agent: selectedAgent.name,
-        });
+    const resolveCodexTimeoutOutcome = (failedResult: { runDir: string; reason: string }): IssueProcessingOutcome | null => {
+      const timeoutKind = codexTimeoutKind(failedResult.reason);
+      if (timeoutKind === null) {
+        return null;
       }
 
+      log({
+        event: timeoutKind === "idle" ? "codex-idle-timeout" : "codex-watchdog-timeout",
+        count,
+        runDir: failedResult.runDir,
+        agent: selectedAgent.name,
+        issueKey: input.source.issueKey,
+        timeoutMs: timeoutKind === "idle" ? CODEX_RUN_IDLE_TIMEOUT_MS : CODEX_RUN_MAX_DURATION_MS,
+      });
+      return failedIssueProcessingOutcome({
+        reason: failedResult.reason,
+        agent: selectedAgent.name,
+      });
+    };
+
+    const resolveInterruptedOutcome = (interruptedResult: { runDir: string; reason: string }): IssueProcessingOutcome => {
       log({
         event: "codex-interrupted",
         count,
@@ -906,17 +894,27 @@ export async function processIssueSource(
     let result: Awaited<ReturnType<ProcessIssueSourceDependencies["runCodex"]>>;
     try {
       finalCodexStartedAtMs = Date.now();
-      result = await runCodexWithWatchdog({
+      result = await dependencies.runCodex({
         prompt: appendMediaManifest(appendPromptContext(plan.prompt, agentPromptContext), initialMedia.prepared),
         runDir,
         cwd: codexCwd,
         signal: interruptController.signal,
         mode: plan.mode === "resume" ? { kind: "resume", threadId: plan.threadId } : { kind: "full" },
         imagePaths: initialMedia.imagePaths,
+        ...codexRunTimeouts,
       });
 
       if (isInterruptedCodexRunResult(result)) {
         return resolveInterruptedOutcome(result);
+      }
+
+      // 超时（空闲 / 硬上限）直接判 failed 进重试链路，不落入 resume fallback：
+      // 卡死不是 resume 特有的失败，全量重跑大概率复现，交给重试预算处理。
+      if (!result.ok) {
+        const timeoutOutcome = resolveCodexTimeoutOutcome(result);
+        if (timeoutOutcome !== null) {
+          return timeoutOutcome;
+        }
       }
 
       if (!result.ok && plan.mode === "resume") {
@@ -951,7 +949,7 @@ export async function processIssueSource(
         }
 
         finalCodexStartedAtMs = Date.now();
-        result = await runCodexWithWatchdog({
+        result = await dependencies.runCodex({
           prompt: appendMediaManifest(
             appendPromptContext(buildFallbackFullPrompt(agentManifest.body, timeline), agentPromptContext),
             fallbackMedia.prepared,
@@ -961,10 +959,10 @@ export async function processIssueSource(
           signal: interruptController.signal,
           mode: { kind: "full" },
           imagePaths: fallbackMedia.imagePaths,
+          ...codexRunTimeouts,
         });
       }
     } finally {
-      clearTimeout(watchdogTimer);
       interruptMonitor?.stop();
     }
 
@@ -973,6 +971,11 @@ export async function processIssueSource(
     }
 
     if (!result.ok) {
+      const timeoutOutcome = resolveCodexTimeoutOutcome(result);
+      if (timeoutOutcome !== null) {
+        return timeoutOutcome;
+      }
+
       log({ event: "codex-failed", count, runDir: result.runDir, reason: result.reason, agent: selectedAgent.name });
       return failedIssueProcessingOutcome({ reason: result.reason, agent: selectedAgent.name });
     }

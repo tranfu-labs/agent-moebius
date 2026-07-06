@@ -16,6 +16,68 @@ export interface CodexRunOptions {
   imagePaths?: string[];
   interruptTerminationDelayMs?: number;
   interruptKillDelayMs?: number;
+  idleTimeoutMs?: number;
+  maxDurationMs?: number;
+}
+
+export type CodexWatchdogKind = "idle" | "max-duration";
+
+export interface CodexRunWatchdogs {
+  recordActivity(): void;
+  clear(): void;
+}
+
+// 单次 codex run 的双看门狗：空闲（stdout 无输出即倒计时，主防线）与总时长硬上限
+// （无视输出活动，兜底持续输出的死循环）。至多触发一次回调；clear 后不再触发。
+export function createRunWatchdogs(options: {
+  idleTimeoutMs?: number;
+  maxDurationMs?: number;
+  onTimeout: (kind: CodexWatchdogKind) => void;
+}): CodexRunWatchdogs {
+  let settled = false;
+  let idleTimer: NodeJS.Timeout | null = null;
+  let maxDurationTimer: NodeJS.Timeout | null = null;
+
+  const fire = (kind: CodexWatchdogKind) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    options.onTimeout(kind);
+  };
+
+  const armIdleTimer = () => {
+    if (options.idleTimeoutMs === undefined) {
+      return;
+    }
+    idleTimer = setTimeout(() => fire("idle"), options.idleTimeoutMs);
+    idleTimer.unref();
+  };
+
+  armIdleTimer();
+  if (options.maxDurationMs !== undefined) {
+    maxDurationTimer = setTimeout(() => fire("max-duration"), options.maxDurationMs);
+    maxDurationTimer.unref();
+  }
+
+  return {
+    recordActivity() {
+      if (settled || idleTimer === null) {
+        return;
+      }
+      clearTimeout(idleTimer);
+      armIdleTimer();
+    },
+    clear() {
+      settled = true;
+      if (idleTimer !== null) {
+        clearTimeout(idleTimer);
+      }
+      if (maxDurationTimer !== null) {
+        clearTimeout(maxDurationTimer);
+      }
+    },
+  };
 }
 
 export type CodexRunResult =
@@ -40,7 +102,7 @@ const INTERRUPT_TERMINATION_DELAY_MS = 5_000;
 const INTERRUPT_KILL_DELAY_MS = 5_000;
 
 export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
-  const { prompt, runDir, mode = { kind: "full" }, cwd, signal, imagePaths = [] } = options;
+  const { prompt, runDir, mode = { kind: "full" }, cwd, signal, imagePaths = [], idleTimeoutMs, maxDurationMs } = options;
   await fs.mkdir(runDir, { recursive: true });
   const stdoutPath = path.join(runDir, "stdout.jsonl");
   const stderrPath = path.join(runDir, "stderr.log");
@@ -62,39 +124,89 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let abortReason: string | null = null;
+  let timeoutReason: string | null = null;
+  let terminating = false;
   let terminationTimer: NodeJS.Timeout | null = null;
   let killTimer: NodeJS.Timeout | null = null;
+  let forceSettleTimer: NodeJS.Timeout | null = null;
   const terminationDelayMs = options.interruptTerminationDelayMs ?? INTERRUPT_TERMINATION_DELAY_MS;
   const killDelayMs = options.interruptKillDelayMs ?? INTERRUPT_KILL_DELAY_MS;
-  const handleAbort = () => {
-    abortReason = interruptedReason(signal?.reason);
+
+  type ExitOutcome = { code: number | null; signal: NodeJS.Signals | null } | { error: Error } | { forced: true };
+  let resolveExit: (outcome: ExitOutcome) => void = () => {};
+  const exitPromise = new Promise<ExitOutcome>((resolve) => {
+    resolveExit = resolve;
+  });
+  child.once("error", (error) => resolveExit({ error }));
+  child.once("close", (code, exitSignal) => resolveExit({ code, signal: exitSignal }));
+
+  const beginTermination = () => {
+    if (terminating) {
+      return;
+    }
+    terminating = true;
     child.kill("SIGINT");
     terminationTimer = setTimeout(() => {
       child.kill("SIGTERM");
       killTimer = setTimeout(() => {
         child.kill("SIGKILL");
+        // 孙进程可能继承并持有 stdio 管道，令 SIGKILL 后 close 事件仍不触发。
+        // 终止路径（看门狗与用户中断）必须保证 run() 有限时间内 settle（否则
+        // driver pool 名额与 issue job 被永久占住），所以强制脱钩 stdio 并合成退出结果。
+        forceSettleTimer = setTimeout(() => {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          resolveExit({ forced: true });
+        }, killDelayMs);
+        forceSettleTimer.unref();
       }, killDelayMs);
       killTimer.unref();
     }, terminationDelayMs);
     terminationTimer.unref();
   };
 
+  const handleAbort = () => {
+    if (timeoutReason === null) {
+      abortReason = interruptedReason(signal?.reason);
+    }
+    beginTermination();
+  };
+
   signal?.addEventListener("abort", handleAbort, { once: true });
+
+  const watchdogs = createRunWatchdogs({
+    ...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }),
+    ...(maxDurationMs === undefined ? {} : { maxDurationMs }),
+    onTimeout: (kind) => {
+      if (abortReason !== null) {
+        return;
+      }
+      timeoutReason =
+        kind === "idle" ? `idle-timeout:${String(idleTimeoutMs)}ms` : `max-duration-timeout:${String(maxDurationMs)}ms`;
+      beginTermination();
+    },
+  });
+  const recordStdoutActivity = () => {
+    watchdogs.recordActivity();
+  };
+  child.stdout.on("data", recordStdoutActivity);
 
   child.stdout.pipe(stdoutFile, { end: false });
   child.stderr.pipe(stderrFile, { end: false });
 
-  const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null } | { error: Error }>((resolve) => {
-    child.once("error", (error) => resolve({ error }));
-    child.once("close", (code, signal) => resolve({ code, signal }));
-  });
+  const exit = await exitPromise;
 
+  watchdogs.clear();
+  child.stdout.removeListener("data", recordStdoutActivity);
   signal?.removeEventListener("abort", handleAbort);
   if (terminationTimer !== null) {
     clearTimeout(terminationTimer);
   }
   if (killTimer !== null) {
     clearTimeout(killTimer);
+  }
+  if (forceSettleTimer !== null) {
+    clearTimeout(forceSettleTimer);
   }
 
   await Promise.all([finishWritable(stdoutFile), finishWritable(stderrFile)]);
@@ -103,6 +215,27 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
     return {
       ok: false,
       reason: abortReason,
+      runDir,
+      stdoutPath,
+      stderrPath,
+    };
+  }
+
+  if (timeoutReason !== null) {
+    return {
+      ok: false,
+      reason: timeoutReason,
+      runDir,
+      stdoutPath,
+      stderrPath,
+    };
+  }
+
+  if ("forced" in exit) {
+    // 仅看门狗路径会合成 forced 退出，理论上已被上面的 timeoutReason 分支拦截；兜底防御。
+    return {
+      ok: false,
+      reason: "forced-settle-without-reason",
       runDir,
       stdoutPath,
       stderrPath,
@@ -219,6 +352,18 @@ export function buildCodexArgs(
   }
 
   return ["exec", ...CODEX_EXEC_OPTIONS, ...imageArgs, "--", prompt];
+}
+
+export function codexTimeoutKind(reason: string): CodexWatchdogKind | null {
+  if (reason.startsWith("idle-timeout:")) {
+    return "idle";
+  }
+
+  if (reason.startsWith("max-duration-timeout:")) {
+    return "max-duration";
+  }
+
+  return null;
 }
 
 export function isInterruptedCodexRunResult(

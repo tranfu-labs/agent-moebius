@@ -24,7 +24,8 @@ export const GITHUB_CLI_RETRY_POLICY = {
   maxTimeoutMs: 8_000,
   factor: 2,
 } as const;
-export const CODEX_RUN_MAX_DURATION_MS = 30 * 60 * 1000;
+export const CODEX_RUN_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+export const CODEX_RUN_MAX_DURATION_MS = 120 * 60 * 1000;
 export const CEO_ORCHESTRATION_ACTION_TIMEOUT_MS = 2 * 60 * 1000;
 export const WORKTREE_GIT_TIMEOUT_MS = 2 * 60 * 1000;
 export const ISSUE_MEDIA_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -69,6 +70,7 @@ export const CONFIG_LOG_FIELDS = {
   maxActiveIssues: MAX_ACTIVE_ISSUES,
   codexDriverPoolMaxConcurrent: CODEX_DRIVER_POOL_MAX_CONCURRENT,
   githubCliRetry: GITHUB_CLI_RETRY_POLICY,
+  codexRunIdleTimeoutMs: CODEX_RUN_IDLE_TIMEOUT_MS,
   codexRunMaxDurationMs: CODEX_RUN_MAX_DURATION_MS,
   ceoOrchestrationActionTimeoutMs: CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
   worktreeGitTimeoutMs: WORKTREE_GIT_TIMEOUT_MS,

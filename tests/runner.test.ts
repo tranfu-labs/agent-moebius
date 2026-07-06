@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   CODEX_DRIVER_POOL_MAX_CONCURRENT,
+  CODEX_RUN_IDLE_TIMEOUT_MS,
   CODEX_RUN_MAX_DURATION_MS,
   CEO_ORCHESTRATION_ACTION_TIMEOUT_MS,
 } from "../src/config.js";
@@ -574,25 +575,14 @@ describe("codex driver pool default limit", () => {
     await expect(hangingJob).resolves.toBe(-1);
   });
 
-  it("releases queued driver pool capacity when a Codex driver never settles after watchdog abort", async () => {
+  it("folds a Codex idle-timeout into a failed outcome and releases driver pool capacity", async () => {
     const first = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 67 });
     const second = makeIssueSource({ owner: source.owner, repo: source.repo, issueNumber: 68 });
     const agent = await makeAgentFile("dev", "Dev persona");
-    const firstCodexStarted = deferred<void>();
+    const idleTimeoutReason = `idle-timeout:${String(CODEX_RUN_IDLE_TIMEOUT_MS)}ms`;
     let secondStarted = false;
-    let abortReason: string | null = null;
-    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(
-      async (options) =>
-        new Promise(() => {
-          firstCodexStarted.resolve();
-          options.signal?.addEventListener(
-            "abort",
-            () => {
-              abortReason = String(options.signal?.reason);
-            },
-            { once: true },
-          );
-        }),
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) =>
+      failedCodexRun(options.runDir, idleTimeoutReason),
     );
     const processIssueSourceDependency: RunnerDependencies["processIssueSource"] = async (input) => {
       if (input.source.issueNumber === first.issueNumber) {
@@ -621,30 +611,42 @@ describe("codex driver pool default limit", () => {
       }),
     });
 
-    vi.useFakeTimers();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       await runner.heartbeat(new Date("2026-07-01T00:10:00Z"));
-      await firstCodexStarted.promise;
-      expect(secondStarted).toBe(false);
-
-      await vi.advanceTimersByTimeAsync(CODEX_RUN_MAX_DURATION_MS);
       await runner.dispatcher.idle();
 
-      expect(abortReason).toBe(`codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`);
+      expect(runCodex).toHaveBeenCalledTimes(1);
+      expect(runCodex.mock.calls[0]?.[0]).toMatchObject({
+        idleTimeoutMs: CODEX_RUN_IDLE_TIMEOUT_MS,
+        maxDurationMs: CODEX_RUN_MAX_DURATION_MS,
+      });
       expect(secondStarted).toBe(true);
       expect(runner.persister.state().issues[first.issueKey]).toMatchObject({
         mode: "active",
         updatedAt: "2026-07-01T00:00:00Z",
         failureCount: 1,
-        lastFailureReason: `codex-run-timeout:${String(CODEX_RUN_MAX_DURATION_MS)}ms`,
+        lastFailureReason: idleTimeoutReason,
       });
       expect(runner.persister.state().issues[second.issueKey]).toMatchObject({
         mode: "active",
         updatedAt: "2026-07-01T00:06:00Z",
         failureCount: 0,
       });
+
+      const loggedEvents = logSpy.mock.calls
+        .map((call) => {
+          try {
+            return JSON.parse(String(call[0])) as { event?: string; timeoutMs?: number };
+          } catch {
+            return null;
+          }
+        })
+        .filter((record): record is { event?: string; timeoutMs?: number } => record !== null);
+      const idleTimeoutEvent = loggedEvents.find((record) => record.event === "codex-idle-timeout");
+      expect(idleTimeoutEvent).toMatchObject({ timeoutMs: CODEX_RUN_IDLE_TIMEOUT_MS });
     } finally {
-      vi.useRealTimers();
+      logSpy.mockRestore();
     }
   });
 });
@@ -888,6 +890,15 @@ Dev persona`,
     expect(runCodex).toHaveBeenCalledTimes(2);
     expect(runCodex.mock.calls[0]?.[0].mode).toEqual({ kind: "resume", threadId: "thread-1" });
     expect(runCodex.mock.calls[1]?.[0].mode).toEqual({ kind: "full" });
+    // 看门狗下沉到 codex.run() 内部后，resume 与 fallback 各自独立计时——两次调用都必须携带完整超时参数。
+    expect(runCodex.mock.calls[0]?.[0]).toMatchObject({
+      idleTimeoutMs: CODEX_RUN_IDLE_TIMEOUT_MS,
+      maxDurationMs: CODEX_RUN_MAX_DURATION_MS,
+    });
+    expect(runCodex.mock.calls[1]?.[0]).toMatchObject({
+      idleTimeoutMs: CODEX_RUN_IDLE_TIMEOUT_MS,
+      maxDurationMs: CODEX_RUN_MAX_DURATION_MS,
+    });
   });
 
   it("does not post a stale Codex result when a new comment arrives before posting", async () => {

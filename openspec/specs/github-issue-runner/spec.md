@@ -87,9 +87,13 @@
 - MUST 以「首条 GitHub 评论发布成功」为发布边界：边界之前的任何失败 MUST 折叠为 `failed`（不推进 `updatedAt`，重入安全）；边界之后的失败 MUST NOT 触发重入（避免重复发帖），按已发布收尾并记录日志。role-thread 状态 MUST 在首条评论发布成功之后才保存，保证重入时增量窗口一致。
 - MUST 记录结构化日志：失败重试 `event = "issue-retry-scheduled"`（含 `issueKey`、`failureCount`、失败原因），死信发布成功 `event = "dead-letter-posted"`，死信发布失败 `event = "dead-letter-post-failed"`。
 - MUST 在收尾中断检查（codex 成功后的 conversation snapshot 复核）因 GitHub CLI 抛异常而失败时 fail-open：记录 `event = "agent-run-interrupt-check-failopen"`，视作未观察到新消息并照常执行后续发布流程，MUST NOT 因该次检查失败而丢弃已完成的 codex 产出或返回 `failed`。
-- MUST 为单次本地 codex run 设置总时长看门狗上限 `CODEX_RUN_MAX_DURATION_MS`；超时 MUST 通过既有 `AbortController` 中止该 run；即使 driver promise 永不 settle，runner 也 MUST 先合成 timeout failure 让 issue job settle，记录 `event = "codex-watchdog-timeout"` 并将该次处理判为 `failed`（区别于收到新消息的 `interrupted`），以兜底 in-flight job 永不返回导致的 `skip-inflight` 死锁。
+- MUST 让 `src/codex.ts` 的 `run()` 在每次 codex 运行内部独立计时两类看门狗，兜底 in-flight job 永不返回导致的 `skip-inflight` 死锁：空闲看门狗（主防线）在连续 `CODEX_RUN_IDLE_TIMEOUT_MS`（默认 10 分钟）无 stdout 输出时判定卡死，每收到一块 stdout 数据 MUST 重置空闲倒计时，stderr 输出 MUST NOT 算作活动；总时长硬上限（兜底）在单次 run 总时长达到 `CODEX_RUN_MAX_DURATION_MS`（默认 120 分钟）时终止，无视输出活动，防止持续输出的死循环 agent 永久占住 issue。
+- MUST 让 resume 尝试与 resume 失败后的 fallback 全量重跑各自作为独立 run 计时看门狗，MUST NOT 共享同一个看门狗预算。
+- 看门狗到期 MUST 在 `run()` 内部以分级方式终止子进程（SIGINT → SIGTERM → SIGKILL），MUST NOT 占用用户中断专用的 `AbortController`；返回 `ok: false` 且 reason 分别为 `idle-timeout:<ms>ms` / `max-duration-timeout:<ms>ms`；用户中断（signal abort）与看门狗竞争时先发生者决定 reason，两类超时 reason MUST NOT 以 `interrupted:` 开头。
+- 任一终止路径（看门狗或用户中断）触发后 MUST 保证 `run()` 的返回 promise 在有限时间内 settle：分级终止走完后即使子进程 `close` 事件不触发（如孙进程持有 stdio 管道），也 MUST 强制合成结果返回，避免 driver pool 名额与 issue job 被永久占住。
+- runner MUST 按 reason 前缀分流看门狗日志：`idle-timeout:*` 记 `event = "codex-idle-timeout"`，`max-duration-timeout:*` 记 `event = "codex-watchdog-timeout"`（语义收窄为仅硬上限超时），两者均含 `timeoutMs` 字段并将该次处理判为 `failed`，走既有失败重试链路（区别于收到新消息的 `interrupted`）。
 - MUST 让 `src/codex.ts` adapter 在收到 abort 时终止底层 `codex` 子进程并返回 interrupted failure result，必要时从温和中断升级到强杀，避免 driver pool 依赖永不返回的真实子进程自行释放名额。
-- MUST 把 `GITHUB_CLI_RETRY_POLICY` 与 `CODEX_RUN_MAX_DURATION_MS` 写入启动日志 `CONFIG_LOG_FIELDS`。
+- MUST 把 `GITHUB_CLI_RETRY_POLICY`、`CODEX_RUN_MAX_DURATION_MS` 与 `CODEX_RUN_IDLE_TIMEOUT_MS` 写入启动日志 `CONFIG_LOG_FIELDS`。
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
 - MUST 将 agent 触发决策封装为独立触发器；runner 只消费触发器结果，不把具体触发方式写死在编排流程中。
@@ -1459,21 +1463,44 @@ And 心跳仍能继续扫描 / 派发其他 due issue
 And 失败达预算后，死信评论发布成功时该 issue 折叠为 `dead-lettered`
 And 若预算轮处理恢复成功，则正常 `triggered-success` 且不发布死信
 
-### 场景 50：codex run 超时看门狗判 failed
-Given `dev` agent 的 codex run 运行时长超过 `CODEX_RUN_MAX_DURATION_MS`
-When 看门狗触发并通过 `AbortController` 中止该 run
-Then 系统记录 `event = "codex-watchdog-timeout"`
-And 该次处理判为 `failed`（而非 `interrupted`）
-And 该 issue 从 in-flight 集合释放，避免永久 `skip-inflight`
+### 场景 50：活跃 codex run 不被看门狗误杀
+Given 一次 codex run 持续产出 stdout 事件（任意两次输出间隔小于 `CODEX_RUN_IDLE_TIMEOUT_MS`）
+And 总时长未达 `CODEX_RUN_MAX_DURATION_MS`
+When 运行继续
+Then 两类看门狗均不触发，run 正常结束并按 `ok: true` 处理
 
-### 场景 50.1：Codex 子进程卡死时 watchdog 释放名额
-Given `dev` agent 的 Codex run 子进程不产生最终结果且不自行退出
-And fake driver promise 在收到 abort 后仍永不返回
-When 运行时长超过 `CODEX_RUN_MAX_DURATION_MS`
-Then watchdog abort 当前 Codex run 并记录 `codex-watchdog-timeout`
-And 该 issue processing outcome 为 `failed`
-And issue 从 in-flight 集合移除
-And driver pool 后续 queued job 能继续启动
+### 场景 50.1：静默 codex 进程被空闲看门狗终止
+Given 一次 codex run 先有输出、随后连续 `CODEX_RUN_IDLE_TIMEOUT_MS` 无任何 stdout 数据
+When 空闲倒计时到期
+Then `run()` 分级终止子进程并返回 `ok: false, reason = "idle-timeout:<ms>ms"`
+And runner 记录 `event = "codex-idle-timeout"`（含 `timeoutMs`）
+And 该次处理判为 `failed`，进入 `issue-retry-scheduled` 失败重试链路
+And 该 issue 从 in-flight 集合释放，driver pool 后续 queued job 能继续启动
+
+### 场景 50.2：持续输出的死循环被硬上限兜底
+Given 一次 codex run 持续产出 stdout 但总时长达到 `CODEX_RUN_MAX_DURATION_MS`
+When 硬上限到期
+Then `run()` 返回 `ok: false, reason = "max-duration-timeout:<ms>ms"`
+And runner 记录 `event = "codex-watchdog-timeout"` 并判 `failed`
+
+### 场景 50.3：fallback 重跑拿到独立看门狗预算
+Given resume 尝试运行了任意时长后以非中断原因失败
+When runner 进入 fallback 全量重跑
+Then fallback 的 run 从零开始计时空闲与硬上限看门狗
+And 不继承 resume 尝试已消耗的预算
+
+### 场景 50.4：孙进程持有 stdio 管道时 run 仍有限时间 settle
+Given 看门狗或用户中断已触发分级终止（SIGINT → SIGTERM → SIGKILL）
+And 子进程的孙进程继承并持有 stdio 管道，令 `close` 事件不触发
+When SIGKILL 宽限期走完
+Then `run()` 强制合成结果 settle，reason 与触发来源一致
+And driver pool 名额与 issue job 不被永久占住
+
+### 场景 50.5：用户插话优先于看门狗
+Given 一次 codex run 因 interrupt monitor 观察到新消息而被 abort
+And abort 发生在任一看门狗到期之前
+When run 结束
+Then reason 保持 `interrupted:*`，处理结果为 `interrupted` 而非 `failed`
 
 ### 场景 51：CEO 核实到 PR 冲突
 Given issue 上下文中出现一个完整 PR 链接，该 PR `state=OPEN` 且 `mergeable=CONFLICTING`
