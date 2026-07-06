@@ -210,11 +210,15 @@ export function buildCodexArgs(
   imagePaths: string[] = [],
 ): string[] {
   const imageArgs = imagePaths.flatMap((imagePath) => ["--image", imagePath]);
+  // "--" 必须紧跟在最后一个选项之后：codex exec 的 --image 是贪婪多值选项（<FILE>...），
+  // 会把紧随其后的 prompt 位置参数一并吞成图片路径，导致 codex 认为没有 prompt、
+  // 转而读取空的 stdin 后以 exit 1 退出。"--" 终止选项解析，保证 prompt（以及 resume
+  // 模式下的 threadId）始终落在位置参数上，同时也兼容以 "-" 开头的 prompt。
   if (mode.kind === "resume") {
-    return ["exec", "resume", ...CODEX_EXEC_OPTIONS, ...imageArgs, mode.threadId, prompt];
+    return ["exec", "resume", ...CODEX_EXEC_OPTIONS, ...imageArgs, "--", mode.threadId, prompt];
   }
 
-  return ["exec", ...CODEX_EXEC_OPTIONS, ...imageArgs, prompt];
+  return ["exec", ...CODEX_EXEC_OPTIONS, ...imageArgs, "--", prompt];
 }
 
 export function isInterruptedCodexRunResult(

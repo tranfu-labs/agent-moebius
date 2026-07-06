@@ -106,6 +106,22 @@ describe("extractFinalAssistant", () => {
     );
   });
 
+  // 回归：codex exec 的 --image 是贪婪多值选项，若 prompt 直接跟在 --image 之后会被
+  // 吞成图片路径，codex 转而读空 stdin 并以 exit 1 退出（"No prompt provided via stdin."）。
+  // 必须用 "--" 终止选项解析，且位置参数（threadId / prompt）必须排在所有选项之后。
+  it("terminates option parsing with -- so greedy --image cannot swallow the prompt", () => {
+    const fullArgs = buildCodexArgs("hello", { kind: "full" }, ["/tmp/a.png", "/tmp/b.jpg"]);
+    expect(fullArgs.slice(-2)).toEqual(["--", "hello"]);
+    expect(fullArgs[fullArgs.indexOf("--") - 1]).toBe("/tmp/b.jpg");
+
+    const resumeArgs = buildCodexArgs("delta", { kind: "resume", threadId: "thread-1" }, ["/tmp/a.png"]);
+    expect(resumeArgs.slice(-3)).toEqual(["--", "thread-1", "delta"]);
+    expect(resumeArgs[resumeArgs.indexOf("--") - 1]).toBe("/tmp/a.png");
+
+    // 无图片时同样保留 "--"，兼容以 "-" 开头的 prompt。
+    expect(buildCodexArgs("-starts-with-dash").slice(-2)).toEqual(["--", "-starts-with-dash"]);
+  });
+
   it("returns null when no assistant message is present", () => {
     const lines = [
       JSON.stringify({ type: "message", role: "user", content: "hello" }),
