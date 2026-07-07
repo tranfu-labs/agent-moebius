@@ -2399,6 +2399,10 @@ process.on("uncaughtException", (error) => {
   log({ event: "uncaught-exception", error: formatError(error) });
 });
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+export function isDirectRun(modulePath: string, argvPath: string | undefined): boolean {
+  return argvPath !== undefined && path.basename(modulePath) === "runner.ts" && path.resolve(argvPath) === modulePath;
+}
+
+if (isDirectRun(fileURLToPath(import.meta.url), process.argv[1])) {
   void start();
 }

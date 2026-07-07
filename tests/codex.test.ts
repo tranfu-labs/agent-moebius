@@ -328,7 +328,7 @@ setInterval(() => {}, 1000);
     }
   });
 
-  it("does not fire idle while the process keeps producing output, then max-duration caps it", async () => {
+  it("caps a still-running process with max-duration before the idle deadline", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
@@ -337,9 +337,10 @@ setInterval(() => {}, 1000);
     await fs.writeFile(
       codexPath,
       `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "command_execution" } }) + "\\n");
 setInterval(() => {
   process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "command_execution" } }) + "\\n");
-}, 100);
+}, 50);
 `,
       "utf8",
     );
@@ -352,14 +353,14 @@ setInterval(() => {
         prompt: "hello",
         runDir,
         idleTimeoutMs: 2_000,
-        maxDurationMs: 3_500,
+        maxDurationMs: 800,
         interruptTerminationDelayMs: 10,
         interruptKillDelayMs: 10,
       });
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.reason).toBe("max-duration-timeout:3500ms");
+        expect(result.reason).toBe("max-duration-timeout:800ms");
       }
     } finally {
       process.env.PATH = previousPath;

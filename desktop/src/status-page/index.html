@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent-moebius</title>
+    <link rel="stylesheet" href="./status.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <h1>agent-moebius</h1>
+        <span id="version">v0.1.0</span>
+      </header>
+
+      <section class="section">
+        <h2>运行状态</h2>
+        <div class="row">
+          <span id="runner-dot" class="dot muted"></span>
+          <span class="label">runner</span>
+          <span id="runner-status" class="value">启动中</span>
+        </div>
+        <div id="runner-detail" class="detail hidden"></div>
+        <div class="row">
+          <span id="observer-dot" class="dot muted"></span>
+          <span class="label">observer</span>
+          <span id="observer-status" class="value">启动中</span>
+          <button id="open-observer" type="button">打开观察页</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>环境自检</h2>
+        <div class="row">
+          <span id="codex-dot" class="dot muted"></span>
+          <span class="label">codex CLI</span>
+          <span id="codex-status" class="value">检测中</span>
+        </div>
+        <div class="row">
+          <span id="gh-dot" class="dot muted"></span>
+          <span class="label">gh CLI</span>
+          <span id="gh-status" class="value">检测中</span>
+        </div>
+        <div class="row">
+          <span id="config-dot" class="dot muted"></span>
+          <span class="label">仓库白名单</span>
+          <span id="config-status" class="value">数据目录</span>
+          <button id="open-data-root" type="button">打开数据目录</button>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span id="data-root"></span>
+        <button id="check-updates" type="button">检查更新</button>
+      </footer>
+    </main>
+    <script src="./status.js"></script>
+  </body>
+</html>

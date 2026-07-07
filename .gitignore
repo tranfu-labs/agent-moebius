@@ -24,3 +24,8 @@ node_modules/
 .state/
 config.local.toml
 .loop-logs/
+
+### Desktop build outputs
+desktop/dist/
+desktop/dist-types/
+desktop/release/

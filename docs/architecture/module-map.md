@@ -1,12 +1,21 @@
 # 模块地图
 
-当前仓库已提供 TypeScript 运行时代码；`agents/` 仍只作为 Markdown 素材模块记录，不承担运行时状态。
+当前仓库已提供 TypeScript 运行时代码与可选 Electron 桌面壳；`agents/` 仍只作为 Markdown 素材模块记录，不承担运行时状态。
 
 ## 业务视角六层总览
 
-自上而下：交互层（GitHub 及对外功能，含本地只读观察页）→ 运维层（仓库、issue、Codex 的规模与节奏管理）→ 目标编排层（跨 issue 的目标入账、目标账本、子 issue 派生与验收回流）→ issue 内处理（单个 issue 的处理能力）→ 大模型执行层（Codex）→ 资产及其维护。图中块名按业务能力命名，不与具体文件绑定；文件级职责见下方各模块条目。
+自上而下：交互层（GitHub 及对外功能，含本地只读观察页与桌面状态页）→ 运维层（仓库、issue、Codex 的规模与节奏管理）→ 目标编排层（跨 issue 的目标入账、目标账本、子 issue 派生与验收回流）→ issue 内处理（单个 issue 的处理能力）→ 大模型执行层（Codex）→ 资产及其维护。图中块名按业务能力命名，不与具体文件绑定；文件级职责见下方各模块条目。
 
 ![project-layer-overview](project-layer-overview.svg)
+
+### desktop-shell
+- 职责边界：Electron 桌面壳，把 runner 与 observer 装配成纯本地桌面应用；负责数据根解析、macOS PATH 修复、首启种子拷贝、环境自检、observer 动态端口启动、runner 子进程监管、状态页 IPC、日志落盘与更新检查。壳层只做装配、监管、自检与更新提示，不承载 GitHub issue runner、目标账本、trigger、Codex prompt 或 observer 读模型的业务规则。
+- 入口：`desktop/src/main.ts`；runner 子进程入口 `desktop/src/runner-child.ts`；状态页 `desktop/src/preload.ts` 与 `desktop/src/status-page/*`；纯逻辑模块 `desktop/src/data-root.ts`、`desktop/src/shell-path.ts`、`desktop/src/env-doctor.ts`、`desktop/src/runner-supervisor.ts`、`desktop/src/updater.ts`。
+- 上游：用户启动桌面应用；Electron 主进程生命周期；本机 `codex` CLI 与 `gh` CLI；GitHub Releases 更新通路。
+- 下游：`src/observer/server.ts` 的 `startObserverServer()` 编程入口；`src/runner.ts` 的 `start()` 编程入口（经 `utilityProcess` 子进程）；提交版 `agents/` 与 `config.toml` 种子资源；数据根 `~/.agent-moebius` 或 `AGENT_MOEBIUS_DATA_ROOT` 覆盖目录。
+- 禁止依赖：MUST NOT 给 observer 增加写接口或 runner 控制能力；MUST NOT 复制 runner / observer / ledger 业务规则；MUST NOT 把用户配置或 agent 素材写回应用资源目录；MUST NOT 用 shell 字符串拼接外部输入；MUST NOT 在同一实例内派生多个 runner。
+
+![desktop-shell](desktop-shell.svg)
 
 ### agents
 - 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，或通过 `workspaceAccess: write | read-run` 选择内置 issue worktree capability，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是 CEO 的共享身份素材：发布前 guardrail 路径只读取 persona body 并保持无状态 fail-open，普通 `@ceo` agent 路径执行 frontmatter prescript 并进入 fail-closed 编排。`agents/ceo-scripts/` 存放 CEO 剧本数据，不作为可 mention agent。`agents/secretary.md` 是 CEO 规则维护入口，作为普通 mention agent 运行但只维护当前仓库的 CEO 规则与相关事实源。

@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。
+本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后会使用本机 `codex` / `gh`，在数据根中运行同一套 runner 与只读 observer。
 
 ## 项目结构
 ```text
@@ -44,6 +44,18 @@
 │   ├── agent-prescripts/       # Codex 执行前准备脚本与内置 workspace capability
 │   ├── agent-context-state.ts  # .state/agent-contexts.json 状态读写适配
 │   └── state.ts                # .state/role-threads.json 状态读写适配
+├── desktop/                    # Electron 桌面壳：主进程装配、状态页、runner 子进程监管与打包配置
+│   ├── src/
+│   │   ├── main.ts             # Electron 主进程装配：数据根、PATH、自检、observer、runner、IPC
+│   │   ├── runner-child.ts     # utilityProcess 子进程入口，调用 src/runner.ts 的 start()
+│   │   ├── preload.ts          # 状态页窄 IPC 暴露
+│   │   ├── status-page/        # 桌面状态页静态资源
+│   │   ├── data-root.ts        # 数据根解析与首启种子拷贝计划
+│   │   ├── shell-path.ts       # macOS 登录 shell PATH 读取与合并
+│   │   ├── env-doctor.ts       # codex / gh / gh auth 自检
+│   │   ├── runner-supervisor.ts # runner 子进程状态机与崩溃退避
+│   │   └── updater.ts          # 平台更新策略与版本比较
+│   └── tests/                  # 桌面壳纯模块 Vitest
 ├── tests/                      # Vitest 单元测试
 ├── docs/
 │   ├── adr/                    # 架构决策记录
@@ -69,6 +81,16 @@
   - 只读读取 `config.toml` / `config.local.toml`、`.state/goal-ledger.json`、`.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl`，以目标账本为主视图渲染 goal -> milestone -> task 树、owner phase、人工闸口、显式 run evidence 与 unlinked local runs，并保留 legacy issue/run records。
   - 账本缺失、损坏或读取超时时只让 ledger tree 显示空态 / 诊断，legacy issue/run records 继续可见；同一 owner 无 active phase 显示 `no active phase`，多个 active phase 显示 owner 级 ledger error，不推断全局 active。
   - 不调用 GitHub、Codex 或 artifact publisher，不写 `.state` / manifest / release / worktree 文件；不提供确认按钮、写接口、file watcher 或 runner 操作能力；观察页进程崩溃或关闭不影响 runner。
+- 运行桌面应用开发态：`pnpm desktop`
+  - 使用 Electron 壳启动状态页，进程内以动态端口启动只读 observer，并以 `utilityProcess` 派生 runner 子进程。
+  - 开发态默认数据根为仓库根；打包态默认数据根为 `~/.agent-moebius`；两种形态都可用 `AGENT_MOEBIUS_DATA_ROOT` 覆盖。
+  - 首启会把提交版 `agents/` 与示例 `config.toml` 种子拷贝到数据根，已存在的文件一律不覆盖；用户本机仍通过数据根下被忽略的 `config.local.toml` 配置监听仓库。
+  - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`，避免打包态工作区落到应用包附近。
+  - 同一台机器上，终端形态与桌面形态不得同时监听相同 GitHub repository；如确需切换形态，优先让终端形态也设置同一个 `AGENT_MOEBIUS_DATA_ROOT`，共享 `.state/` 与 `config.local.toml`。
+- 构建桌面主进程/状态页：`pnpm --filter @agent-moebius/desktop build`
+- 打包桌面应用：`pnpm --filter @agent-moebius/desktop dist`
+  - 三平台产物通过 electron-builder 生成：macOS dmg/zip、Windows nsis、Linux AppImage。
+  - `desktop-v*` tag 会触发 `.github/workflows/release-desktop.yml` 构建并上传 GitHub Releases；Windows/Linux 更新走 electron-updater，macOS 无签名证书期间检查更新只跳转下载页。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
@@ -77,14 +99,14 @@
 - TypeScript 使用 `strict`，ESM + `moduleResolution: NodeNext`，相对导入运行时代码时使用 `.js` 后缀。
 - 运行入口使用 `tsx src/runner.ts`；自动化测试使用 Vitest。
 - GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
-- 当前 repository 白名单先读取提交版 `config.toml` 示例，再由项目根目录 `config.local.toml` 覆盖；`config.local.toml` 为本地专用且被 `.gitignore` 忽略。默认白名单为空。
+- 当前 repository 白名单先读取数据根下的提交版 `config.toml` 示例，再由同一数据根下的 `config.local.toml` 覆盖；未设置 `AGENT_MOEBIUS_DATA_ROOT` 时数据根等于项目根目录，终端形态行为与原来一致。`config.local.toml` 为本地专用且被 `.gitignore` 忽略。默认白名单为空。
 - `config.local.toml` 示例：
   ```toml
   [[watchRepositories]]
   owner = "tranfu-labs"
   repo = "tranfu-agents-app"
   ```
-- 闲时扫描间隔、忙时 issue 轮询间隔、运行中 agent 中断检测轮询间隔、扫描窗口、本地 agent Markdown 目录、role thread / agent context / 目标账本状态文件路径、issue 媒体大小限制、issue worktree git 超时、输出 artifact release tag 集中在 `src/config.ts`。
+- 闲时扫描间隔、忙时 issue 轮询间隔、运行中 agent 中断检测轮询间隔、扫描窗口、本地 agent Markdown 目录、数据根覆盖、role thread / agent context / 目标账本状态文件路径、issue 媒体大小限制、issue worktree git 超时、输出 artifact release tag 集中在 `src/config.ts`。
 - GitHub response intake 默认闲时每 5 分钟扫描每个白名单 repo 的最近 20 个 open issues；issue 成功触发响应后进入 active；处理失败时不推进 intake `updatedAt`，而是记录 `failureCount` / `lastFailureReason`、保持 active 并按 1 分钟轮询重试，连续失败达 `FAILURE_RETRY_LIMIT = 5` 后尝试发布死信评论，死信发布成功才推进 `updatedAt` 并降回 idle；连续 5 次 active poll 无变化也会降回 idle；active poll / idle changed-issue 拉到 `state = CLOSED` 时从本地 intake state 移除，不触发 Codex / 评论。active issue 最新外部 user comment 无合法 mention 时，runner 会在 no-trigger 分支对该 comment id 执行一次 CEO 式轻量兜底路由判定；当前 processing cycle 正在处理的 issue body 若无合法 mention 且呈明显目标形状，也可用 `issue-body:<digest>` 有界 key 执行一次兜底路由，intake state 不保存完整 body/comment。目标明确时可 append 具体角色，目标不清或需要编排裁决时可 append `@ceo`，无意图时 no_action；判定结果记录为 `no_action` / `append` / `fail_open`，同一 comment id 或 issue-body digest key 不重复判定。若兜底决定 append 但 handoff 评论发布失败或超时，本轮返回 `failed`，不推进 `updatedAt`，也不保存成功 append route decision。兜底路由同样覆盖账本 child issue 上 agent 自身的最新无 mention 评论：账本已有该 child 的 passed 验收 fact 时不调 codex、确定性记 `no_action`（reason `ledger-task-closed`）；未闭环时带 ledger task 上下文交 CEO 判定，append 语义与防重、fail-open 规则同 user 路径；非账本 child issue 的 agent 评论不触发。
 - runner 每分钟一轮**心跳**：`src/scanner.ts` 扫描 due 仓库找 changed issue，加上 due 的 active issue 转成 issue processing jobs，批内按 `issueKey` 去重后交给 `src/issue-dispatcher.ts` 派发，**心跳从不等待 job 执行**（防重入只覆盖秒级的扫描派发阶段）；`createDefaultRunnerDependencies()` 通过 `createDefaultCodexDriverPool()` 注入默认并发上限 `CODEX_DRIVER_POOL_MAX_CONCURRENT = 5`，超额 job 排队等前面空槽；`src/driver-pool.ts` 抽象本身仍允许 `undefined` / `null` 表示不限，便于测试注入 fake pool。调度业务逻辑仍集中在 `github-response-intake.ts`，不得引入 Codex / GitHub adapter 或 driver pool 依赖。
 - `src/issue-dispatcher.ts` 维护跨心跳的 in-flight issue 集合：在跑 issue 重复派发记 `skip-inflight` 跳过（同 issue 严格串行、不同 issue 互不阻塞，长跑 codex 只占驱动池 1 个名额）；每个 job **完成即**把结果以纯函数折叠进 `src/state-persister.ts`（intake state 单写者，写串行化 + 合并 + 原子落盘，写失败记日志不中断），并执行 active 上限策略（豁免在跑 issue）。job 运行期间该 issue 的 intake state 不推进，中途变化由后续心跳依据折叠后的状态重新推导，不排队重放。
@@ -115,6 +137,7 @@
 - 目标账本状态保存在被忽略的 `.state/goal-ledger.json`，记录 goal / milestone / task / phase、质量基准、验收语句、依赖、provenance、父子 issue reference（含有界 note）、run manifest reference、验收 fact、集成验收 event 与阶段归档引用；`src/goal-ledger.ts` 只做纯业务 schema、部分入账、goal-intake pending proposal / confirm helpers、ready gate、阶段切换、当前阶段上下文投影、join 评估与归档引用回查，`src/goal-ledger-state.ts` 负责原子读写、entry-level merge、同文件写串行化、可注入 IO 与 timeout / AbortSignal 包装。CEO 编排可以通过 runner 显式读取当前 projection 并写入 task child issue reference / orchestration key；验收 pre-pass 可以通过 runner 显式写入 bounded acceptance provenance 和 integration event；目标账本自身不得调用 GitHub、Codex、shell，不得成为 runner 心跳、observer UI、worktree 或 fan-out 拓扑的隐式入口。
 - Codex stdout/stderr 运行目录格式为 `/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/`；`<sequence>` 是 runner 进程内递增后缀，用来避免并发 runs 在同一 timestamp + count 下复用同一目录。本轮下载的输入媒体位于 `input-media/`，准备发布的输出产物位于 `output-artifacts/`。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
+- 默认数据根为项目根目录；可通过 `AGENT_MOEBIUS_DATA_ROOT` 覆盖 `config.toml`、`config.local.toml` 与 `agents/` 的解析位置。桌面打包态默认数据根为 `~/.agent-moebius`，开发态默认仓库根。
 - `github-response-intake.ts`、`goal-ledger.ts`、`local-config.ts`、`conversation.ts`、`conversation-interrupt.ts`、`issue-media.ts` 与 `ceo-orchestration.ts` 只做业务数据操作；`ceo-scripts.ts` 只读剧本数据并校验 workflow；`src/triggers/` 封装 mention 触发规则；`driver-pool.ts` 只承载 driver job 并发策略；`scanner.ts` 只做发现、`issue-dispatcher.ts` 只做派发与折叠、`state-persister.ts` 只做单写者状态持有与落盘；GitHub、Codex CLI、媒体 IO、状态文件读写分别由 `github.ts`、`codex.ts`、`media-assets.ts`、`state.ts`、`agent-context-state.ts`、`github-intake-state.ts`、`goal-ledger-state.ts` 适配；`runner.ts` 只做心跳编排、依赖装配与 issue-processing 主顺序，`src/runner/*` 只承载 runner 主链路内部的高内聚副作用协调（如验收 pre-pass、外部路由、Codex execution reaction），仍属于 GitHub issue runner 边界，不得成为新的业务事实源；`src/observer/` 是本地只读旁路，只读消费配置、目标账本、`.state` 与 run manifest，禁止被 runner 主链路依赖。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 

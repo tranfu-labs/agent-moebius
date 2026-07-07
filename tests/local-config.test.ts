@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { resolveRuntimePaths } from "../src/config.js";
 import { DEFAULT_LOCAL_CONFIG, loadLocalConfig, loadMergedLocalConfig, parseLocalConfig } from "../src/local-config.js";
 
 describe("local config", () => {
@@ -96,6 +97,31 @@ repo = "local-repo"
 
     expect(loadMergedLocalConfig({ configPath, localConfigPath })).toEqual({
       watchRepositories: [{ owner: "tranfu-labs", repo: "local-repo" }],
+    });
+  });
+
+  it("resolves runtime config and agents paths from the data root override", () => {
+    expect(
+      resolveRuntimePaths({
+        projectRoot: "/repo/agent-moebius",
+        env: { AGENT_MOEBIUS_DATA_ROOT: "/Users/test/.agent-moebius" },
+      }),
+    ).toEqual({
+      projectRoot: "/repo/agent-moebius",
+      dataRoot: "/Users/test/.agent-moebius",
+      configPath: "/Users/test/.agent-moebius/config.toml",
+      localConfigPath: "/Users/test/.agent-moebius/config.local.toml",
+      agentsDir: "/Users/test/.agent-moebius/agents",
+    });
+  });
+
+  it("keeps runtime paths on the project root when the data root override is absent", () => {
+    expect(resolveRuntimePaths({ projectRoot: "/repo/agent-moebius", env: {} })).toEqual({
+      projectRoot: "/repo/agent-moebius",
+      dataRoot: "/repo/agent-moebius",
+      configPath: "/repo/agent-moebius/config.toml",
+      localConfigPath: "/repo/agent-moebius/config.local.toml",
+      agentsDir: "/repo/agent-moebius/agents",
     });
   });
 });

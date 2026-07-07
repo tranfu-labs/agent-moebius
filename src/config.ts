@@ -2,9 +2,40 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadMergedLocalConfig } from "./local-config.js";
 
-const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-export const CONFIG_PATH = path.join(PROJECT_ROOT, "config.toml");
-export const LOCAL_CONFIG_PATH = path.join(PROJECT_ROOT, "config.local.toml");
+export const AGENT_MOEBIUS_DATA_ROOT_ENV = "AGENT_MOEBIUS_DATA_ROOT";
+
+export interface RuntimePathResolutionInput {
+  env?: NodeJS.ProcessEnv;
+  projectRoot?: string;
+}
+
+export interface RuntimePaths {
+  projectRoot: string;
+  dataRoot: string;
+  configPath: string;
+  localConfigPath: string;
+  agentsDir: string;
+}
+
+export function resolveRuntimePaths(input: RuntimePathResolutionInput = {}): RuntimePaths {
+  const projectRoot = path.resolve(input.projectRoot ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
+  const dataRootOverride = input.env?.[AGENT_MOEBIUS_DATA_ROOT_ENV]?.trim();
+  const dataRoot = path.resolve(dataRootOverride && dataRootOverride.length > 0 ? dataRootOverride : projectRoot);
+
+  return {
+    projectRoot,
+    dataRoot,
+    configPath: path.join(dataRoot, "config.toml"),
+    localConfigPath: path.join(dataRoot, "config.local.toml"),
+    agentsDir: path.join(dataRoot, "agents"),
+  };
+}
+
+const RUNTIME_PATHS = resolveRuntimePaths({ env: process.env });
+export const PROJECT_ROOT = RUNTIME_PATHS.projectRoot;
+export const DATA_ROOT = RUNTIME_PATHS.dataRoot;
+export const CONFIG_PATH = RUNTIME_PATHS.configPath;
+export const LOCAL_CONFIG_PATH = RUNTIME_PATHS.localConfigPath;
 const LOCAL_CONFIG = loadMergedLocalConfig({ configPath: CONFIG_PATH, localConfigPath: LOCAL_CONFIG_PATH });
 
 export const WATCH_REPOSITORIES = LOCAL_CONFIG.watchRepositories;
@@ -33,7 +64,7 @@ export const ISSUE_MEDIA_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 export const OUTPUT_ARTIFACT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const OUTPUT_ARTIFACT_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 export const OUTPUT_ARTIFACT_RELEASE_TAG = "agent-moebius-artifacts";
-export const AGENTS_DIR = "agents";
+export const AGENTS_DIR = RUNTIME_PATHS.agentsDir;
 export const TMP_ROOT = "/tmp";
 export const ROLE_THREADS_STATE_PATH = ".state/role-threads.json";
 export const AGENT_CONTEXTS_STATE_PATH = ".state/agent-contexts.json";
@@ -59,6 +90,7 @@ export const CODEX_EXEC_OPTIONS = [
 export const CONFIG_LOG_FIELDS = {
   configPath: CONFIG_PATH,
   localConfigPath: LOCAL_CONFIG_PATH,
+  dataRoot: DATA_ROOT,
   watchedRepositories: WATCH_REPOSITORIES,
   tickIntervalMs: TICK_INTERVAL_MS,
   idleRepositoryScanIntervalMs: IDLE_REPOSITORY_SCAN_INTERVAL_MS,
