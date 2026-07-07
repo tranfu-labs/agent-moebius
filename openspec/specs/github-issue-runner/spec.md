@@ -45,6 +45,15 @@
 - MUST 在兜底路由判定失败、超时、非法 JSON、非法 append body 或 persona 加载失败时 fail-open：不发布评论，保持现有 no-trigger 语义，并记录 `outcome = fail_open`，避免同一 route key 重复消耗成本。
 - MUST 在兜底路由发布 append 成功后，让该 route comment 成为下一轮 active poll 的最新消息，并由普通 mention trigger 在下一轮选择目标 agent；本轮 MUST NOT 直接运行 append 中 mention 的目标 agent。
 - MUST 将目标 handoff append 的可见发布作为可推进边界：若兜底路由决定 `append` 但发布 route comment 失败或超时，runner MUST 返回 `failed`，MUST NOT 推进 intake `updatedAt`，MUST NOT 保存成功 append route decision，并让后续 retry / dead-letter 仍能留下可见结果。
+- MUST keep `src/runner.ts` as the heartbeat and issue-processing composition entry while allowing high-cohesion side-effect coordination submodules under `src/runner/`.
+- MUST keep runner submodules business-named by capability, not generic `utils` / `helpers` buckets.
+- MUST NOT let runner submodules become new pure-business fact sources: acceptance semantics remain in `goal-ledger.ts`, orchestration output parsing remains in `ceo-orchestration.ts`, mention parsing remains in `conversation.ts`, and route judgement remains in `agents/ceo.md` / `format-ceo.ts`.
+- MUST let runner submodules receive explicit injected dependencies for GitHub, Codex, ledger state, artifact publishing, and logging; they MUST NOT shell out directly or construct shell commands from issue content.
+- MUST NOT introduce a dependency from pure modules (`goal-ledger`, `conversation`, `github-response-intake`, `driver-pool`, trigger modules, observer modules) back into `src/runner/` submodules.
+- MUST keep runner submodule calls bounded by existing timeout / watchdog contracts when they wait for GitHub, Codex, ledger state, formatter, artifact publishing, reaction, or comment publish dependencies; a single never-resolving dependency MUST NOT keep an issue permanently in-flight.
+- MUST keep the S1 visible-result boundary after runner coordination code is split: before the first visible GitHub comment is published, failures in acceptance pre-pass, external route append, ledger writes, repair child create / lookup, artifact publishing, or guardrail formatting MUST NOT advance role-thread state or the processed intake cursor as if the user instruction had been handled.
+- MUST keep V1 failure visibility after runner coordination code is split: blocked reports, acceptance format reminders, route append failures, repair child failures, and dead-letter-like visible failure paths MUST either leave a visible GitHub trace or return a failed/retryable outcome; publishing that visible trace failing MUST NOT be silently converted into success.
+- MUST NOT record successful external route decisions, acceptance facts, integration repair references, or roundtable recovery records when the corresponding visible comment or persistent ledger write failed.
 - MUST 在处理失败且折叠后 `failureCount` 将达到 `FAILURE_RETRY_LIMIT` 时，于同轮先完成本次真实处理尝试、确认仍失败后，向该 issue 发布死信评论；死信评论发布成功 MUST 折叠为 `dead-lettered`（推进 `updatedAt`、`mode = idle`、清零计数、`nextPollAt = null`），发布失败 MUST 保持 `failed` 并在后续轮次继续「先处理、后死信」。MUST NOT 在本轮处理成功时发布死信。
 - MUST 让死信评论以系统身份发布、不包含任何 agent mention、携带机器可识别标记 `<!-- agent-moebius:dead-letter -->`，并包含目标 agent 名、`lastFailureReason`、累计失败次数与恢复提示（在 issue 发表任意新评论即可重新触发）。
 - MUST 在死信评论被后续扫描读到时按 `no-trigger` 吸收，MUST NOT 形成自触发循环。
@@ -867,6 +876,15 @@ Then the outcome is `failed`
 And intake `updatedAt` is not advanced
 And no successful append route decision is recorded
 And later retry or dead-letter handling remains available
+
+### 场景 22.7b：GitHub response intake — external route append 发布失败时可重试
+Given 最新 active user comment has no valid agent mention
+And external route formatter returns an append decision for that comment
+And posting the route append comment fails before a visible result exists
+When runner processes the issue
+Then the processing result is failed or retryable
+And no successful route decision is recorded for that comment id
+And a later active poll can retry the same comment id
 
 ### 场景 22.8：GitHub response intake — 兜底路由 fail-open 记录失败并保持现状
 Given active issue 最新外部无 mention comment 尚未判定
@@ -1980,6 +1998,7 @@ And 不存在 T7 observer UI 写入或展示改动
 
 ## T4 acceptance route and integration acceptance point
 - MUST run an acceptance pre-pass before normal mention trigger handling.
+- MUST stop normal mention trigger handling when the acceptance pre-pass returns a handled outcome.
 - MUST recognize child task pass only from a real acceptance role comment that covers every formal child acceptance statement and states overall pass.
 - MUST NOT treat `code-verified`, issue close, or ledger child refs alone as acceptance pass.
 - MUST write child acceptance provenance to the ledger before consuming any handoff mention in the same comment.
@@ -1992,6 +2011,7 @@ And 不存在 T7 observer UI 写入或展示改动
 - MUST dedupe repair child creation by hidden orchestration key and recover existing issues before creating.
 - MUST bound ledger IO, parent issue fetch/post, hidden key lookup, and child issue creation.
 - MUST return failed and not advance intake `updatedAt` when required ledger save or parent request publish fails before a visible result.
+- MUST return failed or visibly fail closed when repair child create / lookup fails; it MUST NOT save a repair child reference for an issue that was not created or uniquely recovered.
 - MUST leave a visible current-issue or dead-letter trail when a child ref exists but parent issue ref cannot be resolved.
 - MUST log a visible event and post one bounded CEO format reminder (mentioning the reviewer role, capped at 2 reminders per issue via a hidden reminder marker) when an acceptance reviewer comment states an overall pass conclusion but the per-statement walkthrough cannot be parsed; beyond the cap the runner MUST log and fall through without posting.
 - MUST verify the GitHub state of `missing` pending child issues when the integration join evaluates to waiting; when any missing child issue is closed, the runner MUST post one blocked report on the parent issue (deduped by hidden integration-blocked key) instead of waiting silently, and MUST fail open (keep waiting, log only) when the state query fails.
@@ -2074,6 +2094,23 @@ Given a reviewer walkthrough uses lines like `- 原验收 1 通过：…` or `| 
 And the comment states an overall pass conclusion
 When the acceptance pre-pass parses the walkthrough
 Then each statement line is recognized and the passed acceptance fact is recorded
+
+### 场景 T4.12：acceptance pre-pass ledger 写入永不返回仍有界 settle
+Given 最新 comment 来自验收角色
+And acceptance pre-pass attempts to write a child task acceptance fact
+And the injected ledger write dependency never resolves
+When runner processes the issue
+Then the operation settles within the existing orchestration timeout or watchdog budget
+And the issue job is not permanently in-flight
+And the processed intake cursor is not advanced as successfully handled
+
+### 场景 T4.13：repair child create / lookup 失败不得保存虚假引用
+Given parent integration acceptance failed
+And runner attempts to create or recover a repair child issue
+And the injected create / lookup dependency fails
+When runner handles the repair path
+Then no repair child reference is written to the ledger for an issue that was not created or uniquely recovered
+And any failure comment publish failure keeps the processing failed or retryable
 
 ## T8 goal-intake runtime
 - MUST support a new required CEO script `goal-intake` whose action is `goal_intake`.
