@@ -1,0 +1,64 @@
+{
+  "name": "@agent-moebius/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "pnpm build && electron .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dist": "pnpm build && electron-builder"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  },
+  "build": {
+    "appId": "io.tranfu.agent-moebius",
+    "productName": "agent-moebius",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../agents",
+        "to": "seed/agents"
+      },
+      {
+        "from": "../config.toml",
+        "to": "seed/config.toml"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "tranfu-labs",
+        "repo": "agent-moebius"
+      }
+    ]
+  }
+}

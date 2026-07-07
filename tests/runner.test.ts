@@ -20,6 +20,7 @@ import {
 import type { CeoScript } from "../src/ceo-scripts.js";
 import { parseAgentMentions } from "../src/conversation.js";
 import {
+  isDirectRun,
   createDefaultCodexDriverPool,
   formatDeadLetterComment,
   createRunner,
@@ -661,6 +662,13 @@ describe("makeRunDir", () => {
     expect(first).not.toBe(second);
     expect(first).toMatch(/-c1-r\d+$/);
     expect(second).toMatch(/-c1-r\d+$/);
+  });
+});
+
+describe("runner direct-run detection", () => {
+  it("does not treat bundled runner-child output as src/runner.ts direct execution", () => {
+    expect(isDirectRun("/repo/src/runner.ts", "/repo/src/runner.ts")).toBe(true);
+    expect(isDirectRun("/repo/desktop/dist/runner-child.js", "/repo/desktop/dist/runner-child.js")).toBe(false);
   });
 });
 

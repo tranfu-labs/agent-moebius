@@ -7,8 +7,9 @@
   "scripts": {
     "start": "tsx src/runner.ts",
     "observer": "tsx src/observer/server.ts",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "desktop": "pnpm --filter @agent-moebius/desktop dev",
+    "test": "vitest run && pnpm --filter @agent-moebius/desktop test",
+    "typecheck": "tsc --noEmit && pnpm --filter @agent-moebius/desktop typecheck"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { AGENTS_DIR, GOAL_LEDGER_STATE_PATH } from "../config.js";
+import { AGENTS_DIR, DATA_ROOT, GOAL_LEDGER_STATE_PATH } from "../config.js";
 import { formatCeoScriptsForPrompt, loadCeoScripts } from "../ceo-scripts.js";
 import {
   projectActivePhaseContext,
@@ -11,7 +11,6 @@ import {
 } from "../goal-ledger.js";
 import { loadGoalLedgerState } from "../goal-ledger-state.js";
 import type { IssueSource } from "../issue-source.js";
-import { resolveCurrentRepoRoot } from "./current-repo-workspace.js";
 import type { AgentPreScriptInput, AgentPreScriptResult } from "./types.js";
 
 export const CEO_LEDGER_CONTEXT_PRE_SCRIPT_PATH = "src/agent-prescripts/ceo-ledger-context.ts";
@@ -36,10 +35,9 @@ export async function runCeoLedgerContextPreScript(
   input: AgentPreScriptInput,
 ): Promise<AgentPreScriptResult> {
   try {
-    const repoRoot = resolveCurrentRepoRoot();
-    const ledgerPath = path.join(repoRoot, GOAL_LEDGER_STATE_PATH);
+    const ledgerPath = path.join(DATA_ROOT, GOAL_LEDGER_STATE_PATH);
     const ledger = await loadGoalLedgerState(ledgerPath);
-    const scripts = await loadCeoScripts({ agentsDir: path.join(repoRoot, AGENTS_DIR), required: true });
+    const scripts = await loadCeoScripts({ agentsDir: AGENTS_DIR, required: true });
     const context = resolveCeoLedgerPromptContext({
       ledger,
       source: input.issueSource,
@@ -48,7 +46,7 @@ export async function runCeoLedgerContextPreScript(
 
     return {
       ok: true,
-      codexCwd: repoRoot,
+      codexCwd: DATA_ROOT,
       promptContext: context.promptContext,
     };
   } catch (error) {

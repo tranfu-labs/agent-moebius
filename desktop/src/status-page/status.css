@@ -1,0 +1,178 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f6f7f8;
+  color: #172026;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+.shell {
+  width: min(680px, calc(100vw - 32px));
+  border: 1px solid #cfd7dd;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(23, 32, 38, 0.12);
+}
+
+.topbar,
+.footer {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+}
+
+.topbar {
+  border-bottom: 1px solid #dce3e8;
+}
+
+.footer {
+  border-top: 1px solid #dce3e8;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 20px;
+}
+
+h2 {
+  font-size: 15px;
+  margin-bottom: 14px;
+}
+
+.section {
+  padding: 22px 24px;
+}
+
+.section + .section {
+  border-top: 1px solid #eef2f4;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 14px minmax(116px, 150px) 1fr auto;
+  align-items: center;
+  min-height: 38px;
+  gap: 12px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #8a949c;
+}
+
+.dot.ok {
+  background: #11885a;
+}
+
+.dot.warn {
+  background: #b7791f;
+}
+
+.dot.error {
+  background: #c2413a;
+}
+
+.dot.muted {
+  background: #8a949c;
+}
+
+.label {
+  color: #45525b;
+  font-size: 14px;
+}
+
+.value,
+#version,
+#data-root {
+  color: #172026;
+  font-size: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  margin: 0 0 6px 38px;
+  color: #5b6872;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.hidden {
+  display: none;
+}
+
+button {
+  min-height: 32px;
+  border: 1px solid #b8c4cc;
+  border-radius: 6px;
+  background: #f9fbfc;
+  color: #172026;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+}
+
+button:hover {
+  background: #edf3f6;
+}
+
+button:disabled {
+  opacity: 0.45;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    background: #15191c;
+    color: #eef2f4;
+  }
+
+  .shell {
+    background: #1f2529;
+    border-color: #3a444b;
+    box-shadow: none;
+  }
+
+  .topbar,
+  .footer,
+  .section + .section {
+    border-color: #303a41;
+  }
+
+  .label,
+  .detail {
+    color: #a9b5bd;
+  }
+
+  .value,
+  #version,
+  #data-root {
+    color: #eef2f4;
+  }
+
+  button {
+    background: #273038;
+    border-color: #4a5962;
+    color: #eef2f4;
+  }
+
+  button:hover {
+    background: #33404a;
+  }
+}
