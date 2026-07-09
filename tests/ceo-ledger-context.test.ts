@@ -6,17 +6,21 @@ import { makeIssueSource } from "../src/issue-source.js";
 const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 77 });
 
 describe("CEO ledger context prescript", () => {
-  it("returns intake bootstrap context for a loadable issue with no active ledger owner", () => {
+  it("returns bootstrap context that allows default plan-chain routing for a loadable issue with no active ledger owner", () => {
     const context = resolveCeoLedgerPromptContext({
       ledger: createEmptyGoalLedgerState(),
       source,
-      scriptsPrompt: "goal-intake script",
+      scriptsPrompt: "default-plan-chain script\ngoal-intake script",
     });
 
     expect(context.mode).toBe("intakeBootstrap");
     expect(context.visibleTasks).toEqual([]);
     expect(context.promptContext).toContain("Mode: intake bootstrap");
+    expect(context.promptContext).toContain("default-plan-chain");
+    expect(context.promptContext).toContain("ordinary target");
     expect(context.promptContext).toContain("goal_intake.propose");
+    expect(context.promptContext).toContain("Do not emit spawn_child_issues or roundtable");
+    expect(context.promptContext).not.toContain("You may only use the goal-intake workflow");
   });
 
   it("keeps malformed multiple active owner candidates fail-closed", () => {
