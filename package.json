@@ -8,7 +8,7 @@
     "start": "tsx src/runner.ts",
     "observer": "tsx src/observer/server.ts",
     "desktop": "pnpm --filter @agent-moebius/desktop dev",
-    "test": "vitest run && pnpm --filter @agent-moebius/desktop test && pnpm --filter @agent-moebius/console-ui test",
+    "test": "node scripts/test.mjs",
     "typecheck": "tsc --noEmit && pnpm --filter @agent-moebius/desktop typecheck && pnpm --filter @agent-moebius/console-ui typecheck"
   },
   "devDependencies": {

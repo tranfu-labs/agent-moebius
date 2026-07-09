@@ -31,13 +31,15 @@
 
 > 排序为风险优先 + 逐级抬升质量基准。每个任务是一条能被角色端到端验收的垂直切片，不是水平工程层。
 
-### - [ ] T1 · CEO 默认走方案链、拆分只在明确表达时触发（`数据正确级`）
+### - [x] T1 · CEO 默认走方案链、拆分只在明确表达时触发（`数据正确级`）
 
 独立可先落的垂直切片（跑在当前 GitHub 运行时，与后续本地化正交）。**问题**：goal-intake 拆分不稳定；且「默认拆分」是机制层硬约束——`src/agent-prescripts/ceo-ledger-context.ts` 在 intake bootstrap（无 active phase）时注入「只能用 goal-intake 工作流」，TS 校验拒绝非 goal-intake 输出，**只改 `agents/ceo.md` 改不动这条闸**。**目标**：一个目标形状的新会话默认走 `ceo + qa + dev-manager + dev` 方案链（dev 出方案 → qa 审 → 验收），goal-intake 拆分只在用户**明确表达拆分 / 编排意图**时触发。
 
 范围（碰机制，非纯 md）：放宽 `ceo-ledger-context.ts` 的 bootstrap 判据（无明确拆分意图时允许路由到方案链）+ 收紧 `agents/ceo.md` 兜底路由 / 目标入账判据 + `goal-ledger` / `github-issue-runner` spec-delta + 测试。
 
 验收场景（细化时保留）：在 issue 里只写目标形状「我想做一个 X」（无明确拆分意图）→ 应看到 CEO 路由到方案链、不进 goal-intake 拆子 issue；在 issue 里明确写「把这个拆成多个任务并行做」→ 才应看到 goal-intake 采访 / 提案 / 拆分。
+
+验收证据（2026-07-09）：实现引入 `default-plan-chain` CEO 剧本，放宽 `src/agent-prescripts/ceo-ledger-context.ts` 的 bootstrap 判据，并收紧 `agents/ceo.md` 中普通目标与明确拆分意图区分。product-manager 已按 5 条正式验收语句逐条验收通过；复跑 `pnpm test -- tests/runner.test.ts tests/ceo-ledger-context.test.ts tests/ceo-scripts.test.ts tests/ceo-orchestration.test.ts` 退出码 0（4 个文件、110 个测试通过），补充复核 `pnpm test` 退出码 0（根 33 个文件、381 个测试；desktop 5 个文件、15 个测试；console-ui 2 个文件、6 个测试）、`pnpm typecheck` 退出码 0、`git diff --check` 退出码 0。runner 级 spy 已覆盖普通目标 route handoff 后不创建 child issue、不写 goal ledger、无 mention 普通目标两轮 fallback、明确拆分路径只写 pending ledger 且不强制 `default-plan-chain`。
 
 ### - [x] T2 · 本地端到端最小闭环（风险优先 spike，`demo 级`）
 

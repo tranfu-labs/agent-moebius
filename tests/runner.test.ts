@@ -1491,6 +1491,154 @@ CEO persona`,
     expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
   });
 
+  it("routes a plain CEO bootstrap goal to the default plan chain without child issue or ledger writes", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const ledger = emptyLedgerState();
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 101,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+    }));
+    const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async () => {});
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 我想做一个 X"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        createIssue,
+        postComment,
+        saveGoalLedgerEntry,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) => successfulCodexRunWithFinalText(options.runDir, makeDefaultPlanChainRouteFinalText()),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(postComment).toHaveBeenCalledTimes(1);
+    expect(postComment.mock.calls[0]?.[1]).toContain("@dev");
+    expect(postComment.mock.calls[0]?.[1]).toContain("OpenSpec");
+    expect(createIssue).not.toHaveBeenCalled();
+    expect(saveGoalLedgerEntry).not.toHaveBeenCalled();
+    expect(ledger).toEqual(emptyLedgerState());
+  });
+
+  it("keeps no-mention plain goals as fallback-to-CEO then default plan-chain route without goal-intake side effects", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const ledger = emptyLedgerState();
+    const routePostComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const formatExternalCommentRoute = vi.fn<ProcessIssueSourceDependencies["formatExternalCommentRoute"]>(async () => ({
+      action: "APPEND",
+      body: "@ceo 请裁决入口。",
+      targetRole: "ceo",
+      reason: "appended",
+    }));
+    const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) =>
+      successfulCodexRunWithFinalText(options.runDir, makeDefaultPlanChainRouteFinalText()),
+    );
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 101,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+    }));
+    const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async () => {});
+
+    const firstOutcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("我想做一个 X"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        formatExternalCommentRoute,
+        postComment: routePostComment,
+        runCodex,
+        createIssue,
+        saveGoalLedgerEntry,
+      }),
+    );
+
+    expect(firstOutcome).toMatchObject({
+      kind: "external-comment-fallback-route",
+      result: "triggered-success",
+      route: {
+        outcome: "append",
+        targetRole: "ceo",
+      },
+    });
+    expect(routePostComment).toHaveBeenCalledTimes(1);
+    expect(routePostComment.mock.calls[0]?.[1]).toContain("@ceo");
+    expect(runCodex).not.toHaveBeenCalled();
+    expect(createIssue).not.toHaveBeenCalled();
+    expect(saveGoalLedgerEntry).not.toHaveBeenCalled();
+
+    const ceoRouteComment = routePostComment.mock.calls[0]?.[1] ?? "";
+    const ceoPostComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const secondOutcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("我想做一个 X", [{ id: "comment-ceo-route", body: ceoRouteComment }]),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        createIssue,
+        postComment: ceoPostComment,
+        saveGoalLedgerEntry,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex,
+      }),
+    );
+
+    expect(secondOutcome).toBe("triggered-success");
+    expect(runCodex).toHaveBeenCalledTimes(1);
+    expect(ceoPostComment).toHaveBeenCalledTimes(1);
+    expect(ceoPostComment.mock.calls[0]?.[1]).toContain("@dev");
+    expect(ceoPostComment.mock.calls[0]?.[1]).not.toContain(buildGoalIntakeProposalKey({ source, proposalId: "proposal-1" }));
+    expect(createIssue).not.toHaveBeenCalled();
+    expect(saveGoalLedgerEntry).not.toHaveBeenCalled();
+    expect(ledger).toEqual(emptyLedgerState());
+  });
+
+  it("allows explicit split bootstrap to use goal-intake propose without default-plan-chain or child issue creation", async () => {
+    const ceo = await makeAgentFile("ceo", "CEO persona");
+    const dev = await makeAgentFile("dev", "Dev persona");
+    const ledger = emptyLedgerState();
+    const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
+    const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
+      number: 101,
+      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+    }));
+    const saveGoalLedgerEntry = makeLedgerEntrySaver(ledger);
+
+    const outcome = await processIssueSource(
+      {
+        source,
+        issue: makeIssue("@ceo 把这个拆成多个任务并行做"),
+        agentFiles: [ceo, dev],
+      },
+      makeDependencies({
+        createIssue,
+        postComment,
+        saveGoalLedgerEntry,
+        loadCeoScripts: async () => ceoScriptsForRunner(),
+        loadGoalLedgerState: async () => ledger,
+        runCodex: async (options) => successfulCodexRunWithFinalText(options.runDir, makeGoalIntakeProposeFinalText()),
+      }),
+    );
+
+    expect(outcome).toBe("triggered-success");
+    expect(ledger.goals["goal-pay-demo"]?.status).toBe("pending");
+    expect(ledger.tasks["task-1"]?.status).toBe("pending");
+    expect(postComment.mock.calls[0]?.[1]).toContain(buildGoalIntakeProposalKey({ source, proposalId: "proposal-1" }));
+    expect(postComment.mock.calls[0]?.[1]).not.toContain("default-plan-chain");
+    expect(createIssue).not.toHaveBeenCalled();
+  });
+
   it("recovers goal-intake confirm from an active phase with missing child refs by hidden key", async () => {
     const ceo = await makeAgentFile("ceo", "CEO persona");
     const dev = await makeAgentFile("dev", "Dev persona");
@@ -3032,6 +3180,12 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
 
 function ceoScriptsForRunner(): CeoScript[] {
   return [
+    {
+      id: "default-plan-chain",
+      action: "route",
+      body: "default plan chain",
+      fileName: "default-plan-chain.md",
+    },
     { id: "plan-review", action: "route", body: "plan review", fileName: "plan-review.md" },
     {
       id: "post-implementation-retro",
@@ -3058,6 +3212,16 @@ function ceoScriptsForRunner(): CeoScript[] {
       fileName: "goal-intake.md",
     },
   ];
+}
+
+function makeDefaultPlanChainRouteFinalText(): string {
+  return `${JSON.stringify({
+    action: "route",
+    workflowId: "default-plan-chain",
+    body: "@dev 请按 OpenSpec 流程先采访确认目标，再落盘方案；本入口不做 goal-intake 提案、不创建子 issue、不写目标账本。",
+  })}
+
+<!-- agent-moebius:stage=in-progress -->`;
 }
 
 function makeCeoSpawnFinalText(input: { title: string }): string {

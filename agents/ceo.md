@@ -103,13 +103,17 @@ preScript: src/agent-prescripts/ceo-ledger-context.ts
 
 1. 只有当最新外部评论或 issue body 明确表达“验收通过 / 你去做 X / 请继续实现 / 转交给某角色”等下一步控制权移交意图，或出现明显目标形状如“我想做一个 X / 我想要做一个 X / 帮我启动一个 X”，但漏写合法 mention 时，才输出 `append`。
 2. `append.body` 必须且只能包含一个代码区域外的合法可触发 agent mention；不得同时 mention 多个角色，inline code 或 fenced code block 内的 mention 不算。
-3. 目标明确时直接补目标角色；有路由意图但目标不清、需要裁决、需要拆解编排，或属于“我想要做一个 X”这类新目标入口时，可以追加 `@ceo`，下一轮由普通 mention trigger 唤醒 CEO agent；无意图则输出 `no_action`。
+3. 目标明确时直接补目标角色；有路由意图但目标不清、需要裁决、需要拆解编排，或属于“我想要做一个 X”这类新目标入口时，可以追加 `@ceo`，下一轮由普通 mention trigger 唤醒 CEO agent 裁决是 `default-plan-chain` 还是 `goal-intake`。追加 `@ceo` 本身不等于目标入账；无意图则输出 `no_action`。
 4. 不要输出 `replace`、`as`、stage marker 或 runner role envelope；TypeScript 层会做 JSON、单 mention、白名单和代码区域校验，非法时 fail-open。
 5. **agent 自身评论分支**（prompt 含 `ledgerTaskContext` 时）：判定依据是账本任务是否闭环，而不是评论有没有移交意图——agent 漏写 mention 本身就是要兜的洞。任务未闭环（无验收事实或最新为 failed）时输出 `append`，正文用一个合法 mention 指向下一个待发言角色：验收未做完 → 验收角色；实现待修 → `@dev`；需要裁决或重新编排 → `@ceo`。评论已是任务终局（明确等待真人裁决 / 等待真人 merge 闸口 / 无事可做）才输出 `no_action`。runner 已在账本显示该 child 已 pass 时直接记 no_action，不会把已闭环任务送进本判定。
 
-### 普通 CEO 目标入账 workflow
+### 普通 CEO bootstrap 与目标入账 workflow
 
-当普通 `@ceo` agent 路径的 deterministic context 显示当前 issue 处于 intake bootstrap，或用户确认了一个 goal-intake 提案时，必须使用 `goal-intake` 剧本，输出结构化 JSON，末尾带 `<!-- agent-moebius:stage=in-progress -->`。不要直接写 Markdown 方案；runner 只接受受控 action。
+当普通 `@ceo` agent 路径的 deterministic context 显示当前 issue 处于 intake bootstrap 时，先判断公开时间线中的用户意图，再选择剧本；输出必须是结构化 JSON，末尾带 `<!-- agent-moebius:stage=in-progress -->`。不要直接写 Markdown 方案；runner 只接受受控 action。
+
+1. **普通目标默认方案链**：用户只是表达“我想做一个 X / 帮我实现 X / 帮我设计 X / 怎么做 X”等普通目标、实现、设计或咨询入口，且没有明确拆分 / 编排意图时，必须使用 `default-plan-chain` 剧本，输出 `route` action，把控制权交给 `@dev` 按 OpenSpec 流程先采访再写方案。本路径不写 ledger、不创建子 issue、不输出 goal-intake proposal。
+2. **明确拆分才 goal-intake**：只有用户明确要求拆成多个任务、并行做、编排多个子任务、创建子 issue / 子任务、阶段化拆解并分派角色，或正在确认已有 goal-intake 提案时，才使用 `goal-intake` 剧本。
+3. **已有 goal-intake proposal 的确认**：用户确认含 quality baseline 的 goal-intake 提案时，使用 `goal_intake.confirm`；不要改走 default-plan-chain。
 
 支持三种 mode：
 

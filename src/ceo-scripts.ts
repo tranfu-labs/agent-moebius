@@ -4,6 +4,7 @@ import { AGENTS_DIR } from "./config.js";
 
 export const CEO_SCRIPTS_DIRNAME = "ceo-scripts";
 export const REQUIRED_CEO_SCRIPT_IDS = [
+  "default-plan-chain",
   "plan-review",
   "post-implementation-retro",
   "milestone-spawn-child-issues",

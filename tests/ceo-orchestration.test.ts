@@ -19,6 +19,7 @@ import { makeIssueSource } from "../src/issue-source.js";
 
 const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 67 });
 const scripts: CeoScript[] = [
+  { id: "default-plan-chain", action: "route", body: "default plan chain", fileName: "default-plan-chain.md" },
   { id: "plan-review", action: "route", body: "route", fileName: "plan-review.md" },
   {
     id: "milestone-spawn-child-issues",
@@ -91,6 +92,31 @@ ${JSON.stringify({
         visibleTaskIds: ["task-1"],
       }),
     ).toMatchObject({ ok: false, reason: expect.stringContaining("invalid-json") });
+  });
+
+  it("accepts default-plan-chain route without visible ledger task ids", () => {
+    const output = `${JSON.stringify({
+      action: "route",
+      workflowId: "default-plan-chain",
+      body: "@dev 请按 OpenSpec 流程先采访再写方案。",
+    })}
+
+<!-- agent-moebius:stage=in-progress -->`;
+
+    expect(
+      parseCeoOrchestrationOutput({
+        output,
+        scripts,
+        availableAgentNames: ["dev", "ceo"],
+        visibleTaskIds: [],
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        action: "route",
+        workflowId: "default-plan-chain",
+      },
+    });
   });
 
   it("rejects unknown workflow, invalid role, missing acceptance, and invisible task ids", () => {
