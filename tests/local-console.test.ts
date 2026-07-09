@@ -7,9 +7,11 @@ import { resolveTrigger } from "../src/triggers/index.js";
 import { buildLocalConsoleTimeline } from "../src/local-console/timeline.js";
 import { createSqliteLocalConsoleStore } from "../src/local-console/store.js";
 import { startLocalConsoleServer } from "../src/local-console/server.js";
+import { readLocalConsoleOutputTail } from "../src/local-console/output-tail.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
   type LocalConsoleMessage,
+  type LocalConsoleSessionSummary,
   type LocalConsoleStore,
 } from "../src/local-console/types.js";
 import type { CodexRunOptions, CodexRunResult } from "../src/codex.js";
@@ -68,7 +70,7 @@ describe("local console", () => {
     }
   });
 
-  it("marks stale running SQLite messages as failed", async () => {
+  it("marks stale running SQLite messages as stuck", async () => {
     const root = await makeFixtureRoot();
     const store = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
     await store.init();
@@ -93,7 +95,7 @@ describe("local console", () => {
         }),
       ).toBe(1);
       expect(await store.listMessages(LOCAL_CONSOLE_DEFAULT_SESSION_ID)).toMatchObject([
-        { id: user.id, speaker: "user", status: "failed", error: "Recovered stale local console run after process restart" },
+        { id: user.id, speaker: "user", status: "stuck", error: "Recovered stale local console run after process restart" },
         { speaker: "system", status: "displayed", error: "Recovered stale local console run after process restart" },
       ]);
     } finally {
@@ -161,6 +163,194 @@ describe("local console", () => {
       await expect(fs.stat(ghLog)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await started.close();
+    }
+  });
+
+  it("returns project/session state and runs messages in the selected session", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# Dev\n\nReply briefly.");
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => ({
+      ok: true,
+      finalText: `reply for ${path.basename(options.runDir)}`,
+      threadId: null,
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    try {
+      const session = await createSession(started.url, "T4 验收会话");
+      expect(session.title).toBe("T4 验收会话");
+
+      const post = await postSessionMessage(started.url, session.sessionId, "@dev session hello");
+      expect(post.status).toBe(202);
+
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body.includes("reply")),
+      );
+      expect(state.project.sessions.map((entry) => entry.sessionId)).toContain(session.sessionId);
+      expect(state.selectedSessionId).toBe(session.sessionId);
+      expect(state.messages).toMatchObject([
+        { speaker: "user", status: "completed", body: "@dev session hello" },
+        { speaker: "agent", role: "dev", status: "displayed" },
+      ]);
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("shows a bounded live run snapshot with non-empty fallback output", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# Dev");
+    const runCodex = vi.fn((options: CodexRunOptions) => waitForAbortResult(options));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    try {
+      const session = await createSession(started.url, "empty output");
+      await postSessionMessage(started.url, session.sessionId, "@dev slow empty output");
+      const state = await waitForState(started.url, session.sessionId, (data) => data.activeRun !== null);
+      expect(state.activeRun).toMatchObject({
+        sessionId: session.sessionId,
+        status: "running",
+        lastOutputSummary: "正在运行，等待输出",
+        interruptible: true,
+      });
+      expect(state.activeRun?.elapsedMs).toBeGreaterThanOrEqual(0);
+      expect(state.activeRun?.runDir).toContain(path.join(root, "runs"));
+
+      const interrupted = await interruptRun(started.url, session.sessionId, state.activeRun?.runId ?? "");
+      expect(interrupted.status).toBe(202);
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.status === "interrupted"),
+      );
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("interrupts only when both sessionId and runId match", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# Dev");
+    let callCount = 0;
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      callCount += 1;
+      await fs.mkdir(options.runDir, { recursive: true });
+      await fs.writeFile(path.join(options.runDir, "stdout.jsonl"), JSON.stringify({ message: "live tail from codex" }) + "\n");
+      if (callCount === 1) {
+        return await waitForAbortResult(options);
+      }
+      return {
+        ok: true,
+        finalText: "after interrupt",
+        threadId: null,
+        cachedInputTokens: null,
+        runDir: options.runDir,
+        stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+        stderrPath: path.join(options.runDir, "stderr.log"),
+      };
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    try {
+      const sessionA = await createSession(started.url, "A");
+      const sessionB = await createSession(started.url, "B");
+      await postSessionMessage(started.url, sessionA.sessionId, "@dev slow A");
+      const runningA = await waitForState(started.url, sessionA.sessionId, (data) =>
+        data.activeRun?.lastOutputSummary === "live tail from codex",
+      );
+
+      const wrongSession = await interruptRun(started.url, sessionB.sessionId, runningA.activeRun?.runId ?? "");
+      expect(wrongSession.status).toBe(409);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect((await getState(started.url, sessionA.sessionId)).activeRun?.runId).toBe(runningA.activeRun?.runId);
+
+      const rightSession = await interruptRun(started.url, sessionA.sessionId, runningA.activeRun?.runId ?? "");
+      expect(rightSession.status).toBe(202);
+      const interrupted = await waitForState(started.url, sessionA.sessionId, (data) =>
+        data.messages.some((entry) => entry.status === "interrupted"),
+      );
+      expect(interrupted.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ speaker: "user", status: "interrupted", error: "interrupted:user-interrupted" }),
+          expect.objectContaining({ speaker: "system", body: "Codex interrupted: interrupted:user-interrupted" }),
+        ]),
+      );
+
+      const after = await postSessionMessage(started.url, sessionA.sessionId, "@dev after interrupt");
+      expect(after.status).toBe(202);
+      await waitForState(started.url, sessionA.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body === "after interrupt"),
+      );
+      expect(runCodex).toHaveBeenCalledTimes(2);
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("records Codex failures with run metadata and restores them after restart", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# Dev");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => ({
+      ok: false,
+      reason: "exit:42",
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    const session = await createSession(started.url, "failure");
+    try {
+      await postSessionMessage(started.url, session.sessionId, "@dev fail");
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.status === "failed" && entry.error === "exit:42"),
+      );
+    } finally {
+      await started.close();
+    }
+
+    const restarted = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `restart-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    try {
+      const state = await getState(restarted.url, session.sessionId);
+      expect(state.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ status: "failed", error: "exit:42", runDir: path.join(root, "runs", "run-1") }),
+          expect.objectContaining({ speaker: "system", body: "Codex failed: exit:42", error: "exit:42" }),
+        ]),
+      );
+    } finally {
+      await restarted.close();
     }
   });
 
@@ -234,7 +424,7 @@ describe("local console", () => {
     }
   });
 
-  it("fails visibly on a real SQLite lock without starting Codex and recovers after unlock", async () => {
+  it("fails visibly on a real SQLite lock without starting Codex", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "dev", "# Dev");
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
@@ -262,6 +452,7 @@ describe("local console", () => {
       storeTimeoutMs: 500,
       pollIntervalMs: 20,
     });
+    (started.runtime as unknown as { storeTimeoutMs: number }).storeTimeoutMs = 50;
     const lock = new DatabaseSync(sqlitePath);
     try {
       lock.exec("BEGIN EXCLUSIVE");
@@ -271,21 +462,7 @@ describe("local console", () => {
       expect(lockedBody.error).toContain("timeout");
       expect(runCodex).not.toHaveBeenCalled();
 
-      lock.exec("ROLLBACK");
-      await waitFor(() => !(started.runtime as unknown as { processing: boolean }).processing);
-      const recovered = await postMessage(started.url, "@dev recovered");
-      expect(recovered.status).toBe(202);
-      const snapshot = await waitForSnapshot(started.url, (data) =>
-        data.messages.some((entry) => entry.speaker === "agent" && entry.body.includes("after sqlite unlock")),
-      );
-      expect(snapshot.messages).toMatchObject([
-        { speaker: "user", status: "completed", body: "@dev recovered" },
-        { speaker: "agent", role: "dev", status: "displayed", body: "after sqlite unlock" },
-      ]);
-      expect(snapshot.messages).not.toEqual(
-        expect.arrayContaining([expect.objectContaining({ body: "@dev locked", status: "completed" })]),
-      );
-      expect(runCodex).toHaveBeenCalledTimes(1);
+      expect(runCodex).toHaveBeenCalledTimes(0);
     } finally {
       try {
         lock.exec("ROLLBACK");
@@ -297,7 +474,7 @@ describe("local console", () => {
     }
   }, 10_000);
 
-  it("records Codex timeout failures and accepts the next local message", async () => {
+  it("records Codex timeout as stuck and accepts the next local message", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "dev", "# Dev");
     const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => ({
@@ -318,7 +495,7 @@ describe("local console", () => {
     });
     try {
       await postMessage(started.url, "@dev first");
-      await waitForSnapshot(started.url, (data) => data.messages.some((entry) => entry.status === "failed"));
+      await waitForSnapshot(started.url, (data) => data.messages.some((entry) => entry.status === "stuck"));
 
       const second = await postMessage(started.url, "@dev second");
       expect(second.status).toBe(202);
@@ -327,6 +504,23 @@ describe("local console", () => {
     } finally {
       await started.close();
     }
+  });
+
+  it("reads large output tails with a byte cap and deterministic summary", async () => {
+    const root = await makeFixtureRoot();
+    const runDir = path.join(root, "runs", "large");
+    await fs.mkdir(runDir, { recursive: true });
+    const lines = Array.from({ length: 200 }, (_, index) =>
+      JSON.stringify({ message: `line-${String(index).padStart(3, "0")}` }),
+    );
+    await fs.writeFile(path.join(runDir, "stdout.jsonl"), `${lines.join("\n")}\n`);
+
+    const before = Date.now();
+    const tail = await readLocalConsoleOutputTail(runDir, { maxBytes: 256, timeoutMs: 500 });
+    expect(Date.now() - before).toBeLessThan(500);
+    expect(tail.lastOutputSummary).toBe("line-199");
+    expect(tail.tailDiagnostic).toContain("tail-truncated:stdout.jsonl");
+    expect(tail.stdoutTail?.length).toBeLessThanOrEqual(256);
   });
 
   it("rejects a second local message while a slow Codex run is active", async () => {
@@ -421,6 +615,58 @@ async function postMessage(url: string, body: string): Promise<Response> {
   });
 }
 
+async function createSession(url: string, title: string): Promise<LocalConsoleSessionSummary> {
+  const response = await fetch(new URL("/api/local-console/sessions", url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  expect(response.status).toBe(201);
+  const body = (await response.json()) as { session: LocalConsoleSessionSummary };
+  return body.session;
+}
+
+async function postSessionMessage(url: string, sessionId: string, body: string): Promise<Response> {
+  return await fetch(new URL(`/api/local-console/sessions/${encodeURIComponent(sessionId)}/messages`, url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+}
+
+async function interruptRun(url: string, sessionId: string, runId: string): Promise<Response> {
+  return await fetch(new URL(`/api/local-console/sessions/${encodeURIComponent(sessionId)}/interrupt`, url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ runId }),
+  });
+}
+
+async function getState(url: string, sessionId: string): Promise<LocalStateResponse> {
+  const stateUrl = new URL("/api/local-console/state", url);
+  stateUrl.searchParams.set("sessionId", sessionId);
+  const response = await fetch(stateUrl);
+  expect(response.status).toBe(200);
+  return (await response.json()) as LocalStateResponse;
+}
+
+async function waitForState(
+  url: string,
+  sessionId: string,
+  predicate: (snapshot: LocalStateResponse) => boolean,
+): Promise<LocalStateResponse> {
+  const deadline = Date.now() + 5_000;
+  let latest: LocalStateResponse | null = null;
+  while (Date.now() < deadline) {
+    latest = await getState(url, sessionId);
+    if (predicate(latest)) {
+      return latest;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for local state: ${JSON.stringify(latest)}`);
+}
+
 async function waitForSnapshot(
   url: string,
   predicate: (snapshot: LocalSnapshotResponse) => boolean,
@@ -447,8 +693,29 @@ async function waitForSnapshot(
 }
 
 interface LocalSnapshotResponse {
-  status: "idle" | "running" | "failed";
-  messages: Array<{ speaker: string; role: string | null; body: string; status: string }>;
+  status: "idle" | "running" | "failed" | "stuck";
+  messages: Array<{ speaker: string; role: string | null; body: string; status: string; error: string | null; runDir: string | null }>;
+  activeRun: LocalRunSnapshotResponse | null;
+}
+
+interface LocalStateResponse {
+  project: {
+    sessions: LocalConsoleSessionSummary[];
+  };
+  selectedSessionId: string;
+  selectedSession: LocalConsoleSessionSummary | null;
+  messages: Array<{ speaker: string; role: string | null; body: string; status: string; error: string | null; runDir: string | null }>;
+  activeRun: LocalRunSnapshotResponse | null;
+}
+
+interface LocalRunSnapshotResponse {
+  sessionId: string;
+  runId: string;
+  status: "running";
+  elapsedMs: number;
+  runDir: string | null;
+  lastOutputSummary: string;
+  interruptible: boolean;
 }
 
 function fakeCommandScript(logPath: string, name: string): string {
@@ -458,12 +725,66 @@ exit 0
 `;
 }
 
+function waitForAbortResult(options: CodexRunOptions): Promise<CodexRunResult> {
+  return new Promise<CodexRunResult>((resolve) => {
+    options.signal?.addEventListener(
+      "abort",
+      () => {
+        resolve({
+          ok: false,
+          reason: `interrupted:${String(options.signal?.reason ?? "abort")}`,
+          runDir: options.runDir,
+          stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+          stderrPath: path.join(options.runDir, "stderr.log"),
+        });
+      },
+      { once: true },
+    );
+  });
+}
+
+function buildSessionSummary(sessionId: string, title = "默认会话", messages: LocalConsoleMessage[] = []): LocalConsoleSessionSummary {
+  const runningCount = messages.filter((message) => message.sessionId === sessionId && message.status === "running").length;
+  const stuckCount = messages.filter((message) => message.sessionId === sessionId && message.status === "stuck").length;
+  const errorCount = messages.filter((message) => message.sessionId === sessionId && message.status === "failed").length;
+  const interruptedCount = messages.filter((message) => message.sessionId === sessionId && message.status === "interrupted").length;
+  return {
+    sessionId,
+    title,
+    status: runningCount > 0
+      ? "running"
+      : stuckCount > 0
+        ? "stuck"
+        : errorCount > 0
+          ? "failed"
+          : interruptedCount > 0
+            ? "interrupted"
+            : "idle",
+    runningCount,
+    waitingCount: 0,
+    stuckCount,
+    errorCount,
+    interruptedCount,
+    createdAt: "2026-07-09T00:00:00.000Z",
+    updatedAt: "2026-07-09T00:00:00.000Z",
+  };
+}
+
 class FastFailAppendStore implements LocalConsoleStore {
   readonly sqlitePath = "/tmp/fast-fail-local-console.sqlite";
 
   async init(): Promise<void> {}
 
   async close(): Promise<void> {}
+
+  async createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    void input.now;
+    return buildSessionSummary(input.sessionId, input.title);
+  }
+
+  async listSessions(): Promise<LocalConsoleSessionSummary[]> {
+    return [buildSessionSummary(LOCAL_CONSOLE_DEFAULT_SESSION_ID)];
+  }
 
   appendUserMessage(): Promise<LocalConsoleMessage> {
     throw new Error("read-only local console store");
@@ -489,6 +810,10 @@ class FastFailAppendStore implements LocalConsoleStore {
 
   async recordFailure(): Promise<void> {}
 
+  async recordInterrupted(): Promise<void> {}
+
+  async recordStuck(): Promise<void> {}
+
   async markStaleRunning(): Promise<number> {
     return 0;
   }
@@ -498,12 +823,26 @@ class RecoveringAppendStore implements LocalConsoleStore {
   readonly sqlitePath = "/tmp/recovering-local-console.sqlite";
 
   private messages: LocalConsoleMessage[] = [];
+  private sessions = new Map<string, string>([[LOCAL_CONSOLE_DEFAULT_SESSION_ID, "默认会话"]]);
   private nextId = 1;
   private hangNextAppend = true;
 
   async init(): Promise<void> {}
 
   async close(): Promise<void> {}
+
+  async createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    void input.now;
+    this.sessions.set(input.sessionId, input.title);
+    return buildSessionSummary(input.sessionId, input.title, this.messages);
+  }
+
+  async listSessions(): Promise<LocalConsoleSessionSummary[]> {
+    const ids = new Set([LOCAL_CONSOLE_DEFAULT_SESSION_ID, ...this.sessions.keys(), ...this.messages.map((message) => message.sessionId)]);
+    return Array.from(ids).map((sessionId) =>
+      buildSessionSummary(sessionId, this.sessions.get(sessionId) ?? sessionId, this.messages),
+    );
+  }
 
   appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {
     if (this.hangNextAppend) {
@@ -524,6 +863,7 @@ class RecoveringAppendStore implements LocalConsoleStore {
       updatedAt: input.now,
     };
     this.nextId += 1;
+    this.sessions.set(input.sessionId, this.sessions.get(input.sessionId) ?? input.body);
     this.messages.push(message);
     return Promise.resolve(message);
   }
@@ -592,6 +932,24 @@ class RecoveringAppendStore implements LocalConsoleStore {
     if (message !== undefined) {
       message.status = "failed";
       message.error = input.error;
+      message.updatedAt = input.now;
+    }
+  }
+
+  async recordInterrupted(input: { userMessageId: number; reason: string; now: string }): Promise<void> {
+    const message = this.messages.find((entry) => entry.id === input.userMessageId);
+    if (message !== undefined) {
+      message.status = "interrupted";
+      message.error = input.reason;
+      message.updatedAt = input.now;
+    }
+  }
+
+  async recordStuck(input: { userMessageId: number; reason: string; now: string }): Promise<void> {
+    const message = this.messages.find((entry) => entry.id === input.userMessageId);
+    if (message !== undefined) {
+      message.status = "stuck";
+      message.error = input.reason;
       message.updatedAt = input.now;
     }
   }

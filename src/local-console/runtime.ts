@@ -2,16 +2,27 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parseAgentManifest } from "../agent-manifest.js";
 import { buildRolePromptPlan } from "../conversation.js";
-import { type CodexRunOptions, type CodexRunResult, codexTimeoutKind } from "../codex.js";
+import {
+  type CodexRunOptions,
+  type CodexRunResult,
+  codexTimeoutKind,
+  isInterruptedCodexRunResult,
+} from "../codex.js";
 import { log } from "../log.js";
 import { resolveTrigger } from "../triggers/index.js";
+import { readLocalConsoleOutputTail } from "./output-tail.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+  LOCAL_CONSOLE_PROJECT_ID,
   LocalConsoleBusyError,
   LocalConsoleStoreTimeoutError,
   type LocalConsoleMessage,
+  type LocalConsoleProjectSummary,
+  type LocalConsoleRunSnapshot,
+  type LocalConsoleSessionSummary,
   type LocalConsoleSnapshot,
+  type LocalConsoleStateSnapshot,
   type LocalConsoleStore,
 } from "./types.js";
 
@@ -34,6 +45,16 @@ export interface LocalConsoleRuntimeOptions {
   now?: () => Date;
 }
 
+interface ActiveLocalRun {
+  sessionId: string;
+  runId: string;
+  userMessageId: number;
+  role: string | null;
+  runDir: string | null;
+  startedAt: string;
+  controller: AbortController;
+}
+
 export class LocalConsoleRuntime {
   private readonly sessionId: string;
   private readonly storeTimeoutMs: number;
@@ -41,7 +62,8 @@ export class LocalConsoleRuntime {
   private readonly codexMaxDurationMs?: number;
   private readonly staleRunningGraceMs: number;
   private readonly now: () => Date;
-  private processing = false;
+  private readonly processingSessions = new Set<string>();
+  private readonly activeRuns = new Map<string, ActiveLocalRun>();
   private lastError: string | null = null;
 
   constructor(private readonly options: LocalConsoleRuntimeOptions) {
@@ -55,62 +77,112 @@ export class LocalConsoleRuntime {
 
   async init(): Promise<void> {
     await this.storeCall("local-console-store-init", () => this.options.store.init());
-    await this.repairStaleRunning();
+    const sessions = await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions());
+    const sessionIds = sessions.length === 0 ? [this.sessionId] : sessions.map((session) => session.sessionId);
+    await Promise.all(sessionIds.map((sessionId) => this.repairStaleRunning(sessionId)));
   }
 
   async close(): Promise<void> {
+    for (const active of this.activeRuns.values()) {
+      active.controller.abort("runtime-closing");
+    }
     await this.options.store.close();
   }
 
-  async submitUserMessage(body: string): Promise<LocalConsoleMessage> {
+  async createSession(title?: string): Promise<LocalConsoleSessionSummary> {
+    const sessionId = `local:${this.now().toISOString()}-${Math.random().toString(36).slice(2, 8)}`;
+    return await this.storeCall("local-console-store-create-session", () =>
+      this.options.store.createSession({
+        sessionId,
+        title: normalizeTitle(title),
+        now: this.nowIso(),
+      }),
+    );
+  }
+
+  async submitUserMessage(body: string, sessionId = this.sessionId): Promise<LocalConsoleMessage> {
     const trimmed = body.trim();
     if (trimmed === "") {
       throw new Error("Message body must not be empty");
     }
 
-    if (this.processing || (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(this.sessionId)))) {
+    if (
+      this.processingSessions.has(sessionId) ||
+      this.activeRuns.has(sessionId) ||
+      (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId)))
+    ) {
       throw new LocalConsoleBusyError();
     }
 
     const message = await this.storeCall("local-console-store-append-user", () =>
       this.options.store.appendUserMessage({
-        sessionId: this.sessionId,
+        sessionId,
         body: trimmed,
         now: this.nowIso(),
       }),
     );
-    void this.processPending();
+    void this.processPending(sessionId);
     return message;
   }
 
-  async snapshot(): Promise<LocalConsoleSnapshot> {
-    const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(this.sessionId));
+  async interruptRun(input: { sessionId: string; runId: string }): Promise<boolean> {
+    const active = this.activeRuns.get(input.sessionId);
+    if (active === undefined || active.runId !== input.runId) {
+      return false;
+    }
+    active.controller.abort("user-interrupted");
+    return true;
+  }
+
+  async snapshot(sessionId = this.sessionId): Promise<LocalConsoleSnapshot> {
+    const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
     return {
-      sessionId: this.sessionId,
+      sessionId,
       status: messages.some((message) => message.status === "running")
         ? "running"
-        : messages.some((message) => message.status === "failed")
-          ? "failed"
-          : "idle",
+        : messages.some((message) => message.status === "stuck")
+          ? "stuck"
+          : messages.some((message) => message.status === "failed")
+            ? "failed"
+            : "idle",
       messages,
+      sqlitePath: this.options.store.sqlitePath,
+      lastError: this.lastError,
+      activeRun: await this.activeRunSnapshot(sessionId),
+    };
+  }
+
+  async state(selectedSessionId = this.sessionId): Promise<LocalConsoleStateSnapshot> {
+    const sessions = await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions());
+    const selectedSession = sessions.find((session) => session.sessionId === selectedSessionId) ?? sessions[0] ?? null;
+    const sessionId = selectedSession?.sessionId ?? selectedSessionId;
+    const messages = selectedSession === null
+      ? []
+      : await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
+    return {
+      project: buildProjectSummary(sessions),
+      selectedSessionId: sessionId,
+      selectedSession,
+      messages,
+      activeRun: await this.activeRunSnapshot(sessionId),
       sqlitePath: this.options.store.sqlitePath,
       lastError: this.lastError,
     };
   }
 
-  async processPending(): Promise<void> {
-    if (this.processing) {
+  async processPending(sessionId = this.sessionId): Promise<void> {
+    if (this.processingSessions.has(sessionId)) {
       return;
     }
 
-    this.processing = true;
+    this.processingSessions.add(sessionId);
     let claimed: LocalConsoleMessage | null = null;
     let runId: string | null = null;
     let runDir: string | null = null;
 
     try {
-      await this.repairStaleRunning();
-      if (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(this.sessionId))) {
+      await this.repairStaleRunning(sessionId);
+      if (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId))) {
         return;
       }
 
@@ -118,7 +190,7 @@ export class LocalConsoleRuntime {
       runId = nextRunId;
       claimed = await this.storeCall("local-console-store-claim", () =>
         this.options.store.claimNextPendingMessage({
-          sessionId: this.sessionId,
+          sessionId,
           runId: nextRunId,
           now: this.nowIso(),
         }),
@@ -130,7 +202,7 @@ export class LocalConsoleRuntime {
       const activeRunId = nextRunId;
 
       const agentFiles = await this.options.listAgentFiles();
-      const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(this.sessionId));
+      const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
       const timeline = buildLocalConsoleTimeline(
         messages,
         agentFiles.map((agent) => agent.name),
@@ -144,7 +216,7 @@ export class LocalConsoleRuntime {
         await this.storeCall("local-console-store-no-trigger", () =>
           this.options.store.recordSystemAndComplete({
             userMessageId: activeMessage.id,
-            sessionId: this.sessionId,
+            sessionId,
             body: "No valid agent mention found in the latest local message.",
             runId: activeRunId,
             runDir: null,
@@ -156,7 +228,7 @@ export class LocalConsoleRuntime {
 
       const selectedAgent = agentFiles.find((agent) => agent.name === trigger.role);
       if (selectedAgent === undefined) {
-        await this.recordFailureBestEffort(activeMessage, activeRunId, null, `Agent not found: ${trigger.role}`);
+        await this.recordFailureBestEffort(activeMessage, sessionId, activeRunId, null, `Agent not found: ${trigger.role}`);
         return;
       }
 
@@ -173,7 +245,7 @@ export class LocalConsoleRuntime {
         await this.storeCall("local-console-store-skip", () =>
           this.options.store.recordSystemAndComplete({
             userMessageId: activeMessage.id,
-            sessionId: this.sessionId,
+            sessionId,
             body: `Skipped local run: ${plan.reason}`,
             runId: activeRunId,
             runDir: null,
@@ -193,32 +265,36 @@ export class LocalConsoleRuntime {
         }),
       );
 
+      const controller = new AbortController();
+      this.activeRuns.set(sessionId, {
+        sessionId,
+        runId: activeRunId,
+        userMessageId: activeMessage.id,
+        role: trigger.role,
+        runDir: path.resolve(activeRunDir),
+        startedAt: this.nowIso(),
+        controller,
+      });
+
       const result = await this.options.runCodex({
         prompt: plan.prompt,
         runDir: activeRunDir,
         cwd: this.options.projectRoot,
         mode: { kind: "full" },
+        signal: controller.signal,
         ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
         ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
       });
 
       if (!result.ok) {
-        const timeoutKind = codexTimeoutKind(result.reason);
-        if (timeoutKind !== null) {
-          log({
-            event: timeoutKind === "idle" ? "local-console-codex-idle-timeout" : "local-console-codex-watchdog-timeout",
-            runDir: result.runDir,
-            reason: result.reason,
-          });
-        }
-        await this.recordFailureBestEffort(activeMessage, activeRunId, result.runDir, result.reason);
+        await this.recordFailedCodexResult(activeMessage, sessionId, activeRunId, result);
         return;
       }
 
       await this.storeCall("local-console-store-record-agent-response", () =>
         this.options.store.recordAgentResponse({
           userMessageId: activeMessage.id,
-          sessionId: this.sessionId,
+          sessionId,
           role: trigger.role,
           body: result.finalText,
           runId: activeRunId,
@@ -230,20 +306,27 @@ export class LocalConsoleRuntime {
     } catch (error) {
       this.lastError = formatLocalError(error);
       if (claimed !== null) {
-        await this.recordFailureBestEffort(claimed, runId, runDir, this.lastError);
+        await this.recordFailureBestEffort(claimed, sessionId, runId, runDir, this.lastError);
       }
       log({ event: "local-console-processing-failed", error: this.lastError });
     } finally {
-      this.processing = false;
+      this.activeRuns.delete(sessionId);
+      this.processingSessions.delete(sessionId);
     }
   }
 
-  async repairStaleRunning(): Promise<number> {
+  async processAllPending(): Promise<void> {
+    const sessions = await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions());
+    const sessionIds = sessions.length === 0 ? [this.sessionId] : sessions.map((session) => session.sessionId);
+    await Promise.all(sessionIds.map((sessionId) => this.processPending(sessionId)));
+  }
+
+  async repairStaleRunning(sessionId = this.sessionId): Promise<number> {
     const maxDurationMs = this.codexMaxDurationMs ?? 120 * 60 * 1000;
     const cutoffIso = new Date(this.now().getTime() - maxDurationMs - this.staleRunningGraceMs).toISOString();
     return await this.storeCall("local-console-store-mark-stale", () =>
       this.options.store.markStaleRunning({
-        sessionId: this.sessionId,
+        sessionId,
         cutoffIso,
         now: this.nowIso(),
         reason: `stale-running>${String(maxDurationMs + this.staleRunningGraceMs)}ms`,
@@ -251,8 +334,54 @@ export class LocalConsoleRuntime {
     );
   }
 
+  private async recordFailedCodexResult(
+    message: LocalConsoleMessage,
+    sessionId: string,
+    runId: string,
+    result: Extract<CodexRunResult, { ok: false }>,
+  ): Promise<void> {
+    const timeoutKind = codexTimeoutKind(result.reason);
+    if (timeoutKind !== null) {
+      log({
+        event: timeoutKind === "idle" ? "local-console-codex-idle-timeout" : "local-console-codex-watchdog-timeout",
+        runDir: result.runDir,
+        reason: result.reason,
+      });
+      await this.recordStuckBestEffort(message, sessionId, runId, result.runDir, result.reason);
+      return;
+    }
+    if (isInterruptedCodexRunResult(result)) {
+      await this.recordInterruptedBestEffort(message, sessionId, runId, result.runDir, result.reason);
+      return;
+    }
+    await this.recordFailureBestEffort(message, sessionId, runId, result.runDir, result.reason);
+  }
+
+  private async activeRunSnapshot(sessionId: string): Promise<LocalConsoleRunSnapshot | null> {
+    const active = this.activeRuns.get(sessionId);
+    if (active === undefined) {
+      return null;
+    }
+    const tail = await readLocalConsoleOutputTail(active.runDir);
+    return {
+      sessionId,
+      runId: active.runId,
+      role: active.role,
+      status: "running",
+      startedAt: active.startedAt,
+      elapsedMs: Math.max(0, this.now().getTime() - Date.parse(active.startedAt)),
+      runDir: active.runDir,
+      stdoutTail: tail.stdoutTail,
+      stderrTail: tail.stderrTail,
+      lastOutputSummary: tail.lastOutputSummary,
+      tailDiagnostic: tail.tailDiagnostic,
+      interruptible: true,
+    };
+  }
+
   private async recordFailureBestEffort(
     message: LocalConsoleMessage,
+    sessionId: string,
     runId: string | null,
     runDir: string | null,
     error: string,
@@ -261,7 +390,7 @@ export class LocalConsoleRuntime {
       await this.storeCall("local-console-store-record-failure", () =>
         this.options.store.recordFailure({
           userMessageId: message.id,
-          sessionId: this.sessionId,
+          sessionId,
           error,
           runId,
           runDir,
@@ -274,6 +403,54 @@ export class LocalConsoleRuntime {
     }
   }
 
+  private async recordInterruptedBestEffort(
+    message: LocalConsoleMessage,
+    sessionId: string,
+    runId: string | null,
+    runDir: string | null,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.storeCall("local-console-store-record-interrupted", () =>
+        this.options.store.recordInterrupted({
+          userMessageId: message.id,
+          sessionId,
+          reason,
+          runId,
+          runDir,
+          now: this.nowIso(),
+        }),
+      );
+    } catch (recordError) {
+      this.lastError = formatLocalError(recordError);
+      log({ event: "local-console-record-interrupted-failed", error: this.lastError, originalError: reason });
+    }
+  }
+
+  private async recordStuckBestEffort(
+    message: LocalConsoleMessage,
+    sessionId: string,
+    runId: string | null,
+    runDir: string | null,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.storeCall("local-console-store-record-stuck", () =>
+        this.options.store.recordStuck({
+          userMessageId: message.id,
+          sessionId,
+          reason,
+          runId,
+          runDir,
+          now: this.nowIso(),
+        }),
+      );
+    } catch (recordError) {
+      this.lastError = formatLocalError(recordError);
+      log({ event: "local-console-record-stuck-failed", error: this.lastError, originalError: reason });
+    }
+  }
+
   private async storeCall<T>(label: string, operation: () => Promise<T>): Promise<T> {
     return await withLocalConsoleTimeout(Promise.resolve().then(operation), this.storeTimeoutMs, label);
   }
@@ -281,6 +458,26 @@ export class LocalConsoleRuntime {
   private nowIso(): string {
     return this.now().toISOString();
   }
+}
+
+function buildProjectSummary(sessions: LocalConsoleSessionSummary[]): LocalConsoleProjectSummary {
+  return {
+    projectId: LOCAL_CONSOLE_PROJECT_ID,
+    title: "agent-moebius",
+    sessions,
+    runningCount: sessions.reduce((sum, session) => sum + session.runningCount, 0),
+    waitingCount: sessions.reduce((sum, session) => sum + session.waitingCount, 0),
+    stuckCount: sessions.reduce((sum, session) => sum + session.stuckCount, 0),
+    errorCount: sessions.reduce((sum, session) => sum + session.errorCount, 0),
+  };
+}
+
+function normalizeTitle(title: string | undefined): string {
+  const trimmed = title?.trim();
+  if (trimmed === undefined || trimmed === "") {
+    return "新会话";
+  }
+  return trimmed.length > 48 ? `${trimmed.slice(0, 48)}...` : trimmed;
 }
 
 export async function withLocalConsoleTimeout<T>(

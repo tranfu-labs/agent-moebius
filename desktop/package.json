@@ -12,9 +12,14 @@
     "dist": "pnpm build && electron-builder"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "@agent-moebius/console-ui": "workspace:*",
+    "electron-updater": "^6.3.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
     "electron": "^38.0.0",
     "electron-builder": "^26.0.0",
     "esbuild": "^0.25.0",

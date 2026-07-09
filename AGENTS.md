@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后会使用本机 `codex` / `gh`，在数据根中运行同一套 runner 与只读 observer。
+本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、同一套 runner 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。
 
 ## 项目结构
 ```text
@@ -44,12 +44,13 @@
 │   ├── agent-prescripts/       # Codex 执行前准备脚本与内置 workspace capability
 │   ├── agent-context-state.ts  # .state/agent-contexts.json 状态读写适配
 │   └── state.ts                # .state/role-threads.json 状态读写适配
-├── desktop/                    # Electron 桌面壳：主进程装配、状态页、runner 子进程监管与打包配置
+├── desktop/                    # Electron 桌面壳：主进程装配、操作台 / 状态页、runner 子进程监管与打包配置
 │   ├── src/
 │   │   ├── main.ts             # Electron 主进程装配：数据根、PATH、自检、observer、runner、IPC
 │   │   ├── runner-child.ts     # utilityProcess 子进程入口，调用 src/runner.ts 的 start()
-│   │   ├── preload.ts          # 状态页窄 IPC 暴露
-│   │   ├── status-page/        # 桌面状态页静态资源
+│   │   ├── preload.ts          # 桌面操作台与状态页的窄 IPC 暴露
+│   │   ├── console-page/       # 桌面本地对话操作台 renderer
+│   │   ├── status-page/        # 桌面辅助诊断状态页静态资源
 │   │   ├── data-root.ts        # 数据根解析与首启种子拷贝计划
 │   │   ├── shell-path.ts       # macOS 登录 shell PATH 读取与合并
 │   │   ├── env-doctor.ts       # codex / gh / gh auth 自检
@@ -84,19 +85,22 @@
   - 账本缺失、损坏或读取超时时只让 ledger tree 显示空态 / 诊断，legacy issue/run records 继续可见；同一 owner 无 active phase 显示 `no active phase`，多个 active phase 显示 owner 级 ledger error，不推断全局 active。
   - 不调用 GitHub、Codex 或 artifact publisher，不写 `.state` / manifest / release / worktree 文件；不提供确认按钮、写接口、file watcher 或 runner 操作能力；观察页进程崩溃或关闭不影响 runner。
 - 运行桌面应用开发态：`pnpm desktop`
-  - 使用 Electron 壳启动状态页，进程内以动态端口启动只读 observer，并以 `utilityProcess` 派生 runner 子进程。
+  - 使用 Electron 壳启动本地对话操作台主窗口，进程内以动态端口启动 local console server 与只读 observer，并以 `utilityProcess` 派生 runner 子进程。
   - 开发态默认数据根为仓库根；打包态默认数据根为 `~/.agent-moebius`；两种形态都可用 `AGENT_MOEBIUS_DATA_ROOT` 覆盖。
   - 首启会把提交版 `agents/` 与示例 `config.toml` 种子拷贝到数据根，已存在的文件一律不覆盖；用户本机仍通过数据根下被忽略的 `config.local.toml` 配置监听仓库。
-  - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`，避免打包态工作区落到应用包附近。
+  - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`，并设置 `AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE=1` 避免 runner 子进程重复启动 local console server。
+  - 操作台通过本地 HTTP API 创建 / 切换会话、发送消息、订阅运行快照并中断当前 run；状态页和 observer 只保留为辅助诊断入口。
   - 同一台机器上，终端形态与桌面形态不得同时监听相同 GitHub repository；如确需切换形态，优先让终端形态也设置同一个 `AGENT_MOEBIUS_DATA_ROOT`，共享 `.state/` 与 `config.local.toml`。
-- 构建桌面主进程/状态页：`pnpm --filter @agent-moebius/desktop build`
+- 构建桌面主进程 / 操作台 / 状态页：`pnpm --filter @agent-moebius/desktop build`
 - 打包桌面应用：`pnpm --filter @agent-moebius/desktop dist`
   - 三平台产物通过 electron-builder 生成：macOS dmg/zip、Windows nsis、Linux AppImage。
   - `desktop-v*` tag 会触发 `.github/workflows/release-desktop.yml` 构建并上传 GitHub Releases；Windows/Linux 更新走 electron-updater，macOS 无签名证书期间检查更新只跳转下载页。
 - 运行 React 对话操作台组件库 Storybook：`pnpm --filter @agent-moebius/console-ui storybook`
   - 组件库位于 `packages/console-ui`，使用 shadcn 风格源码组件、Radix 原语与 Tailwind 语义令牌。
   - `src/styles/tokens.css` 是近单色令牌源：灰阶为主、indigo 只用于交互、绿/红只用于裁决与危险；「等你」用中性结构信号，不使用专属色相。
-  - `@agent-moebius/console-ui` 可被未来 desktop renderer import；renderer 入口需引入 `@agent-moebius/console-ui/globals.css`。
+  - `@agent-moebius/console-ui` 被 desktop renderer 复用；renderer 入口需引入 `@agent-moebius/console-ui/globals.css`。
+- T4 本地操作台验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t4.ts`
+  - 会启动 fake local console server 和静态桌面 renderer，生成 `artifacts/acceptance/t4-live.png`、`artifacts/acceptance/t4-interrupted.png`、`artifacts/acceptance/t4-failed.png` 与 `artifacts/acceptance/t4-evidence.json`。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。

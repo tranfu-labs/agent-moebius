@@ -102,7 +102,11 @@ function runCommand(input: WorkerInput): unknown {
       case "save-goal-ledger":
         return saveGoalLedger(database, input.command.state, true);
       case "local-init":
-        return null;
+        return initLocalConsole(database);
+      case "local-create-session":
+        return createLocalSession(database, input.command);
+      case "local-list-sessions":
+        return listLocalSessions(database);
       case "local-append-user":
         return appendUserMessage(database, input.command);
       case "local-list":
@@ -119,6 +123,10 @@ function runCommand(input: WorkerInput): unknown {
         return recordSystemAndComplete(database, input.command);
       case "local-record-failure":
         return recordFailure(database, input.command);
+      case "local-record-interrupted":
+        return recordInterrupted(database, input.command);
+      case "local-record-stuck":
+        return recordStuck(database, input.command);
       case "local-mark-stale-running":
         return markStaleRunning(database, input.command);
       default:
@@ -484,12 +492,38 @@ function saveGoalLedgerRaw(database: SqliteDatabase, state: unknown, markImporte
   }
 }
 
+function initLocalConsole(database: SqliteDatabase): null {
+  ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, new Date().toISOString(), "默认会话");
+  return null;
+}
+
+function createLocalSession(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-create-session" }>,
+): unknown {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, input.title);
+    return requireLocalSession(database, input.sessionId);
+  });
+}
+
+function listLocalSessions(database: SqliteDatabase): unknown[] {
+  const rows = database
+    .prepare("SELECT * FROM sessions WHERE source_type = 'local' ORDER BY updated_at DESC, created_at DESC")
+    .all();
+  if (rows.length === 0) {
+    ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, new Date().toISOString(), "默认会话");
+    return [requireLocalSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID)];
+  }
+  return rows.map((row) => readLocalSessionRow(database, row));
+}
+
 function appendUserMessage(
   database: SqliteDatabase,
   input: Extract<SqliteStateCommand, { kind: "local-append-user" }>,
 ): unknown {
   return transaction(database, () => {
-    ensureSession(database, input.sessionId, input.now);
+    ensureSession(database, input.sessionId, input.now, titleFromMessage(input.body));
     const result = database
       .prepare(
         `INSERT INTO session_messages
@@ -588,6 +622,26 @@ function recordFailure(database: SqliteDatabase, input: Extract<SqliteStateComma
   });
 }
 
+function recordInterrupted(database: SqliteDatabase, input: Extract<SqliteStateCommand, { kind: "local-record-interrupted" }>): null {
+  return transaction(database, () => {
+    insertSystemMessage(database, input.sessionId, `Codex interrupted: ${input.reason}`, input.runId, input.runDir, input.reason, input.now);
+    database
+      .prepare("UPDATE session_messages SET status = 'interrupted', run_id = ?, run_dir = ?, error = ?, updated_at = ? WHERE id = ?")
+      .run(input.runId, input.runDir, input.reason, input.now, input.userMessageId);
+    return null;
+  });
+}
+
+function recordStuck(database: SqliteDatabase, input: Extract<SqliteStateCommand, { kind: "local-record-stuck" }>): null {
+  return transaction(database, () => {
+    insertSystemMessage(database, input.sessionId, `Codex stuck: ${input.reason}`, input.runId, input.runDir, input.reason, input.now);
+    database
+      .prepare("UPDATE session_messages SET status = 'stuck', run_id = ?, run_dir = ?, error = ?, updated_at = ? WHERE id = ?")
+      .run(input.runId, input.runDir, input.reason, input.now, input.userMessageId);
+    return null;
+  });
+}
+
 function markStaleRunning(
   database: SqliteDatabase,
   input: Extract<SqliteStateCommand, { kind: "local-mark-stale-running" }>,
@@ -599,9 +653,9 @@ function markStaleRunning(
 
   for (const row of rows) {
     database
-      .prepare("UPDATE session_messages SET status = 'failed', error = ?, updated_at = ? WHERE id = ?")
+      .prepare("UPDATE session_messages SET status = 'stuck', error = ?, updated_at = ? WHERE id = ?")
       .run(input.reason, input.now, row.id);
-    insertSystemMessage(database, input.sessionId, `Recovered stale local run: ${input.reason}`, row.runId, row.runDir, input.reason, input.now);
+    insertSystemMessage(database, input.sessionId, `Recovered stale local run as stuck: ${input.reason}`, row.runId, row.runDir, input.reason, input.now);
   }
 
   return rows.length;
@@ -634,6 +688,100 @@ function requireLocalMessage(database: SqliteDatabase, id: number, sessionId: st
   return readLocalMessageRow(row);
 }
 
+function requireLocalSession(database: SqliteDatabase, sessionId: string): unknown {
+  const row = database.prepare("SELECT * FROM sessions WHERE session_id = ?").get(sessionId);
+  if (row === undefined) {
+    throw new Error(`local console session not found: ${sessionId}`);
+  }
+  return readLocalSessionRow(database, row);
+}
+
+function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
+  if (!isRecord(row)) {
+    throw new Error("Invalid local console session row");
+  }
+  const sessionId = readString(row.session_id, "session_id");
+  const counts = readSessionCounts(database, sessionId);
+  return {
+    sessionId,
+    title: readNullableString(row.title, "title") ?? fallbackSessionTitle(sessionId),
+    status: sessionStatusFromCounts(counts),
+    runningCount: counts.running,
+    waitingCount: counts.waiting,
+    stuckCount: counts.stuck,
+    errorCount: counts.failed,
+    interruptedCount: counts.interrupted,
+    createdAt: readString(row.created_at, "created_at"),
+    updatedAt: readString(row.updated_at, "updated_at"),
+  };
+}
+
+function readSessionCounts(database: SqliteDatabase, sessionId: string): {
+  running: number;
+  waiting: number;
+  stuck: number;
+  failed: number;
+  interrupted: number;
+} {
+  const rows = database
+    .prepare("SELECT status, COUNT(*) AS count FROM session_messages WHERE session_id = ? GROUP BY status")
+    .all(sessionId);
+  const counts = { running: 0, waiting: 0, stuck: 0, failed: 0, interrupted: 0 };
+  for (const row of rows) {
+    if (!isRecord(row)) {
+      continue;
+    }
+    const status = readString(row.status, "status");
+    const count = readNumber(row.count, "count");
+    if (status === "running") {
+      counts.running += count;
+    } else if (status === "stuck") {
+      counts.stuck += count;
+    } else if (status === "failed") {
+      counts.failed += count;
+    } else if (status === "interrupted") {
+      counts.interrupted += count;
+    }
+  }
+  const latestDisplayed = database
+    .prepare(
+      `SELECT body FROM session_messages
+       WHERE session_id = ? AND speaker IN ('agent', 'system')
+       ORDER BY id DESC
+       LIMIT 1`,
+    )
+    .get(sessionId);
+  if (isRecord(latestDisplayed) && readString(latestDisplayed.body, "body").includes("等待真人：")) {
+    counts.waiting = 1;
+  }
+  return counts;
+}
+
+function sessionStatusFromCounts(counts: {
+  running: number;
+  waiting: number;
+  stuck: number;
+  failed: number;
+  interrupted: number;
+}): string {
+  if (counts.running > 0) {
+    return "running";
+  }
+  if (counts.stuck > 0) {
+    return "stuck";
+  }
+  if (counts.failed > 0) {
+    return "failed";
+  }
+  if (counts.interrupted > 0) {
+    return "interrupted";
+  }
+  if (counts.waiting > 0) {
+    return "waiting";
+  }
+  return "idle";
+}
+
 function readLocalMessageRow(row: unknown): WorkerLocalMessage {
   if (!isRecord(row)) {
     throw new Error("Invalid local console message row");
@@ -653,14 +801,16 @@ function readLocalMessageRow(row: unknown): WorkerLocalMessage {
   };
 }
 
-function ensureSession(database: SqliteDatabase, sessionId: string, now: string): void {
+function ensureSession(database: SqliteDatabase, sessionId: string, now: string, title?: string): void {
   const parsed = sessionId.startsWith("github:") ? parseIssueKey(sessionId.slice("github:".length)) : null;
   database
     .prepare(
       `INSERT INTO sessions
         (session_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, title, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, NULL, NULL, 'active', ?, ?)
-      ON CONFLICT(session_id) DO UPDATE SET updated_at = excluded.updated_at`,
+      VALUES (?, ?, ?, ?, ?, NULL, ?, 'active', ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        title = COALESCE(sessions.title, excluded.title),
+        updated_at = excluded.updated_at`,
     )
     .run(
       sessionId,
@@ -668,9 +818,22 @@ function ensureSession(database: SqliteDatabase, sessionId: string, now: string)
       parsed?.owner ?? null,
       parsed?.repo ?? null,
       parsed?.issueNumber ?? null,
+      title ?? null,
       now,
       now,
     );
+}
+
+function titleFromMessage(body: string): string {
+  const collapsed = body.trim().replace(/\s+/gu, " ");
+  if (collapsed.length === 0) {
+    return "新会话";
+  }
+  return collapsed.length > 32 ? `${collapsed.slice(0, 32)}...` : collapsed;
+}
+
+function fallbackSessionTitle(sessionId: string): string {
+  return sessionId === LOCAL_CONSOLE_DEFAULT_SESSION_ID ? "默认会话" : sessionId.replace(/^local:/u, "会话 ");
 }
 
 function markSchemaMigration(database: SqliteDatabase, version: string): void {

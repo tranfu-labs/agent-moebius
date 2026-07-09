@@ -21,6 +21,8 @@ export type SqliteStateCommand =
   | { kind: "load-goal-ledger" }
   | { kind: "save-goal-ledger"; state: unknown }
   | { kind: "local-init" }
+  | { kind: "local-create-session"; sessionId: string; title: string; now: string }
+  | { kind: "local-list-sessions" }
   | { kind: "local-append-user"; sessionId: string; body: string; now: string }
   | { kind: "local-list"; sessionId: string }
   | { kind: "local-has-running"; sessionId: string }
@@ -50,6 +52,24 @@ export type SqliteStateCommand =
       userMessageId: number;
       sessionId: string;
       error: string;
+      runId: string | null;
+      runDir: string | null;
+      now: string;
+    }
+  | {
+      kind: "local-record-interrupted";
+      userMessageId: number;
+      sessionId: string;
+      reason: string;
+      runId: string | null;
+      runDir: string | null;
+      now: string;
+    }
+  | {
+      kind: "local-record-stuck";
+      userMessageId: number;
+      sessionId: string;
+      reason: string;
       runId: string | null;
       runDir: string | null;
       now: string;

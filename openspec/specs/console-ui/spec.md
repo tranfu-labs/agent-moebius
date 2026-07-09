@@ -23,6 +23,15 @@
 - MUST keep `console-ui` free of runner, observer, GitHub, Codex, `.state`, and IPC dependencies.
 - MUST NOT implement real desktop console app state management, renderer bundling, IPC, or runner/state-file integration in this domain; those belong to a later desktop console app change.
 
+### T4 桌面操作台展示组件
+- MUST provide presentational React components for the local operator console: project/session sidebar, session timeline, user/agent/system message rows, run live block, local error/interrupted/stuck records, message composer, and diagnostic action affordances.
+- MUST keep operator console components controlled by props and callbacks supplied by the desktop renderer.
+- MUST render running states with a non-empty summary, elapsed time or runDir evidence, and an interrupt action when `interruptible` is true.
+- MUST render interrupted and stuck runs distinctly from failed runs; interrupted runs must use neutral status styling, stuck runs must be visibly marked as stuck, and failed runs must use danger fact styling.
+- MUST render failed local errors visibly with reason and runDir when available.
+- MUST support a single local project with multiple sessions while preserving the project -> session visual hierarchy.
+- MUST render tail-read fallback or diagnostic copy without leaving the run live block blank.
+
 ## 场景
 
 ### 场景 CUI.1：未来 renderer 可消费组件库
@@ -44,3 +53,27 @@ When the component is inspected
 Then the card remains a neutral surface with neutral waiting iconography
 And pass/fail verdicts use colored text only
 And the submit action uses indigo as an interaction color rather than a waiting-state color.
+
+### 场景 CUI.T4.1：运行直播块非空
+Given a run live block receives a running snapshot with no parseable output
+When it renders
+Then it displays a deterministic running summary
+And it displays elapsed time or runDir evidence
+And it does not render an empty card.
+
+### 场景 CUI.T4.2：中断、卡住与失败视觉分流
+Given one timeline record is interrupted
+And another timeline record is stuck
+And another timeline record is failed
+When the timeline renders
+Then the interrupted record uses neutral status styling
+And the stuck record is visibly marked as stuck without being styled as a user interruption
+And the failed record uses danger fact styling
+And their labels are distinguishable.
+
+### 场景 CUI.T4.3：单项目多会话侧栏
+Given a local project has sessions with running, stuck, failed, and idle states
+When the sidebar renders
+Then it shows the project row
+And it shows all sessions under the project
+And the running, stuck, and failed sessions have visible state indicators.

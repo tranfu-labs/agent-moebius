@@ -32,7 +32,7 @@ pnpm observer
        └─ no writes to config, .state, manifests, artifacts, releases, or worktrees
 ```
 
-## Desktop Status
+## Desktop Console
 
 ```text
 启动桌面应用
@@ -49,13 +49,23 @@ pnpm observer
   │    ├─ 首启种子拷贝 agents/ + config.toml
   │    ├─ 环境自检 codex / gh / gh auth
   │    ├─ 127.0.0.1 动态端口启动 observer
+  │    ├─ 127.0.0.1 动态端口启动 local console server
   │    └─ utilityProcess 派生 runner child
   │
-  ├─ 状态页接收主进程快照
+  ├─ 操作台主窗口接收主进程快照
   │    ├─ runner 状态 / 崩溃重启进度 / 日志路径
+  │    ├─ local console URL
+  │    ├─ 单本地项目 / 多会话列表
+  │    ├─ 当前会话时间线
+  │    ├─ active run 直播块 / runDir / elapsed / tail
+  │    ├─ 中断按钮
+  │    └─ interrupted / failed / stuck 本地记录
+  │
+  ├─ [诊断] → 辅助状态页
   │    ├─ observer 地址与打开按钮
   │    ├─ 环境自检结果
-  │    └─ 数据目录与更新入口
+  │    ├─ 数据目录与更新入口
+  │    └─ runner / local console / observer 状态
   │
   ├─ [打开观察页] → 默认浏览器打开 observer 动态端口地址
   ├─ [打开数据目录] → 系统文件管理器打开数据根
@@ -63,5 +73,5 @@ pnpm observer
   │    ├─ macOS：读取 GitHub latest release，有新版则跳转下载页
   │    └─ Windows/Linux：electron-updater 自动下载安装
   │
-  └─ 关闭窗口 → 停 runner → 关 observer → 应用退出
+  └─ 关闭窗口 → 停 runner → 关 local console server → 关 observer → 应用退出
 ```

@@ -1,0 +1,566 @@
+{
+  "acceptance": [
+    {
+      "id": 1,
+      "statement": "桌面台发起一次对话 -> 应看到运行直播",
+      "evidence": {
+        "screenshot": "artifacts/acceptance/t4-live.png",
+        "activeRun": {
+          "sessionId": "default",
+          "runId": "local-2026-07-09T10:29:33.246Z-5qld1tsf",
+          "status": "running",
+          "elapsedMs": 1159,
+          "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348",
+          "lastOutputSummary": "live tail from codex",
+          "tailDiagnostic": null,
+          "stdoutTailLength": 35,
+          "stderrTailLength": null
+        },
+        "messageStatuses": [
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "running",
+            "body": "@dev T4_LIVE start a slow local console run",
+            "error": null,
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "statement": "运行中点中断 -> 应看到本轮 codex 被停下且状态如实反映",
+      "evidence": {
+        "screenshot": "artifacts/acceptance/t4-interrupted.png",
+        "interruptedMessages": [
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "interrupted",
+            "body": "@dev T4_LIVE start a slow local console run",
+            "error": "interrupted:user-interrupted",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+          },
+          {
+            "speaker": "system",
+            "role": null,
+            "status": "displayed",
+            "body": "Codex interrupted: interrupted:user-interrupted",
+            "error": "interrupted:user-interrupted",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+          }
+        ],
+        "releasedMessages": [
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "interrupted",
+            "body": "@dev T4_LIVE start a slow local console run",
+            "error": "interrupted:user-interrupted",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+          },
+          {
+            "speaker": "system",
+            "role": null,
+            "status": "displayed",
+            "body": "Codex interrupted: interrupted:user-interrupted",
+            "error": "interrupted:user-interrupted",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+          },
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "completed",
+            "body": "@dev T4_AFTER interrupt should release the session",
+            "error": null,
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-3-1783592975240"
+          },
+          {
+            "speaker": "agent",
+            "role": "dev",
+            "status": "displayed",
+            "body": "after interrupt",
+            "error": null,
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-3-1783592975240"
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "statement": "构造一个失败 -> 应看到本地错误记录而非静默",
+      "evidence": {
+        "screenshot": "artifacts/acceptance/t4-failed.png",
+        "messages": [
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "failed",
+            "body": "@dev T4_FAIL construct a visible failure",
+            "error": "exit:42",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592975908"
+          },
+          {
+            "speaker": "system",
+            "role": null,
+            "status": "displayed",
+            "body": "Codex failed: exit:42",
+            "error": "exit:42",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592975908"
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "statement": "构造 stdout.jsonl 大文件或慢读取故障 -> state API 有界返回并显示 tail 或降级概括",
+      "evidence": {
+        "pollMs": 100,
+        "activeRun": {
+          "sessionId": "local:2026-07-09T10:29:36.479Z-ueycgv",
+          "runId": "local-2026-07-09T10:29:36.757Z-7iniwpfx",
+          "status": "running",
+          "elapsedMs": 103,
+          "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592976863",
+          "lastOutputSummary": "tail line 7999",
+          "tailDiagnostic": "tail-truncated:stdout.jsonl",
+          "stdoutTailLength": 65536,
+          "stderrTailLength": null
+        }
+      }
+    },
+    {
+      "id": 5,
+      "statement": "构造无可解析 JSONL 且 stderr 为空的慢 Codex run -> 显示非空 running 概括、elapsed、runDir",
+      "evidence": {
+        "activeRun": {
+          "sessionId": "local:2026-07-09T10:29:37.121Z-sw5xyu",
+          "runId": "local-2026-07-09T10:29:37.383Z-fj0410l6",
+          "status": "running",
+          "elapsedMs": 6,
+          "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592977497",
+          "lastOutputSummary": "正在运行，等待输出",
+          "tailDiagnostic": null,
+          "stdoutTailLength": null,
+          "stderrTailLength": null
+        }
+      }
+    },
+    {
+      "id": 6,
+      "statement": "session A 运行中切到 B 并对 B 中断 -> 不应中断 A，只有 A 的 sessionId/runId 会 abort A",
+      "evidence": {
+        "wrongInterrupt": {
+          "status": 409,
+          "body": {
+            "interrupted": false,
+            "error": "No active run matched the requested sessionId/runId"
+          }
+        },
+        "activeRunAfterWrongInterrupt": {
+          "sessionId": "local:2026-07-09T10:29:37.674Z-f8yaoi",
+          "runId": "local-2026-07-09T10:29:37.981Z-bzf2qnpq",
+          "status": "running",
+          "elapsedMs": 109,
+          "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978082",
+          "lastOutputSummary": "live tail from codex",
+          "tailDiagnostic": null,
+          "stdoutTailLength": 35,
+          "stderrTailLength": null
+        },
+        "rightInterrupt": {
+          "status": 202,
+          "body": {
+            "interrupted": true
+          }
+        },
+        "stoppedA": [
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "interrupted",
+            "body": "@dev T4_CROSS session A must keep running",
+            "error": "interrupted:user-interrupted",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978082"
+          },
+          {
+            "speaker": "system",
+            "role": null,
+            "status": "displayed",
+            "body": "Codex interrupted: interrupted:user-interrupted",
+            "error": "interrupted:user-interrupted",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978082"
+          }
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "statement": "构造 Codex idle-timeout 或 stale running 修复 -> 显示并持久化 stuck",
+      "evidence": {
+        "messages": [
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "stuck",
+            "body": "@dev T4_STUCK simulate idle timeout",
+            "error": "idle-timeout:10ms",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978704"
+          },
+          {
+            "speaker": "system",
+            "role": null,
+            "status": "displayed",
+            "body": "Codex stuck: idle-timeout:10ms",
+            "error": "idle-timeout:10ms",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978704"
+          }
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "statement": "刷新 renderer 或重启桌面窗口后查看 interrupted/failed/stuck 记录 -> 状态、reason、runDir 仍恢复可见",
+      "evidence": {
+        "interrupted": [
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "interrupted",
+            "body": "@dev T4_LIVE start a slow local console run",
+            "error": "interrupted:user-interrupted",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+          },
+          {
+            "speaker": "system",
+            "role": null,
+            "status": "displayed",
+            "body": "Codex interrupted: interrupted:user-interrupted",
+            "error": "interrupted:user-interrupted",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+          },
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "completed",
+            "body": "@dev T4_AFTER interrupt should release the session",
+            "error": null,
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-3-1783592975240"
+          },
+          {
+            "speaker": "agent",
+            "role": "dev",
+            "status": "displayed",
+            "body": "after interrupt",
+            "error": null,
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-3-1783592975240"
+          }
+        ],
+        "failed": [
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "failed",
+            "body": "@dev T4_FAIL construct a visible failure",
+            "error": "exit:42",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592975908"
+          },
+          {
+            "speaker": "system",
+            "role": null,
+            "status": "displayed",
+            "body": "Codex failed: exit:42",
+            "error": "exit:42",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592975908"
+          }
+        ],
+        "stuck": [
+          {
+            "speaker": "user",
+            "role": null,
+            "status": "stuck",
+            "body": "@dev T4_STUCK simulate idle timeout",
+            "error": "idle-timeout:10ms",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978704"
+          },
+          {
+            "speaker": "system",
+            "role": null,
+            "status": "displayed",
+            "body": "Codex stuck: idle-timeout:10ms",
+            "error": "idle-timeout:10ms",
+            "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978704"
+          }
+        ]
+      }
+    }
+  ],
+  "live": {
+    "selectedSessionId": "default",
+    "activeRun": {
+      "sessionId": "default",
+      "runId": "local-2026-07-09T10:29:33.246Z-5qld1tsf",
+      "role": "dev",
+      "status": "running",
+      "startedAt": "2026-07-09T10:29:33.400Z",
+      "elapsedMs": 1159,
+      "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348",
+      "stdoutTail": "{\"message\":\"live tail from codex\"}\n",
+      "stderrTail": null,
+      "lastOutputSummary": "live tail from codex",
+      "tailDiagnostic": null,
+      "interruptible": true
+    },
+    "messageStatuses": [
+      {
+        "speaker": "user",
+        "role": null,
+        "status": "running",
+        "body": "@dev T4_LIVE start a slow local console run",
+        "error": null,
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+      }
+    ]
+  },
+  "interrupted": {
+    "interrupted": [
+      {
+        "speaker": "user",
+        "role": null,
+        "status": "interrupted",
+        "body": "@dev T4_LIVE start a slow local console run",
+        "error": "interrupted:user-interrupted",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+      },
+      {
+        "speaker": "system",
+        "role": null,
+        "status": "displayed",
+        "body": "Codex interrupted: interrupted:user-interrupted",
+        "error": "interrupted:user-interrupted",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+      }
+    ],
+    "released": [
+      {
+        "speaker": "user",
+        "role": null,
+        "status": "interrupted",
+        "body": "@dev T4_LIVE start a slow local console run",
+        "error": "interrupted:user-interrupted",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+      },
+      {
+        "speaker": "system",
+        "role": null,
+        "status": "displayed",
+        "body": "Codex interrupted: interrupted:user-interrupted",
+        "error": "interrupted:user-interrupted",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+      },
+      {
+        "speaker": "user",
+        "role": null,
+        "status": "completed",
+        "body": "@dev T4_AFTER interrupt should release the session",
+        "error": null,
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-3-1783592975240"
+      },
+      {
+        "speaker": "agent",
+        "role": "dev",
+        "status": "displayed",
+        "body": "after interrupt",
+        "error": null,
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-3-1783592975240"
+      }
+    ]
+  },
+  "failure": [
+    {
+      "speaker": "user",
+      "role": null,
+      "status": "failed",
+      "body": "@dev T4_FAIL construct a visible failure",
+      "error": "exit:42",
+      "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592975908"
+    },
+    {
+      "speaker": "system",
+      "role": null,
+      "status": "displayed",
+      "body": "Codex failed: exit:42",
+      "error": "exit:42",
+      "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592975908"
+    }
+  ],
+  "boundedTail": {
+    "pollMs": 100,
+    "activeRun": {
+      "sessionId": "local:2026-07-09T10:29:36.479Z-ueycgv",
+      "runId": "local-2026-07-09T10:29:36.757Z-7iniwpfx",
+      "status": "running",
+      "elapsedMs": 103,
+      "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592976863",
+      "lastOutputSummary": "tail line 7999",
+      "tailDiagnostic": "tail-truncated:stdout.jsonl",
+      "stdoutTailLength": 65536,
+      "stderrTailLength": null
+    }
+  },
+  "emptyFallback": {
+    "sessionId": "local:2026-07-09T10:29:37.121Z-sw5xyu",
+    "runId": "local-2026-07-09T10:29:37.383Z-fj0410l6",
+    "status": "running",
+    "elapsedMs": 6,
+    "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592977497",
+    "lastOutputSummary": "正在运行，等待输出",
+    "tailDiagnostic": null,
+    "stdoutTailLength": null,
+    "stderrTailLength": null
+  },
+  "crossSessionInterrupt": {
+    "wrongInterrupt": {
+      "status": 409,
+      "body": {
+        "interrupted": false,
+        "error": "No active run matched the requested sessionId/runId"
+      }
+    },
+    "activeRunAfterWrongInterrupt": {
+      "sessionId": "local:2026-07-09T10:29:37.674Z-f8yaoi",
+      "runId": "local-2026-07-09T10:29:37.981Z-bzf2qnpq",
+      "role": "dev",
+      "status": "running",
+      "startedAt": "2026-07-09T10:29:38.133Z",
+      "elapsedMs": 109,
+      "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978082",
+      "stdoutTail": "{\"message\":\"live tail from codex\"}\n",
+      "stderrTail": null,
+      "lastOutputSummary": "live tail from codex",
+      "tailDiagnostic": null,
+      "interruptible": true
+    },
+    "rightInterrupt": {
+      "status": 202,
+      "body": {
+        "interrupted": true
+      }
+    },
+    "stoppedA": [
+      {
+        "speaker": "user",
+        "role": null,
+        "status": "interrupted",
+        "body": "@dev T4_CROSS session A must keep running",
+        "error": "interrupted:user-interrupted",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978082"
+      },
+      {
+        "speaker": "system",
+        "role": null,
+        "status": "displayed",
+        "body": "Codex interrupted: interrupted:user-interrupted",
+        "error": "interrupted:user-interrupted",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978082"
+      }
+    ]
+  },
+  "stuck": [
+    {
+      "speaker": "user",
+      "role": null,
+      "status": "stuck",
+      "body": "@dev T4_STUCK simulate idle timeout",
+      "error": "idle-timeout:10ms",
+      "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978704"
+    },
+    {
+      "speaker": "system",
+      "role": null,
+      "status": "displayed",
+      "body": "Codex stuck: idle-timeout:10ms",
+      "error": "idle-timeout:10ms",
+      "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978704"
+    }
+  ],
+  "restartRecovery": {
+    "interrupted": [
+      {
+        "speaker": "user",
+        "role": null,
+        "status": "interrupted",
+        "body": "@dev T4_LIVE start a slow local console run",
+        "error": "interrupted:user-interrupted",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+      },
+      {
+        "speaker": "system",
+        "role": null,
+        "status": "displayed",
+        "body": "Codex interrupted: interrupted:user-interrupted",
+        "error": "interrupted:user-interrupted",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592973348"
+      },
+      {
+        "speaker": "user",
+        "role": null,
+        "status": "completed",
+        "body": "@dev T4_AFTER interrupt should release the session",
+        "error": null,
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-3-1783592975240"
+      },
+      {
+        "speaker": "agent",
+        "role": "dev",
+        "status": "displayed",
+        "body": "after interrupt",
+        "error": null,
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-3-1783592975240"
+      }
+    ],
+    "failed": [
+      {
+        "speaker": "user",
+        "role": null,
+        "status": "failed",
+        "body": "@dev T4_FAIL construct a visible failure",
+        "error": "exit:42",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592975908"
+      },
+      {
+        "speaker": "system",
+        "role": null,
+        "status": "displayed",
+        "body": "Codex failed: exit:42",
+        "error": "exit:42",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592975908"
+      }
+    ],
+    "stuck": [
+      {
+        "speaker": "user",
+        "role": null,
+        "status": "stuck",
+        "body": "@dev T4_STUCK simulate idle timeout",
+        "error": "idle-timeout:10ms",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978704"
+      },
+      {
+        "speaker": "system",
+        "role": null,
+        "status": "displayed",
+        "body": "Codex stuck: idle-timeout:10ms",
+        "error": "idle-timeout:10ms",
+        "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t4-acceptance-PKQ6OL/runs/run-1-1783592978704"
+      }
+    ]
+  },
+  "artifacts": {
+    "live": "artifacts/acceptance/t4-live.png",
+    "interrupted": "artifacts/acceptance/t4-interrupted.png",
+    "failed": "artifacts/acceptance/t4-failed.png",
+    "evidence": "artifacts/acceptance/t4-evidence.json"
+  }
+}

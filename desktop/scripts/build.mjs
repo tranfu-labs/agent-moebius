@@ -8,6 +8,7 @@ const dist = path.join(root, "dist");
 
 await fs.rm(dist, { recursive: true, force: true });
 await fs.mkdir(path.join(dist, "status-page"), { recursive: true });
+await fs.mkdir(path.join(dist, "console-page"), { recursive: true });
 
 const common = {
   bundle: true,
@@ -38,6 +39,21 @@ await build({
   external: ["electron"],
 });
 
+await build({
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: "chrome120",
+  sourcemap: true,
+  entryPoints: [path.join(root, "src/console-page/app.tsx")],
+  outfile: path.join(dist, "console-page/app.js"),
+  loader: {
+    ".css": "css",
+  },
+});
+
+await fs.copyFile(path.join(root, "src/console-page/index.html"), path.join(dist, "console-page/index.html"));
+await fs.copyFile(path.join(root, "src/console-page/console.css"), path.join(dist, "console-page/console.css"));
 await fs.copyFile(path.join(root, "src/status-page/index.html"), path.join(dist, "status-page/index.html"));
 await fs.copyFile(path.join(root, "src/status-page/status.css"), path.join(dist, "status-page/status.css"));
 await fs.copyFile(path.join(root, "src/status-page/status.js"), path.join(dist, "status-page/status.js"));

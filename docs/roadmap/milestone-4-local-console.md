@@ -57,11 +57,13 @@
 
 验收证据（2026-07-09）：T3 已按 `openspec/changes/local-console-t3-sqlite-persistence/` 实现统一 SQLite state store、GitHub deterministic session key、legacy `.state/*.json` source-local migration marker、worker-isolated SQLite timeout、只读 observer state loader，以及 local console `session_messages` 重启一致性。正式 8 条验收映射见 `artifacts/acceptance/t3-sqlite-persistence.md`。自动化回归：`pnpm vitest run tests/agent-context-state.test.ts tests/github-intake-state.test.ts tests/goal-ledger-state.test.ts tests/observer.test.ts tests/runner.test.ts tests/issue-worktree.test.ts tests/dev-workspace.test.ts` 退出码 0（7 个文件、143 个测试通过）；`pnpm vitest run tests/state.test.ts tests/sqlite-state.test.ts tests/local-console.test.ts` 退出码 0（3 个文件、16 个测试通过）；`pnpm typecheck` 退出码 0；`pnpm test` 退出码 0（根 35 个文件、393 个测试，desktop 5 个文件、15 个测试，console-ui 2 个文件、6 个测试）；`git diff --check` 退出码 0。
 
-### - [ ] T4 · 桌面台成为完备操作台（`数据正确级`）
+### - [x] T4 · 桌面台成为完备操作台（`数据正确级`）
 
 `console-ui` 从「只设计」升为订阅本地通道的真客户端：项目 → 会话两层导航、单时间线多角色混排、codex 运行过程直播、可中断、状态（进行中 / 等待真人 / 卡住 / 错误）完备可见。GitHub 专属语义在此落成本地原生形态（即时态 / 本地错误记录）。
 
 验收场景（细化时保留）：桌面台发起一次对话 → 应看到运行直播；运行中点中断 → 应看到本轮 codex 被停下且状态如实反映；构造一个失败 → 应看到本地错误记录而非静默。
+
+验收证据（2026-07-09）：T4 已按 `openspec/changes/archive/2026-07-09-local-console-t4-desktop-operator-console/` 实现并归档；验收截图见 `artifacts/acceptance/t4-live.png`、`artifacts/acceptance/t4-interrupted.png`、`artifacts/acceptance/t4-failed.png`，8 条正式验收的 API / SQLite 摘要见 `artifacts/acceptance/t4-evidence.json`。该 JSON 逐条记录 live run 的 `lastOutputSummary` / `runDir` / `elapsedMs`、interrupted 状态和释放后续消息、failed `exit:42` 本地错误、bounded tail `tail-truncated:stdout.jsonl` 与有界 poll、空输出 fallback `正在运行，等待输出`、跨会话错误中断 409 与正确中断 202、stuck `idle-timeout:10ms`、重启后 interrupted / failed / stuck 恢复。自动化回归：`pnpm exec tsx scripts/acceptance/local-console-t4.ts`、`pnpm test`、`pnpm typecheck`、`pnpm --filter @agent-moebius/desktop build`、`pnpm --filter @agent-moebius/console-ui test` 均退出码 0。
 
 ### - [ ] T5 · 本地全功能对等（终点线，`成品级`）
 
