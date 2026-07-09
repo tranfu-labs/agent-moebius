@@ -17,6 +17,13 @@
 
 ![desktop-shell](desktop-shell.svg)
 
+### console-ui
+- 职责边界：React 对话操作台组件库与 Storybook 展示台，提供可被未来 Electron renderer import 的 shadcn 风格源码组件、Radix 无障碍原语封装、Tailwind 近单色令牌和项目专属复合组件。它只承载界面组件、样式令牌与组件级可测协议文本生成逻辑，不读取 `.state/`，不调用 runner / observer / GitHub / Codex，也不实现真实桌面对话操作台的数据流。
+- 入口：`packages/console-ui/src/index.ts`；全局样式 `packages/console-ui/src/styles/globals.css`；Storybook `pnpm --filter @agent-moebius/console-ui storybook`。
+- 上游：未来 desktop renderer、Storybook 开发期浏览器、组件测试。
+- 下游：React、Radix UI、Tailwind、lucide 图标；本包内 `tokens.css` 的近单色语义变量。
+- 禁止依赖：MUST NOT 反向 import `src/runner*`、`src/observer*`、`src/goal-ledger*` 或任何 `.state` adapter；MUST NOT 调用 `gh` / `codex` / shell；MUST NOT 把业务事实复制进组件层。真实 renderer app、IPC 与 runner/状态文件对接另立 change 实现。
+
 ### agents
 - 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，或通过 `workspaceAccess: write | read-run` 选择内置 issue worktree capability，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是 CEO 的共享身份素材：发布前 guardrail 路径只读取 persona body 并保持无状态 fail-open，普通 `@ceo` agent 路径执行 frontmatter prescript 并进入 fail-closed 编排。`agents/ceo-scripts/` 存放 CEO 剧本数据，不作为可 mention agent。`agents/secretary.md` 是 CEO 规则维护入口，作为普通 mention agent 运行但只维护当前仓库的 CEO 规则与相关事实源。
 - 入口：`agents/product-manager.md`、`agents/hermes-user.md`、`agents/dev.md`、`agents/dev-manager.md`、`agents/secretary.md`、`agents/ceo.md`

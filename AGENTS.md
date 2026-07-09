@@ -56,6 +56,9 @@
 │   │   ├── runner-supervisor.ts # runner 子进程状态机与崩溃退避
 │   │   └── updater.ts          # 平台更新策略与版本比较
 │   └── tests/                  # 桌面壳纯模块 Vitest
+├── packages/
+│   └── console-ui/             # shadcn/Radix + Tailwind 的 React 对话操作台组件库与 Storybook
+├── component-library/          # Tailwind HTML 静态原型，作为 React 组件库的视觉参照
 ├── tests/                      # Vitest 单元测试
 ├── docs/
 │   ├── adr/                    # 架构决策记录
@@ -91,6 +94,10 @@
 - 打包桌面应用：`pnpm --filter @agent-moebius/desktop dist`
   - 三平台产物通过 electron-builder 生成：macOS dmg/zip、Windows nsis、Linux AppImage。
   - `desktop-v*` tag 会触发 `.github/workflows/release-desktop.yml` 构建并上传 GitHub Releases；Windows/Linux 更新走 electron-updater，macOS 无签名证书期间检查更新只跳转下载页。
+- 运行 React 对话操作台组件库 Storybook：`pnpm --filter @agent-moebius/console-ui storybook`
+  - 组件库位于 `packages/console-ui`，使用 shadcn 风格源码组件、Radix 原语与 Tailwind 语义令牌。
+  - `src/styles/tokens.css` 是近单色令牌源：灰阶为主、indigo 只用于交互、绿/红只用于裁决与危险；「等你」用中性结构信号，不使用专属色相。
+  - `@agent-moebius/console-ui` 可被未来 desktop renderer import；renderer 入口需引入 `@agent-moebius/console-ui/globals.css`。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。

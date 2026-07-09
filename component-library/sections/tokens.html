@@ -1,0 +1,122 @@
+<section class="spec" data-component="tokens" id="tokens">
+  <header class="spec-h">
+    <h2>设计令牌</h2><code>?only=tokens</code>
+    <p>近单色调色板 / 字体阶 / 圆角，颜色预算：灰阶为主·indigo 极少·无专属信号色·绿红只在裁决。</p>
+  </header>
+  <div class="spec-stage">
+    <!-- 预算强调条（自身保持中性，不用信号色） -->
+    <div class="flex items-start gap-2 mb-7 px-3.5 py-2.5 rounded-lg bg-sunken border border-line text-[13px] text-sub leading-relaxed">
+      <span class="mt-0.5 shrink-0 text-hint">预算</span>
+      <span><span class="font-semibold text-ink">近单色</span>：灰阶为主 · indigo 极少 · <span class="font-semibold text-ink">无专属信号色（等你=普通灰）</span> · 绿=通过 / 红=危险(Linear 红)只在裁决。</span>
+    </div>
+
+    <div class="stage-col gap-8">
+
+      <!-- ① 表面 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">① 表面 SURFACE</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-canvas"></div><div class="nm">canvas 页面底</div><div class="hex">#F7F7F8</div></div>
+          <div class="swatch"><div class="chip bg-rail"></div><div class="nm">rail 侧栏</div><div class="hex">#FBFBFC</div></div>
+          <div class="swatch"><div class="chip bg-card"></div><div class="nm">card 卡面</div><div class="hex">#FFFFFF</div></div>
+          <div class="swatch"><div class="chip bg-sunken"></div><div class="nm">sunken 凹陷/原始输出</div><div class="hex">#F3F3F4</div></div>
+          <div class="swatch"><div class="chip bg-input"></div><div class="nm">input 输入</div><div class="hex">#FFFFFF</div></div>
+        </div>
+      </div>
+
+      <!-- ② 文字 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">② 文字 TEXT</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-ink"></div><div class="nm">ink 主文字</div><div class="hex">#1B1B1B</div></div>
+          <div class="swatch"><div class="chip bg-sub"></div><div class="nm">sub 次要文字</div><div class="hex">#5D5D5F</div></div>
+          <div class="swatch"><div class="chip bg-hint"></div><div class="nm">hint 弱提示</div><div class="hex">#8A8F98</div></div>
+        </div>
+      </div>
+
+      <!-- ③ 描边 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">③ 描边 LINE</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-line"></div><div class="nm">line 细描边</div><div class="hex">rgba(15,17,20,.09)</div></div>
+          <div class="swatch"><div class="chip bg-line-strong"></div><div class="nm">line-strong 强描边</div><div class="hex">rgba(15,17,20,.14)</div></div>
+          <div class="swatch"><div class="chip bg-sel"></div><div class="nm">sel 选中态（中性）</div><div class="hex">#ECECED</div></div>
+        </div>
+      </div>
+
+      <!-- ④ 强调 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">④ 强调 ACCENT（indigo · 极少用）</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-accent"></div><div class="nm">accent 强调</div><div class="hex">#5E6AD2</div></div>
+          <div class="swatch"><div class="chip bg-accent-fg"></div><div class="nm">accent-fg 强调前景</div><div class="hex">#FFFFFF</div></div>
+        </div>
+      </div>
+
+      <!-- ⑤ 裁决/危险 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">⑤ 裁决/危险 VERDICT（绿=通过 / 红=危险 · 只用彩色文字，无浅底填充，只在裁决那一刻）</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-pass"></div><div class="nm">pass 通过</div><div class="hex">#2F8F5B</div></div>
+          <div class="swatch"><div class="chip bg-danger"></div><div class="nm">danger 危险/不通过</div><div class="hex">#E5484D</div></div>
+        </div>
+      </div>
+
+      <!-- ⑥ 头像 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">⑥ 头像 AVATAR（统一中性灰 · 无色相）</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-ava-bg"></div><div class="nm">ava-bg 头像底</div><div class="hex">#EAEAEC</div></div>
+          <div class="swatch"><div class="chip bg-ava-fg"></div><div class="nm">ava-fg 头像字</div><div class="hex">#55565A</div></div>
+        </div>
+      </div>
+
+      <!-- 字体阶 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">字体阶 TYPE SCALE（跟 Linear · 紧凑）</div>
+        <div class="stage-col gap-2.5 max-w-xl">
+          <div class="flex items-baseline gap-3">
+            <span class="text-sm font-semibold text-ink">把方案写好交给技术负责人</span>
+            <span class="text-[11px] text-hint font-mono shrink-0">text-sm · 卡标题/强调</span>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <span class="text-[13px] text-ink">开发已经跑完，现在轮到你验收</span>
+            <span class="text-[11px] text-hint font-mono shrink-0">text-[13px] · 正文</span>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <span class="text-xs text-sub">测试在检查这三条验收语句</span>
+            <span class="text-[11px] text-hint font-mono shrink-0">text-xs · 次要</span>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <span class="text-[11px] text-hint">属于：给官网做一版落地页</span>
+            <span class="text-[11px] text-hint font-mono shrink-0">text-[11px] · 弱标签</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 圆角 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">圆角 RADIUS</div>
+        <div class="stage-row">
+          <div class="specimen items-center">
+            <div class="cap">rounded-md · 6</div>
+            <div class="w-14 h-14 bg-sunken border border-line rounded-md"></div>
+          </div>
+          <div class="specimen items-center">
+            <div class="cap">rounded-lg · 8</div>
+            <div class="w-14 h-14 bg-sunken border border-line rounded-lg"></div>
+          </div>
+          <div class="specimen items-center">
+            <div class="cap">rounded-xl · 12</div>
+            <div class="w-14 h-14 bg-sunken border border-line rounded-xl"></div>
+          </div>
+          <div class="specimen items-center">
+            <div class="cap">rounded-full</div>
+            <div class="w-14 h-14 bg-sunken border border-line rounded-full"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>

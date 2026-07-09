@@ -1,0 +1,47 @@
+<section class="spec" data-component="user-message" id="user-message">
+  <header class="spec-h">
+    <h2>用户消息</h2><code>?only=user-message</code>
+    <p>你在时间线里发出的消息，永远全文展示。头像 + 名字/时间 + 正文；正文里 @角色 是唯一着色处（accent），其余全灰。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-col gap-6 max-w-[640px]">
+
+      <!-- 默认 -->
+      <div class="specimen">
+        <div class="cap">默认</div>
+        <div class="flex gap-3">
+          <span class="w-[26px] h-[26px] shrink-0 rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">你</span>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-ink">你</span>
+              <span class="text-hint text-[11px] tnum">14:02</span>
+            </div>
+            <p class="mt-0.5 text-sm text-ink">
+              <span class="text-accent font-semibold">@开发</span> 给卡片导出加实时进度提示
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 较长文本 + @测试 -->
+      <div class="specimen">
+        <div class="cap">较长文本 + @测试</div>
+        <div class="flex gap-3">
+          <span class="w-[26px] h-[26px] shrink-0 rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">你</span>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-ink">你</span>
+              <span class="text-hint text-[11px] tnum">14:18</span>
+            </div>
+            <p class="mt-0.5 text-sm text-ink">
+              <span class="text-accent font-semibold">@测试</span> 上一版进度条在导出「零卡片」的空系列时会一直停在 0%，麻烦补一组边界用例：空系列、单卡片、超大系列各跑一遍，确认进度提示和最终产物都正常，再把走查结论交回开发。
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>

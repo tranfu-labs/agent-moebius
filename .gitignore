@@ -29,3 +29,7 @@ config.local.toml
 desktop/dist/
 desktop/dist-types/
 desktop/release/
+
+### Workspace package build outputs
+packages/*/dist/
+packages/*/storybook-static/

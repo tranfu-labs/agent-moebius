@@ -1,0 +1,79 @@
+<section class="spec" data-component="event-stream" id="event-stream">
+  <header class="spec-h">
+    <h2>进展事件流（查收点）</h2><code>?only=event-stream</code>
+    <p>编排会话里子会话里程碑自动回流成的紧凑事件流：每条一行、可点击跳转对应子会话。查收 = 扫会话头 + 事件流，不读子会话原文。全灰呈现，「等你」是普通状态不着色，仅「→ 去验收」用强调色作可点链接。</p>
+  </header>
+  <div class="spec-stage">
+    <div class="stage-col">
+
+      <!-- ① 完整事件流 -->
+      <div class="specimen">
+        <div class="cap">完整事件流（会话卡语境）</div>
+        <div class="max-w-[640px] bg-card border border-line rounded-xl p-4">
+
+          <!-- 进展分节标题 -->
+          <div class="flex items-center gap-2.5 text-hint text-xs font-semibold">
+            <span>进展</span>
+            <span class="flex-1 h-px bg-line"></span>
+          </div>
+
+          <!-- 事件行 -->
+          <div class="mt-1">
+
+            <!-- 1 · 已创建任务会话 -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+              <span class="flex-1 text-ink">已创建 3 个任务会话：T1 · T2 · T3</span>
+              <span class="shrink-0 text-hint text-[11px] tnum">昨天</span>
+            </div>
+
+            <!-- 2 · T1 验收通过（灰勾） -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+              <span class="flex-1 text-ink">T1 一键导出：验收通过（测试走查 3/3）</span>
+              <span class="shrink-0 text-hint text-[11px] tnum">2 小时前</span>
+            </div>
+
+            <!-- 3 · T3 验收未过 → 派生修复会话（仍全灰，不是裁决那一刻） -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+              <span class="flex-1 text-ink">T3 失败汇总：验收未过 → 已派生修复会话</span>
+              <span class="shrink-0 text-hint text-[11px] tnum">1 小时前</span>
+            </div>
+
+            <!-- 4 · T2 开发运行中 -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+              <span class="flex-1 text-ink">T2 进度提示：开发运行中</span>
+              <span class="shrink-0 text-hint text-[11px] tnum">12 分钟前</span>
+            </div>
+
+            <!-- 5 · 末条等你态（普通中性行，仅链接用强调色） -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-hand"/></svg>
+              <span class="flex-1 text-ink">T3 修复完成，等你验收</span>
+              <span class="shrink-0 flex items-center gap-2">
+                <span class="text-hint text-[11px] tnum">刚刚</span>
+                <span class="text-accent font-semibold text-[11px]">→ 去验收</span>
+              </span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ② 悬停一行 -->
+      <div class="specimen">
+        <div class="cap">悬停一行（hover:bg-hover 常驻演示）</div>
+        <div class="max-w-[640px] bg-card border border-line rounded-xl p-4">
+          <div class="flex items-start gap-2.5 py-2 text-[13px] bg-hover rounded-md cursor-pointer">
+            <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+            <span class="flex-1 text-ink">T1 一键导出：验收通过（测试走查 3/3）</span>
+            <span class="shrink-0 text-hint text-[11px] tnum">2 小时前</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>

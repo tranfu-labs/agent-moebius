@@ -1,0 +1,57 @@
+<section class="spec" data-component="wait-popover" id="wait-popover">
+  <header class="spec-h">
+    <h2>顶栏「等你」清单浮层</h2><code>?only=wait-popover</code>
+    <p>点顶栏「等你」计数展开的跨项目清单：一行 = 手图标 + 会话名 + 一句义务 + 项目名，点行直达会话。它是跳转菜单不是收件箱——无已读、无按钮、无分页。「等你」是普通状态，全灰呈现，不给专属信号色。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-row items-start gap-8 bg-canvas p-8 rounded-lg">
+
+      <!-- 默认态 -->
+      <div class="specimen">
+        <div class="cap">默认</div>
+        <div class="w-[340px] bg-card border border-line rounded-lg shadow-overlay p-1.5">
+          <div class="h text-hint text-[11px] font-semibold px-2 py-1.5">等你 (2)</div>
+
+          <div class="flex items-center gap-2 px-2 py-1.5 rounded-md">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span class="text-[13px] text-ink">失败汇总</span>
+            <span class="text-[13px] text-sub">· 等你验收</span>
+            <span class="ml-auto text-hint text-[11px]">tranfu-agents</span>
+          </div>
+
+          <div class="flex items-center gap-2 px-2 py-1.5 rounded-md">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span class="text-[13px] text-ink">首页文案</span>
+            <span class="text-[13px] text-sub">· 提案等确认</span>
+            <span class="ml-auto text-hint text-[11px]">tranfu-site</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 一行悬停态 -->
+      <div class="specimen">
+        <div class="cap">一行悬停（点行直达会话）</div>
+        <div class="w-[340px] bg-card border border-line rounded-lg shadow-overlay p-1.5">
+          <div class="h text-hint text-[11px] font-semibold px-2 py-1.5">等你 (2)</div>
+
+          <div class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-hover">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span class="text-[13px] text-ink">失败汇总</span>
+            <span class="text-[13px] text-sub">· 等你验收</span>
+            <span class="ml-auto text-hint text-[11px]">tranfu-agents</span>
+          </div>
+
+          <div class="flex items-center gap-2 px-2 py-1.5 rounded-md">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span class="text-[13px] text-ink">首页文案</span>
+            <span class="text-[13px] text-sub">· 提案等确认</span>
+            <span class="ml-auto text-hint text-[11px]">tranfu-site</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>

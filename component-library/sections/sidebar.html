@@ -1,0 +1,104 @@
+<section class="spec" data-component="sidebar" id="sidebar">
+  <header class="spec-h">
+    <h2>侧栏</h2><code>?only=sidebar</code>
+    <p>项目 / 会话两层导航。会话行一行制，状态三态（✋ 等你 / ⣾ 运行中 / 无），排序 ✋ &gt; 目标 &gt; ⣾ &gt; 静止 &gt; 已完成。选中态用中性灰；「等你」是普通状态，用中性灰呈现，跟其它会话行一视同仁，不着色。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="specimen">
+      <div class="cap">侧栏 + 右侧排序档位注释（①—⑤）</div>
+      <div class="stage-row items-start gap-6">
+
+        <!-- ── 侧栏容器 ────────────────────────────────── -->
+        <aside class="w-[244px] bg-rail rounded-lg p-1.5">
+
+          <!-- 项目头（展开态） -->
+          <div class="flex items-center gap-1.5 px-2 py-1.5 text-hint text-xs font-semibold">
+            <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-d"/></svg>
+            tranfu-agents-app
+          </div>
+
+          <!-- ① 等你：✋ 失败汇总（中性 ✋ 图标 + 普通文字，与其它普通会话行一致） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            失败汇总
+          </div>
+
+          <!-- ② 目标：导出体验（前置占位对齐，无点） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <span class="inline-block w-1.5"></span>
+            目标：导出体验
+          </div>
+
+          <!-- ② 目标：观察页改版（选中态，中性灰 bg-sel） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink bg-sel">
+            <span class="inline-block w-1.5"></span>
+            目标：观察页改版
+          </div>
+
+          <!-- ③ 运行中：⣾ 进度提示（灰点呼吸） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            进度提示
+          </div>
+
+          <!-- ③ 运行中：⣾ 失败汇总修复（修复子会话同样平铺无缩进） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            失败汇总修复
+          </div>
+
+          <!-- ④ 静止：导出功能重构（裸名，无徽标） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <span class="inline-block w-1.5"></span>
+            导出功能重构
+          </div>
+
+          <!-- ⑤ 已完成折叠组（caret-r + 弱化文字） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-hint hover:bg-hover">
+            <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            已完成 (6)
+          </div>
+
+          <!-- 第二个项目：tranfu-site（折叠，行尾冒泡等你计数，中性） -->
+          <div class="flex items-center gap-1.5 px-2 py-1.5 text-hint text-xs font-semibold">
+            <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            tranfu-site
+            <span class="ml-auto inline-flex items-center gap-1 text-sub">
+              <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="tnum">1</span>
+            </span>
+          </div>
+
+          <!-- 第三个项目：agent-moebius（折叠，无计数） -->
+          <div class="flex items-center gap-1.5 px-2 py-1.5 text-hint text-xs font-semibold">
+            <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            agent-moebius
+          </div>
+
+          <!-- 分隔线 -->
+          <div class="h-px bg-line my-1.5"></div>
+
+          <!-- 账本入口 -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-sub hover:bg-hover">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-home"/></svg>
+            账本
+          </div>
+
+        </aside>
+
+        <!-- ── 右侧排序档位注释 ───────────────────────── -->
+        <div class="flex flex-col gap-3 pt-1 max-w-[220px]">
+          <div class="cap">排序 ✋ &gt; 目标 &gt; ⣾ &gt; 静止 &gt; 已完成</div>
+          <div class="text-[11px] text-hint">① 等你——义务，永远最上（普通中性）</div>
+          <div class="text-[11px] text-hint">② 目标——编排会话，按创建序，选中态中性灰</div>
+          <div class="text-[11px] text-hint">③ 运行中——车间在动可不看，灰点呼吸；修复子会话平铺无缩进</div>
+          <div class="text-[11px] text-hint">④ 静止——裸名，无任何徽标</div>
+          <div class="text-[11px] text-hint">⑤ 已完成——验收通过自动沉入折叠组</div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
