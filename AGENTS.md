@@ -101,6 +101,8 @@
   - `@agent-moebius/console-ui` 被 desktop renderer 复用；renderer 入口需引入 `@agent-moebius/console-ui/globals.css`。
 - T4 本地操作台验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t4.ts`
   - 会启动 fake local console server 和静态桌面 renderer，生成 `artifacts/acceptance/t4-live.png`、`artifacts/acceptance/t4-interrupted.png`、`artifacts/acceptance/t4-failed.png` 与 `artifacts/acceptance/t4-evidence.json`。
+- T4.5 本地接力循环验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t45.ts`
+  - 会启动 fake local console server，覆盖四角色本地接力、SQLite 位点重启续跑、`recordAgentResponse` 事务前失败、timeout stuck 释放 session、两个 session startup catch-up，并生成 `artifacts/acceptance/t45-evidence.json`。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。

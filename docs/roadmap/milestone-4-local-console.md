@@ -65,6 +65,14 @@
 
 验收证据（2026-07-09）：T4 已按 `openspec/changes/archive/2026-07-09-local-console-t4-desktop-operator-console/` 实现并归档；验收截图见 `artifacts/acceptance/t4-live.png`、`artifacts/acceptance/t4-interrupted.png`、`artifacts/acceptance/t4-failed.png`，8 条正式验收的 API / SQLite 摘要见 `artifacts/acceptance/t4-evidence.json`。该 JSON 逐条记录 live run 的 `lastOutputSummary` / `runDir` / `elapsedMs`、interrupted 状态和释放后续消息、failed `exit:42` 本地错误、bounded tail `tail-truncated:stdout.jsonl` 与有界 poll、空输出 fallback `正在运行，等待输出`、跨会话错误中断 409 与正确中断 202、stuck `idle-timeout:10ms`、重启后 interrupted / failed / stuck 恢复。自动化回归：`pnpm exec tsx scripts/acceptance/local-console-t4.ts`、`pnpm test`、`pnpm typecheck`、`pnpm --filter @agent-moebius/desktop build`、`pnpm --filter @agent-moebius/console-ui test` 均退出码 0。
 
+### - [x] T4.5 · 多角色接力循环打通（`数据正确级`）
+
+打通 local intake 侧的 agent handoff 总线：agent 回复落库后同一事务推进 SQLite 消息位点，并立即在同一 session drain 中把该 agent 消息作为下一轮可 claim 触发源继续走 `resolveTrigger`；启动只做一次 catch-up，不再靠 1s 周期 poll 兜底。GitHub 模式保持零漂移，不改 `runner.heartbeat` / GitHub intake。
+
+验收场景（细化时保留）：在纯本地发一条「@ceo 我想做 X」→ 应看到 ceo → dev-manager → dev → qa 四条 agent 消息在秒级接力落库，任意两条相邻消息之间不再引入 1s+ 轮询等待、只受限于 codex 单轮真实运行时长；中途 `kill` runner 后重启 → 应看到未处理完的接力从断点续跑，不重复也不丢棒；GitHub 全测试套件仍全绿。
+
+验收证据（2026-07-09）：T4.5 已按 `openspec/changes/local-console-t45-handoff-loop/` 实现 local session drain、SQLite `local_message_cursors` 位点、agent 回复作为下一轮触发源、启动 catch-up 与无 1s 周期 poll。正式 7 条验收摘要见 `artifacts/acceptance/t45-evidence.json`：四角色链路落库顺序与 run 顺序均为 `ceo -> dev-manager -> dev -> qa`，相邻 handoff gap 为 298ms / 289ms / 293ms，重启续跑只运行剩余 `dev` 一棒且 agent roles 为 `ceo, dev`，`recordAgentResponse` 事务前失败后无半条 agent 回复且 retry 后成功，timeout 产生 visible `stuck` 记录并允许后续 `qa` 消息继续，两个 session startup catch-up 中 fast session 不被 slow session 阻塞。自动化回归：`pnpm exec tsx scripts/acceptance/local-console-t45.ts`、`pnpm vitest run tests/local-console.test.ts`、`pnpm test`、`pnpm typecheck`、`git diff --check` 均退出码 0。
+
 ### - [ ] T5 · 本地全功能对等（终点线，`成品级`）
 
 拿 `github-issue-runner` spec 的 MUST 清单逐条核，把 GitHub 模式全部能力在本地补齐原生形态：交棒总线、CEO 无 mention 兜底路由、验收走查、开子会话编排（CEO「开子 issue」→「开子会话」）、dead-letter 降级。漏一条即未达终点。

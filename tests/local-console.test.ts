@@ -166,6 +166,278 @@ describe("local console", () => {
     }
   });
 
+  it("drains local agent handoffs without waiting for the fixed poll interval", async () => {
+    const root = await makeFixtureRoot();
+    for (const role of ["ceo", "dev-manager", "dev", "qa"]) {
+      await writeAgent(root, role, `# ${role}\n\nROLE:${role}`);
+    }
+    const calls: Array<{ role: string; at: number }> = [];
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      const role = roleFromPrompt(options.prompt);
+      calls.push({ role, at: Date.now() });
+      const next: Record<string, string> = {
+        ceo: "@dev-manager please review",
+        "dev-manager": "@dev please implement",
+        dev: "@qa please test",
+        qa: "QA done",
+      };
+      return codexOk(options, next[role] ?? "done");
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    try {
+      const session = await createSession(started.url, "handoff");
+      await postSessionMessage(started.url, session.sessionId, "@ceo 我想做 X");
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.filter((entry) => entry.speaker === "agent").length === 4,
+      );
+      expect(state.messages.filter((entry) => entry.speaker === "agent").map((entry) => entry.role)).toEqual([
+        "ceo",
+        "dev-manager",
+        "dev",
+        "qa",
+      ]);
+      expect(calls.map((entry) => entry.role)).toEqual(["ceo", "dev-manager", "dev", "qa"]);
+      for (let index = 1; index < calls.length; index += 1) {
+        expect(calls[index]!.at - calls[index - 1]!.at).toBeLessThan(1_000);
+      }
+    } finally {
+      await started.close();
+    }
+  }, 10_000);
+
+  it("silently advances an agent reply with no valid trigger once", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "ceo", "# ceo\n\nROLE:ceo");
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "no handoff"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    try {
+      const session = await createSession(started.url, "no trigger agent");
+      await postSessionMessage(started.url, session.sessionId, "@ceo stop here");
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.role === "ceo"),
+      );
+      await started.runtime.processPending(session.sessionId);
+      await started.runtime.processPending(session.sessionId);
+      const state = await getState(started.url, session.sessionId);
+      expect(runCodex).toHaveBeenCalledTimes(1);
+      expect(state.messages.filter((entry) => entry.speaker === "system" && entry.body.includes("No valid agent mention"))).toHaveLength(0);
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("resumes from a committed agent reply after restart without repeating the completed role", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    const session = await store.createSession({
+      sessionId: "local:committed-agent",
+      title: "committed agent",
+      now: "2026-07-09T00:00:00.000Z",
+    });
+    const user = await store.appendUserMessage({
+      sessionId: session.sessionId,
+      body: "@ceo first",
+      now: "2026-07-09T00:00:01.000Z",
+    });
+    await store.claimNextPendingMessage({
+      sessionId: session.sessionId,
+      runId: "run-ceo",
+      now: "2026-07-09T00:00:02.000Z",
+    });
+    await store.recordAgentResponse({
+      userMessageId: user.id,
+      sessionId: session.sessionId,
+      role: "ceo",
+      body: "@dev continue",
+      runId: "run-ceo",
+      runDir: path.join(root, "runs", "ceo"),
+      now: "2026-07-09T00:00:03.000Z",
+    });
+    await store.close();
+
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "dev done"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `restart-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    try {
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.role === "dev"),
+      );
+      expect(state.messages.filter((entry) => entry.speaker === "agent").map((entry) => entry.role)).toEqual(["ceo", "dev"]);
+      expect(runCodex).toHaveBeenCalledTimes(1);
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("releases the trigger for retry when recording an agent response fails before commit", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const innerStore = await createSqliteLocalConsoleStore({ sqlitePath });
+    const store = new FailOnceRecordAgentResponseStore(innerStore);
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "dev done"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      store,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    try {
+      const session = await createSession(started.url, "record failure");
+      await postSessionMessage(started.url, session.sessionId, "@dev retry me");
+      await waitFor(() => runCodex.mock.calls.length === 1);
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending"),
+      );
+      expect((await getState(started.url, session.sessionId)).messages.filter((entry) => entry.speaker === "agent")).toHaveLength(0);
+
+      await started.runtime.processPending(session.sessionId);
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.role === "dev"),
+      );
+      expect(runCodex).toHaveBeenCalledTimes(2);
+      expect(state.messages.filter((entry) => entry.speaker === "agent")).toHaveLength(1);
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("records a stuck handoff run and lets later local messages continue", async () => {
+    const root = await makeFixtureRoot();
+    for (const role of ["ceo", "dev", "qa"]) {
+      await writeAgent(root, role, `# ${role}\n\nROLE:${role}`);
+    }
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      const role = roleFromPrompt(options.prompt);
+      if (role === "ceo") {
+        return codexOk(options, "@dev continue");
+      }
+      if (role === "dev") {
+        return {
+          ok: false,
+          reason: "max-duration-timeout:20ms",
+          runDir: options.runDir,
+          stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+          stderrPath: path.join(options.runDir, "stderr.log"),
+        };
+      }
+      return codexOk(options, "qa after stuck");
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: 1_000,
+      codexMaxDurationMs: 20,
+    });
+    try {
+      const session = await createSession(started.url, "stuck handoff");
+      await postSessionMessage(started.url, session.sessionId, "@ceo start");
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.status === "stuck" && entry.error === "max-duration-timeout:20ms"),
+      );
+
+      const next = await postSessionMessage(started.url, session.sessionId, "@qa after stuck");
+      expect(next.status).toBe(202);
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.role === "qa"),
+      );
+      expect(state.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ speaker: "system", body: "Codex stuck: max-duration-timeout:20ms" }),
+          expect.objectContaining({ speaker: "agent", role: "qa", body: "qa after stuck" }),
+        ]),
+      );
+    } finally {
+      await started.close();
+    }
+  }, 10_000);
+
+  it("runs startup catch-up for another session while one session is slow", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    const sessionA = await store.createSession({
+      sessionId: "local:slow-a",
+      title: "slow A",
+      now: "2026-07-09T00:00:00.000Z",
+    });
+    const sessionB = await store.createSession({
+      sessionId: "local:fast-b",
+      title: "fast B",
+      now: "2026-07-09T00:00:00.000Z",
+    });
+    await store.appendUserMessage({
+      sessionId: sessionA.sessionId,
+      body: "@dev slow startup",
+      now: "2026-07-09T00:00:01.000Z",
+    });
+    await store.appendUserMessage({
+      sessionId: sessionB.sessionId,
+      body: "@dev fast startup",
+      now: "2026-07-09T00:00:02.000Z",
+    });
+    await store.close();
+
+    const runCodex = vi.fn((options: CodexRunOptions): Promise<CodexRunResult> => {
+      if (options.prompt.includes("slow startup")) {
+        return waitForAbortResult(options);
+      }
+      return Promise.resolve(codexOk(options, "fast done"));
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `startup-${String(count)}`),
+      storeTimeoutMs: 1_000,
+    });
+    try {
+      const fastState = await waitForState(started.url, sessionB.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body === "fast done"),
+      );
+      const slowState = await waitForState(started.url, sessionA.sessionId, (data) => data.activeRun !== null);
+      expect(fastState.messages).toEqual(
+        expect.arrayContaining([expect.objectContaining({ speaker: "agent", role: "dev", body: "fast done" })]),
+      );
+      expect(slowState.activeRun).toMatchObject({ sessionId: sessionA.sessionId, interruptible: true });
+      await interruptRun(started.url, sessionA.sessionId, slowState.activeRun?.runId ?? "");
+      await waitForState(started.url, sessionA.sessionId, (data) =>
+        data.messages.some((entry) => entry.status === "interrupted"),
+      );
+    } finally {
+      await started.close();
+    }
+  });
+
   it("returns project/session state and runs messages in the selected session", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "dev", "# Dev\n\nReply briefly.");
@@ -450,7 +722,6 @@ describe("local console", () => {
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
       storeTimeoutMs: 500,
-      pollIntervalMs: 20,
     });
     (started.runtime as unknown as { storeTimeoutMs: number }).storeTimeoutMs = 50;
     const lock = new DatabaseSync(sqlitePath);
@@ -725,6 +996,27 @@ exit 0
 `;
 }
 
+function roleFromPrompt(prompt: string): string {
+  for (const role of ["ceo", "dev-manager", "dev", "qa"]) {
+    if (prompt.includes(`ROLE:${role}`)) {
+      return role;
+    }
+  }
+  throw new Error(`Unable to detect role from prompt: ${prompt.slice(0, 160)}`);
+}
+
+function codexOk(options: CodexRunOptions, finalText: string): CodexRunResult {
+  return {
+    ok: true,
+    finalText,
+    threadId: null,
+    cachedInputTokens: null,
+    runDir: options.runDir,
+    stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+    stderrPath: path.join(options.runDir, "stderr.log"),
+  };
+}
+
 function waitForAbortResult(options: CodexRunOptions): Promise<CodexRunResult> {
   return new Promise<CodexRunResult>((resolve) => {
     options.signal?.addEventListener(
@@ -808,6 +1100,10 @@ class FastFailAppendStore implements LocalConsoleStore {
 
   async recordSystemAndComplete(): Promise<void> {}
 
+  async recordMessageProcessed(): Promise<void> {}
+
+  async releaseMessageForRetry(): Promise<void> {}
+
   async recordFailure(): Promise<void> {}
 
   async recordInterrupted(): Promise<void> {}
@@ -816,6 +1112,134 @@ class FastFailAppendStore implements LocalConsoleStore {
 
   async markStaleRunning(): Promise<number> {
     return 0;
+  }
+}
+
+class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
+  readonly sqlitePath: string;
+  private failNextRecord = true;
+
+  constructor(private readonly inner: LocalConsoleStore) {
+    this.sqlitePath = inner.sqlitePath;
+  }
+
+  async init(): Promise<void> {
+    await this.inner.init();
+  }
+
+  async close(): Promise<void> {
+    await this.inner.close();
+  }
+
+  async createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.createSession(input);
+  }
+
+  async listSessions(): Promise<LocalConsoleSessionSummary[]> {
+    return await this.inner.listSessions();
+  }
+
+  async appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {
+    return await this.inner.appendUserMessage(input);
+  }
+
+  async listMessages(sessionId: string): Promise<LocalConsoleMessage[]> {
+    return await this.inner.listMessages(sessionId);
+  }
+
+  async hasRunningMessage(sessionId: string): Promise<boolean> {
+    return await this.inner.hasRunningMessage(sessionId);
+  }
+
+  async claimNextPendingMessage(input: { sessionId: string; runId: string; now: string }): Promise<LocalConsoleMessage | null> {
+    return await this.inner.claimNextPendingMessage(input);
+  }
+
+  async setRunDir(input: { id: number; runDir: string; now: string }): Promise<void> {
+    await this.inner.setRunDir(input);
+  }
+
+  async recordAgentResponse(input: {
+    userMessageId: number;
+    sessionId: string;
+    role: string;
+    body: string;
+    runId: string;
+    runDir: string;
+    now: string;
+  }): Promise<void> {
+    if (this.failNextRecord) {
+      this.failNextRecord = false;
+      throw new Error("injected-record-agent-response-before-commit");
+    }
+    await this.inner.recordAgentResponse(input);
+  }
+
+  async recordSystemAndComplete(input: {
+    userMessageId: number;
+    sessionId: string;
+    body: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordSystemAndComplete(input);
+  }
+
+  async recordMessageProcessed(input: {
+    userMessageId: number;
+    sessionId: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordMessageProcessed(input);
+  }
+
+  async releaseMessageForRetry(input: { userMessageId: number; sessionId: string; now: string }): Promise<void> {
+    await this.inner.releaseMessageForRetry(input);
+  }
+
+  async recordFailure(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordFailure(input);
+  }
+
+  async recordInterrupted(input: {
+    userMessageId: number;
+    sessionId: string;
+    reason: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordInterrupted(input);
+  }
+
+  async recordStuck(input: {
+    userMessageId: number;
+    sessionId: string;
+    reason: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordStuck(input);
+  }
+
+  async markStaleRunning(input: {
+    sessionId: string;
+    cutoffIso: string;
+    now: string;
+    reason: string;
+  }): Promise<number> {
+    return await this.inner.markStaleRunning(input);
   }
 }
 
@@ -926,6 +1350,33 @@ class RecoveringAppendStore implements LocalConsoleStore {
   }
 
   async recordSystemAndComplete(): Promise<void> {}
+
+  async recordMessageProcessed(input: {
+    userMessageId: number;
+    sessionId: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    void input.sessionId;
+    void input.runId;
+    void input.runDir;
+    const message = this.messages.find((entry) => entry.id === input.userMessageId);
+    if (message !== undefined && message.speaker === "user") {
+      message.status = "completed";
+      message.updatedAt = input.now;
+    }
+  }
+
+  async releaseMessageForRetry(input: { userMessageId: number; sessionId: string; now: string }): Promise<void> {
+    void input.sessionId;
+    const message = this.messages.find((entry) => entry.id === input.userMessageId);
+    if (message !== undefined && message.speaker === "user" && message.status === "running") {
+      message.status = "pending";
+      message.runId = null;
+      message.updatedAt = input.now;
+    }
+  }
 
   async recordFailure(input: { userMessageId: number; error: string; now: string }): Promise<void> {
     const message = this.messages.find((entry) => entry.id === input.userMessageId);

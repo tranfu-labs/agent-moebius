@@ -30,7 +30,6 @@ export interface LocalConsoleServerOptions {
   sqliteBusyTimeoutMs?: number;
   codexIdleTimeoutMs?: number;
   codexMaxDurationMs?: number;
-  pollIntervalMs?: number;
 }
 
 export interface StartedLocalConsoleServer {
@@ -67,12 +66,9 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
 
   const server = createLocalConsoleHttpServer(runtime);
   const { port } = await listenWithFallback(server, host, requestedPort);
-  const interval = setInterval(() => {
-    void runtime.processAllPending().catch((error) => {
-      log({ event: "local-console-poll-failed", error: formatLocalError(error) });
-    });
-  }, options.pollIntervalMs ?? 1_000);
-  interval.unref();
+  void runtime.processAllPending().catch((error) => {
+    log({ event: "local-console-startup-catch-up-failed", error: formatLocalError(error) });
+  });
 
   const url = `http://${host}:${String(port)}/`;
   log({ event: "local-console-started", url, sqlitePath: store.sqlitePath });
@@ -83,7 +79,6 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
     url,
     sqlitePath: store.sqlitePath,
     async close() {
-      clearInterval(interval);
       await closeServer(server);
       await runtime.close();
     },

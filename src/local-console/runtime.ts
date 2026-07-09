@@ -63,6 +63,7 @@ export class LocalConsoleRuntime {
   private readonly staleRunningGraceMs: number;
   private readonly now: () => Date;
   private readonly processingSessions = new Set<string>();
+  private readonly pendingProcessSessions = new Set<string>();
   private readonly activeRuns = new Map<string, ActiveLocalRun>();
   private lastError: string | null = null;
 
@@ -107,7 +108,6 @@ export class LocalConsoleRuntime {
     }
 
     if (
-      this.processingSessions.has(sessionId) ||
       this.activeRuns.has(sessionId) ||
       (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId)))
     ) {
@@ -172,146 +172,159 @@ export class LocalConsoleRuntime {
 
   async processPending(sessionId = this.sessionId): Promise<void> {
     if (this.processingSessions.has(sessionId)) {
+      this.pendingProcessSessions.add(sessionId);
       return;
     }
 
     this.processingSessions.add(sessionId);
-    let claimed: LocalConsoleMessage | null = null;
-    let runId: string | null = null;
-    let runDir: string | null = null;
 
     try {
-      await this.repairStaleRunning(sessionId);
-      if (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId))) {
-        return;
-      }
+      while (true) {
+        await this.repairStaleRunning(sessionId);
+        if (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId))) {
+          return;
+        }
 
-      const nextRunId = `local-${this.now().toISOString()}-${Math.random().toString(36).slice(2, 10)}`;
-      runId = nextRunId;
-      claimed = await this.storeCall("local-console-store-claim", () =>
-        this.options.store.claimNextPendingMessage({
-          sessionId,
-          runId: nextRunId,
-          now: this.nowIso(),
-        }),
-      );
-      if (claimed === null) {
-        return;
-      }
-      const activeMessage = claimed;
-      const activeRunId = nextRunId;
+        let activeMessage: LocalConsoleMessage | null = null;
+        let activeRunId: string | null = null;
+        let activeRunDir: string | null = null;
 
-      const agentFiles = await this.options.listAgentFiles();
-      const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
-      const timeline = buildLocalConsoleTimeline(
-        messages,
-        agentFiles.map((agent) => agent.name),
-      );
-      const trigger = resolveTrigger({
-        timeline,
-        availableAgentNames: agentFiles.map((agent) => agent.name),
-      });
+        try {
+          const nextRunId = `local-${this.now().toISOString()}-${Math.random().toString(36).slice(2, 10)}`;
+          activeRunId = nextRunId;
+          activeMessage = await this.storeCall("local-console-store-claim", () =>
+            this.options.store.claimNextPendingMessage({
+              sessionId,
+              runId: nextRunId,
+              now: this.nowIso(),
+            }),
+          );
+          if (activeMessage === null) {
+            return;
+          }
+          const claimedMessage = activeMessage;
 
-      if (trigger.kind !== "run-agent") {
-        await this.storeCall("local-console-store-no-trigger", () =>
-          this.options.store.recordSystemAndComplete({
-            userMessageId: activeMessage.id,
+          const agentFiles = await this.options.listAgentFiles();
+          const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
+          const timelineMessages = messages.filter((message) => message.id <= claimedMessage.id);
+          const timeline = buildLocalConsoleTimeline(
+            timelineMessages,
+            agentFiles.map((agent) => agent.name),
+          );
+          const trigger = resolveTrigger({
+            timeline,
+            availableAgentNames: agentFiles.map((agent) => agent.name),
+          });
+
+          if (trigger.kind !== "run-agent") {
+            await this.recordNoTrigger(claimedMessage, sessionId, nextRunId);
+            continue;
+          }
+
+          const selectedAgent = agentFiles.find((agent) => agent.name === trigger.role);
+          if (selectedAgent === undefined) {
+            await this.recordFailureBestEffort(claimedMessage, sessionId, nextRunId, null, `Agent not found: ${trigger.role}`);
+            return;
+          }
+
+          const agentMarkdown = await fs.readFile(selectedAgent.path, "utf8");
+          const agentManifest = parseAgentManifest(agentMarkdown);
+          const plan = buildRolePromptPlan({
+            role: trigger.role,
+            agentMarkdown: agentManifest.body,
+            timeline,
+            state: null,
+          });
+
+          if (plan.kind === "skip") {
+            await this.storeCall("local-console-store-skip", () =>
+              this.options.store.recordSystemAndComplete({
+                userMessageId: claimedMessage.id,
+                sessionId,
+                body: `Skipped local run: ${plan.reason}`,
+                runId: nextRunId,
+                runDir: null,
+                now: this.nowIso(),
+              }),
+            );
+            continue;
+          }
+
+          activeRunDir = this.options.makeRunDir(messages.length, this.now());
+          const resolvedRunDir = path.resolve(activeRunDir);
+          await this.storeCall("local-console-store-set-rundir", () =>
+            this.options.store.setRunDir({
+              id: claimedMessage.id,
+              runDir: resolvedRunDir,
+              now: this.nowIso(),
+            }),
+          );
+
+          const controller = new AbortController();
+          this.activeRuns.set(sessionId, {
             sessionId,
-            body: "No valid agent mention found in the latest local message.",
-            runId: activeRunId,
-            runDir: null,
-            now: this.nowIso(),
-          }),
-        );
-        return;
+            runId: nextRunId,
+            userMessageId: claimedMessage.id,
+            role: trigger.role,
+            runDir: resolvedRunDir,
+            startedAt: this.nowIso(),
+            controller,
+          });
+
+          const result = await this.options.runCodex({
+            prompt: plan.prompt,
+            runDir: activeRunDir,
+            cwd: this.options.projectRoot,
+            mode: { kind: "full" },
+            signal: controller.signal,
+            ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
+            ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
+          });
+
+          if (!result.ok) {
+            await this.recordFailedCodexResult(claimedMessage, sessionId, nextRunId, result);
+            return;
+          }
+
+          try {
+            await this.storeCall("local-console-store-record-agent-response", () =>
+              this.options.store.recordAgentResponse({
+                userMessageId: claimedMessage.id,
+                sessionId,
+                role: trigger.role,
+                body: result.finalText,
+                runId: nextRunId,
+                runDir: result.runDir,
+                now: this.nowIso(),
+              }),
+            );
+          } catch (error) {
+            await this.releaseForRetryBestEffort(claimedMessage, sessionId);
+            activeMessage = null;
+            activeRunId = null;
+            activeRunDir = null;
+            throw error;
+          }
+          this.lastError = null;
+        } catch (error) {
+          this.lastError = formatLocalError(error);
+          if (activeMessage !== null && activeRunId !== null) {
+            await this.recordFailureBestEffort(activeMessage, sessionId, activeRunId, activeRunDir, this.lastError);
+          }
+          log({ event: "local-console-processing-failed", error: this.lastError });
+          return;
+        } finally {
+          this.activeRuns.delete(sessionId);
+        }
       }
-
-      const selectedAgent = agentFiles.find((agent) => agent.name === trigger.role);
-      if (selectedAgent === undefined) {
-        await this.recordFailureBestEffort(activeMessage, sessionId, activeRunId, null, `Agent not found: ${trigger.role}`);
-        return;
-      }
-
-      const agentMarkdown = await fs.readFile(selectedAgent.path, "utf8");
-      const agentManifest = parseAgentManifest(agentMarkdown);
-      const plan = buildRolePromptPlan({
-        role: trigger.role,
-        agentMarkdown: agentManifest.body,
-        timeline,
-        state: null,
-      });
-
-      if (plan.kind === "skip") {
-        await this.storeCall("local-console-store-skip", () =>
-          this.options.store.recordSystemAndComplete({
-            userMessageId: activeMessage.id,
-            sessionId,
-            body: `Skipped local run: ${plan.reason}`,
-            runId: activeRunId,
-            runDir: null,
-            now: this.nowIso(),
-          }),
-        );
-        return;
-      }
-
-      const activeRunDir = this.options.makeRunDir(messages.length, this.now());
-      runDir = activeRunDir;
-      await this.storeCall("local-console-store-set-rundir", () =>
-        this.options.store.setRunDir({
-          id: activeMessage.id,
-          runDir: path.resolve(activeRunDir),
-          now: this.nowIso(),
-        }),
-      );
-
-      const controller = new AbortController();
-      this.activeRuns.set(sessionId, {
-        sessionId,
-        runId: activeRunId,
-        userMessageId: activeMessage.id,
-        role: trigger.role,
-        runDir: path.resolve(activeRunDir),
-        startedAt: this.nowIso(),
-        controller,
-      });
-
-      const result = await this.options.runCodex({
-        prompt: plan.prompt,
-        runDir: activeRunDir,
-        cwd: this.options.projectRoot,
-        mode: { kind: "full" },
-        signal: controller.signal,
-        ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
-        ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
-      });
-
-      if (!result.ok) {
-        await this.recordFailedCodexResult(activeMessage, sessionId, activeRunId, result);
-        return;
-      }
-
-      await this.storeCall("local-console-store-record-agent-response", () =>
-        this.options.store.recordAgentResponse({
-          userMessageId: activeMessage.id,
-          sessionId,
-          role: trigger.role,
-          body: result.finalText,
-          runId: activeRunId,
-          runDir: result.runDir,
-          now: this.nowIso(),
-        }),
-      );
-      this.lastError = null;
     } catch (error) {
       this.lastError = formatLocalError(error);
-      if (claimed !== null) {
-        await this.recordFailureBestEffort(claimed, sessionId, runId, runDir, this.lastError);
-      }
       log({ event: "local-console-processing-failed", error: this.lastError });
     } finally {
-      this.activeRuns.delete(sessionId);
       this.processingSessions.delete(sessionId);
+      if (this.pendingProcessSessions.delete(sessionId)) {
+        void this.processPending(sessionId);
+      }
     }
   }
 
@@ -355,6 +368,46 @@ export class LocalConsoleRuntime {
       return;
     }
     await this.recordFailureBestEffort(message, sessionId, runId, result.runDir, result.reason);
+  }
+
+  private async recordNoTrigger(message: LocalConsoleMessage, sessionId: string, runId: string): Promise<void> {
+    if (message.speaker === "agent") {
+      await this.storeCall("local-console-store-no-trigger-agent", () =>
+        this.options.store.recordMessageProcessed({
+          userMessageId: message.id,
+          sessionId,
+          runId,
+          runDir: null,
+          now: this.nowIso(),
+        }),
+      );
+      return;
+    }
+    await this.storeCall("local-console-store-no-trigger", () =>
+      this.options.store.recordSystemAndComplete({
+        userMessageId: message.id,
+        sessionId,
+        body: "No valid agent mention found in the latest local message.",
+        runId,
+        runDir: null,
+        now: this.nowIso(),
+      }),
+    );
+  }
+
+  private async releaseForRetryBestEffort(message: LocalConsoleMessage, sessionId: string): Promise<void> {
+    try {
+      await this.storeCall("local-console-store-release-retry", () =>
+        this.options.store.releaseMessageForRetry({
+          userMessageId: message.id,
+          sessionId,
+          now: this.nowIso(),
+        }),
+      );
+    } catch (error) {
+      this.lastError = formatLocalError(error);
+      log({ event: "local-console-release-retry-failed", error: this.lastError });
+    }
   }
 
   private async activeRunSnapshot(sessionId: string): Promise<LocalConsoleRunSnapshot | null> {
