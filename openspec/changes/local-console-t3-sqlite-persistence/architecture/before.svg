@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">T3 persistence before</title>
+  <desc id="desc">Before T3, local console messages are in SQLite while runner state is split across JSON files.</desc>
+  <defs>
+    <style>
+      .box { fill: #f8fafc; stroke: #334155; stroke-width: 2; rx: 8; }
+      .store { fill: #eef2ff; stroke: #4f46e5; stroke-width: 2; rx: 8; }
+      .json { fill: #fef3c7; stroke: #b45309; stroke-width: 2; rx: 8; }
+      .text { font: 15px sans-serif; fill: #0f172a; }
+      .small { font: 12px sans-serif; fill: #334155; }
+      .arrow { stroke: #475569; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect x="40" y="60" width="210" height="90" class="box"/>
+  <text x="70" y="100" class="text">Local console</text>
+  <text x="70" y="125" class="small">HTTP + single session</text>
+
+  <rect x="40" y="230" width="210" height="90" class="box"/>
+  <text x="70" y="270" class="text">GitHub runner</text>
+  <text x="70" y="295" class="small">issue-key state</text>
+
+  <rect x="380" y="60" width="220" height="90" class="store"/>
+  <text x="420" y="100" class="text">SQLite</text>
+  <text x="420" y="125" class="small">local_messages only</text>
+
+  <rect x="380" y="205" width="220" height="55" class="json"/>
+  <text x="410" y="238" class="text">role-threads.json</text>
+  <rect x="380" y="275" width="220" height="55" class="json"/>
+  <text x="410" y="308" class="text">agent-contexts.json</text>
+  <rect x="380" y="345" width="220" height="55" class="json"/>
+  <text x="410" y="378" class="text">goal-ledger.json</text>
+  <rect x="380" y="415" width="220" height="55" class="json"/>
+  <text x="410" y="448" class="text">github-intake.json</text>
+
+  <rect x="700" y="230" width="210" height="90" class="box"/>
+  <text x="735" y="270" class="text">Observer / desktop</text>
+  <text x="735" y="295" class="small">read split state</text>
+
+  <path d="M250 105 H380" class="arrow"/>
+  <path d="M250 275 C300 275 320 232 380 232" class="arrow"/>
+  <path d="M250 275 C305 275 320 302 380 302" class="arrow"/>
+  <path d="M250 275 C305 275 320 372 380 372" class="arrow"/>
+  <path d="M250 275 C305 275 320 442 380 442" class="arrow"/>
+  <path d="M600 232 H700" class="arrow"/>
+  <path d="M600 302 H700" class="arrow"/>
+  <path d="M600 372 H700" class="arrow"/>
+  <path d="M600 442 C655 442 660 320 700 292" class="arrow"/>
+</svg>

@@ -1,0 +1,176 @@
+import path from "node:path";
+import { Worker } from "node:worker_threads";
+import { LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS, LOCAL_CONSOLE_STORE_TIMEOUT_MS } from "./config.js";
+
+export type SqliteStateSource = "role-threads" | "agent-contexts" | "github-intake" | "goal-ledger";
+
+export type SqliteStateCommand =
+  | { kind: "get-migration-status"; source: SqliteStateSource }
+  | { kind: "import-role-threads"; store: unknown; legacyDigest: string | null }
+  | { kind: "load-role-threads" }
+  | { kind: "save-role-threads"; store: unknown }
+  | { kind: "save-role-thread-entry"; issueKey: string; role: string; state: unknown }
+  | { kind: "import-agent-contexts"; store: unknown; legacyDigest: string | null }
+  | { kind: "load-agent-contexts" }
+  | { kind: "save-agent-contexts"; store: unknown }
+  | { kind: "save-agent-context-entry"; issueKey: string; role: string; state: unknown }
+  | { kind: "import-github-intake"; state: unknown; legacyDigest: string | null }
+  | { kind: "load-github-intake" }
+  | { kind: "save-github-intake"; state: unknown }
+  | { kind: "import-goal-ledger"; state: unknown; legacyDigest: string | null }
+  | { kind: "load-goal-ledger" }
+  | { kind: "save-goal-ledger"; state: unknown }
+  | { kind: "local-init" }
+  | { kind: "local-append-user"; sessionId: string; body: string; now: string }
+  | { kind: "local-list"; sessionId: string }
+  | { kind: "local-has-running"; sessionId: string }
+  | { kind: "local-claim-next"; sessionId: string; runId: string; now: string }
+  | { kind: "local-set-run-dir"; id: number; runDir: string; now: string }
+  | {
+      kind: "local-record-agent-response";
+      userMessageId: number;
+      sessionId: string;
+      role: string;
+      body: string;
+      runId: string;
+      runDir: string;
+      now: string;
+    }
+  | {
+      kind: "local-record-system-and-complete";
+      userMessageId: number;
+      sessionId: string;
+      body: string;
+      runId: string;
+      runDir: string | null;
+      now: string;
+    }
+  | {
+      kind: "local-record-failure";
+      userMessageId: number;
+      sessionId: string;
+      error: string;
+      runId: string | null;
+      runDir: string | null;
+      now: string;
+    }
+  | { kind: "local-mark-stale-running"; sessionId: string; cutoffIso: string; now: string; reason: string };
+
+export interface SqliteStateCommandOptions {
+  sqlitePath: string;
+  command: SqliteStateCommand;
+  timeoutMs?: number;
+  busyTimeoutMs?: number;
+  readOnly?: boolean;
+}
+
+export class SqliteStateTimeoutError extends Error {
+  constructor(
+    readonly commandKind: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`sqlite-state-${commandKind}-timeout:${timeoutMs}ms`);
+    this.name = "SqliteStateTimeoutError";
+  }
+}
+
+export class SqliteStateWorkerError extends Error {
+  constructor(
+    message: string,
+    readonly commandKind: string,
+    readonly workerStack?: string,
+  ) {
+    super(message);
+    this.name = "SqliteStateWorkerError";
+  }
+}
+
+export async function runSqliteStateCommand<T>(options: SqliteStateCommandOptions): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? LOCAL_CONSOLE_STORE_TIMEOUT_MS;
+  const busyTimeoutMs = options.busyTimeoutMs ?? LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS;
+  const workerUrl = resolveWorkerUrl();
+  const worker = new Worker(workerUrl, {
+    ...(workerUrl.pathname.endsWith(".ts") ? { execArgv: ["--import", "tsx"] } : {}),
+    workerData: {
+      sqlitePath: path.resolve(options.sqlitePath),
+      busyTimeoutMs,
+      command: options.command,
+      readOnly: options.readOnly ?? false,
+    },
+  });
+
+  let timeout: NodeJS.Timeout | undefined;
+  let settled = false;
+
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timeout = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        void worker.terminate();
+        reject(new SqliteStateTimeoutError(options.command.kind, timeoutMs));
+      }, timeoutMs);
+
+      worker.once("message", (message: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (isWorkerSuccess(message)) {
+          resolve(message.result as T);
+          return;
+        }
+        if (isWorkerFailure(message)) {
+          reject(new SqliteStateWorkerError(message.error.message, options.command.kind, message.error.stack));
+          return;
+        }
+        reject(new SqliteStateWorkerError("Invalid sqlite state worker response", options.command.kind));
+      });
+
+      worker.once("error", (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(error);
+      });
+
+      worker.once("exit", (code) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(new SqliteStateWorkerError(`sqlite state worker exited before response: ${String(code)}`, options.command.kind));
+      });
+    });
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+    if (!settled) {
+      void worker.terminate();
+    }
+  }
+}
+
+export function sqlitePathForLegacyStateFile(filePath: string): string {
+  return path.join(path.dirname(filePath), "local-console.sqlite");
+}
+
+function resolveWorkerUrl(): URL {
+  return new URL(import.meta.url.endsWith(".ts") ? "./sqlite-state-worker.ts" : "./sqlite-state-worker.js", import.meta.url);
+}
+
+function isWorkerSuccess(value: unknown): value is { ok: true; result: unknown } {
+  return typeof value === "object" && value !== null && (value as { ok?: unknown }).ok === true;
+}
+
+function isWorkerFailure(value: unknown): value is { ok: false; error: { message: string; stack?: string } } {
+  if (typeof value !== "object" || value === null || (value as { ok?: unknown }).ok !== false) {
+    return false;
+  }
+  const error = (value as { error?: unknown }).error;
+  return typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string";
+}

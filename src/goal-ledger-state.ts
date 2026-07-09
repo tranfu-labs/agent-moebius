@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { GOAL_LEDGER_STATE_PATH } from "./config.js";
 import {
@@ -10,6 +11,7 @@ import {
   type GoalLedgerEntryKind,
   type GoalLedgerState,
 } from "./goal-ledger.js";
+import { runSqliteStateCommand, sqlitePathForLegacyStateFile } from "./sqlite-state.js";
 
 export interface GoalLedgerStateIo {
   mkdir(path: string, options?: { signal?: AbortSignal }): Promise<void>;
@@ -53,6 +55,26 @@ export async function loadGoalLedgerState(
   filePath = GOAL_LEDGER_STATE_PATH,
   options: GoalLedgerStateIoOptions = {},
 ): Promise<GoalLedgerState> {
+  if (options.io !== undefined) {
+    return loadGoalLedgerStateFromJson(filePath, options);
+  }
+
+  await migrateLegacyGoalLedgerState(filePath);
+  const state = await runSqliteStateCommand<unknown | null>({
+    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    command: { kind: "load-goal-ledger" },
+    timeoutMs: options.timeoutMs,
+  });
+  if (state === null) {
+    return createEmptyGoalLedgerState();
+  }
+  return parseGoalLedgerState(state);
+}
+
+async function loadGoalLedgerStateFromJson(
+  filePath: string,
+  options: GoalLedgerStateIoOptions = {},
+): Promise<GoalLedgerState> {
   const io = options.io ?? DEFAULT_IO;
   let raw: string;
   try {
@@ -70,6 +92,25 @@ export async function loadGoalLedgerState(
 export async function saveGoalLedgerState(
   state: GoalLedgerState,
   filePath = GOAL_LEDGER_STATE_PATH,
+  options: GoalLedgerStateIoOptions = {},
+): Promise<void> {
+  assertGoalLedgerState(state);
+  if (options.io === undefined) {
+    await migrateLegacyGoalLedgerState(filePath);
+    await runSqliteStateCommand({
+      sqlitePath: sqlitePathForLegacyStateFile(filePath),
+      command: { kind: "save-goal-ledger", state },
+      timeoutMs: options.timeoutMs,
+    });
+    return;
+  }
+
+  await saveGoalLedgerStateToJson(state, filePath, options);
+}
+
+async function saveGoalLedgerStateToJson(
+  state: GoalLedgerState,
+  filePath: string,
   options: GoalLedgerStateIoOptions = {},
 ): Promise<void> {
   assertGoalLedgerState(state);
@@ -148,6 +189,37 @@ export async function runGoalLedgerIoOperation<T>(
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+async function migrateLegacyGoalLedgerState(filePath: string): Promise<void> {
+  const sqlitePath = sqlitePathForLegacyStateFile(filePath);
+  const status = await runSqliteStateCommand<{ status: string | null }>({
+    sqlitePath,
+    command: { kind: "get-migration-status", source: "goal-ledger" },
+  });
+  if (status.status === "imported") {
+    return;
+  }
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+
+  const state = await loadGoalLedgerStateFromJson(filePath);
+  await runSqliteStateCommand({
+    sqlitePath,
+    command: { kind: "import-goal-ledger", state, legacyDigest: digest(raw) },
+  });
+}
+
+function digest(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
 }
 
 const stateFileLocks = new Map<string, Promise<void>>();

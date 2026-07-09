@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { buildTaskAcceptanceFactKey } from "../src/goal-ledger.js";
 import type {
   GoalLedgerState,
   GoalRecord,
@@ -803,12 +804,18 @@ function acceptanceFact(
   status: TaskAcceptanceRecord["status"],
   capturedAt: string,
 ): TaskAcceptanceRecord {
+  const statementResults = [{ id: "statement-1", status, statement: "Task acceptance" }];
+  const issue = { owner: reference.owner, repo: reference.repo, number: reference.number };
   return {
-    factKey: `${reference.owner}/${reference.repo}/${reference.number}/${role}/${capturedAt}`,
-    issue: { owner: reference.owner, repo: reference.repo, number: reference.number },
+    factKey: buildTaskAcceptanceFactKey({
+      issue,
+      statementResults,
+      messageIndex: 10,
+    }),
+    issue,
     role,
     status,
-    statementResults: [{ id: "statement-1", status, statement: "Task acceptance" }],
+    statementResults,
     messageIndex: 10,
     capturedAt,
   };

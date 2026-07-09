@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveTrigger } from "../src/triggers/index.js";
 import { buildLocalConsoleTimeline } from "../src/local-console/timeline.js";
@@ -53,6 +54,17 @@ describe("local console", () => {
       ]);
     } finally {
       await store.close();
+    }
+
+    const restarted = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
+    await restarted.init();
+    try {
+      expect(await restarted.listMessages(LOCAL_CONSOLE_DEFAULT_SESSION_ID)).toMatchObject([
+        { speaker: "user", status: "completed", body: "@dev hello" },
+        { speaker: "agent", role: "dev", status: "displayed", body: "hello from codex" },
+      ]);
+    } finally {
+      await restarted.close();
     }
   });
 
@@ -128,7 +140,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 100,
+      storeTimeoutMs: 1_000,
     });
     try {
       const post = await fetch(new URL("/api/local-console/messages", started.url), {
@@ -222,6 +234,69 @@ describe("local console", () => {
     }
   });
 
+  it("fails visibly on a real SQLite lock without starting Codex and recovers after unlock", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# Dev");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({
+      sqlitePath,
+      busyTimeoutMs: 500,
+      timeoutMs: 500,
+    });
+    await store.init();
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => ({
+      ok: true,
+      finalText: "after sqlite unlock",
+      threadId: null,
+      cachedInputTokens: null,
+      runDir: options.runDir,
+      stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+      stderrPath: path.join(options.runDir, "stderr.log"),
+    }));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      store,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: 500,
+      pollIntervalMs: 20,
+    });
+    const lock = new DatabaseSync(sqlitePath);
+    try {
+      lock.exec("BEGIN EXCLUSIVE");
+      const locked = await postMessage(started.url, "@dev locked");
+      const lockedBody = (await locked.json()) as { error: string };
+      expect(locked.status).toBe(503);
+      expect(lockedBody.error).toContain("timeout");
+      expect(runCodex).not.toHaveBeenCalled();
+
+      lock.exec("ROLLBACK");
+      await waitFor(() => !(started.runtime as unknown as { processing: boolean }).processing);
+      const recovered = await postMessage(started.url, "@dev recovered");
+      expect(recovered.status).toBe(202);
+      const snapshot = await waitForSnapshot(started.url, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body.includes("after sqlite unlock")),
+      );
+      expect(snapshot.messages).toMatchObject([
+        { speaker: "user", status: "completed", body: "@dev recovered" },
+        { speaker: "agent", role: "dev", status: "displayed", body: "after sqlite unlock" },
+      ]);
+      expect(snapshot.messages).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ body: "@dev locked", status: "completed" })]),
+      );
+      expect(runCodex).toHaveBeenCalledTimes(1);
+    } finally {
+      try {
+        lock.exec("ROLLBACK");
+      } catch {
+        // The lock may already have been released by the recovery path.
+      }
+      lock.close();
+      await started.close();
+    }
+  }, 10_000);
+
   it("records Codex timeout failures and accepts the next local message", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "dev", "# Dev");
@@ -237,7 +312,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 100,
+      storeTimeoutMs: 1_000,
       codexIdleTimeoutMs: 10,
       codexMaxDurationMs: 20,
     });
@@ -270,7 +345,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 100,
+      storeTimeoutMs: 1_000,
     });
     try {
       await postMessage(started.url, "@dev slow");
@@ -305,10 +380,10 @@ async function makeFixtureRoot(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-local-console-"));
 }
 
-async function waitFor(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2_000;
+async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    if (predicate()) {
+    if (await predicate()) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -350,11 +425,19 @@ async function waitForSnapshot(
   url: string,
   predicate: (snapshot: LocalSnapshotResponse) => boolean,
 ): Promise<LocalSnapshotResponse> {
-  const deadline = Date.now() + 2_000;
+  const deadline = Date.now() + 5_000;
   let latest: LocalSnapshotResponse | null = null;
   while (Date.now() < deadline) {
     const response = await fetch(new URL("/api/local-console/messages", url));
+    if (response.status !== 200) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      continue;
+    }
     latest = (await response.json()) as LocalSnapshotResponse;
+    if (!Array.isArray(latest.messages)) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      continue;
+    }
     if (predicate(latest)) {
       return latest;
     }

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { runSqliteStateCommand, sqlitePathForLegacyStateFile, SqliteStateTimeoutError, type SqliteStateCommand } from "../sqlite-state.js";
 import type {
   AcceptanceFactStatus,
   AcceptanceStatementResult,
@@ -219,28 +220,40 @@ const INTEGRATION_ACCEPTANCE_STATUSES = new Set<IntegrationAcceptanceStatus>([
 export async function readObserverState(input: ReadObserverStateInput = {}): Promise<ObserverStateSnapshot> {
   const projectRoot = path.resolve(input.projectRoot ?? process.cwd());
   const config = await readObserverConfig(projectRoot);
-  const goalLedger = await readGoalLedgerState({
-    filePath: path.join(projectRoot, ".state", "goal-ledger.json"),
-    timeoutMs: input.goalLedgerReadTimeoutMs ?? DEFAULT_GOAL_LEDGER_READ_TIMEOUT_MS,
-    readFile: input.readGoalLedgerFile ?? ((filePath) => fs.readFile(filePath, "utf8")),
-  });
-  const intake = await readJsonState({
+  const goalLedger =
+    input.readGoalLedgerFile === undefined
+      ? await readGoalLedgerSqliteState({
+          filePath: path.join(projectRoot, ".state", "goal-ledger.json"),
+          timeoutMs: input.goalLedgerReadTimeoutMs ?? DEFAULT_GOAL_LEDGER_READ_TIMEOUT_MS,
+        })
+      : await readGoalLedgerJsonState({
+          filePath: path.join(projectRoot, ".state", "goal-ledger.json"),
+          timeoutMs: input.goalLedgerReadTimeoutMs ?? DEFAULT_GOAL_LEDGER_READ_TIMEOUT_MS,
+          readFile: input.readGoalLedgerFile,
+        });
+  const intake = await readSqliteState({
     source: ".state/github-response-intake.json",
-    filePath: path.join(projectRoot, ".state", "github-response-intake.json"),
     empty: EMPTY_INTAKE_STATE,
+    filePath: path.join(projectRoot, ".state", "github-response-intake.json"),
+    sqliteCommand: { kind: "load-github-intake" },
     validate: validateIntakeState,
+    okMessage: "GitHub intake state 读取成功",
   });
-  const roleThreads = await readJsonState({
+  const roleThreads = await readSqliteState({
     source: ".state/role-threads.json",
-    filePath: path.join(projectRoot, ".state", "role-threads.json"),
     empty: EMPTY_ROLE_THREADS,
+    filePath: path.join(projectRoot, ".state", "role-threads.json"),
+    sqliteCommand: { kind: "load-role-threads" },
     validate: validateRoleThreadStore,
+    okMessage: "role thread state 读取成功",
   });
-  const agentContexts = await readJsonState({
+  const agentContexts = await readSqliteState({
     source: ".state/agent-contexts.json",
-    filePath: path.join(projectRoot, ".state", "agent-contexts.json"),
     empty: EMPTY_AGENT_CONTEXTS,
+    filePath: path.join(projectRoot, ".state", "agent-contexts.json"),
+    sqliteCommand: { kind: "load-agent-contexts" },
     validate: validateAgentContextStore,
+    okMessage: "agent context state 读取成功",
   });
   const runManifests = await readRunManifestJsonl({
     filePath: path.join(projectRoot, ".state", "run-manifests.jsonl"),
@@ -269,7 +282,67 @@ export async function readObserverState(input: ReadObserverStateInput = {}): Pro
   };
 }
 
-async function readGoalLedgerState(input: {
+async function readGoalLedgerSqliteState(input: {
+  filePath: string;
+  timeoutMs: number;
+}): Promise<{ status: ObserverGoalLedgerStatus; data: GoalLedgerState; diagnostics: ObserverDiagnostic[] }> {
+  const source = ".state/goal-ledger.json";
+  const sqlitePath = sqlitePathForLegacyStateFile(input.filePath);
+  if (!(await fileExists(sqlitePath))) {
+    return readGoalLedgerJsonState({
+      filePath: input.filePath,
+      timeoutMs: input.timeoutMs,
+      readFile: (filePath) => fs.readFile(filePath, "utf8"),
+    });
+  }
+
+  try {
+    const loaded = await runSqliteStateCommand<unknown | null>({
+      sqlitePath,
+      command: { kind: "load-goal-ledger" },
+      timeoutMs: input.timeoutMs,
+      readOnly: true,
+    });
+    if (loaded === null) {
+      return {
+        status: "missing",
+        data: EMPTY_GOAL_LEDGER,
+        diagnostics: [{ source, status: "missing", message: "目标账本缺失" }],
+      };
+    }
+    const validated = validateGoalLedgerState(loaded, source);
+    if (validated.fatal !== undefined) {
+      return {
+        status: "error",
+        data: EMPTY_GOAL_LEDGER,
+        diagnostics: [{ source, status: "error", message: `读取失败：${validated.fatal}` }],
+      };
+    }
+    return {
+      status: "ok",
+      data: validated.data,
+      diagnostics:
+        validated.diagnostics.length === 0
+          ? [{ source, status: "ok", message: "目标账本读取成功" }]
+          : validated.diagnostics,
+    };
+  } catch (error) {
+    if (error instanceof SqliteStateTimeoutError) {
+      return {
+        status: "timeout",
+        data: EMPTY_GOAL_LEDGER,
+        diagnostics: [{ source, status: "timeout", message: `读取超时：超过 ${input.timeoutMs}ms` }],
+      };
+    }
+    return {
+      status: "error",
+      data: EMPTY_GOAL_LEDGER,
+      diagnostics: [{ source, status: "error", message: `读取失败：${formatError(error)}` }],
+    };
+  }
+}
+
+async function readGoalLedgerJsonState(input: {
   filePath: string;
   timeoutMs: number;
   readFile: (filePath: string) => Promise<string>;
@@ -418,54 +491,71 @@ async function readConfigFile(
   }
 }
 
-async function readJsonState<T>(input: {
+async function readSqliteState<T>(input: {
   source: string;
-  filePath: string;
   empty: T;
+  filePath: string;
+  sqliteCommand: SqliteStateCommand;
   validate: (value: unknown, source: string) => ValidationResult<T>;
+  okMessage: string;
 }): Promise<{ data: T; diagnostics: ObserverDiagnostic[] }> {
-  let raw: string;
+  const sqlitePath = sqlitePathForLegacyStateFile(input.filePath);
   try {
-    raw = await fs.readFile(input.filePath, "utf8");
+    const loaded = (await fileExists(sqlitePath))
+      ? await runSqliteStateCommand<unknown>({
+          sqlitePath,
+          command: input.sqliteCommand,
+          readOnly: true,
+        })
+      : await readJsonFile(input.filePath);
+    if (loaded === null) {
+      return {
+        data: input.empty,
+        diagnostics: [{ source: input.source, status: "missing", message: `${input.source} 缺失` }],
+      };
+    }
+    const validated = input.validate(loaded, input.source);
+    if (validated.fatal !== undefined) {
+      return {
+        data: input.empty,
+        diagnostics: [{ source: input.source, status: "error", message: `读取失败：${validated.fatal}` }],
+      };
+    }
+    return {
+      data: validated.data,
+      diagnostics:
+        validated.diagnostics.length === 0
+          ? [{ source: input.source, status: "ok", message: input.okMessage }]
+          : validated.diagnostics,
+    };
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
       return {
         data: input.empty,
-        diagnostics: [{ source: input.source, status: "missing", message: "状态文件缺失" }],
+        diagnostics: [{ source: input.source, status: "missing", message: `${input.source} 缺失` }],
       };
     }
-
     return {
       data: input.empty,
       diagnostics: [{ source: input.source, status: "error", message: `读取失败：${formatError(error)}` }],
     };
   }
+}
 
-  let parsed: unknown;
+async function readJsonFile(filePath: string): Promise<unknown> {
+  return JSON.parse(await fs.readFile(filePath, "utf8"));
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
   try {
-    parsed = JSON.parse(raw);
+    await fs.access(filePath);
+    return true;
   } catch (error) {
-    return {
-      data: input.empty,
-      diagnostics: [{ source: input.source, status: "error", message: `读取失败：JSON 解析失败：${formatError(error)}` }],
-    };
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
   }
-
-  const validated = input.validate(parsed, input.source);
-  if (validated.fatal !== undefined) {
-    return {
-      data: input.empty,
-      diagnostics: [{ source: input.source, status: "error", message: `读取失败：${validated.fatal}` }],
-    };
-  }
-
-  return {
-    data: validated.data,
-    diagnostics:
-      validated.diagnostics.length === 0
-        ? [{ source: input.source, status: "ok", message: "状态文件读取成功" }]
-        : validated.diagnostics,
-  };
 }
 
 async function readRunManifestJsonl(input: {
