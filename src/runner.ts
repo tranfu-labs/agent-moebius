@@ -2276,10 +2276,12 @@ function logCeoGuardrailResult(input: {
 
 export async function start(): Promise<NodeJS.Timeout> {
   log({ event: "start", config: CONFIG_LOG_FIELDS });
-  try {
-    await startLocalConsoleServer();
-  } catch (error) {
-    log({ event: "local-console-start-failed", error: formatError(error) });
+  if (process.env.AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE !== "1") {
+    try {
+      await startLocalConsoleServer();
+    } catch (error) {
+      log({ event: "local-console-start-failed", error: formatError(error) });
+    }
   }
   const runner = createRunner({ initialState: await loadGitHubResponseIntakeState() });
   void runner.heartbeat();

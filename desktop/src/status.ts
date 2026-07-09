@@ -11,6 +11,12 @@ export interface DesktopStatusSnapshot {
     url?: string;
     error?: string;
   };
+  localConsole: {
+    status: "starting" | "running" | "error" | "stopped";
+    url?: string;
+    sqlitePath?: string;
+    error?: string;
+  };
   runner: RunnerSupervisorState;
   doctor: DesktopDoctorResult | null;
   shellPath: ShellPathResult | null;

@@ -9,20 +9,28 @@
 ![project-layer-overview](project-layer-overview.svg)
 
 ### desktop-shell
-- 职责边界：Electron 桌面壳，把 runner 与 observer 装配成纯本地桌面应用；负责数据根解析、macOS PATH 修复、首启种子拷贝、环境自检、observer 动态端口启动、runner 子进程监管、状态页 IPC、日志落盘与更新检查。壳层只做装配、监管、自检与更新提示，不承载 GitHub issue runner、目标账本、trigger、Codex prompt 或 observer 读模型的业务规则。
-- 入口：`desktop/src/main.ts`；runner 子进程入口 `desktop/src/runner-child.ts`；状态页 `desktop/src/preload.ts` 与 `desktop/src/status-page/*`；纯逻辑模块 `desktop/src/data-root.ts`、`desktop/src/shell-path.ts`、`desktop/src/env-doctor.ts`、`desktop/src/runner-supervisor.ts`、`desktop/src/updater.ts`。
+- 职责边界：Electron 桌面壳，把 runner、observer 与 local console server 装配成纯本地桌面应用；负责数据根解析、macOS PATH 修复、首启种子拷贝、环境自检、observer 动态端口启动、main 进程拥有的 local console server、runner 子进程监管、操作台主窗口、辅助状态页 IPC、日志落盘与更新检查。壳层只做装配、监管、自检、更新提示与 renderer 托管，不承载 GitHub issue runner、目标账本、trigger、Codex prompt、local-console 运行语义或 observer 读模型的业务规则。
+- 入口：`desktop/src/main.ts`；runner 子进程入口 `desktop/src/runner-child.ts`；preload `desktop/src/preload.ts`；操作台 renderer `desktop/src/console-page/*`；辅助状态页 `desktop/src/status-page/*`；纯逻辑模块 `desktop/src/data-root.ts`、`desktop/src/shell-path.ts`、`desktop/src/env-doctor.ts`、`desktop/src/runner-supervisor.ts`、`desktop/src/updater.ts`。
 - 上游：用户启动桌面应用；Electron 主进程生命周期；本机 `codex` CLI 与 `gh` CLI；GitHub Releases 更新通路。
-- 下游：`src/observer/server.ts` 的 `startObserverServer()` 编程入口；`src/runner.ts` 的 `start()` 编程入口（经 `utilityProcess` 子进程）；提交版 `agents/` 与 `config.toml` 种子资源；数据根 `~/.agent-moebius` 或 `AGENT_MOEBIUS_DATA_ROOT` 覆盖目录。
-- 禁止依赖：MUST NOT 给 observer 增加写接口或 runner 控制能力；MUST NOT 复制 runner / observer / ledger 业务规则；MUST NOT 把用户配置或 agent 素材写回应用资源目录；MUST NOT 用 shell 字符串拼接外部输入；MUST NOT 在同一实例内派生多个 runner。
+- 下游：`src/observer/server.ts` 的 `startObserverServer()` 编程入口；`src/local-console/server.ts` 的 `startLocalConsoleServer()` 编程入口；`src/runner.ts` 的 `start()` 编程入口（经 `utilityProcess` 子进程）；提交版 `agents/` 与 `config.toml` 种子资源；数据根 `~/.agent-moebius` 或 `AGENT_MOEBIUS_DATA_ROOT` 覆盖目录。
+- 禁止依赖：MUST NOT 给 observer 增加写接口或 runner 控制能力；MUST NOT 复制 runner / observer / ledger / local-console 业务规则；MUST NOT 把用户配置或 agent 素材写回应用资源目录；MUST NOT 用 shell 字符串拼接外部输入；MUST NOT 在同一实例内派生多个 runner；MUST NOT 在 runner child 已禁用重复 local console server 时再启动第二个 local console server。
 
 ![desktop-shell](desktop-shell.svg)
+![local-console-operator](local-console-operator.svg)
 
 ### console-ui
-- 职责边界：React 对话操作台组件库与 Storybook 展示台，提供可被未来 Electron renderer import 的 shadcn 风格源码组件、Radix 无障碍原语封装、Tailwind 近单色令牌和项目专属复合组件。它只承载界面组件、样式令牌与组件级可测协议文本生成逻辑，不读取 `.state/`，不调用 runner / observer / GitHub / Codex，也不实现真实桌面对话操作台的数据流。
+- 职责边界：React 对话操作台组件库与 Storybook 展示台，提供可被 Electron renderer import 的 shadcn 风格源码组件、Radix 无障碍原语封装、Tailwind 近单色令牌和项目专属复合组件。它只承载界面组件、样式令牌与组件级可测协议文本生成逻辑，不读取 `.state/`，不调用 runner / observer / GitHub / Codex，也不实现真实桌面对话操作台的数据流。
 - 入口：`packages/console-ui/src/index.ts`；全局样式 `packages/console-ui/src/styles/globals.css`；Storybook `pnpm --filter @agent-moebius/console-ui storybook`。
-- 上游：未来 desktop renderer、Storybook 开发期浏览器、组件测试。
+- 上游：desktop operator console renderer、Storybook 开发期浏览器、组件测试。
 - 下游：React、Radix UI、Tailwind、lucide 图标；本包内 `tokens.css` 的近单色语义变量。
-- 禁止依赖：MUST NOT 反向 import `src/runner*`、`src/observer*`、`src/goal-ledger*` 或任何 `.state` adapter；MUST NOT 调用 `gh` / `codex` / shell；MUST NOT 把业务事实复制进组件层。真实 renderer app、IPC 与 runner/状态文件对接另立 change 实现。
+- 禁止依赖：MUST NOT 反向 import `src/runner*`、`src/observer*`、`src/local-console*`、`src/goal-ledger*` 或任何 `.state` adapter；MUST NOT 调用 `gh` / `codex` / shell；MUST NOT 把业务事实复制进组件层。真实 renderer app、IPC 与 local console API 对接属于 desktop-shell。
+
+### local-console
+- 职责边界：本地对话操作台数据通道。它在本机 loopback HTTP server 与 `.state/local-console.sqlite` 上提供一个本地项目、多会话、session-scoped message submit、active run snapshot、有界 stdout/stderr tail、中断、失败和卡住状态记录。它复用既有 conversation、mention trigger、agent persona 和 Codex driver，但不改变 GitHub issue runner 语义。
+- 入口：`src/local-console/server.ts`、`src/local-console/runtime.ts`、`src/local-console/store.ts`、`src/local-console/output-tail.ts`。
+- 上游：Electron main process、兼容的本地浏览器调试页、local-console 测试。
+- 下游：`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、SQLite state worker、agent Markdown 素材目录、Codex runDir stdout/stderr artifacts。
+- 禁止依赖：MUST NOT 调用 GitHub / artifact publisher / CEO orchestration；MUST NOT 修改 conversation、trigger、stage、goal-ledger 或 GitHub issue runner 的业务规则；MUST NOT 实现 T5-only handoff bus、CEO fallback、child session orchestration、dead-letter parity 或 T6 GitHub/local mode flag。
 
 ### agents
 - 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，或通过 `workspaceAccess: write | read-run` 选择内置 issue worktree capability，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是 CEO 的共享身份素材：发布前 guardrail 路径只读取 persona body 并保持无状态 fail-open，普通 `@ceo` agent 路径执行 frontmatter prescript 并进入 fail-closed 编排。`agents/ceo-scripts/` 存放 CEO 剧本数据，不作为可 mention agent。`agents/secretary.md` 是 CEO 规则维护入口，作为普通 mention agent 运行但只维护当前仓库的 CEO 规则与相关事实源。

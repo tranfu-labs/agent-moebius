@@ -1,6 +1,6 @@
 # Desktop Status Page Wireframe
 
-Desktop status is the Electron shell's main window. It is a read-only status surface with three actions: open observer, open data directory, and check updates. It does not provide configuration editing or runner control buttons.
+Desktop status is an auxiliary diagnostic window reachable from the operator console. It is a read-only status surface with three actions: open observer, open data directory, and check updates. It does not provide configuration editing or runner control buttons.
 
 Normal state:
 

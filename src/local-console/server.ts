@@ -14,7 +14,7 @@ import {
 import { run as runCodex } from "../codex.js";
 import { log } from "../log.js";
 import { createSqliteLocalConsoleStore } from "./store.js";
-import { LocalConsoleBusyError, type LocalConsoleSnapshot, type LocalConsoleStore } from "./types.js";
+import { LocalConsoleBusyError, type LocalConsoleStore } from "./types.js";
 import { formatLocalError, LocalConsoleRuntime, type LocalConsoleAgentFile } from "./runtime.js";
 
 export interface LocalConsoleServerOptions {
@@ -68,7 +68,9 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
   const server = createLocalConsoleHttpServer(runtime);
   const { port } = await listenWithFallback(server, host, requestedPort);
   const interval = setInterval(() => {
-    void runtime.processPending();
+    void runtime.processAllPending().catch((error) => {
+      log({ event: "local-console-poll-failed", error: formatLocalError(error) });
+    });
   }, options.pollIntervalMs ?? 1_000);
   interval.unref();
 
@@ -107,9 +109,59 @@ async function handleRequest(
   response: http.ServerResponse,
 ): Promise<void> {
   try {
+    if (request.method === "OPTIONS") {
+      sendNoContent(response);
+      return;
+    }
+
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (request.method === "GET" && url.pathname === "/") {
       sendHtml(response, renderLocalConsolePage());
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/local-console/state") {
+      sendJson(response, 200, await runtime.state(readOptionalString(url.searchParams.get("sessionId"))));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/local-console/sessions") {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload) && payload !== undefined) {
+        sendJson(response, 400, { error: "Expected JSON object body" });
+        return;
+      }
+      const session = await runtime.createSession(isRecord(payload) ? readOptionalString(payload.title) : undefined);
+      sendJson(response, 201, { session });
+      return;
+    }
+
+    const sessionMessagesMatch = matchSessionRoute(url.pathname, "messages");
+    if (request.method === "POST" && sessionMessagesMatch !== null) {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload) || typeof payload.body !== "string") {
+        sendJson(response, 400, { error: "Expected JSON body with a string body field" });
+        return;
+      }
+      await submitMessage(response, runtime, payload.body, sessionMessagesMatch.sessionId);
+      return;
+    }
+
+    const interruptMatch = matchSessionRoute(url.pathname, "interrupt");
+    if (request.method === "POST" && interruptMatch !== null) {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload) || typeof payload.runId !== "string" || payload.runId.trim() === "") {
+        sendJson(response, 400, { error: "Expected JSON body with a string runId field" });
+        return;
+      }
+      const interrupted = await runtime.interruptRun({
+        sessionId: interruptMatch.sessionId,
+        runId: payload.runId,
+      });
+      sendJson(response, interrupted ? 202 : 409, {
+        interrupted,
+        ...(interrupted ? {} : { error: "No active run matched the requested sessionId/runId" }),
+      });
       return;
     }
 
@@ -125,22 +177,31 @@ async function handleRequest(
         return;
       }
 
-      try {
-        const message = await runtime.submitUserMessage(payload.body);
-        sendJson(response, 202, { message });
-      } catch (error) {
-        if (error instanceof LocalConsoleBusyError) {
-          sendJson(response, 409, { error: error.message });
-          return;
-        }
-        sendJson(response, 503, { error: formatLocalError(error) });
-      }
+      await submitMessage(response, runtime, payload.body);
       return;
     }
 
     sendJson(response, 404, { error: "Not found" });
   } catch (error) {
     sendJson(response, 500, { error: formatLocalError(error) });
+  }
+}
+
+async function submitMessage(
+  response: http.ServerResponse,
+  runtime: LocalConsoleRuntime,
+  body: string,
+  sessionId?: string,
+): Promise<void> {
+  try {
+    const message = await runtime.submitUserMessage(body, sessionId);
+    sendJson(response, 202, { message });
+  } catch (error) {
+    if (error instanceof LocalConsoleBusyError) {
+      sendJson(response, 409, { error: error.message });
+      return;
+    }
+    sendJson(response, 503, { error: formatLocalError(error) });
   }
 }
 
@@ -157,13 +218,32 @@ async function readJsonBody(request: http.IncomingMessage): Promise<unknown> {
 }
 
 function sendHtml(response: http.ServerResponse, body: string): void {
-  response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  response.writeHead(200, {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "content-type": "text/html; charset=utf-8",
+  });
   response.end(body);
 }
 
 function sendJson(response: http.ServerResponse, statusCode: number, body: unknown): void {
-  response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
+  response.writeHead(statusCode, {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "content-type": "application/json; charset=utf-8",
+  });
   response.end(JSON.stringify(body));
+}
+
+function sendNoContent(response: http.ServerResponse): void {
+  response.writeHead(204, {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+  });
+  response.end();
 }
 
 function renderLocalConsolePage(): string {
@@ -321,6 +401,8 @@ async function closeServer(server: http.Server): Promise<void> {
   if (!server.listening) {
     return;
   }
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
   await new Promise<void>((resolve, reject) => {
     server.close((error) => {
       if (error) {
@@ -347,4 +429,19 @@ async function fsReaddir(dir: string): Promise<Array<{ name: string }>> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function matchSessionRoute(
+  pathname: string,
+  action: "messages" | "interrupt",
+): { sessionId: string } | null {
+  const match = new RegExp(`^/api/local-console/sessions/(.+)/${action}$`, "u").exec(pathname);
+  if (match === null) {
+    return null;
+  }
+  return { sessionId: decodeURIComponent(match[1] ?? "") };
 }

@@ -5,6 +5,8 @@ import { runSqliteStateCommand, type SqliteStateCommand } from "../sqlite-state.
 import {
   type LocalConsoleMessage,
   type LocalConsoleMessageStatus,
+  type LocalConsoleSessionStatus,
+  type LocalConsoleSessionSummary,
   type LocalConsoleSpeaker,
   type LocalConsoleStore,
 } from "./types.js";
@@ -38,6 +40,14 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
   }
 
   async close(): Promise<void> {}
+
+  async createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    return this.run({ kind: "local-create-session", ...input });
+  }
+
+  async listSessions(): Promise<LocalConsoleSessionSummary[]> {
+    return this.run({ kind: "local-list-sessions" });
+  }
 
   async appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {
     return this.run({ kind: "local-append-user", ...input });
@@ -97,6 +107,28 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     await this.run({ kind: "local-record-failure", ...input });
   }
 
+  async recordInterrupted(input: {
+    userMessageId: number;
+    sessionId: string;
+    reason: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.run({ kind: "local-record-interrupted", ...input });
+  }
+
+  async recordStuck(input: {
+    userMessageId: number;
+    sessionId: string;
+    reason: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.run({ kind: "local-record-stuck", ...input });
+  }
+
   async markStaleRunning(input: {
     sessionId: string;
     cutoffIso: string;
@@ -150,34 +182,70 @@ function readSpeaker(value: unknown): LocalConsoleSpeaker {
 }
 
 function readStatus(value: unknown): LocalConsoleMessageStatus {
-  if (value === "pending" || value === "running" || value === "completed" || value === "failed" || value === "displayed") {
+  if (
+    value === "pending" ||
+    value === "running" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "interrupted" ||
+    value === "stuck" ||
+    value === "displayed"
+  ) {
     return value;
   }
   throw new Error(`Invalid local console message status: ${String(value)}`);
 }
 
-function normalizeResult(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(normalizeMessageIfNeeded);
-  }
-  return normalizeMessageIfNeeded(value);
-}
-
-function normalizeMessageIfNeeded(value: unknown): unknown {
-  if (!isRecord(value) || !("sessionId" in value) || !("speaker" in value)) {
+function readSessionStatus(value: unknown): LocalConsoleSessionStatus {
+  if (
+    value === "idle" ||
+    value === "running" ||
+    value === "waiting" ||
+    value === "stuck" ||
+    value === "failed" ||
+    value === "interrupted"
+  ) {
     return value;
   }
+  throw new Error(`Invalid local console session status: ${String(value)}`);
+}
+
+function normalizeResult(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeStoreRecordIfNeeded);
+  }
+  return normalizeStoreRecordIfNeeded(value);
+}
+
+function normalizeStoreRecordIfNeeded(value: unknown): unknown {
+  if (!isRecord(value) || !("sessionId" in value)) {
+    return value;
+  }
+  if ("speaker" in value) {
+    return {
+      id: readNumber(value.id, "id"),
+      sessionId: readString(value.sessionId, "sessionId"),
+      speaker: readSpeaker(value.speaker),
+      role: readNullableString(value.role, "role"),
+      body: readString(value.body, "body"),
+      status: readStatus(value.status),
+      runId: readNullableString(value.runId, "runId"),
+      runDir: readNullableString(value.runDir, "runDir"),
+      error: readNullableString(value.error, "error"),
+      createdAt: readString(value.createdAt, "createdAt"),
+      updatedAt: readString(value.updatedAt, "updatedAt"),
+    } satisfies LocalConsoleMessage;
+  }
   return {
-    id: readNumber(value.id, "id"),
     sessionId: readString(value.sessionId, "sessionId"),
-    speaker: readSpeaker(value.speaker),
-    role: readNullableString(value.role, "role"),
-    body: readString(value.body, "body"),
-    status: readStatus(value.status),
-    runId: readNullableString(value.runId, "runId"),
-    runDir: readNullableString(value.runDir, "runDir"),
-    error: readNullableString(value.error, "error"),
+    title: readString(value.title, "title"),
+    status: readSessionStatus(value.status),
+    runningCount: readNumber(value.runningCount, "runningCount"),
+    waitingCount: readNumber(value.waitingCount, "waitingCount"),
+    stuckCount: readNumber(value.stuckCount, "stuckCount"),
+    errorCount: readNumber(value.errorCount, "errorCount"),
+    interruptedCount: readNumber(value.interruptedCount, "interruptedCount"),
     createdAt: readString(value.createdAt, "createdAt"),
     updatedAt: readString(value.updatedAt, "updatedAt"),
-  } satisfies LocalConsoleMessage;
+  } satisfies LocalConsoleSessionSummary;
 }

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain, shell, utilityProcess, type UtilityProcess } from "electron";
 import electronUpdater from "electron-updater";
+import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../../src/local-console/server.js";
 import { startObserverServer, type StartedObserverServer } from "../../src/observer/server.js";
 import { buildSeedCopyPlan, executeSeedCopyPlan, resolveDesktopDataRoot } from "./data-root.js";
 import { checkDesktopEnvironment } from "./env-doctor.js";
@@ -16,7 +17,9 @@ const projectRoot = path.resolve(dirname, "..", "..");
 const { autoUpdater } = electronUpdater;
 
 let mainWindow: BrowserWindow | null = null;
+let statusWindow: BrowserWindow | null = null;
 let observerServer: StartedObserverServer | null = null;
+let localConsoleServer: StartedLocalConsoleServer | null = null;
 let runnerSupervisor: RunnerSupervisor | null = null;
 let isQuitting = false;
 
@@ -24,6 +27,7 @@ const status: DesktopStatusSnapshot = {
   appVersion: app.getVersion(),
   dataRoot: "",
   observer: { status: "starting" },
+  localConsole: { status: "starting" },
   runner: { status: "stopped", crashCount: 0, maxCrashCount: 3 },
   doctor: null,
   shellPath: null,
@@ -92,15 +96,16 @@ async function boot(): Promise<void> {
   publishStatus();
 
   await startObserver();
+  await startLocalConsole();
   startRunner();
 }
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 760,
-    height: 560,
-    minWidth: 520,
-    minHeight: 420,
+    width: 1180,
+    height: 760,
+    minWidth: 900,
+    minHeight: 560,
     title: "agent-moebius",
     webPreferences: {
       preload: path.join(dirname, "preload.cjs"),
@@ -113,7 +118,7 @@ function createWindow(): void {
     mainWindow = null;
   });
   mainWindow.webContents.on("did-finish-load", publishStatus);
-  void mainWindow.loadFile(path.join(dirname, "status-page", "index.html"));
+  void mainWindow.loadFile(path.join(dirname, "console-page", "index.html"));
 }
 
 async function startObserver(): Promise<void> {
@@ -126,6 +131,24 @@ async function startObserver(): Promise<void> {
     status.observer = { status: "running", url: observerServer.url };
   } catch (error) {
     status.observer = { status: "error", error: formatError(error) };
+  }
+  publishStatus();
+}
+
+async function startLocalConsole(): Promise<void> {
+  try {
+    localConsoleServer = await startLocalConsoleServer({
+      host: "127.0.0.1",
+      port: 0,
+      projectRoot: status.dataRoot,
+    });
+    status.localConsole = {
+      status: "running",
+      url: localConsoleServer.url,
+      sqlitePath: localConsoleServer.sqlitePath,
+    };
+  } catch (error) {
+    status.localConsole = { status: "error", error: formatError(error) };
   }
   publishStatus();
 }
@@ -152,6 +175,7 @@ function spawnRunnerProcess(logPath: string): RunnerProcess {
       ...process.env,
       AGENT_MOEBIUS_DATA_ROOT: status.dataRoot,
       AGENT_MOEBIUS_WORKDIR_ROOT: path.join(status.dataRoot, "workdir"),
+      AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE: "1",
     },
     stdio: "pipe",
     serviceName: "agent-moebius-runner",
@@ -201,6 +225,12 @@ ipcMain.handle("action:open-observer", async () => {
   }
 });
 
+ipcMain.handle("action:open-status-page", async () => {
+  openStatusPage();
+});
+
+ipcMain.handle("local-console:get-url", async () => status.localConsole.url ?? null);
+
 ipcMain.handle("action:open-data-root", async () => {
   await shell.openPath(status.dataRoot);
 });
@@ -231,6 +261,7 @@ async function shutdownAndQuit(): Promise<void> {
   isQuitting = true;
   runnerSupervisor?.stop();
   await closeObserver();
+  await closeLocalConsole();
   app.quit();
 }
 
@@ -245,8 +276,45 @@ async function closeObserver(): Promise<void> {
   observerServer = null;
 }
 
+async function closeLocalConsole(): Promise<void> {
+  if (localConsoleServer === null) {
+    return;
+  }
+  await localConsoleServer.close();
+  localConsoleServer = null;
+  status.localConsole = { status: "stopped" };
+}
+
 function publishStatus(): void {
   mainWindow?.webContents.send("status:snapshot", status);
+  statusWindow?.webContents.send("status:snapshot", status);
+}
+
+function openStatusPage(): void {
+  if (statusWindow !== null) {
+    if (statusWindow.isMinimized()) {
+      statusWindow.restore();
+    }
+    statusWindow.focus();
+    return;
+  }
+  statusWindow = new BrowserWindow({
+    width: 760,
+    height: 560,
+    minWidth: 520,
+    minHeight: 420,
+    title: "agent-moebius status",
+    webPreferences: {
+      preload: path.join(dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  statusWindow.on("closed", () => {
+    statusWindow = null;
+  });
+  statusWindow.webContents.on("did-finish-load", publishStatus);
+  void statusWindow.loadFile(path.join(dirname, "status-page", "index.html"));
 }
 
 function resolveSeedRoot(): string {

@@ -1,4 +1,5 @@
 export * from "./console/accept-card";
+export * from "./console/operator-console";
 export * from "./ui/avatar";
 export * from "./ui/badge";
 export * from "./ui/button";
