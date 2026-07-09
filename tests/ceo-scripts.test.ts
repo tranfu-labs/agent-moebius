@@ -9,6 +9,7 @@ describe("CEO script library", () => {
     const scripts = await loadCeoScripts({ agentsDir: path.resolve("agents"), required: true });
 
     expect(scripts.map((script) => script.id).sort()).toEqual([
+      "default-plan-chain",
       "goal-intake",
       "integration-acceptance",
       "integration-repair-child-issues",
@@ -17,6 +18,7 @@ describe("CEO script library", () => {
       "post-implementation-retro",
       "roundtable-plan-review",
     ]);
+    expect(scripts.find((script) => script.id === "default-plan-chain")).toMatchObject({ action: "route" });
     expect(scripts.find((script) => script.id === "goal-intake")).toMatchObject({ action: "goal_intake" });
     expect(scripts.find((script) => script.id === "integration-acceptance")).toMatchObject({ action: "route" });
     expect(scripts.find((script) => script.id === "integration-repair-child-issues")).toMatchObject({

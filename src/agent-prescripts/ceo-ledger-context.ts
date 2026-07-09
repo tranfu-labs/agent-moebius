@@ -227,10 +227,13 @@ Reason: ${input.reason}
 Current issue source:
 ${JSON.stringify({ owner: input.source.owner, repo: input.source.repo, number: input.source.issueNumber }, null, 2)}
 
-There is no current active phase projection for this issue. You may only use the goal-intake workflow:
-- goal_intake.interview for bounded questions.
-- goal_intake.propose for pending ledger proposal.
-- goal_intake.confirm for a user-confirmed pending proposal.
+There is no current active phase projection for this issue. Choose exactly one bootstrap path from the public timeline:
+
+1. Use the default-plan-chain route workflow when the latest user request is an ordinary target, implementation, design, or "how to do X" entry without explicit split/orchestration intent. This route hands control to dev for OpenSpec interview and plan writing. It does not write ledger entries, does not create child issues, and does not run goal-intake.
+2. Use the goal-intake workflow only when the public timeline explicitly asks to split work into multiple tasks, run work in parallel, orchestrate child tasks, create child issues/tasks, phase work and assign roles, or when the user is confirming an existing goal-intake proposal:
+   - goal_intake.interview for bounded questions.
+   - goal_intake.propose for pending ledger proposal.
+   - goal_intake.confirm for a user-confirmed pending proposal.
 
 Do not emit spawn_child_issues or roundtable from this bootstrap context; TypeScript validation will reject them without visible task ids.
 
