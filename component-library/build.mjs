@@ -48,7 +48,7 @@ export const MANIFEST = [
 const FLAT = MANIFEST.flatMap(g => g.items.map(it => ({ ...it, group: g.group })));
 
 const sprite = readFileSync(R('_sprite.html'), 'utf8');
-const tokensCss = readFileSync(R('tokens.css'), 'utf8');
+const tokensCss = readFileSync(join(__dir, '../packages/console-ui/src/styles/tokens.css'), 'utf8');
 const libCss = readFileSync(R('lib.css'), 'utf8');
 
 // Tailwind Play CDN 配置：把 CSS 变量映射成主题色

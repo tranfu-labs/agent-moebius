@@ -33,7 +33,7 @@ packages/console-ui/            # 新增，React 组件库
 ```
 
 - `pnpm-workspace.yaml` 增列 `packages/*`（当前只有 `.` 与 `desktop`）。
-- **令牌单一事实源**：`tokens.css` 的变量值直接沿用 `component-library/tokens.css` 现有近单色取值（灰阶 + indigo + 绿/红，无琥珀、无 `-soft` 填充）。旧 HTML 库若保留，改为引用同一份值，避免两处漂移。
+- **令牌单一事实源**：`packages/console-ui/src/styles/tokens.css` 承载近单色取值（灰阶 + indigo + 绿/红，无等待专属色、无浅色裁决填充）。旧 HTML 库若保留，构建时直接引用这同一份值，避免两处漂移。
 
 ### 3. 展示：Storybook
 
