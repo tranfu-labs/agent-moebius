@@ -39,4 +39,3 @@ Given the operator console renderer is loaded
 When it needs to submit messages, interrupt runs, or read state
 Then it uses preload-exposed APIs or loopback HTTP endpoints
 And it does not enable Node integration.
-

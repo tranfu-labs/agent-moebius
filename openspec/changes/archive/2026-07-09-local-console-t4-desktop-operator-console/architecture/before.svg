@@ -33,4 +33,3 @@
   <line x1="570" y1="286" x2="660" y2="286" class="line"/>
   <text x="40" y="374" class="muted">No desktop operator renderer, no multi-session UI, no live tail, no explicit interrupt API.</text>
 </svg>
-
