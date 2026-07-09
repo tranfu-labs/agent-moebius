@@ -916,7 +916,8 @@ body {
 }
 .rack-name { font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.82); }
 
-/* ---- 工牌架点击弹窗：此时才显示正面放大工牌 + 详情 ---- */
+/* ---- 工牌架点击弹窗：此时才显示正面放大工牌 + 详情。
+        3D 由无缝飞卡（.fly-layer 幽灵卡）承担，弹窗容器只做淡入淡出 ---- */
 .rack-modal {
   position: fixed;
   inset: 0;
@@ -925,7 +926,6 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  perspective: 1400px;
 }
 .rack-modal[hidden] { display: none; }
 .rack-modal-overlay {
@@ -947,9 +947,7 @@ body {
   background: rgba(14, 8, 32, 0.97);
   border: 1px solid rgba(160, 104, 255, 0.35);
   box-shadow: 0 40px 90px -30px #000;
-  transform-style: preserve-3d;
-  transform-origin: 30% 50%;
-  animation: rmIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rmIn 0.42s ease both;
 }
 .rack-modal-close {
   position: absolute; top: 14px; right: 14px;
@@ -978,7 +976,22 @@ body {
   font-size: 12.5px;
 }
 @keyframes rmFade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes rmIn { from { opacity: 0; transform: translateY(14px) scale(0.95) rotateY(34deg); } to { opacity: 1; transform: translateY(0) scale(1) rotateY(0deg); } }
+/* 纯 opacity 入场：入场动画不得含位移/缩放/旋转，否则飞卡终点坐标量不准 */
+@keyframes rmIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- 容器变形转场（iOS 打开 App 式）：点击工牌 → 幽灵卡面转正放大淡出、
+        弹窗面板从工牌足迹放大淡入；关闭逆向缩回架上 ---- */
+.fly-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 240;              /* 压在弹窗之上，幽灵盖在变形路径上 */
+  pointer-events: none;
+  perspective: 1400px;       /* 幽灵卡面的 rotateY 需要透视 */
+}
+.fly-layer .rack-face { position: absolute; left: 0; top: 0; }
+.rack-item.is-away { visibility: hidden; }   /* 变形期间架上原卡隐位，占位保留 */
+.rack-modal.is-closing .rack-modal-overlay { animation: rmOut 0.3s ease both; }
+@keyframes rmOut { to { opacity: 0; } }
 
 /* 全息/工牌架 —— 尊重 prefers-reduced-motion：关 tilt/foil/高光/大位移 */
 @media (prefers-reduced-motion: reduce) {
@@ -1664,12 +1677,16 @@ body {
 })();
 
 /* =========================================================================
-   3) 底部工牌架点击/Enter → 弹详情弹窗（此时才显示正面放大工牌）。
-      Esc / 点遮罩 / 关闭按钮可关；关后焦点还给触发工牌。
+   3) 底部工牌架点击/Enter → 容器变形转场（iOS 打开 App 式）后显示详情弹窗：
+      幽灵卡面（克隆 .rack-face）从架上侧立位转正放大淡出，弹窗面板本体
+      FLIP 从工牌足迹放大淡入，两层同路径交叉 =「工牌慢慢变成弹窗」；
+      关闭（Esc / 遮罩 / 按钮）逆向缩回架上原位。转场期间防重入；
+      prefers-reduced-motion 或无 WAAPI 时降级为直接开合（仅淡入淡出）。
    ========================================================================= */
 (function () {
   var modal = document.getElementById('rack-modal');
   if (!modal) return;
+  var sheet = modal.querySelector('.rack-modal-sheet');
   var mBadge = document.getElementById('rm-badge');
   var mAva = document.getElementById('rm-ava');
   var mBadgeName = document.getElementById('rm-badge-name');
@@ -1680,8 +1697,105 @@ body {
   var mMention = document.getElementById('rm-mention-code');
   var closeBtn = modal.querySelector('.rack-modal-close');
   var lastTrigger = null;
+  var animating = false;
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var canFly = !reduce && typeof sheet.animate === 'function';
+  var MORPH_MS = 560;
+  var MORPH_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
+  var RACK_DEG = 44;   // 与 .rack-item 的侧立角保持一致
+
+  /* 架上卡姿态：rotateY 投影不移动中心点 → 定位用投影 rect 中心；
+     幽灵缩放不能用投影宽（被 rotateY 压缩），取未旋转 offset 尺寸 × rack 累积缩放；
+     面板的起始足迹（projW/projH）用投影宽高——面板要从卡片实际占的屏幕区域长出来 */
+  function rackPose(item) {
+    var face = item.querySelector('.rack-face') || item;
+    var r = face.getBoundingClientRect();
+    var inner = item.parentNode;   // .rack-inner（断点下有 scale 缩放）
+    var scale = inner.getBoundingClientRect().width / (inner.offsetWidth || 1);
+    return {
+      x: r.left + r.width / 2,
+      y: r.top + r.height / 2,
+      projW: r.width,
+      projH: r.height,
+      w: face.offsetWidth * scale
+    };
+  }
+
+  function makeGhost(item) {
+    var face = item.querySelector('.rack-face');
+    var layer = document.createElement('div');
+    layer.className = 'fly-layer';
+    var ghost = face.cloneNode(true);
+    ghost.style.width = face.offsetWidth + 'px';
+    ghost.style.height = face.offsetHeight + 'px';
+    var glow = item.style.getPropertyValue('--glow');
+    if (glow) ghost.style.setProperty('--glow', glow.trim());
+    layer.appendChild(ghost);
+    document.body.appendChild(layer);
+    return { layer: layer, ghost: ghost };
+  }
+
+  function pose(x, y, deg, s) {
+    return 'translate(' + x + 'px,' + y + 'px) translate(-50%,-50%) rotateY(' + deg + 'deg) scale(' + s + ')';
+  }
+
+  /* 关键帧逆序：offset 取 1-x 后反转数组 */
+  function flip(frames) {
+    var out = [];
+    for (var i = frames.length - 1; i >= 0; i--) {
+      var f = {};
+      for (var k in frames[i]) f[k] = frames[i][k];
+      if ('offset' in f) f.offset = 1 - f.offset;
+      out.push(f);
+    }
+    return out;
+  }
+
+  /* 容器变形：backwards=false 工牌→弹窗，true 弹窗→工牌。
+     transform 与 opacity 拆成两条动画：淡化要线性节奏、运动要弹性缓动，
+     混写稀疏关键帧（中间帧只有 opacity）在部分渲染环境还会被错误解析 */
+  function morph(item, backwards, done) {
+    var dst = sheet.getBoundingClientRect();   // 面板最终矩形（此刻无 transform）
+    var p = rackPose(item);
+    var dstX = dst.left + dst.width / 2;
+    var dstY = dst.top + dst.height / 2;
+
+    var g = makeGhost(item);
+    var s0 = p.w / (g.ghost.offsetWidth || p.w);
+    var sEnd = dst.height / (g.ghost.offsetHeight || 1);   // 后半程已淡出，贴合面板高即可
+    var ghostMove = [
+      { transform: pose(p.x, p.y, RACK_DEG, s0) },
+      { transform: pose(dstX, dstY, 0, sEnd) }
+    ];
+    var ghostFade = [
+      { opacity: 1, offset: 0 }, { opacity: 1, offset: 0.3 },
+      { opacity: 0, offset: 0.75 }, { opacity: 0, offset: 1 }
+    ];
+    var sheetMove = [
+      { transform: 'translate(' + (p.x - dstX) + 'px,' + (p.y - dstY) + 'px) scale(' +
+          (p.projW / dst.width) + ',' + (p.projH / dst.height) + ')' },
+      { transform: 'none' }
+    ];
+    var sheetFade = [
+      { opacity: 0, offset: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1, offset: 1 }
+    ];
+    var move = { duration: MORPH_MS, easing: MORPH_EASE, fill: 'both' };
+    var fade = { duration: MORPH_MS, easing: 'linear', fill: 'both' };
+    var anims = [
+      g.ghost.animate(backwards ? flip(ghostMove) : ghostMove, move),
+      g.ghost.animate(backwards ? flip(ghostFade) : ghostFade, fade),
+      sheet.animate(backwards ? flip(sheetMove) : sheetMove, move),
+      sheet.animate(backwards ? flip(sheetFade) : sheetFade, fade)
+    ];
+    anims[2].onfinish = function () {
+      done();   // 先落定状态（拆层/隐藏在 done 内完成后再释放填充，避免闪帧）
+      g.layer.parentNode && g.layer.parentNode.removeChild(g.layer);
+      for (var i = 0; i < anims.length; i++) anims[i].cancel();
+    };
+  }
 
   function open(item) {
+    if (animating || !modal.hidden) return;
     lastTrigger = item;
     var role = item.getAttribute('data-role') || '';
     var abbr = item.getAttribute('data-abbr') || '';
@@ -1699,15 +1813,44 @@ body {
     // 复位正面工牌 tilt
     mBadge.style.setProperty('--rx', '0deg');
     mBadge.style.setProperty('--ry', '0deg');
-    modal.hidden = false;
-    closeBtn.focus();
-    document.addEventListener('keydown', onKey);
+    if (!canFly) {
+      modal.hidden = false;
+      closeBtn.focus();
+      document.addEventListener('keydown', onKey);
+      return;
+    }
+    animating = true;
+    modal.hidden = false;               // 布局此刻定型，变形终点可测
+    item.classList.add('is-away');
+    morph(item, false, function () {
+      animating = false;
+      closeBtn.focus();
+      document.addEventListener('keydown', onKey);
+    });
   }
+
   function close() {
-    modal.hidden = true;
+    if (animating || modal.hidden) return;
     document.removeEventListener('keydown', onKey);
-    if (lastTrigger) { lastTrigger.focus(); lastTrigger = null; }
+    if (!canFly || !lastTrigger) { finishClose(); return; }
+    animating = true;
+    modal.classList.add('is-closing');  // 遮罩淡出
+    morph(lastTrigger, true, function () {
+      animating = false;
+      finishClose();
+    });
   }
+
+  function finishClose() {
+    modal.hidden = true;
+    modal.classList.remove('is-closing');
+    if (lastTrigger) {
+      lastTrigger.classList.remove('is-away');
+      lastTrigger.focus();
+      lastTrigger = null;
+    }
+  }
+
   function onKey(e) {
     if (e.key === 'Escape') { e.preventDefault(); close(); }
   }
