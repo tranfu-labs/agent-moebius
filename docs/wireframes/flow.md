@@ -65,3 +65,20 @@ pnpm observer
   │
   └─ 关闭窗口 → 停 runner → 关 observer → 应用退出
 ```
+
+## Marketeam Landing
+
+```text
+打开 sites/marketeam/index.html
+  │
+  ├─ 背景 CSS mesh 渐变铺满 .app
+  ├─ 入场动画错峰：header 下淡入 → hero 左上淡入 → 圆环 scale-in(0.3s) → ticker 上淡入(0.6s)
+  ├─ 400ms 起 打字机逐字（35ms/字，前67字黑/余白，紫光标闪）
+  │     └─ 打字完 → Start Project(3.2s) → David 徽章(3.6s) 依次入场
+  ├─ 1.2s 起 中心数字 count-up 0→20k+（easeOutCubic 2s）
+  ├─ 4 轨持续旋转（左30/右40/右50/左60 s），头像随轨转、中心数字与头像反向自转正立
+  ├─ 头像错峰 fly-in（scale0.3+rotate-180+blur → 正常，0.6→2.3s）
+  │     └─ hover 头像 → 弹标注框（姓名·角色 + AI 生成提示词 + 复制）
+  ├─ 底部 ticker 5 标×4 无缝左滚 20s，两端渐隐
+  └─ 断点 1280/1024/768/480：逐档缩标题与圆环，≤1024 堆叠，≤768 隐藏 nav，无横向滚动
+```

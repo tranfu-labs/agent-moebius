@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Marketeam — Unlock Top Marketing Talent</title>
+
+<!-- 唯一外链：Google Fonts（Inter 400/500/600/700 + Urbanist 600/700）。离线则回退系统字体，版式不塌。 -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Urbanist:wght@600;700&display=swap"
+  rel="stylesheet"
+/>
+
+<style>
+/* =========================================================================
+   变量：关键色 + @property 旋转描边角
+   ========================================================================= */
+:root {
+  --violet: #A068FF;      /* 主强调 */
+  --deep1: #060218;       /* 深底 */
+  --deep2: #070319;       /* 深底（描边缝隙色） */
+  --ink: #000000;         /* 深字 */
+  --paper: #ffffff;       /* 浅字 */
+  --fallback: #0a0a0a;    /* 兜底底 */
+}
+
+/* @property 让 conic 描边角可被 @keyframes 平滑插值 */
+@property --border-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--fallback);
+  color: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* =========================================================================
+   .app —— 全视口容器 + CSS mesh 渐变背景（复刻氛围，NEVER 热链外图）
+   深底 #060218 + 紫粉径向光晕若干层；左上偏亮以承载黑色标题字。
+   ========================================================================= */
+.app {
+  position: relative;
+  min-height: 100vh;
+  background-color: var(--deep1);
+  background-image:
+    radial-gradient(1300px 1000px at 18% 26%, rgba(214, 178, 255, 0.72), rgba(214, 178, 255, 0) 62%),
+    radial-gradient(760px 640px at 42% 72%,  rgba(160, 104, 255, 0.45), rgba(160, 104, 255, 0) 60%),
+    radial-gradient(1000px 1000px at 90% 42%, rgba(160, 104, 255, 0.30), rgba(160, 104, 255, 0) 55%),
+    radial-gradient(760px 760px at 80% 92%,  rgba(255, 111, 181, 0.22), rgba(255, 111, 181, 0) 55%);
+  overflow: hidden;
+}
+
+/* 内容居中容器 */
+.container {
+  max-width: 1920px;
+  margin: 0 auto;
+}
+
+/* =========================================================================
+   Header
+   ========================================================================= */
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 64px;
+  animation: headerIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.header-left { display: flex; align-items: center; gap: 40px; }
+
+.brand { display: inline-flex; align-items: center; text-decoration: none; }
+.brand svg { height: 32px; width: auto; display: block; }
+
+.nav { display: flex; align-items: center; gap: 28px; }
+.nav-link {
+  position: relative;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 400;
+  text-decoration: none;
+  padding: 2px 0;
+}
+.nav-link::after {
+  content: '';
+  position: absolute;
+  left: 0; bottom: -2px;
+  width: 100%; height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+.nav-link:hover::after { transform: scaleX(1); }
+
+.header-right { display: flex; align-items: center; gap: 24px; }
+
+.login {
+  position: relative;
+  color: var(--paper);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 2px 0;
+}
+.login::after {
+  content: '';
+  position: absolute;
+  left: 0; bottom: -2px;
+  width: 100%; height: 1px;
+  background: var(--paper);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+.login:hover::after { transform: scaleX(1); }
+
+/* =========================================================================
+   药丸按钮 + 旋转 conic 描边包裹
+   ========================================================================= */
+.btn-border-wrap {
+  position: relative;
+  display: inline-block;
+  border-radius: 50px;
+}
+/* 仅描边：inset -3px + padding 3px + mask exclude，露出 3px 旋转 conic 边框 */
+.btn-border-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 52px;
+  padding: 3px;
+  background: conic-gradient(
+    from var(--border-angle),
+    var(--violet), var(--deep2), var(--violet), var(--deep2), var(--violet)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: borderRotate 3s linear infinite;
+  pointer-events: none;
+}
+
+.pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  cursor: pointer;
+  overflow: hidden;                 /* 滑入填充裁切 */
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 50px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 12px 26px;
+  line-height: 1;
+}
+.pill > span,
+.pill > svg { position: relative; z-index: 1; }
+
+/* Join Now：填充从左滑入 */
+.pill-join::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--violet);
+  transform: translateX(-100%);
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pill-join:hover::after { transform: translateX(0); }
+
+/* Start Project：略大 + 填充从右滑入 + 底色 #060218 */
+.pill-start {
+  background: var(--deep1);
+  padding: 14px 28px;
+  font-size: 16px;
+}
+.pill-start::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--violet);
+  transform: translateX(100%);
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pill-start:hover::after { transform: translateX(0); }
+.pill-start svg { width: 18px; height: 18px; }
+
+/* =========================================================================
+   Hero
+   ========================================================================= */
+.hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 40px;
+  padding: 0 64px 40px;
+  min-height: calc(100vh - 230px);
+}
+
+/* Hero 左 */
+.hero-left {
+  flex: 0 1 600px;
+  padding-top: 40px;
+  animation: heroLeftIn 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.hero-title {
+  font-family: 'Urbanist', system-ui, sans-serif;
+  font-size: 64px;
+  line-height: 64px;
+  font-weight: 600;
+  letter-spacing: -1.5px;
+  margin: 0 0 36px;
+  min-height: 200px;           /* 打字期间占位，避免布局跳动 */
+}
+.t-black { color: var(--ink); }
+.t-white { color: var(--paper); }
+
+/* 打字机紫光标（闪烁） */
+.caret {
+  display: inline-block;
+  width: 3px;
+  height: 0.86em;
+  margin-left: 2px;
+  vertical-align: -0.06em;
+  background: var(--violet);
+  animation: blink 1s steps(1) infinite;
+}
+
+.hero-cta { display: flex; }
+.start-wrap {
+  animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 3.2s;        /* 打字完后出现 */
+}
+
+/* David 光标徽章 */
+.david-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 290px;
+  margin-top: 40px;
+  cursor: pointer;
+  animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 3.6s;
+}
+.cursor-arrow { width: 24px; height: 24px; display: block; }
+.david-pill {
+  background: var(--violet);
+  color: var(--paper);
+  font-size: 16px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 20px;
+  line-height: 1;
+}
+
+/* =========================================================================
+   Hero 右 —— 圆环可视化
+   .orbit-scale（响应式缩放）> .orbit-wrap（入场 scale-in）> .orbits（720 舞台）
+   ========================================================================= */
+.orbit-scale { flex: 0 0 auto; }
+.orbit-wrap {
+  animation: scaleIn 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.3s;
+}
+.orbits {
+  position: relative;
+  width: 720px;
+  height: 720px;
+}
+
+/* 4 条同心轨：绝对居中（用负 margin 居中，把 transform 留给旋转动画） */
+.orbit {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+}
+/* 1px 渐变描边（mask exclude）——顶部亮、上下渐隐，旋转时如光带流转 */
+.orbit::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  padding: 1px;
+  background: linear-gradient(
+    180deg,
+    rgba(217, 161, 255, 0) 0%,
+    rgba(217, 161, 255, 1) 43%,
+    rgba(217, 161, 255, 0) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+}
+
+.orbit1 { width: 353px; height: 353px; margin: -176.5px 0 0 -176.5px; animation: spinCCW 30s linear infinite; }
+.orbit2 { width: 501px; height: 501px; margin: -250.5px 0 0 -250.5px; animation: spinCW  40s linear infinite; }
+.orbit3 { width: 649px; height: 649px; margin: -324.5px 0 0 -324.5px; animation: spinCW  50s linear infinite; }
+.orbit4 { width: 797px; height: 797px; margin: -398.5px 0 0 -398.5px; animation: spinCCW 60s linear infinite; }
+
+/* 中心块：orbit1 内，反向自转抵消轨旋转保持正立 */
+.center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.center-spin {
+  animation: spinCW 30s linear infinite;   /* 抵消 orbit1 的 CCW */
+  text-align: center;
+}
+.count-num {
+  font-family: 'Urbanist', system-ui, sans-serif;
+  font-size: 64px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--paper);
+}
+.count-label {
+  font-family: 'Urbanist', system-ui, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--paper);
+  margin-top: 6px;
+}
+
+/* 头像定位层：静态 translate + 极坐标；rotate(-deg) 抵消角度让其正立 */
+.avatar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--sz);
+  height: var(--sz);
+  transform:
+    translate(-50%, -50%)
+    rotate(var(--deg))
+    translate(var(--r))
+    rotate(calc(-1 * var(--deg)));
+}
+/* 反向自转层：抵消所在轨的旋转，让人脸卡始终正立 */
+.avatar-counter { width: 100%; height: 100%; }
+.counter1 { animation: spinCW  30s linear infinite; }  /* 轨1 CCW */
+.counter2 { animation: spinCCW 40s linear infinite; }  /* 轨2 CW */
+.counter3 { animation: spinCCW 50s linear infinite; }  /* 轨3 CW */
+.counter4 { animation: spinCW  60s linear infinite; }  /* 轨4 CCW */
+
+/* 头像占位卡：光晕色渐变 + 首字母；错峰 fly-in */
+.avatar-card {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background:
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 60%),
+    var(--glow);
+  box-shadow: 0 8px 26px -6px var(--glow);
+  animation: flyIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--delay);
+}
+.avatar-card:hover { filter: brightness(1.08); }
+.shape-round { border-radius: 50%; }
+.shape-sq20  { border-radius: 20px; }
+.shape-sq24  { border-radius: 24px; }
+
+.ava-initials {
+  font-family: 'Urbanist', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: calc(var(--sz) * 0.34);
+  color: var(--paper);
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  user-select: none;
+}
+
+/* =========================================================================
+   头像 hover 标注框（占位即交接物）——全局单例，position:fixed，JS 定位夹在视口内
+   ========================================================================= */
+.avatar-tooltip {
+  position: fixed;
+  z-index: 100;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  background: rgba(12, 6, 30, 0.96);
+  border: 1px solid rgba(160, 104, 255, 0.5);
+  border-radius: 14px;
+  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.7);
+  padding: 16px 16px 18px;
+  color: var(--paper);
+  backdrop-filter: blur(6px);
+}
+.avatar-tooltip[hidden] { display: none; }
+.tt-head { font-size: 15px; font-weight: 600; }
+.tt-head .tt-role { color: var(--violet); }
+.tt-divider { height: 1px; background: rgba(160, 104, 255, 0.28); margin: 12px 0; }
+.tt-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 8px;
+}
+.tt-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 6px;
+  background: var(--violet);
+  color: var(--paper);
+  font-size: 11px;
+  font-weight: 700;
+}
+.tt-copy {
+  margin-left: auto;
+  border: 1px solid rgba(160, 104, 255, 0.6);
+  background: transparent;
+  color: var(--violet);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.tt-copy:hover { background: rgba(160, 104, 255, 0.16); }
+.tt-copy.copied { background: var(--violet); color: var(--paper); border-color: var(--violet); }
+.tt-prompt {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.86);
+  word-break: break-word;
+}
+
+/* =========================================================================
+   底部 Logo Ticker
+   ========================================================================= */
+.ticker {
+  position: relative;
+  padding: 28px 0 40px;
+  overflow: hidden;
+  -webkit-mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+          mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  animation: tickerIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.6s;
+}
+.ticker-track {
+  display: flex;
+  gap: 64px;
+  width: max-content;
+  animation: tickerMove 20s linear infinite;
+}
+.ticker-group { display: flex; gap: 64px; align-items: center; }
+.plogo { width: 137px; height: 40px; object-fit: contain; opacity: 0.85; flex: 0 0 auto; }
+
+/* =========================================================================
+   @keyframes
+   ========================================================================= */
+@keyframes headerIn   { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes heroLeftIn { from { opacity: 0; transform: translateY(40px);  } to { opacity: 1; transform: translateY(0); } }
+@keyframes tickerIn   { from { opacity: 0; transform: translateY(20px);  } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeUp     { from { opacity: 0; transform: translateY(16px);  } to { opacity: 1; transform: translateY(0); } }
+@keyframes scaleIn    { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+
+@keyframes flyIn {
+  from { opacity: 0; transform: scale(0.3) rotate(-180deg); filter: blur(8px); }
+  to   { opacity: 1; transform: scale(1)   rotate(0deg);    filter: blur(0); }
+}
+@keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+
+@keyframes spinCW  { to { transform: rotate(360deg); } }
+@keyframes spinCCW { to { transform: rotate(-360deg); } }
+
+@keyframes tickerMove { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes borderRotate { to { --border-angle: 360deg; } }
+
+/* =========================================================================
+   响应式断点：1280 / 1024 / 768 / 480
+   ========================================================================= */
+@media (max-width: 1280px) {
+  .orbit-scale { transform: scale(0.85); }
+}
+@media (max-width: 1024px) {
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+    min-height: auto;
+    padding: 0 40px 40px;
+  }
+  .hero-left { flex: 1 1 auto; }
+  .hero-title { font-size: 48px; line-height: 50px; min-height: 160px; }
+  .orbit-scale { transform: scale(0.7); align-self: center; margin-top: -40px; }
+  .site-header { padding: 24px 40px; }
+  .nav { gap: 18px; }
+  .david-badge { margin-left: 180px; }
+}
+@media (max-width: 768px) {
+  .nav { display: none; }
+  .hero-title { font-size: 36px; line-height: 40px; min-height: 130px; letter-spacing: -1px; }
+  .orbit-scale { transform: scale(0.5); margin-top: -120px; margin-bottom: -120px; }
+  .david-badge { margin-left: 120px; }
+  .site-header { padding: 20px 24px; }
+  .hero { padding: 0 24px 32px; }
+}
+@media (max-width: 480px) {
+  .hero-title { font-size: 28px; line-height: 32px; min-height: 110px; }
+  .orbit-scale { transform: scale(0.4); margin-top: -180px; margin-bottom: -170px; }
+  .pill { padding: 10px 20px; font-size: 14px; }
+  .pill-start { padding: 12px 22px; font-size: 15px; }
+  .david-badge { margin-left: 70px; }
+  .plogo { width: 108px; height: 32px; }
+  .ticker-track { gap: 44px; }
+  .ticker-group { gap: 44px; }
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+  <div class="container">
+
+    <!-- ============================== Header ============================== -->
+    <header class="site-header">
+      <div class="header-left">
+        <a class="brand" href="#" aria-label="Marketeam">
+          <!-- 内联 SVG wordmark + 菱形小标（高 32px） -->
+          <svg width="188" height="32" viewBox="0 0 188 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Marketeam">
+            <rect x="6" y="6" width="20" height="20" rx="4" transform="rotate(45 16 16)" fill="#A068FF"/>
+            <text x="40" y="24" font-family="Urbanist, sans-serif" font-size="23" font-weight="700" fill="#150033">Marketeam</text>
+          </svg>
+        </a>
+        <nav class="nav">
+          <a class="nav-link" href="#">Your Team</a>
+          <a class="nav-link" href="#">Solutions</a>
+          <a class="nav-link" href="#">Blog</a>
+          <a class="nav-link" href="#">Pricing</a>
+        </nav>
+      </div>
+      <div class="header-right">
+        <a class="login" href="#">Log In</a>
+        <div class="btn-border-wrap">
+          <button class="pill pill-join" type="button"><span>Join Now</span></button>
+        </div>
+      </div>
+    </header>
+
+    <!-- =============================== Hero =============================== -->
+    <section class="hero">
+
+      <!-- Hero 左 -->
+      <div class="hero-left">
+        <h1 class="hero-title" id="hero-title"></h1>
+
+        <div class="hero-cta">
+          <div class="btn-border-wrap start-wrap">
+            <button class="pill pill-start" type="button">
+              <span>Start Project</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- David 光标徽章（同款 hover：第 10 位提示词） -->
+        <div class="david-badge hoverable"
+             data-name="David"
+             data-role="Account Lead"
+             data-prompt="Photorealistic head-and-shoulders portrait of an approachable man in his 30s named David, an account lead, welcoming smile, casual blazer over a tee. Soft violet (#A068FF) rim light, deep near-black #060218 studio backdrop, soft shadows, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking at camera.">
+          <svg class="cursor-arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M4 2 L4 20 L9 15 L12.5 22 L15.5 20.5 L12 14 L19 14 Z" fill="#A068FF" stroke="#fff" stroke-width="1"/>
+          </svg>
+          <span class="david-pill">David</span>
+        </div>
+      </div>
+
+      <!-- Hero 右 —— 圆环可视化 -->
+      <div class="orbit-scale">
+        <div class="orbit-wrap">
+          <div class="orbits">
+
+            <!-- 轨1（内 353，左旋 30s）：中心块 + Maya -->
+            <div class="orbit orbit1">
+              <div class="center">
+                <div class="center-spin">
+                  <div class="count-num"><span id="count">0</span>k+</div>
+                  <div class="count-label">Specialists</div>
+                </div>
+              </div>
+              <div class="avatar" style="--r:177px; --deg:270deg; --sz:58px; --glow:#A068FF; --delay:0.6s;">
+                <div class="avatar-counter counter1">
+                  <div class="avatar-card shape-sq20 hoverable"
+                       data-name="Maya Chen" data-role="Brand Strategist"
+                       data-prompt="Photorealistic head-and-shoulders portrait of a confident East-Asian woman in her early 30s, a brand strategist, warm assured smile, minimalist charcoal blazer over a plain tee. Soft violet (#A068FF) rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, square crop with rounded corners, natural skin texture, looking straight at camera.">
+                    <span class="ava-initials">MC</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 轨2（501，右旋 40s）：Liam / Aisha / Kenji -->
+            <div class="orbit orbit2">
+              <div class="avatar" style="--r:251px; --deg:60deg; --sz:58px; --glow:#F5B23E; --delay:0.8s;">
+                <div class="avatar-counter counter2">
+                  <div class="avatar-card shape-round hoverable"
+                       data-name="Liam Novak" data-role="Growth Lead"
+                       data-prompt="Photorealistic head-and-shoulders portrait of a friendly white man in his late 20s, a growth marketing lead, relaxed grin, heather crewneck sweater. Warm amber-gold rim light from the right, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking slightly off camera.">
+                    <span class="ava-initials">LN</span>
+                  </div>
+                </div>
+              </div>
+              <div class="avatar" style="--r:251px; --deg:180deg; --sz:78px; --glow:#E85CC4; --delay:1.0s;">
+                <div class="avatar-counter counter2">
+                  <div class="avatar-card shape-round hoverable"
+                       data-name="Aisha Rahman" data-role="Social Media Director"
+                       data-prompt="Photorealistic head-and-shoulders portrait of a bright South-Asian woman in her 30s wearing an elegant hijab, a social media director, approachable open expression, deep-teal blouse. Magenta-pink rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking straight at camera.">
+                    <span class="ava-initials">AR</span>
+                  </div>
+                </div>
+              </div>
+              <div class="avatar" style="--r:251px; --deg:300deg; --sz:58px; --glow:#5B9CFF; --delay:1.2s;">
+                <div class="avatar-counter counter2">
+                  <div class="avatar-card shape-sq20 hoverable"
+                       data-name="Kenji Tanaka" data-role="Performance Marketer"
+                       data-prompt="Photorealistic head-and-shoulders portrait of a focused Japanese man in his 30s, a performance marketer, thoughtful calm expression, thin-frame glasses, slate button-up shirt. Cool blue rim light from the right, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, square crop with rounded corners, natural skin texture, looking slightly off camera.">
+                    <span class="ava-initials">KT</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 轨3（649，右旋 50s）：Sofia -->
+            <div class="orbit orbit3">
+              <div class="avatar" style="--r:325px; --deg:130deg; --sz:88px; --glow:#FF9EC4; --delay:1.4s;">
+                <div class="avatar-counter counter3">
+                  <div class="avatar-card shape-round hoverable"
+                       data-name="Sofia Ramirez" data-role="Content Strategist"
+                       data-prompt="Photorealistic head-and-shoulders portrait of a creative Latina woman in her late 20s, a content strategist, warm inviting smile, rust-colored knit. Soft pink rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking straight at camera.">
+                    <span class="ava-initials">SR</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 轨4（外 797，左旋 60s）：Noah / Priya / Zara / Lucas -->
+            <div class="orbit orbit4">
+              <div class="avatar" style="--r:399px; --deg:30deg; --sz:58px; --glow:#A068FF; --delay:1.6s;">
+                <div class="avatar-counter counter4">
+                  <div class="avatar-card shape-round hoverable"
+                       data-name="Noah Bennett" data-role="SEO Specialist"
+                       data-prompt="Photorealistic head-and-shoulders portrait of a composed Black man in his 30s, an SEO specialist, quietly confident expression, fine-knit charcoal turtleneck. Violet (#A068FF) rim light from the right, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking straight at camera.">
+                    <span class="ava-initials">NB</span>
+                  </div>
+                </div>
+              </div>
+              <div class="avatar" style="--r:399px; --deg:95deg; --sz:88px; --glow:#FF8A3D; --delay:1.8s;">
+                <div class="avatar-counter counter4">
+                  <div class="avatar-card shape-sq24 hoverable"
+                       data-name="Priya Nair" data-role="Creative Director"
+                       data-prompt="Photorealistic head-and-shoulders portrait of an artistic South-Asian woman in her 40s, a creative director, self-possessed expression, bold statement earrings, deep-plum blazer. Warm orange rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, square crop with rounded corners, natural skin texture, looking slightly off camera.">
+                    <span class="ava-initials">PN</span>
+                  </div>
+                </div>
+              </div>
+              <div class="avatar" style="--r:399px; --deg:220deg; --sz:88px; --glow:#FF6FB5; --delay:2.0s;">
+                <div class="avatar-counter counter4">
+                  <div class="avatar-card shape-sq24 hoverable"
+                       data-name="Zara Ahmed" data-role="Email/CRM Marketer"
+                       data-prompt="Photorealistic head-and-shoulders portrait of a poised Middle-Eastern woman in her 30s, an email and CRM marketer, serene professional expression, silk emerald blouse. Pink rim light from the right, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, square crop with rounded corners, natural skin texture, looking straight at camera.">
+                    <span class="ava-initials">ZA</span>
+                  </div>
+                </div>
+              </div>
+              <div class="avatar" style="--r:399px; --deg:320deg; --sz:58px; --glow:#A068FF; --delay:2.2s;">
+                <div class="avatar-counter counter4">
+                  <div class="avatar-card shape-round hoverable"
+                       data-name="Lucas Meyer" data-role="Paid Media Buyer"
+                       data-prompt="Photorealistic head-and-shoulders portrait of a sharp mixed white-Latino man in his 30s, a paid media buyer, decisive expression, tailored navy blazer. Violet (#A068FF) rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking straight at camera.">
+                    <span class="ava-initials">LM</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ Logo Ticker ============================ -->
+    <div class="ticker">
+      <div class="ticker-track" id="ticker-track">
+        <!-- 5 个唯一内联 SVG 虚构品牌标 ×4 无缝循环（JS 注入以避免重复冗长标记） -->
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- 头像 hover 标注框（全局单例） -->
+<div class="avatar-tooltip" id="tooltip" hidden>
+  <div class="tt-head"><span class="tt-name"></span> · <span class="tt-role"></span></div>
+  <div class="tt-divider"></div>
+  <div class="tt-sub">
+    <span class="tt-badge">A</span> AI 生成提示词
+    <button class="tt-copy" type="button" id="tt-copy">复制</button>
+  </div>
+  <div class="tt-prompt"></div>
+</div>
+
+<script>
+/* =========================================================================
+   1) 打字机标题（逐字 setTimeout：35ms/字，延迟 400ms 起）
+      前 67 字 #000，其余 #fff，尾随闪烁紫光标。
+   ========================================================================= */
+(function () {
+  var el = document.getElementById('hero-title');
+  var full = 'Unlock Top Marketing Talent You Thought Was Out of Reach — Now Just One Click Away!';
+  var BLACK = 67;
+  var i = 0;
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function render() {
+    var black = full.slice(0, Math.min(i, BLACK));
+    var white = i > BLACK ? full.slice(BLACK, i) : '';
+    el.innerHTML =
+      '<span class="t-black">' + esc(black) + '</span>' +
+      '<span class="t-white">' + esc(white) + '</span>' +
+      '<span class="caret"></span>';
+  }
+  function step() {
+    i++;
+    render();
+    if (i < full.length) setTimeout(step, 35);
+  }
+  render();                 // 起始：仅光标
+  setTimeout(step, 400);
+})();
+
+/* =========================================================================
+   2) 中心数字 count-up（requestAnimationFrame，0→20，easeOutCubic，2s，延迟 1.2s）
+      显示为「20k+」（k+ 为静态后缀）。
+   ========================================================================= */
+(function () {
+  var out = document.getElementById('count');
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+  function run() {
+    var dur = 2000, start = performance.now();
+    function frame(now) {
+      var t = Math.min((now - start) / dur, 1);
+      out.textContent = Math.round(easeOutCubic(t) * 20);
+      if (t < 1) requestAnimationFrame(frame);
+      else out.textContent = '20';
+    }
+    requestAnimationFrame(frame);
+  }
+  setTimeout(run, 1200);
+})();
+
+/* =========================================================================
+   3) Logo Ticker：5 个唯一内联 SVG 标 ×4 无缝左滚
+   ========================================================================= */
+(function () {
+  var logos = [
+    // Northwind —— 上三角标 + 粗体
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Northwind"><path d="M6 28 L14 10 L22 28 Z" fill="#B9A6E8"/><text x="30" y="26" font-family="Urbanist,sans-serif" font-size="17" font-weight="700" letter-spacing="0.3" fill="#D6CCF2">Northwind</text></svg>',
+    // Lumen —— 圆环标
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lumen"><circle cx="14" cy="20" r="8" fill="none" stroke="#B9A6E8" stroke-width="2.4"/><text x="30" y="26" font-family="Urbanist,sans-serif" font-size="19" font-weight="600" fill="#D6CCF2">Lumen</text></svg>',
+    // Vellum —— 旋方标 + 斜体
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Vellum"><rect x="8" y="14" width="12" height="12" fill="#B9A6E8" transform="rotate(45 14 20)"/><text x="30" y="26" font-family="Urbanist,sans-serif" font-size="19" font-weight="600" font-style="italic" fill="#D6CCF2">Vellum</text></svg>',
+    // Quartz —— 菱形描边 + 大写字距
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Quartz"><path d="M14 8 L22 20 L14 32 L6 20 Z" fill="none" stroke="#B9A6E8" stroke-width="2"/><text x="30" y="25" font-family="Urbanist,sans-serif" font-size="15" font-weight="700" letter-spacing="2.5" fill="#D6CCF2">QUARTZ</text></svg>',
+    // Habit —— 同心圆点 + 小写
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Habit"><circle cx="14" cy="20" r="7.5" fill="none" stroke="#B9A6E8" stroke-width="2.4"/><circle cx="14" cy="20" r="2.6" fill="#B9A6E8"/><text x="30" y="26" font-family="Urbanist,sans-serif" font-size="19" font-weight="600" fill="#D6CCF2">habit</text></svg>'
+  ];
+  var group = '<div class="ticker-group">' + logos.join('') + '</div>';
+  // 4 组：位移 -50%（=2 组）即无缝对齐
+  document.getElementById('ticker-track').innerHTML = group + group + group + group;
+})();
+
+/* =========================================================================
+   4) 头像 / David 徽章 hover 标注框 + 复制
+      单例 tooltip，position:fixed，测量后夹在视口内（内翻/收敛，不溢出）。
+   ========================================================================= */
+(function () {
+  var tt = document.getElementById('tooltip');
+  var ttName = tt.querySelector('.tt-name');
+  var ttRole = tt.querySelector('.tt-role');
+  var ttPrompt = tt.querySelector('.tt-prompt');
+  var copyBtn = document.getElementById('tt-copy');
+  var hideTimer = null;
+  var current = '';
+
+  function place(el) {
+    var r = el.getBoundingClientRect();
+    var box = tt.getBoundingClientRect();
+    var pad = 12;
+    // 水平居中于目标，夹在视口内
+    var left = r.left + r.width / 2 - box.width / 2;
+    left = Math.max(pad, Math.min(left, window.innerWidth - box.width - pad));
+    // 默认放下方；下方放不下则翻到上方；仍不行则贴顶
+    var top = r.bottom + 10;
+    if (top + box.height > window.innerHeight - pad) {
+      var up = r.top - box.height - 10;
+      top = up >= pad ? up : pad;
+    }
+    tt.style.left = left + 'px';
+    tt.style.top = top + 'px';
+  }
+
+  function show(el) {
+    clearTimeout(hideTimer);
+    current = el.getAttribute('data-prompt') || '';
+    ttName.textContent = el.getAttribute('data-name') || '';
+    ttRole.textContent = el.getAttribute('data-role') || '';
+    ttPrompt.textContent = current;
+    copyBtn.textContent = '复制';
+    copyBtn.classList.remove('copied');
+    tt.hidden = false;         // 先显示再测量尺寸
+    place(el);
+  }
+  function scheduleHide() {
+    hideTimer = setTimeout(function () { tt.hidden = true; }, 160);
+  }
+
+  var targets = document.querySelectorAll('.hoverable');
+  for (var i = 0; i < targets.length; i++) {
+    (function (el) {
+      el.addEventListener('mouseenter', function () { show(el); });
+      el.addEventListener('mouseleave', scheduleHide);
+    })(targets[i]);
+  }
+  // 指针移入 tooltip 时取消隐藏，便于点「复制」
+  tt.addEventListener('mouseenter', function () { clearTimeout(hideTimer); });
+  tt.addEventListener('mouseleave', scheduleHide);
+
+  copyBtn.addEventListener('click', function () {
+    function done() {
+      copyBtn.textContent = '已复制';
+      copyBtn.classList.add('copied');
+      setTimeout(function () {
+        copyBtn.textContent = '复制';
+        copyBtn.classList.remove('copied');
+      }, 1400);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(current).then(done, fallback);
+    } else {
+      fallback();
+    }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = current;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      done();
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -58,10 +58,13 @@
 │   └── tests/                  # 桌面壳纯模块 Vitest
 ├── packages/
 │   └── console-ui/             # shadcn/Radix + Tailwind 的 React 对话操作台组件库与 Storybook
+├── sites/                      # 面向公众的自包含静态营销站点（与产品运行时零耦合）
+│   └── marketeam/              # Marketeam 营销落地页单文件（marketing-site 域，见 openspec/specs/marketing-site）
 ├── tests/                      # Vitest 单元测试
 ├── docs/
 │   ├── adr/                    # 架构决策记录
 │   ├── architecture/           # 模块地图
+│   ├── wireframes/             # 页面字符图版式事实源（pages/ + flow.md）
 │   └── protocols/              # GitHub issue 交互协议等协作规则事实源
 ├── openspec/
 │   ├── changes/                # 先设计再实现的变更工作区
