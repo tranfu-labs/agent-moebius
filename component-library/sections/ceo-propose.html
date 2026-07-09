@@ -1,0 +1,96 @@
+<section class="spec" data-component="ceo-propose" id="ceo-propose">
+  <header class="spec-h">
+    <h2>CEO 提案确认卡片</h2><code>?only=ceo-propose</code>
+    <p>在编排会话里，CEO 把一个阶段计划（里程碑 + 任务）摆到你面前请你拍板。点「确认提案」由界面生成合规确认回复并落地任务会话，你不必手写。仅 ◎ 图标与主按钮用强调色，其余全灰。</p>
+  </header>
+  <div class="spec-stage max-w-[640px]">
+    <div class="stage-col">
+
+      <!-- 默认态：M1 → M2，两个任务 -->
+      <div class="specimen">
+        <div class="cap">默认（两任务）</div>
+        <div class="w-full bg-card border border-line rounded-xl p-4">
+
+          <!-- 头 -->
+          <div class="flex items-center gap-2 font-semibold text-sm text-accent">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 16 16">
+              <circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.25"/>
+            </svg>
+            <span>CEO · 阶段提案</span>
+          </div>
+
+          <!-- 里程碑行 -->
+          <div class="text-sm text-sub mt-2.5">
+            里程碑：<span class="text-ink font-semibold">M1 导出体验</span>
+            <span class="text-hint mx-0.5">→</span>
+            <span class="text-ink font-semibold">M2 分享链路</span>
+          </div>
+
+          <!-- 任务瓦片 -->
+          <div class="text-xs text-hint mt-2.5">阶段一任务</div>
+          <div class="flex flex-wrap gap-2 my-2.5">
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T1 一键导出全系列</span> <span class="text-hint">（验收 3 条）</span>
+            </span>
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T2 进度提示</span> <span class="text-hint">（验收 2 条）</span>
+            </span>
+          </div>
+
+          <!-- 动作 -->
+          <div class="flex flex-wrap items-center gap-2 mt-3">
+            <button class="inline-flex items-center gap-1.5 bg-accent text-accent-fg rounded-lg text-[13px] font-medium px-3.5 py-1.5 hover:opacity-90 transition-opacity">确认提案，建任务会话</button>
+            <button class="inline-flex items-center gap-1.5 bg-card border border-line text-sub rounded-lg text-[13px] font-medium px-3 py-1.5 hover:bg-hover hover:text-ink transition-colors">有意见，继续聊</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 长链里程碑 M1→M2→M3，三任务演示换行 -->
+      <div class="specimen">
+        <div class="cap">长链里程碑 · 三任务换行</div>
+        <div class="w-full bg-card border border-line rounded-xl p-4">
+
+          <!-- 头 -->
+          <div class="flex items-center gap-2 font-semibold text-sm text-accent">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 16 16">
+              <circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.25"/>
+            </svg>
+            <span>CEO · 阶段提案</span>
+          </div>
+
+          <!-- 里程碑行（长链） -->
+          <div class="text-sm text-sub mt-2.5">
+            里程碑：<span class="text-ink font-semibold">M1 导出体验</span>
+            <span class="text-hint mx-0.5">→</span>
+            <span class="text-ink font-semibold">M2 分享链路</span>
+            <span class="text-hint mx-0.5">→</span>
+            <span class="text-ink font-semibold">M3 团队协作</span>
+          </div>
+
+          <!-- 任务瓦片（换行） -->
+          <div class="text-xs text-hint mt-2.5">阶段一任务</div>
+          <div class="flex flex-wrap gap-2 my-2.5">
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T1 一键导出全系列</span> <span class="text-hint">（验收 3 条）</span>
+            </span>
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T2 进度提示</span> <span class="text-hint">（验收 2 条）</span>
+            </span>
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T3 失败汇总与重试</span> <span class="text-hint">（验收 4 条）</span>
+            </span>
+          </div>
+
+          <!-- 动作 -->
+          <div class="flex flex-wrap items-center gap-2 mt-3">
+            <button class="inline-flex items-center gap-1.5 bg-accent text-accent-fg rounded-lg text-[13px] font-medium px-3.5 py-1.5 hover:opacity-90 transition-opacity">确认提案，建任务会话</button>
+            <button class="inline-flex items-center gap-1.5 bg-card border border-line text-sub rounded-lg text-[13px] font-medium px-3 py-1.5 hover:bg-hover hover:text-ink transition-colors">有意见，继续聊</button>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>

@@ -1,0 +1,53 @@
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: var(--canvas);
+    --foreground: var(--ink);
+    --primary: var(--accent);
+    --primary-foreground: var(--accent-fg);
+    --border: var(--line);
+    --muted: var(--sunken);
+    --muted-foreground: var(--sub);
+    --destructive: var(--danger);
+    --destructive-foreground: var(--accent-fg);
+    --ring: var(--accent);
+    --radius: 8px;
+    color-scheme: light;
+  }
+
+  :root.dark {
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 13px;
+    letter-spacing: 0;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+    border-radius: 5px;
+  }
+}
+
+@layer utilities {
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+}

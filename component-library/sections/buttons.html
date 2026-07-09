@@ -1,0 +1,111 @@
+<section class="spec" data-component="buttons" id="buttons">
+  <header class="spec-h">
+    <h2>按钮</h2><code>?only=buttons</code>
+    <p>近单色按钮族：仅主强调用 indigo、危险动作用 Linear 红、打分选中用绿/红，其余一律灰阶。默认扁平、hairline 描边、无阴影。</p>
+  </header>
+  <div class="spec-stage">
+    <div class="stage-row">
+
+      <!-- ① 新会话 -->
+      <div class="specimen">
+        <div class="cap">新会话</div>
+        <button class="inline-flex items-center gap-1.5 bg-card border border-line rounded-lg text-ink text-[13px] font-medium px-3 py-1.5 hover:bg-hover transition-colors">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-plus"/></svg>
+          新会话
+        </button>
+      </div>
+
+      <!-- ② 主强调 -->
+      <div class="specimen">
+        <div class="cap">主强调（唯一 indigo）</div>
+        <button class="inline-flex items-center gap-1.5 bg-accent text-accent-fg rounded-lg text-[13px] font-medium px-3.5 py-1.5 hover:opacity-90 transition-opacity">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+          确认，按这个分工做
+        </button>
+      </div>
+
+      <!-- ③ 验收提交 -->
+      <div class="specimen">
+        <div class="cap">验收提交（主 accent）</div>
+        <button class="inline-flex items-center gap-1.5 bg-accent text-accent-fg rounded-lg text-[13px] font-medium px-3.5 py-1.5 hover:opacity-90 transition-opacity">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+          提交验收
+        </button>
+      </div>
+
+      <!-- ④ 次要 ghost -->
+      <div class="specimen">
+        <div class="cap">次要（ghost）</div>
+        <button class="inline-flex items-center gap-1.5 bg-card border border-line text-sub rounded-lg text-[13px] font-medium px-3 py-1.5 hover:bg-hover hover:text-ink transition-colors">
+          先不验，回复别的
+        </button>
+      </div>
+
+      <!-- ⑤ 发送 -->
+      <div class="specimen">
+        <div class="cap">发送</div>
+        <button class="inline-flex items-center gap-1.5 bg-card border border-line text-sub rounded-md text-[13px] font-medium px-3 py-1 hover:bg-hover hover:text-ink transition-colors">
+          发送
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+
+      <!-- ⑥ 中断 -->
+      <div class="specimen">
+        <div class="cap">中断（危险，仅描边+红字）</div>
+        <button class="inline-flex items-center gap-1.5 border border-line-strong text-danger rounded-md text-[13px] font-medium px-3 py-1 hover:bg-hover transition-colors">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+          中断
+        </button>
+      </div>
+
+    </div>
+
+    <!-- ⑦ 验收打分分段：三态 -->
+    <div class="stage-row mt-7">
+
+      <div class="specimen">
+        <div class="cap">打分 · 未选（都灰）</div>
+        <div class="inline-flex bg-hover rounded-lg p-0.5 gap-0.5">
+          <button class="inline-flex items-center gap-1 text-sub text-[13px] font-medium px-3 py-1 rounded-md hover:text-ink transition-colors">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+            通过
+          </button>
+          <button class="inline-flex items-center gap-1 text-sub text-[13px] font-medium px-3 py-1 rounded-md hover:text-ink transition-colors">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            不通过
+          </button>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="cap">打分 · 选「通过」（绿）</div>
+        <div class="inline-flex bg-hover rounded-lg p-0.5 gap-0.5">
+          <button class="inline-flex items-center gap-1 bg-sel text-pass text-[13px] font-semibold px-3 py-1 rounded-md">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+            通过
+          </button>
+          <button class="inline-flex items-center gap-1 text-sub text-[13px] font-medium px-3 py-1 rounded-md hover:text-ink transition-colors">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            不通过
+          </button>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="cap">打分 · 选「不通过」（红）</div>
+        <div class="inline-flex bg-hover rounded-lg p-0.5 gap-0.5">
+          <button class="inline-flex items-center gap-1 text-sub text-[13px] font-medium px-3 py-1 rounded-md hover:text-ink transition-colors">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+            通过
+          </button>
+          <button class="inline-flex items-center gap-1 bg-sel text-danger text-[13px] font-semibold px-3 py-1 rounded-md">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            不通过
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>

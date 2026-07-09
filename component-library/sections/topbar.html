@@ -1,0 +1,108 @@
+<section class="spec" data-component="topbar" id="topbar">
+  <header class="spec-h">
+    <h2>顶栏（全局计数条）</h2><code>?only=topbar</code>
+    <p>主视图最上方常驻的一条：品牌 + 跨项目「运行中 / 等你」计数 + 新会话。计数是全局入口——「运行中」纯文字只显示，「等你」可点开跨项目清单浮层。「等你」不着色，跟「运行中」一视同仁的普通中性状态。三态陈列：有等你（默认）、点开等你（下挂清单）、安静态（仅运行中）。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-col gap-8">
+
+      <!-- ① 有等你（默认态） -->
+      <div class="specimen">
+        <div class="cap">① 有等你（默认）</div>
+        <div class="bg-card border border-line rounded-xl max-w-[680px] h-12 flex items-center gap-3.5 px-4">
+          <!-- 品牌 -->
+          <div class="flex items-center gap-2">
+            <span class="w-[15px] h-[15px] rounded bg-accent"></span>
+            <span class="font-semibold text-ink">Moebius</span>
+          </div>
+          <!-- 计数 -->
+          <div class="flex items-center gap-2 text-sub text-[13px]">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            <span class="tnum">2 运行中</span>
+            <span class="text-hint">·</span>
+            <button class="flex items-center gap-1 bg-sunken border border-line rounded-md px-2 py-0.5 text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="tnum">1 等你</span>
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-d"/></svg>
+            </button>
+          </div>
+          <!-- 新会话 -->
+          <button class="ml-auto flex items-center gap-1.5 bg-card border border-line rounded-lg px-3 py-1.5 text-ink text-[13px] hover:bg-hover">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-plus"/></svg>
+            新会话
+          </button>
+        </div>
+      </div>
+
+      <!-- ② 点开等你（下挂浮层清单） -->
+      <div class="specimen">
+        <div class="cap">② 点开等你（跨项目清单浮层）</div>
+        <div class="max-w-[680px]">
+          <div class="bg-card border border-line rounded-xl h-12 flex items-center gap-3.5 px-4">
+            <!-- 品牌 -->
+            <div class="flex items-center gap-2">
+              <span class="w-[15px] h-[15px] rounded bg-accent"></span>
+              <span class="font-semibold text-ink">Moebius</span>
+            </div>
+            <!-- 计数（等你为展开态，用中性灰选中底） -->
+            <div class="flex items-center gap-2 text-sub text-[13px]">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+              <span class="tnum">2 运行中</span>
+              <span class="text-hint">·</span>
+              <button class="flex items-center gap-1 bg-sel border border-line rounded-md px-2 py-0.5 text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+                <span class="tnum">2 等你</span>
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-d"/></svg>
+              </button>
+            </div>
+            <!-- 新会话 -->
+            <button class="ml-auto flex items-center gap-1.5 bg-card border border-line rounded-lg px-3 py-1.5 text-ink text-[13px] hover:bg-hover">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-plus"/></svg>
+              新会话
+            </button>
+          </div>
+          <!-- 浮层：跨项目「等你」跳转清单 -->
+          <div class="mt-2 w-[320px] bg-card border border-line rounded-lg shadow-overlay p-1.5">
+            <div class="text-hint text-[11px] px-2 py-1">等你 (2)</div>
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-hover text-left">
+              <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="text-ink text-[13px]">失败汇总</span>
+              <span class="text-sub text-[13px]">等你验收</span>
+              <span class="ml-auto text-hint text-[11px]">tranfu-agents</span>
+            </button>
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-hover text-left">
+              <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="text-ink text-[13px]">首页文案</span>
+              <span class="text-sub text-[13px]">提案等确认</span>
+              <span class="ml-auto text-hint text-[11px]">tranfu-site</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ 安静态（仅运行中，无等你） -->
+      <div class="specimen">
+        <div class="cap">③ 安静态（仅运行中，无等你）</div>
+        <div class="bg-card border border-line rounded-xl max-w-[680px] h-12 flex items-center gap-3.5 px-4">
+          <!-- 品牌 -->
+          <div class="flex items-center gap-2">
+            <span class="w-[15px] h-[15px] rounded bg-accent"></span>
+            <span class="font-semibold text-ink">Moebius</span>
+          </div>
+          <!-- 计数（无等你 pill） -->
+          <div class="flex items-center gap-2 text-sub text-[13px]">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            <span class="tnum">2 运行中</span>
+          </div>
+          <!-- 新会话 -->
+          <button class="ml-auto flex items-center gap-1.5 bg-card border border-line rounded-lg px-3 py-1.5 text-ink text-[13px] hover:bg-hover">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-plus"/></svg>
+            新会话
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>

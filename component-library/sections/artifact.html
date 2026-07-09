@@ -1,0 +1,77 @@
+<section class="spec" data-component="artifact" id="artifact">
+  <header class="spec-h">
+    <h2>产物瓦片（右侧面板）</h2><code>?only=artifact</code>
+    <p>右侧上下文面板置顶的成果预览。以产物为主体——缩略图 / 文件卡 / 导出进度，点开看大预览。普通用户关心成果本身，不关心管理字段。产物为空时整区收起，不出现在这里。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-row">
+
+      <!-- ① 进度条截图型（进行中） -->
+      <div class="specimen">
+        <div class="cap">进度型 · 进行中</div>
+        <div class="w-[260px] bg-card border border-line rounded-xl overflow-hidden hover:border-line-strong">
+          <div class="bg-sunken border-b border-line p-3.5 h-[150px] flex flex-col justify-center gap-2.5">
+            <div class="text-[11px] text-sub font-semibold">导出结果</div>
+            <div class="h-[7px] rounded bg-card border border-line overflow-hidden">
+              <div class="h-full bg-accent" style="width:68%"></div>
+            </div>
+            <div class="text-[11px] text-hint">已导出 <span class="tnum">68%</span> · <span class="tnum">82/120</span></div>
+          </div>
+          <div class="flex items-center justify-between px-3 py-2.5">
+            <span class="text-[12.5px] text-ink font-semibold">导出结果</span>
+            <span class="text-[11px] text-hint">点开预览</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ② 文件卡型 -->
+      <div class="specimen">
+        <div class="cap">文件卡型</div>
+        <div class="w-[260px] bg-card border border-line rounded-xl overflow-hidden hover:border-line-strong">
+          <div class="bg-sunken border-b border-line p-3.5 h-[150px] flex flex-col justify-center gap-2.5">
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center gap-1.5 text-[11px] text-hint">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+                <span class="truncate">卡片系列-01.png</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-[11px] text-hint">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+                <span class="truncate">卡片系列-02.png</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-[11px] text-hint">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+                <span class="truncate">卡片系列-03.png</span>
+              </div>
+              <div class="text-[11px] text-hint pl-[22px]">还有 9 个文件…</div>
+            </div>
+          </div>
+          <div class="flex items-center justify-between px-3 py-2.5">
+            <span class="text-[12.5px] text-ink font-semibold">导出结果（12 文件）</span>
+            <span class="text-[11px] text-hint">点开预览</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ 进度条型（已完成） -->
+      <div class="specimen">
+        <div class="cap">进度型 · 已完成</div>
+        <div class="w-[260px] bg-card border border-line rounded-xl overflow-hidden hover:border-line-strong">
+          <div class="bg-sunken border-b border-line p-3.5 h-[150px] flex flex-col justify-center gap-2.5">
+            <div class="text-[11px] text-sub font-semibold">失败汇总</div>
+            <div class="h-[7px] rounded bg-card border border-line overflow-hidden">
+              <div class="h-full bg-accent" style="width:100%"></div>
+            </div>
+            <div class="text-[11px] text-hint">已导出 <span class="tnum">100%</span> · <span class="tnum">120/120</span></div>
+          </div>
+          <div class="flex items-center justify-between px-3 py-2.5">
+            <span class="text-[12.5px] text-ink font-semibold">失败汇总示例</span>
+            <span class="text-[11px] text-hint">点开预览</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>

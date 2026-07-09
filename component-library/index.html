@@ -1,0 +1,2382 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Moebius · 组件库（Tailwind）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: {
+      canvas:'var(--canvas)', rail:'var(--rail)', card:'var(--card)', sunken:'var(--sunken)', input:'var(--input)',
+      ink:'var(--ink)', sub:'var(--sub)', hint:'var(--hint)',
+      line:'var(--line)', 'line-strong':'var(--line-strong)', sel:'var(--sel)', hover:'var(--hover)',
+      accent:'var(--accent)', 'accent-fg':'var(--accent-fg)',
+      pass:'var(--pass)', danger:'var(--danger)',
+      'ava-bg':'var(--ava-bg)', 'ava-fg':'var(--ava-fg)',
+    },
+    fontFamily: {
+      sans:['"PingFang SC"','"Microsoft YaHei"','"Segoe UI"','system-ui','-apple-system','sans-serif'],
+      mono:['"SF Mono"','Menlo','Consolas','monospace'],
+    },
+    boxShadow: { overlay:'0 10px 28px rgba(0,0,0,0.13),0 2px 6px rgba(0,0,0,0.08)' },
+    keyframes: { breathe:{'0%,100%':{opacity:'1'},'50%':{opacity:'.35'}} },
+    animation: { breathe:'breathe 2s ease-in-out infinite' },
+  } }
+}</script>
+<style>
+/* ============================================================
+   Design tokens: near-monochrome Linear baseline.
+   Color budget: neutral first, small indigo interaction layer,
+   green for pass facts, Linear red for danger/fail facts.
+   Waiting-for-you states use neutral structure, never a hue.
+   ============================================================ */
+:root {
+  --canvas: #F7F7F8;
+  --rail: #FBFBFC;
+  --card: #FFFFFF;
+  --sunken: #F3F3F4;
+  --input: #FFFFFF;
+  --ink: #1B1B1B;
+  --sub: #5D5D5F;
+  --hint: #8A8F98;
+  --line: rgba(15, 17, 20, 0.09);
+  --line-strong: rgba(15, 17, 20, 0.14);
+  --sel: #ECECED;
+  --hover: rgba(15, 17, 20, 0.045);
+  --accent: #5E6AD2;
+  --accent-fg: #FFFFFF;
+  --pass: #2F8F5B;
+  --danger: #E5484D;
+  --ava-bg: #EAEAEC;
+  --ava-fg: #55565A;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --canvas: #08090A;
+    --rail: #0C0D0E;
+    --card: #141516;
+    --sunken: #0E0F10;
+    --input: #1A1B1D;
+    --ink: #F7F8F8;
+    --sub: #8A8F98;
+    --hint: #62666D;
+    --line: rgba(255, 255, 255, 0.09);
+    --line-strong: rgba(255, 255, 255, 0.14);
+    --sel: rgba(255, 255, 255, 0.07);
+    --hover: rgba(255, 255, 255, 0.05);
+    --accent: #7E88EA;
+    --accent-fg: #0B0C0D;
+    --pass: #5CC08A;
+    --danger: #F26E6E;
+    --ava-bg: rgba(255, 255, 255, 0.09);
+    --ava-fg: #C3C6CC;
+  }
+}
+
+:root.dark {
+  --canvas: #08090A;
+  --rail: #0C0D0E;
+  --card: #141516;
+  --sunken: #0E0F10;
+  --input: #1A1B1D;
+  --ink: #F7F8F8;
+  --sub: #8A8F98;
+  --hint: #62666D;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --sel: rgba(255, 255, 255, 0.07);
+  --hover: rgba(255, 255, 255, 0.05);
+  --accent: #7E88EA;
+  --accent-fg: #0B0C0D;
+  --pass: #5CC08A;
+  --danger: #F26E6E;
+  --ava-bg: rgba(255, 255, 255, 0.09);
+  --ava-fg: #C3C6CC;
+}
+
+/* 组件库外壳（shell）—— 用令牌变量，中性 Linear 面板。组件本身用 Tailwind utility */
+body.lib{margin:0;display:flex;min-height:100vh;background:var(--canvas);color:var(--ink);
+  font-family:"PingFang SC","Microsoft YaHei","Segoe UI",system-ui,-apple-system,sans-serif;font-size:13px;-webkit-font-smoothing:antialiased;}
+
+.lib-nav{flex:0 0 232px;width:232px;position:sticky;top:0;align-self:flex-start;height:100vh;overflow:auto;
+  background:var(--rail);border-right:1px solid var(--line);padding:14px 10px 20px;}
+.lib-brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;padding:2px 8px 14px;}
+.lib-mark{width:16px;height:16px;border-radius:5px;background:var(--accent);}
+.nav-group{margin-top:12px;}
+.nav-g-h{font-size:11px;font-weight:600;color:var(--hint);padding:0 8px 4px;letter-spacing:.02em;}
+.nav-link{display:block;text-decoration:none;color:var(--sub);font-size:12.5px;padding:6px 8px;border-radius:6px;}
+.nav-link:hover{background:var(--hover);color:var(--ink);}
+.nav-link.active{background:var(--sel);color:var(--ink);font-weight:600;}
+.nav-all{margin:2px 0 4px;font-weight:600;color:var(--ink);}
+.lib-theme{display:flex;gap:2px;margin:18px 4px 0;padding:3px;background:var(--card);border:1px solid var(--line);border-radius:8px;}
+.lib-theme button{flex:1;border:0;background:transparent;color:var(--sub);border-radius:5px;padding:5px 4px;font-size:11px;font-family:inherit;cursor:pointer;}
+.lib-theme button.on{background:var(--sel);color:var(--ink);font-weight:600;}
+
+.lib-main{flex:1;min-width:0;padding:28px 32px 80px;max-width:1120px;}
+.spec{margin-bottom:40px;scroll-margin-top:20px;}
+.spec-h{margin-bottom:14px;}
+.spec-h h2{font-size:17px;font-weight:600;letter-spacing:-0.01em;margin:0 0 4px;}
+.spec-h code{font-size:11.5px;color:var(--accent);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 7px;font-family:"SF Mono",Menlo,Consolas,monospace;}
+.spec-h p{margin:8px 0 0;font-size:12.5px;color:var(--sub);max-width:70ch;line-height:1.5;}
+
+/* demo 舞台 + 陈列助手（供 tokens/icons 等复用） */
+.spec-stage{background:var(--canvas);border:1px solid var(--line);border-radius:12px;padding:22px;overflow:auto;}
+.stage-row{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;}
+.stage-col{display:flex;flex-direction:column;gap:14px;}
+.specimen{display:flex;flex-direction:column;gap:8px;}
+.specimen>.cap{font-size:11px;color:var(--hint);font-weight:500;}
+.spec-todo{color:var(--hint);font-size:13px;padding:40px;text-align:center;}
+.swatch{display:flex;flex-direction:column;gap:6px;width:104px;}
+.swatch .chip{height:52px;border-radius:8px;border:1px solid var(--line);}
+.swatch .nm{font-size:11px;color:var(--ink);font-weight:500;}
+.swatch .hex{font-size:10.5px;color:var(--hint);font-family:"SF Mono",Menlo,monospace;}
+
+</style>
+</head>
+<body class="lib font-sans">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-caret-d" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-caret-r" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6 10v9h12v-9"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M9 10L4 6l5-4M4 6h11a5 5 0 0 1 5 5v9"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 11V5.5a1.5 1.5 0 0 1 3 0V11m0-1V4.5a1.5 1.5 0 0 1 3 0V11m0-.5V6a1.5 1.5 0 0 1 3 0v7.5c0 3.6-2.4 6.5-6 6.5s-5-2-6.4-4.2l-1.2-2a1.4 1.4 0 0 1 2.3-1.6L11 14"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7zM14 3v4h4"/></symbol>
+  <symbol id="i-diamond" viewBox="0 0 24 24"><path d="M12 4l8 8-8 8-8-8z"/></symbol>
+</svg>
+
+<aside class="lib-nav scroll-thin">
+  <div class="lib-brand"><span class="lib-mark"></span>Moebius 组件库</div>
+  <a class="nav-link nav-all" data-id="__all" href="?">全部组件</a>
+  
+    <div class="nav-group">
+      <div class="nav-g-h">基础</div>
+      <a class="nav-link" data-id="tokens" href="?only=tokens">设计令牌</a>
+      <a class="nav-link" data-id="icons" href="?only=icons">图标与状态点</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-g-h">原子</div>
+      <a class="nav-link" data-id="buttons" href="?only=buttons">按钮</a>
+      <a class="nav-link" data-id="role-avatars" href="?only=role-avatars">角色头像</a>
+      <a class="nav-link" data-id="badges-counts" href="?only=badges-counts">徽标与计数</a>
+      <a class="nav-link" data-id="breadcrumb" href="?only=breadcrumb">面包屑</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-g-h">导航骨架</div>
+      <a class="nav-link" data-id="topbar" href="?only=topbar">顶栏</a>
+      <a class="nav-link" data-id="sidebar" href="?only=sidebar">侧栏</a>
+      <a class="nav-link" data-id="wait-popover" href="?only=wait-popover">「等你」浮层</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-g-h">时间线</div>
+      <a class="nav-link" data-id="user-message" href="?only=user-message">用户消息</a>
+      <a class="nav-link" data-id="agent-fold" href="?only=agent-fold">agent 折叠消息</a>
+      <a class="nav-link" data-id="handoff" href="?only=handoff">交棒行</a>
+      <a class="nav-link" data-id="run-block" href="?only=run-block">运行块</a>
+      <a class="nav-link" data-id="composer" href="?only=composer">输入区</a>
+      <a class="nav-link" data-id="at-complete" href="?only=at-complete">@ 补全面板</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-g-h">卡片</div>
+      <a class="nav-link" data-id="accept-card" href="?only=accept-card">验收卡</a>
+      <a class="nav-link" data-id="ceo-propose" href="?only=ceo-propose">CEO 提案卡</a>
+      <a class="nav-link" data-id="event-stream" href="?only=event-stream">进展事件流</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-g-h">右栏与视图</div>
+      <a class="nav-link" data-id="artifact" href="?only=artifact">产物预览瓦片</a>
+      <a class="nav-link" data-id="context-panel" href="?only=context-panel">上下文面板</a>
+      <a class="nav-link" data-id="ledger-tree" href="?only=ledger-tree">账本树</a>
+      <a class="nav-link" data-id="empty-state" href="?only=empty-state">空态·新建会话</a>
+    </div>
+  <div class="lib-theme">
+    <button data-theme-set="auto" class="on">跟随系统</button>
+    <button data-theme-set="light">浅色</button>
+    <button data-theme-set="dark">深色</button>
+  </div>
+</aside>
+<main class="lib-main">
+<section class="spec" data-component="tokens" id="tokens">
+  <header class="spec-h">
+    <h2>设计令牌</h2><code>?only=tokens</code>
+    <p>近单色调色板 / 字体阶 / 圆角，颜色预算：灰阶为主·indigo 极少·无专属信号色·绿红只在裁决。</p>
+  </header>
+  <div class="spec-stage">
+    <!-- 预算强调条（自身保持中性，不用信号色） -->
+    <div class="flex items-start gap-2 mb-7 px-3.5 py-2.5 rounded-lg bg-sunken border border-line text-[13px] text-sub leading-relaxed">
+      <span class="mt-0.5 shrink-0 text-hint">预算</span>
+      <span><span class="font-semibold text-ink">近单色</span>：灰阶为主 · indigo 极少 · <span class="font-semibold text-ink">无专属信号色（等你=普通灰）</span> · 绿=通过 / 红=危险(Linear 红)只在裁决。</span>
+    </div>
+
+    <div class="stage-col gap-8">
+
+      <!-- ① 表面 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">① 表面 SURFACE</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-canvas"></div><div class="nm">canvas 页面底</div><div class="hex">#F7F7F8</div></div>
+          <div class="swatch"><div class="chip bg-rail"></div><div class="nm">rail 侧栏</div><div class="hex">#FBFBFC</div></div>
+          <div class="swatch"><div class="chip bg-card"></div><div class="nm">card 卡面</div><div class="hex">#FFFFFF</div></div>
+          <div class="swatch"><div class="chip bg-sunken"></div><div class="nm">sunken 凹陷/原始输出</div><div class="hex">#F3F3F4</div></div>
+          <div class="swatch"><div class="chip bg-input"></div><div class="nm">input 输入</div><div class="hex">#FFFFFF</div></div>
+        </div>
+      </div>
+
+      <!-- ② 文字 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">② 文字 TEXT</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-ink"></div><div class="nm">ink 主文字</div><div class="hex">#1B1B1B</div></div>
+          <div class="swatch"><div class="chip bg-sub"></div><div class="nm">sub 次要文字</div><div class="hex">#5D5D5F</div></div>
+          <div class="swatch"><div class="chip bg-hint"></div><div class="nm">hint 弱提示</div><div class="hex">#8A8F98</div></div>
+        </div>
+      </div>
+
+      <!-- ③ 描边 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">③ 描边 LINE</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-line"></div><div class="nm">line 细描边</div><div class="hex">rgba(15,17,20,.09)</div></div>
+          <div class="swatch"><div class="chip bg-line-strong"></div><div class="nm">line-strong 强描边</div><div class="hex">rgba(15,17,20,.14)</div></div>
+          <div class="swatch"><div class="chip bg-sel"></div><div class="nm">sel 选中态（中性）</div><div class="hex">#ECECED</div></div>
+        </div>
+      </div>
+
+      <!-- ④ 强调 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">④ 强调 ACCENT（indigo · 极少用）</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-accent"></div><div class="nm">accent 强调</div><div class="hex">#5E6AD2</div></div>
+          <div class="swatch"><div class="chip bg-accent-fg"></div><div class="nm">accent-fg 强调前景</div><div class="hex">#FFFFFF</div></div>
+        </div>
+      </div>
+
+      <!-- ⑤ 裁决/危险 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">⑤ 裁决/危险 VERDICT（绿=通过 / 红=危险 · 只用彩色文字，无浅底填充，只在裁决那一刻）</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-pass"></div><div class="nm">pass 通过</div><div class="hex">#2F8F5B</div></div>
+          <div class="swatch"><div class="chip bg-danger"></div><div class="nm">danger 危险/不通过</div><div class="hex">#E5484D</div></div>
+        </div>
+      </div>
+
+      <!-- ⑥ 头像 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">⑥ 头像 AVATAR（统一中性灰 · 无色相）</div>
+        <div class="stage-row">
+          <div class="swatch"><div class="chip bg-ava-bg"></div><div class="nm">ava-bg 头像底</div><div class="hex">#EAEAEC</div></div>
+          <div class="swatch"><div class="chip bg-ava-fg"></div><div class="nm">ava-fg 头像字</div><div class="hex">#55565A</div></div>
+        </div>
+      </div>
+
+      <!-- 字体阶 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">字体阶 TYPE SCALE（跟 Linear · 紧凑）</div>
+        <div class="stage-col gap-2.5 max-w-xl">
+          <div class="flex items-baseline gap-3">
+            <span class="text-sm font-semibold text-ink">把方案写好交给技术负责人</span>
+            <span class="text-[11px] text-hint font-mono shrink-0">text-sm · 卡标题/强调</span>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <span class="text-[13px] text-ink">开发已经跑完，现在轮到你验收</span>
+            <span class="text-[11px] text-hint font-mono shrink-0">text-[13px] · 正文</span>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <span class="text-xs text-sub">测试在检查这三条验收语句</span>
+            <span class="text-[11px] text-hint font-mono shrink-0">text-xs · 次要</span>
+          </div>
+          <div class="flex items-baseline gap-3">
+            <span class="text-[11px] text-hint">属于：给官网做一版落地页</span>
+            <span class="text-[11px] text-hint font-mono shrink-0">text-[11px] · 弱标签</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 圆角 -->
+      <div>
+        <div class="text-[11px] font-semibold text-hint tracking-wide mb-3">圆角 RADIUS</div>
+        <div class="stage-row">
+          <div class="specimen items-center">
+            <div class="cap">rounded-md · 6</div>
+            <div class="w-14 h-14 bg-sunken border border-line rounded-md"></div>
+          </div>
+          <div class="specimen items-center">
+            <div class="cap">rounded-lg · 8</div>
+            <div class="w-14 h-14 bg-sunken border border-line rounded-lg"></div>
+          </div>
+          <div class="specimen items-center">
+            <div class="cap">rounded-xl · 12</div>
+            <div class="w-14 h-14 bg-sunken border border-line rounded-xl"></div>
+          </div>
+          <div class="specimen items-center">
+            <div class="cap">rounded-full</div>
+            <div class="w-14 h-14 bg-sunken border border-line rounded-full"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="spec" data-component="icons" id="icons">
+  <header class="spec-h">
+    <h2>图标与状态点</h2><code>?only=icons</code>
+    <p>线性图标集 + 会话状态点。全部一律中性灰——图标是导航语汇不是信号；「等你」也是普通状态，跟其它状态一视同仁，不给专属信号色。</p>
+  </header>
+  <div class="spec-stage">
+    <div class="stage-col" style="gap:26px">
+
+      <!-- ① 线性图标集 -->
+      <div class="stage-col" style="gap:12px">
+        <div class="text-[11px] font-semibold text-hint">线性图标集 · 1.5 宽 · stroke-current · 统一中性灰</div>
+        <div class="stage-row">
+
+          <div class="specimen">
+            <div class="cap">新建 / 加号</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-plus"/></svg>
+            </div>
+            <div class="text-[10.5px] font-mono text-hint">#i-plus</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">展开（下）</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-d"/></svg>
+            </div>
+            <div class="text-[10.5px] font-mono text-hint">#i-caret-d</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">折叠（右）</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            </div>
+            <div class="text-[10.5px] font-mono text-hint">#i-caret-r</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">首页</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-home"/></svg>
+            </div>
+            <div class="text-[10.5px] font-mono text-hint">#i-home</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">返回父会话</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg>
+            </div>
+            <div class="text-[10.5px] font-mono text-hint">#i-back</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">完成 / 勾选</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+            </div>
+            <div class="text-[10.5px] font-mono text-hint">#i-check</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">等你 / 举手</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            </div>
+            <div class="text-[10.5px] font-mono text-hint">#i-hand</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">文档 / 产物</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+            </div>
+            <div class="text-[10.5px] font-mono text-hint">#i-doc</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">编排事件</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-diamond"/></svg>
+            </div>
+            <div class="text-[10.5px] font-mono text-hint">#i-diamond</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ② 状态点 -->
+      <div class="stage-col" style="gap:12px">
+        <div class="text-[11px] font-semibold text-hint">状态点 · 会话与步骤状态 · 全部中性灰</div>
+        <div class="stage-row">
+
+          <div class="specimen">
+            <div class="cap">运行中</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            </div>
+            <div class="text-[10.5px] text-hint">灰点呼吸</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">等你（普通状态）</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            </div>
+            <div class="text-[10.5px] text-hint">中性灰举手</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">未开始</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center">
+              <span class="inline-block w-2 h-2 rounded-full border-[1.5px] border-hint"></span>
+            </div>
+            <div class="text-[10.5px] text-hint">灰环空心</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">已完成</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+            </div>
+            <div class="text-[10.5px] text-hint">中性灰勾</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">编排事件</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-diamond"/></svg>
+            </div>
+            <div class="text-[10.5px] text-hint">灰菱形</div>
+          </div>
+
+          <div class="specimen">
+            <div class="cap">提案</div>
+            <div class="w-11 h-11 rounded-md border border-line grid place-items-center text-sub">
+              <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.2"/>
+              </svg>
+            </div>
+            <div class="text-[10.5px] text-hint">灰双圆</div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="spec" data-component="buttons" id="buttons">
+  <header class="spec-h">
+    <h2>按钮</h2><code>?only=buttons</code>
+    <p>近单色按钮族：仅主强调用 indigo、危险动作用 Linear 红、打分选中用绿/红，其余一律灰阶。默认扁平、hairline 描边、无阴影。</p>
+  </header>
+  <div class="spec-stage">
+    <div class="stage-row">
+
+      <!-- ① 新会话 -->
+      <div class="specimen">
+        <div class="cap">新会话</div>
+        <button class="inline-flex items-center gap-1.5 bg-card border border-line rounded-lg text-ink text-[13px] font-medium px-3 py-1.5 hover:bg-hover transition-colors">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-plus"/></svg>
+          新会话
+        </button>
+      </div>
+
+      <!-- ② 主强调 -->
+      <div class="specimen">
+        <div class="cap">主强调（唯一 indigo）</div>
+        <button class="inline-flex items-center gap-1.5 bg-accent text-accent-fg rounded-lg text-[13px] font-medium px-3.5 py-1.5 hover:opacity-90 transition-opacity">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+          确认，按这个分工做
+        </button>
+      </div>
+
+      <!-- ③ 验收提交 -->
+      <div class="specimen">
+        <div class="cap">验收提交（主 accent）</div>
+        <button class="inline-flex items-center gap-1.5 bg-accent text-accent-fg rounded-lg text-[13px] font-medium px-3.5 py-1.5 hover:opacity-90 transition-opacity">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+          提交验收
+        </button>
+      </div>
+
+      <!-- ④ 次要 ghost -->
+      <div class="specimen">
+        <div class="cap">次要（ghost）</div>
+        <button class="inline-flex items-center gap-1.5 bg-card border border-line text-sub rounded-lg text-[13px] font-medium px-3 py-1.5 hover:bg-hover hover:text-ink transition-colors">
+          先不验，回复别的
+        </button>
+      </div>
+
+      <!-- ⑤ 发送 -->
+      <div class="specimen">
+        <div class="cap">发送</div>
+        <button class="inline-flex items-center gap-1.5 bg-card border border-line text-sub rounded-md text-[13px] font-medium px-3 py-1 hover:bg-hover hover:text-ink transition-colors">
+          发送
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+
+      <!-- ⑥ 中断 -->
+      <div class="specimen">
+        <div class="cap">中断（危险，仅描边+红字）</div>
+        <button class="inline-flex items-center gap-1.5 border border-line-strong text-danger rounded-md text-[13px] font-medium px-3 py-1 hover:bg-hover transition-colors">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+          中断
+        </button>
+      </div>
+
+    </div>
+
+    <!-- ⑦ 验收打分分段：三态 -->
+    <div class="stage-row mt-7">
+
+      <div class="specimen">
+        <div class="cap">打分 · 未选（都灰）</div>
+        <div class="inline-flex bg-hover rounded-lg p-0.5 gap-0.5">
+          <button class="inline-flex items-center gap-1 text-sub text-[13px] font-medium px-3 py-1 rounded-md hover:text-ink transition-colors">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+            通过
+          </button>
+          <button class="inline-flex items-center gap-1 text-sub text-[13px] font-medium px-3 py-1 rounded-md hover:text-ink transition-colors">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            不通过
+          </button>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="cap">打分 · 选「通过」（绿）</div>
+        <div class="inline-flex bg-hover rounded-lg p-0.5 gap-0.5">
+          <button class="inline-flex items-center gap-1 bg-sel text-pass text-[13px] font-semibold px-3 py-1 rounded-md">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+            通过
+          </button>
+          <button class="inline-flex items-center gap-1 text-sub text-[13px] font-medium px-3 py-1 rounded-md hover:text-ink transition-colors">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            不通过
+          </button>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="cap">打分 · 选「不通过」（红）</div>
+        <div class="inline-flex bg-hover rounded-lg p-0.5 gap-0.5">
+          <button class="inline-flex items-center gap-1 text-sub text-[13px] font-medium px-3 py-1 rounded-md hover:text-ink transition-colors">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+            通过
+          </button>
+          <button class="inline-flex items-center gap-1 bg-sel text-danger text-[13px] font-semibold px-3 py-1 rounded-md">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            不通过
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="spec" data-component="role-avatars" id="role-avatars">
+  <header class="spec-h">
+    <h2>角色头像</h2><code>?only=role-avatars</code>
+    <p>参与对话的七个角色，用统一中性灰圆头像 + 单字区分；下方补一行行内「角色 chip」标签写法。全灰、不用色相。</p>
+  </header>
+  <div class="spec-stage">
+
+    <!-- 一排头像 + 全名 cap -->
+    <div class="specimen">
+      <div class="cap">头像排（七个角色）</div>
+      <div class="stage-row items-start gap-4">
+
+        <div class="flex flex-col items-center gap-1.5">
+          <span class="w-[26px] h-[26px] rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">你</span>
+          <span class="text-[11px] text-sub">你</span>
+        </div>
+
+        <div class="flex flex-col items-center gap-1.5">
+          <span class="w-[26px] h-[26px] rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">开</span>
+          <span class="text-[11px] text-sub">开发</span>
+        </div>
+
+        <div class="flex flex-col items-center gap-1.5">
+          <span class="w-[26px] h-[26px] rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">测</span>
+          <span class="text-[11px] text-sub">测试</span>
+        </div>
+
+        <div class="flex flex-col items-center gap-1.5">
+          <span class="w-[26px] h-[26px] rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">技</span>
+          <span class="text-[11px] text-sub">技术负责人</span>
+        </div>
+
+        <div class="flex flex-col items-center gap-1.5">
+          <span class="w-[26px] h-[26px] rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">品</span>
+          <span class="text-[11px] text-sub">产品</span>
+        </div>
+
+        <div class="flex flex-col items-center gap-1.5">
+          <span class="w-[26px] h-[26px] rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">代</span>
+          <span class="text-[11px] text-sub">用户代表</span>
+        </div>
+
+        <div class="flex flex-col items-center gap-1.5">
+          <span class="w-[26px] h-[26px] rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">C</span>
+          <span class="text-[11px] text-sub">CEO</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 角色 chip 行内标签 -->
+    <div class="specimen">
+      <div class="cap">角色 chip（行内标签）</div>
+      <div class="stage-row gap-2">
+
+        <span class="inline-flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-hint"></span>
+          <span class="text-xs text-sub">你</span>
+        </span>
+
+        <span class="inline-flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-hint"></span>
+          <span class="text-xs text-sub">开发</span>
+        </span>
+
+        <span class="inline-flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-hint"></span>
+          <span class="text-xs text-sub">测试</span>
+        </span>
+
+        <span class="inline-flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-hint"></span>
+          <span class="text-xs text-sub">技术负责人</span>
+        </span>
+
+        <span class="inline-flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-hint"></span>
+          <span class="text-xs text-sub">产品</span>
+        </span>
+
+        <span class="inline-flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-hint"></span>
+          <span class="text-xs text-sub">用户代表</span>
+        </span>
+
+        <span class="inline-flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-hint"></span>
+          <span class="text-xs text-sub">CEO</span>
+        </span>
+
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="badges-counts" id="badges-counts">
+  <header class="spec-h">
+    <h2>徽标与计数</h2><code>?only=badges-counts</code>
+    <p>顶栏运行中·等你计数 / 项目行尾冒泡徽标 / 验收计分 tally。颜色预算：「等你」不再使用专属色相，与「运行中」一样普通中性；tally 数字加粗、✓/○ 一律中性灰。</p>
+  </header>
+  <div class="spec-stage">
+    <div class="stage-col">
+
+      <!-- ① 顶栏计数：活跃态（运行中 + 等你） -->
+      <div class="specimen">
+        <div class="cap">① 顶栏计数 · 活跃态（运行中 + 等你，均普通中性 pill）</div>
+        <div class="flex items-center gap-2 text-[13px]">
+          <!-- 运行中：灰点呼吸 + 纯灰文字 -->
+          <span class="inline-flex items-center gap-1.5 text-sub">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            <span class="tnum">2</span> 运行中
+          </span>
+          <!-- 分隔点 -->
+          <span class="text-hint">·</span>
+          <!-- 等你 pill：中性，点开跨项目清单浮层 -->
+          <button type="button" class="inline-flex items-center gap-1 bg-sunken border border-line rounded-md px-2 py-0.5 text-sub">
+            <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span><span class="tnum">1</span> 等你</span>
+            <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-d"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- ② 安静态：无等你，只剩运行中纯灰文字 -->
+      <div class="specimen">
+        <div class="cap">② 安静态（无等你 → 只剩「2 运行中」纯灰文字，无 pill）</div>
+        <div class="inline-flex items-center gap-1.5 text-sub text-[13px]">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+          <span class="tnum">2</span> 运行中
+        </div>
+      </div>
+
+      <!-- ③ 折叠项目行尾冒泡徽标：等你从被折叠不可见处向上冒泡 -->
+      <div class="specimen">
+        <div class="cap">③ 折叠项目行尾冒泡徽标（等你从折叠处冒泡到行尾，中性灰）</div>
+        <div class="flex items-center gap-1.5 w-[228px] px-2 py-1.5 rounded-md text-[13px] text-ink hover:bg-hover">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+          <span class="flex-1 truncate">tranfu-site</span>
+          <span class="inline-flex items-center gap-0.5 text-sub">
+            <svg class="w-[13px] h-[13px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span class="tnum">1</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- ④ 无事态对照：折叠项目无任何徽标 -->
+      <div class="specimen">
+        <div class="cap">④ 无事态对照（折叠项目无事 → 裸项目名，无徽标）</div>
+        <div class="flex items-center gap-1.5 w-[228px] px-2 py-1.5 rounded-md text-[13px] text-ink hover:bg-hover">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+          <span class="flex-1 truncate">agent-moebius</span>
+        </div>
+      </div>
+
+      <!-- ⑤ 验收计分 tally：进行中 2/3 -->
+      <div class="specimen">
+        <div class="cap">⑤ 验收计分 tally · 进行中（数字醒目，✓ 中性灰，○ 空心）</div>
+        <div class="inline-flex items-center gap-3 text-[13px]">
+          <span class="inline-flex items-center gap-1">
+            <span class="tnum font-semibold text-ink">1</span>
+            <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+          </span>
+          <span class="inline-flex items-center gap-1">
+            <span class="tnum font-semibold text-ink">2</span>
+            <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+          </span>
+          <span class="inline-flex items-center gap-1">
+            <span class="tnum font-semibold text-ink">3</span>
+            <span class="inline-block w-2 h-2 rounded-full border-[1.5px] border-hint"></span>
+          </span>
+        </div>
+      </div>
+
+      <!-- ⑤ 验收计分 tally：全过 3/3 -->
+      <div class="specimen">
+        <div class="cap">⑤ 验收计分 tally · 全过（三条皆通过，✓ 仍为中性灰，非绿）</div>
+        <div class="inline-flex items-center gap-3 text-[13px]">
+          <span class="inline-flex items-center gap-1">
+            <span class="tnum font-semibold text-ink">1</span>
+            <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+          </span>
+          <span class="inline-flex items-center gap-1">
+            <span class="tnum font-semibold text-ink">2</span>
+            <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+          </span>
+          <span class="inline-flex items-center gap-1">
+            <span class="tnum font-semibold text-ink">3</span>
+            <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+          </span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="spec" data-component="breadcrumb" id="breadcrumb">
+  <header class="spec-h">
+    <h2>面包屑（属于某目标）</h2><code>?only=breadcrumb</code>
+    <p>任务会话头部一行：左侧标明这条会话「属于」哪个目标、点击可返回父编排会话；右侧弱标注当前任务号与状态。全灰、无强调色。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-col">
+
+      <!-- 默认态 -->
+      <div class="specimen">
+        <div class="cap">默认</div>
+        <div class="flex items-center">
+          <span class="inline-flex items-center gap-1.5 text-sub px-2 py-1 rounded-md">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg>
+            <span class="text-[13px]">属于：目标 · 导出体验</span>
+          </span>
+          <span class="ml-auto text-hint text-xs">任务 T2 · 执行中</span>
+        </div>
+      </div>
+
+      <!-- 悬停态 -->
+      <div class="specimen">
+        <div class="cap">悬停（左块高亮，点击返回父编排会话）</div>
+        <div class="flex items-center">
+          <span class="inline-flex items-center gap-1.5 bg-hover text-ink px-2 py-1 rounded-md">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg>
+            <span class="text-[13px]">属于：目标 · 导出体验</span>
+          </span>
+          <span class="ml-auto text-hint text-xs">任务 T2 · 执行中</span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="topbar" id="topbar">
+  <header class="spec-h">
+    <h2>顶栏（全局计数条）</h2><code>?only=topbar</code>
+    <p>主视图最上方常驻的一条：品牌 + 跨项目「运行中 / 等你」计数 + 新会话。计数是全局入口——「运行中」纯文字只显示，「等你」可点开跨项目清单浮层。「等你」不着色，跟「运行中」一视同仁的普通中性状态。三态陈列：有等你（默认）、点开等你（下挂清单）、安静态（仅运行中）。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-col gap-8">
+
+      <!-- ① 有等你（默认态） -->
+      <div class="specimen">
+        <div class="cap">① 有等你（默认）</div>
+        <div class="bg-card border border-line rounded-xl max-w-[680px] h-12 flex items-center gap-3.5 px-4">
+          <!-- 品牌 -->
+          <div class="flex items-center gap-2">
+            <span class="w-[15px] h-[15px] rounded bg-accent"></span>
+            <span class="font-semibold text-ink">Moebius</span>
+          </div>
+          <!-- 计数 -->
+          <div class="flex items-center gap-2 text-sub text-[13px]">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            <span class="tnum">2 运行中</span>
+            <span class="text-hint">·</span>
+            <button class="flex items-center gap-1 bg-sunken border border-line rounded-md px-2 py-0.5 text-sub">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="tnum">1 等你</span>
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-d"/></svg>
+            </button>
+          </div>
+          <!-- 新会话 -->
+          <button class="ml-auto flex items-center gap-1.5 bg-card border border-line rounded-lg px-3 py-1.5 text-ink text-[13px] hover:bg-hover">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-plus"/></svg>
+            新会话
+          </button>
+        </div>
+      </div>
+
+      <!-- ② 点开等你（下挂浮层清单） -->
+      <div class="specimen">
+        <div class="cap">② 点开等你（跨项目清单浮层）</div>
+        <div class="max-w-[680px]">
+          <div class="bg-card border border-line rounded-xl h-12 flex items-center gap-3.5 px-4">
+            <!-- 品牌 -->
+            <div class="flex items-center gap-2">
+              <span class="w-[15px] h-[15px] rounded bg-accent"></span>
+              <span class="font-semibold text-ink">Moebius</span>
+            </div>
+            <!-- 计数（等你为展开态，用中性灰选中底） -->
+            <div class="flex items-center gap-2 text-sub text-[13px]">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+              <span class="tnum">2 运行中</span>
+              <span class="text-hint">·</span>
+              <button class="flex items-center gap-1 bg-sel border border-line rounded-md px-2 py-0.5 text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+                <span class="tnum">2 等你</span>
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-d"/></svg>
+              </button>
+            </div>
+            <!-- 新会话 -->
+            <button class="ml-auto flex items-center gap-1.5 bg-card border border-line rounded-lg px-3 py-1.5 text-ink text-[13px] hover:bg-hover">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-plus"/></svg>
+              新会话
+            </button>
+          </div>
+          <!-- 浮层：跨项目「等你」跳转清单 -->
+          <div class="mt-2 w-[320px] bg-card border border-line rounded-lg shadow-overlay p-1.5">
+            <div class="text-hint text-[11px] px-2 py-1">等你 (2)</div>
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-hover text-left">
+              <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="text-ink text-[13px]">失败汇总</span>
+              <span class="text-sub text-[13px]">等你验收</span>
+              <span class="ml-auto text-hint text-[11px]">tranfu-agents</span>
+            </button>
+            <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-hover text-left">
+              <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="text-ink text-[13px]">首页文案</span>
+              <span class="text-sub text-[13px]">提案等确认</span>
+              <span class="ml-auto text-hint text-[11px]">tranfu-site</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ 安静态（仅运行中，无等你） -->
+      <div class="specimen">
+        <div class="cap">③ 安静态（仅运行中，无等你）</div>
+        <div class="bg-card border border-line rounded-xl max-w-[680px] h-12 flex items-center gap-3.5 px-4">
+          <!-- 品牌 -->
+          <div class="flex items-center gap-2">
+            <span class="w-[15px] h-[15px] rounded bg-accent"></span>
+            <span class="font-semibold text-ink">Moebius</span>
+          </div>
+          <!-- 计数（无等你 pill） -->
+          <div class="flex items-center gap-2 text-sub text-[13px]">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            <span class="tnum">2 运行中</span>
+          </div>
+          <!-- 新会话 -->
+          <button class="ml-auto flex items-center gap-1.5 bg-card border border-line rounded-lg px-3 py-1.5 text-ink text-[13px] hover:bg-hover">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-plus"/></svg>
+            新会话
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="spec" data-component="sidebar" id="sidebar">
+  <header class="spec-h">
+    <h2>侧栏</h2><code>?only=sidebar</code>
+    <p>项目 / 会话两层导航。会话行一行制，状态三态（✋ 等你 / ⣾ 运行中 / 无），排序 ✋ &gt; 目标 &gt; ⣾ &gt; 静止 &gt; 已完成。选中态用中性灰；「等你」是普通状态，用中性灰呈现，跟其它会话行一视同仁，不着色。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="specimen">
+      <div class="cap">侧栏 + 右侧排序档位注释（①—⑤）</div>
+      <div class="stage-row items-start gap-6">
+
+        <!-- ── 侧栏容器 ────────────────────────────────── -->
+        <aside class="w-[244px] bg-rail rounded-lg p-1.5">
+
+          <!-- 项目头（展开态） -->
+          <div class="flex items-center gap-1.5 px-2 py-1.5 text-hint text-xs font-semibold">
+            <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-d"/></svg>
+            tranfu-agents-app
+          </div>
+
+          <!-- ① 等你：✋ 失败汇总（中性 ✋ 图标 + 普通文字，与其它普通会话行一致） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            失败汇总
+          </div>
+
+          <!-- ② 目标：导出体验（前置占位对齐，无点） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <span class="inline-block w-1.5"></span>
+            目标：导出体验
+          </div>
+
+          <!-- ② 目标：观察页改版（选中态，中性灰 bg-sel） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink bg-sel">
+            <span class="inline-block w-1.5"></span>
+            目标：观察页改版
+          </div>
+
+          <!-- ③ 运行中：⣾ 进度提示（灰点呼吸） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            进度提示
+          </div>
+
+          <!-- ③ 运行中：⣾ 失败汇总修复（修复子会话同样平铺无缩进） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+            失败汇总修复
+          </div>
+
+          <!-- ④ 静止：导出功能重构（裸名，无徽标） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-ink hover:bg-hover">
+            <span class="inline-block w-1.5"></span>
+            导出功能重构
+          </div>
+
+          <!-- ⑤ 已完成折叠组（caret-r + 弱化文字） -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-hint hover:bg-hover">
+            <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            已完成 (6)
+          </div>
+
+          <!-- 第二个项目：tranfu-site（折叠，行尾冒泡等你计数，中性） -->
+          <div class="flex items-center gap-1.5 px-2 py-1.5 text-hint text-xs font-semibold">
+            <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            tranfu-site
+            <span class="ml-auto inline-flex items-center gap-1 text-sub">
+              <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="tnum">1</span>
+            </span>
+          </div>
+
+          <!-- 第三个项目：agent-moebius（折叠，无计数） -->
+          <div class="flex items-center gap-1.5 px-2 py-1.5 text-hint text-xs font-semibold">
+            <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            agent-moebius
+          </div>
+
+          <!-- 分隔线 -->
+          <div class="h-px bg-line my-1.5"></div>
+
+          <!-- 账本入口 -->
+          <div class="flex items-center gap-2 h-[30px] px-2 rounded-md text-[13px] text-sub hover:bg-hover">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-home"/></svg>
+            账本
+          </div>
+
+        </aside>
+
+        <!-- ── 右侧排序档位注释 ───────────────────────── -->
+        <div class="flex flex-col gap-3 pt-1 max-w-[220px]">
+          <div class="cap">排序 ✋ &gt; 目标 &gt; ⣾ &gt; 静止 &gt; 已完成</div>
+          <div class="text-[11px] text-hint">① 等你——义务，永远最上（普通中性）</div>
+          <div class="text-[11px] text-hint">② 目标——编排会话，按创建序，选中态中性灰</div>
+          <div class="text-[11px] text-hint">③ 运行中——车间在动可不看，灰点呼吸；修复子会话平铺无缩进</div>
+          <div class="text-[11px] text-hint">④ 静止——裸名，无任何徽标</div>
+          <div class="text-[11px] text-hint">⑤ 已完成——验收通过自动沉入折叠组</div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="wait-popover" id="wait-popover">
+  <header class="spec-h">
+    <h2>顶栏「等你」清单浮层</h2><code>?only=wait-popover</code>
+    <p>点顶栏「等你」计数展开的跨项目清单：一行 = 手图标 + 会话名 + 一句义务 + 项目名，点行直达会话。它是跳转菜单不是收件箱——无已读、无按钮、无分页。「等你」是普通状态，全灰呈现，不给专属信号色。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-row items-start gap-8 bg-canvas p-8 rounded-lg">
+
+      <!-- 默认态 -->
+      <div class="specimen">
+        <div class="cap">默认</div>
+        <div class="w-[340px] bg-card border border-line rounded-lg shadow-overlay p-1.5">
+          <div class="h text-hint text-[11px] font-semibold px-2 py-1.5">等你 (2)</div>
+
+          <div class="flex items-center gap-2 px-2 py-1.5 rounded-md">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span class="text-[13px] text-ink">失败汇总</span>
+            <span class="text-[13px] text-sub">· 等你验收</span>
+            <span class="ml-auto text-hint text-[11px]">tranfu-agents</span>
+          </div>
+
+          <div class="flex items-center gap-2 px-2 py-1.5 rounded-md">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span class="text-[13px] text-ink">首页文案</span>
+            <span class="text-[13px] text-sub">· 提案等确认</span>
+            <span class="ml-auto text-hint text-[11px]">tranfu-site</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 一行悬停态 -->
+      <div class="specimen">
+        <div class="cap">一行悬停（点行直达会话）</div>
+        <div class="w-[340px] bg-card border border-line rounded-lg shadow-overlay p-1.5">
+          <div class="h text-hint text-[11px] font-semibold px-2 py-1.5">等你 (2)</div>
+
+          <div class="flex items-center gap-2 px-2 py-1.5 rounded-md bg-hover">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span class="text-[13px] text-ink">失败汇总</span>
+            <span class="text-[13px] text-sub">· 等你验收</span>
+            <span class="ml-auto text-hint text-[11px]">tranfu-agents</span>
+          </div>
+
+          <div class="flex items-center gap-2 px-2 py-1.5 rounded-md">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+            <span class="text-[13px] text-ink">首页文案</span>
+            <span class="text-[13px] text-sub">· 提案等确认</span>
+            <span class="ml-auto text-hint text-[11px]">tranfu-site</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="user-message" id="user-message">
+  <header class="spec-h">
+    <h2>用户消息</h2><code>?only=user-message</code>
+    <p>你在时间线里发出的消息，永远全文展示。头像 + 名字/时间 + 正文；正文里 @角色 是唯一着色处（accent），其余全灰。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-col gap-6 max-w-[640px]">
+
+      <!-- 默认 -->
+      <div class="specimen">
+        <div class="cap">默认</div>
+        <div class="flex gap-3">
+          <span class="w-[26px] h-[26px] shrink-0 rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">你</span>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-ink">你</span>
+              <span class="text-hint text-[11px] tnum">14:02</span>
+            </div>
+            <p class="mt-0.5 text-sm text-ink">
+              <span class="text-accent font-semibold">@开发</span> 给卡片导出加实时进度提示
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 较长文本 + @测试 -->
+      <div class="specimen">
+        <div class="cap">较长文本 + @测试</div>
+        <div class="flex gap-3">
+          <span class="w-[26px] h-[26px] shrink-0 rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">你</span>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-ink">你</span>
+              <span class="text-hint text-[11px] tnum">14:18</span>
+            </div>
+            <p class="mt-0.5 text-sm text-ink">
+              <span class="text-accent font-semibold">@测试</span> 上一版进度条在导出「零卡片」的空系列时会一直停在 0%，麻烦补一组边界用例：空系列、单卡片、超大系列各跑一遍，确认进度提示和最终产物都正常，再把走查结论交回开发。
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="agent-fold" id="agent-fold">
+  <header class="spec-h">
+    <h2>agent 折叠消息</h2><code>?only=agent-fold</code>
+    <p>时间线里 agent 的消息默认折叠成「角色 + 阶段 + 结论 + 交棒行」一小段，点开全文才展开原始方案。全灰、不含「等你」信号，不用强调色。</p>
+  </header>
+  <div class="spec-stage">
+
+    <!-- ① 折叠态：两条不同角色 -->
+    <div class="specimen">
+      <div class="cap">折叠态（两条 agent 消息）</div>
+      <div class="stage-col gap-4 max-w-[640px] w-full">
+
+        <!-- 开发 · 方案已写好 -->
+        <div>
+          <div class="flex items-center gap-2 text-sub">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            <span class="text-ink font-semibold">开发</span>
+            <span class="text-hint">·</span>
+            <span class="text-sub">方案已写好</span>
+            <span class="text-hint text-[11px]">14:05</span>
+            <button class="ml-auto text-hint text-[11px] hover:text-sub">点开全文</button>
+          </div>
+          <div class="pl-[21px] text-sub text-sm">
+            结论：进度事件<span class="text-ink">复用导出回调</span>，新增<span class="text-ink">进度条组件</span>，不改数据结构。
+          </div>
+          <div class="pl-[21px] text-sub text-sm">交给『测试』审查</div>
+        </div>
+
+        <!-- 测试 · 进行中 -->
+        <div>
+          <div class="flex items-center gap-2 text-sub">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            <span class="text-ink font-semibold">测试</span>
+            <span class="text-hint">·</span>
+            <span class="text-sub">进行中</span>
+            <span class="text-hint text-[11px]">14:11</span>
+            <button class="ml-auto text-hint text-[11px] hover:text-sub">点开全文</button>
+          </div>
+          <div class="pl-[21px] text-sub text-sm">
+            结论：<span class="text-ink">六项评审通过</span>，建议补零卡片系列用例。
+          </div>
+          <div class="pl-[21px] text-sub text-sm">交回『开发』实现</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ② 展开态：开发那条 -->
+    <div class="specimen">
+      <div class="cap">展开态（开发 · 点开全文后）</div>
+      <div class="max-w-[640px] w-full">
+        <div class="flex items-center gap-2 text-sub">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-d"/></svg>
+          <span class="text-ink font-semibold">开发</span>
+          <span class="text-hint">·</span>
+          <span class="text-sub">方案已写好</span>
+          <span class="text-hint text-[11px]">14:05</span>
+          <button class="ml-auto text-hint text-[11px] hover:text-sub">收起</button>
+        </div>
+        <div class="pl-[21px] text-sub text-sm">
+          结论：进度事件<span class="text-ink">复用导出回调</span>，新增<span class="text-ink">进度条组件</span>，不改数据结构。
+        </div>
+        <div class="pl-[21px] text-sub text-sm">交给『测试』审查</div>
+        <div class="mt-2 ml-[21px] bg-sunken rounded-lg p-3 text-sub text-[13px] [white-space:pre-wrap]">方案：给卡片导出加实时进度提示
+
+1. 复用现有导出回调 onExportProgress，在每张卡片处理完成后回传 { done, total }。
+2. 新增 ExportProgressBar 组件，订阅上述回调，按 done/total 计算百分比。
+3. 不改导出数据结构，进度事件与导出结果并行，互不阻塞。
+4. 边界：卡片总数为 0 时直接展示「已完成」，不显示进度条。
+
+自测：本地跑过 12 张 / 120 张两组，进度条平滑，无回退跳变。
+交给『测试』审查。</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="handoff" id="handoff">
+  <header class="spec-h">
+    <h2>交棒节点（消息间）</h2><code>?only=handoff</code>
+    <p>一个角色把控制权交给下一个角色时，在两条消息之间插入的显式分隔节点：细线居中小字「A → B · 事由」。全灰，只有当接棒方是「你」时才用强调色。</p>
+  </header>
+  <div class="spec-stage max-w-[640px]">
+
+    <!-- 几个基础样本 -->
+    <div class="specimen">
+      <div class="cap">开发 → 测试 · 交付审查</div>
+      <div class="flex items-center gap-2 my-3.5 text-hint text-xs">
+        <span class="flex-1 h-px bg-line"></span>
+        <span class="inline-flex items-center gap-1.5">
+          <span class="text-sub font-medium">开发</span>
+          <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 16 16"><path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/></svg>
+          <span class="text-sub font-medium">测试</span>
+          <span class="text-hint">· 交付审查</span>
+        </span>
+        <span class="flex-1 h-px bg-line"></span>
+      </div>
+    </div>
+
+    <div class="specimen">
+      <div class="cap">测试 → 开发 · 交回实现</div>
+      <div class="flex items-center gap-2 my-3.5 text-hint text-xs">
+        <span class="flex-1 h-px bg-line"></span>
+        <span class="inline-flex items-center gap-1.5">
+          <span class="text-sub font-medium">测试</span>
+          <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 16 16"><path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/></svg>
+          <span class="text-sub font-medium">开发</span>
+          <span class="text-hint">· 交回实现</span>
+        </span>
+        <span class="flex-1 h-px bg-line"></span>
+      </div>
+    </div>
+
+    <!-- 接棒方是「你」：唯一用 accent 的地方 -->
+    <div class="specimen">
+      <div class="cap">CEO → 你 · 请你确认提案（接棒方「你」用 accent）</div>
+      <div class="flex items-center gap-2 my-3.5 text-hint text-xs">
+        <span class="flex-1 h-px bg-line"></span>
+        <span class="inline-flex items-center gap-1.5">
+          <span class="text-sub font-medium">CEO</span>
+          <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 16 16"><path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/></svg>
+          <span class="text-accent font-medium">你</span>
+          <span class="text-hint">· 请你确认提案</span>
+        </span>
+        <span class="flex-1 h-px bg-line"></span>
+      </div>
+    </div>
+
+    <!-- 语境样本：两条消息占位块之间夹一条 handoff -->
+    <div class="specimen">
+      <div class="cap">语境：夹在两条消息之间</div>
+      <div class="w-full">
+
+        <!-- 上一条消息占位 -->
+        <div class="flex items-start gap-2.5">
+          <span class="w-[26px] h-[26px] shrink-0 rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">开</span>
+          <div class="flex-1 min-w-0 space-y-1.5 pt-1">
+            <span class="block h-2 rounded-full bg-sunken w-[70%]"></span>
+            <span class="block h-2 rounded-full bg-sunken w-[45%]"></span>
+          </div>
+        </div>
+
+        <!-- 交棒节点 -->
+        <div class="flex items-center gap-2 my-3.5 text-hint text-xs">
+          <span class="flex-1 h-px bg-line"></span>
+          <span class="inline-flex items-center gap-1.5">
+            <span class="text-sub font-medium">开发</span>
+            <svg class="w-3.5 h-3.5 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 16 16"><path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/></svg>
+            <span class="text-sub font-medium">测试</span>
+            <span class="text-hint">· 交付审查</span>
+          </span>
+          <span class="flex-1 h-px bg-line"></span>
+        </div>
+
+        <!-- 下一条消息占位 -->
+        <div class="flex items-start gap-2.5">
+          <span class="w-[26px] h-[26px] shrink-0 rounded-full bg-ava-bg text-ava-fg text-xs font-semibold flex items-center justify-center">测</span>
+          <div class="flex-1 min-w-0 space-y-1.5 pt-1">
+            <span class="block h-2 rounded-full bg-sunken w-[60%]"></span>
+            <span class="block h-2 rounded-full bg-sunken w-[38%]"></span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="run-block" id="run-block">
+  <header class="spec-h">
+    <h2>运行块</h2><code>?only=run-block</code>
+    <p>时间线里正在动的活动块：角色 + 耗时 + 中断按钮，下接计划步骤逐条推进（已完成 / 进行中 / 未开始）。点开任一步看该步原始输出；拿不到步骤数据时降级为单行人话概括。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-col gap-6 max-w-[640px]">
+
+      <!-- ① 完整步骤 -->
+      <div class="specimen">
+        <div class="cap">完整步骤</div>
+        <div class="border border-line rounded-lg bg-card p-3">
+          <!-- 头 -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-ink">开发</span>
+            <span class="text-sub text-xs tnum">运行中 3分12秒</span>
+            <button class="ml-auto border border-line-strong text-danger rounded-md px-2.5 py-0.5 text-xs hover:bg-hover">中断</button>
+          </div>
+          <!-- 步骤列 -->
+          <div class="flex flex-col gap-2 mt-2.5">
+            <!-- 已完成 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+              </span>
+              <span class="text-sub">1. 写进度事件桥</span>
+            </div>
+            <!-- 已完成 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+              </span>
+              <span class="text-sub">2. 接进度条组件</span>
+            </div>
+            <!-- 进行中 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center">
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+              </span>
+              <span class="text-ink font-semibold">3. 正在运行测试…</span>
+              <span class="text-hint text-[11px]">点开看输出</span>
+            </div>
+            <!-- 未开始 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center">
+                <span class="inline-block w-2 h-2 rounded-full border-[1.5px] border-hint"></span>
+              </span>
+              <span class="text-hint">4. 自测走查</span>
+            </div>
+          </div>
+          <div class="text-hint text-[11px] mt-2.5">点开任一步看原始输出</div>
+        </div>
+      </div>
+
+      <!-- ② 展开进行中步骤 -->
+      <div class="specimen">
+        <div class="cap">展开进行中步骤（原始输出）</div>
+        <div class="border border-line rounded-lg bg-card p-3">
+          <!-- 头 -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-ink">开发</span>
+            <span class="text-sub text-xs tnum">运行中 3分12秒</span>
+            <button class="ml-auto border border-line-strong text-danger rounded-md px-2.5 py-0.5 text-xs hover:bg-hover">中断</button>
+          </div>
+          <!-- 步骤列 -->
+          <div class="flex flex-col gap-2 mt-2.5">
+            <!-- 已完成 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+              </span>
+              <span class="text-sub">1. 写进度事件桥</span>
+            </div>
+            <!-- 已完成 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+              </span>
+              <span class="text-sub">2. 接进度条组件</span>
+            </div>
+            <!-- 进行中（已展开） -->
+            <div>
+              <div class="flex items-center gap-2.5 text-[13px]">
+                <span class="w-[15px] flex items-center justify-center">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+                </span>
+                <span class="text-ink font-semibold">3. 正在运行测试…</span>
+                <span class="text-hint text-[11px]">点开看输出</span>
+              </div>
+              <!-- 原始输出 -->
+              <div class="bg-sunken rounded-lg p-3 mt-2 text-sub font-mono text-xs [white-space:pre-wrap]">$ npm test -- export/progress
+PASS  export/progress-bridge.test.ts
+PASS  export/progress-bar.test.tsx
+RUNS  export/boundary/empty-series.test.ts
+  ● 空系列进度提示 · 校验中…</div>
+            </div>
+            <!-- 未开始 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center">
+                <span class="inline-block w-2 h-2 rounded-full border-[1.5px] border-hint"></span>
+              </span>
+              <span class="text-hint">4. 自测走查</span>
+            </div>
+          </div>
+          <div class="text-hint text-[11px] mt-2.5">点开任一步看原始输出</div>
+        </div>
+      </div>
+
+      <!-- ③ 降级单行 -->
+      <div class="specimen">
+        <div class="cap">降级单行（拿不到步骤数据）</div>
+        <div class="border border-line rounded-lg bg-card p-3">
+          <!-- 头 -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-ink">开发</span>
+            <span class="text-sub text-xs tnum">运行中 3分12秒</span>
+            <button class="ml-auto border border-line-strong text-danger rounded-md px-2.5 py-0.5 text-xs hover:bg-hover">中断</button>
+          </div>
+          <!-- 单行灰字概括 -->
+          <div class="text-sub text-[13px] mt-2.5">正在运行测试 · 已进行 3 分 12 秒</div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="composer" id="composer">
+  <header class="spec-h">
+    <h2>输入区</h2><code>?only=composer</code>
+    <p>主视图底部常驻的输入框：@ 一个角色开始或交棒，发送在框内右侧。框下常驻一行「现在发消息会怎样」的等待状态文案，消除「说话会不会打断它」的顾虑。</p>
+  </header>
+  <div class="spec-stage">
+    <div class="stage-col max-w-[640px] gap-5">
+
+      <!-- ① 默认 -->
+      <div class="specimen">
+        <div class="cap">默认</div>
+        <div class="bg-card border border-line-strong rounded-lg pl-3.5 pr-1.5 py-1.5 flex items-center gap-2">
+          <span class="text-hint text-[13px]">@ 输入消息，@角色 交棒…</span>
+          <button class="ml-auto bg-card border border-line text-sub rounded-md px-3 py-1.5 text-xs">发送</button>
+        </div>
+      </div>
+
+      <!-- ② 聚焦 -->
+      <div class="specimen">
+        <div class="cap">聚焦（边框转 accent）</div>
+        <div class="bg-card border border-accent rounded-lg pl-3.5 pr-1.5 py-1.5 flex items-center gap-2">
+          <span class="text-hint text-[13px]">@ 输入消息，@角色 交棒…</span>
+          <button class="ml-auto bg-card border border-line text-sub rounded-md px-3 py-1.5 text-xs">发送</button>
+        </div>
+      </div>
+
+      <!-- ③ 运行中 -->
+      <div class="specimen">
+        <div class="cap">运行中（发消息不打断）</div>
+        <div class="bg-card border border-line-strong rounded-lg pl-3.5 pr-1.5 py-1.5 flex items-center gap-2">
+          <span class="text-hint text-[13px]">@ 输入消息，@角色 交棒…</span>
+          <button class="ml-auto bg-card border border-line text-sub rounded-md px-3 py-1.5 text-xs">发送</button>
+        </div>
+        <div class="mt-2 text-hint text-[11px] flex items-center gap-1.5">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub"></span>
+          <span>发消息不会打断运行 · 开发在第 3 步</span>
+        </div>
+      </div>
+
+      <!-- ④ 等你验收 -->
+      <div class="specimen">
+        <div class="cap">等你验收</div>
+        <div class="bg-card border border-line-strong rounded-lg pl-3.5 pr-1.5 py-1.5 flex items-center gap-2">
+          <span class="text-hint text-[13px]">@ 输入消息，@角色 交棒…</span>
+          <button class="ml-auto bg-card border border-line text-sub rounded-md px-3 py-1.5 text-xs">发送</button>
+        </div>
+        <div class="mt-2 text-hint text-[11px] flex items-center gap-1.5">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub"></span>
+          <span>等你验收，也可以先回复别的</span>
+        </div>
+      </div>
+
+      <!-- ⑤ 空闲 -->
+      <div class="specimen">
+        <div class="cap">空闲</div>
+        <div class="bg-card border border-line-strong rounded-lg pl-3.5 pr-1.5 py-1.5 flex items-center gap-2">
+          <span class="text-hint text-[13px]">@ 输入消息，@角色 交棒…</span>
+          <button class="ml-auto bg-card border border-line text-sub rounded-md px-3 py-1.5 text-xs">发送</button>
+        </div>
+        <div class="mt-2 text-hint text-[11px] flex items-center gap-1.5">
+          <span class="inline-block w-2 h-2 rounded-full border-[1.5px] border-hint"></span>
+          <span>空闲 · @ 一个角色开始</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="spec" data-component="at-complete" id="at-complete">
+  <header class="spec-h">
+    <h2>@ 补全面板</h2><code>?only=at-complete</code>
+    <p>输入框里键入 @ 时浮出的补全面板：只列本条消息合法可触发的角色，中文名 + 一句职责。选中后由控件在协议层生成合法 mention，你不接触英文句柄。一条消息至多一个合法 mention。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-col gap-10">
+
+      <!-- ① 刚输入 @：面板浮出，列全部合法角色，首行选中 -->
+      <div class="specimen">
+        <div class="cap">① 刚输入 @ · 列全部合法角色，首行选中</div>
+        <div class="relative w-full max-w-[560px] pb-[132px]">
+          <!-- 输入框（复用 composer 同款） -->
+          <div class="flex items-end gap-2 bg-input border border-line rounded-lg px-3 py-2.5">
+            <div class="flex-1 min-w-0 text-sm text-ink leading-relaxed">
+              @<span class="inline-block w-[2px] h-[15px] align-[-2px] bg-ink animate-breathe"></span>
+            </div>
+            <button class="shrink-0 inline-flex items-center gap-1.5 bg-card border border-line text-hint rounded-md text-[13px] font-medium px-3 py-1">
+              发送
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+          <!-- 补全面板 -->
+          <div class="absolute left-3 top-[52px] w-[300px] bg-card border border-line rounded-lg shadow-overlay p-1.5">
+            <div class="flex items-center px-2.5 py-2 rounded-md bg-sel">
+              <span class="text-sm text-ink">@开发</span>
+              <span class="ml-auto text-xs text-hint">写代码</span>
+            </div>
+            <div class="flex items-center px-2.5 py-2 rounded-md hover:bg-hover">
+              <span class="text-sm text-ink">@测试</span>
+              <span class="ml-auto text-xs text-hint">审查方案</span>
+            </div>
+            <div class="flex items-center px-2.5 py-2 rounded-md hover:bg-hover">
+              <span class="text-sm text-ink">@技术负责人</span>
+              <span class="ml-auto text-xs text-hint">技术决策</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ② 键入 @技：过滤只剩技术负责人 -->
+      <div class="specimen">
+        <div class="cap">② 键入「@技」· 过滤只剩技术负责人</div>
+        <div class="relative w-full max-w-[560px] pb-[64px]">
+          <div class="flex items-end gap-2 bg-input border border-line rounded-lg px-3 py-2.5">
+            <div class="flex-1 min-w-0 text-sm text-ink leading-relaxed">
+              @技<span class="inline-block w-[2px] h-[15px] align-[-2px] bg-ink animate-breathe"></span>
+            </div>
+            <button class="shrink-0 inline-flex items-center gap-1.5 bg-card border border-line text-hint rounded-md text-[13px] font-medium px-3 py-1">
+              发送
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+          <div class="absolute left-3 top-[52px] w-[300px] bg-card border border-line rounded-lg shadow-overlay p-1.5">
+            <div class="flex items-center px-2.5 py-2 rounded-md bg-sel">
+              <span class="text-sm text-ink">@技术负责人</span>
+              <span class="ml-auto text-xs text-hint">技术决策</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ 已选：mention 高亮插入输入框，面板收起，发送就绪 -->
+      <div class="specimen">
+        <div class="cap">③ 已选 · mention 插入输入框，面板收起</div>
+        <div class="w-full max-w-[560px]">
+          <div class="flex items-end gap-2 bg-input border border-line rounded-lg px-3 py-2.5">
+            <div class="flex-1 min-w-0 text-sm text-ink leading-relaxed">
+              <span class="text-accent font-semibold">@技术负责人</span>
+              <span> 这版分层要不要拆一个独立服务，帮我拿个主意</span><span class="inline-block w-[2px] h-[15px] align-[-2px] bg-ink animate-breathe"></span>
+            </div>
+            <button class="shrink-0 inline-flex items-center gap-1.5 bg-accent text-accent-fg rounded-md text-[13px] font-medium px-3 py-1">
+              发送
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="accept-card" id="accept-card">
+  <header class="spec-h">
+    <h2>「轮到你了」验收卡片</h2><code>?only=accept-card</code>
+    <p>会话时间线底部弹出的验收卡：证据先于裁决，逐条走查通过/不通过。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="max-w-[680px]">
+      <div class="bg-card border border-line rounded-xl p-4">
+
+        <!-- 标题 -->
+        <div class="flex items-center gap-2 text-ink font-semibold mb-3">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-hand"/></svg>
+          <span>轮到你了 · 「用户代表」请你验收</span>
+        </div>
+
+        <!-- 证据头 -->
+        <div class="text-sm mb-1">
+          <span class="text-ink font-semibold">改了什么</span>
+          <span class="text-ink"> · 登录页加上「记住我」勾选，并把会话有效期延长到 30 天</span>
+        </div>
+        <div class="text-sm">
+          <span class="text-ink font-semibold">已自测</span>
+          <span class="text-ink"> · 测试走查 12 项用例全部通过</span>
+          <a class="text-accent"> 点开看记录</a>
+        </div>
+
+        <!-- lead -->
+        <div class="text-sub text-xs font-semibold my-2.5">按验收语句逐条走查：</div>
+
+        <!-- crit 1 -->
+        <div class="flex items-center gap-2.5 mb-1">
+          <span class="text-sub font-semibold">1</span>
+          <span class="flex-1 text-ink text-sm">勾选「记住我」后关闭浏览器再打开，仍保持登录</span>
+          <span class="bg-hover rounded-lg p-0.5 flex gap-0.5">
+            <button class="rounded-md px-3 py-1 text-xs bg-sel text-pass font-semibold">通过</button>
+            <button class="rounded-md px-3 py-1 text-xs text-sub">不通过</button>
+          </span>
+        </div>
+        <div class="ml-6 mb-2.5 text-sub text-xs flex items-center gap-1.5">
+          <a class="text-accent">打开</a>
+          <span>产物</span>
+          <span>· 自测 ✓</span>
+        </div>
+
+        <!-- crit 2 -->
+        <div class="flex items-center gap-2.5 mb-1">
+          <span class="text-sub font-semibold">2</span>
+          <span class="flex-1 text-ink text-sm">不勾选时，关闭浏览器后需要重新登录</span>
+          <span class="bg-hover rounded-lg p-0.5 flex gap-0.5">
+            <button class="rounded-md px-3 py-1 text-xs bg-sel text-pass font-semibold">通过</button>
+            <button class="rounded-md px-3 py-1 text-xs text-sub">不通过</button>
+          </span>
+        </div>
+        <div class="ml-6 mb-2.5 text-sub text-xs flex items-center gap-1.5">
+          <span>自测记录第 8 项 ✓</span>
+          <a class="text-accent">点开看输出</a>
+        </div>
+
+        <!-- crit 3 -->
+        <div class="flex items-center gap-2.5 mb-1">
+          <span class="text-sub font-semibold">3</span>
+          <span class="flex-1 text-ink text-sm">在手机上体验一遍，勾选框好按、文案看得懂</span>
+          <span class="bg-hover rounded-lg p-0.5 flex gap-0.5">
+            <button class="rounded-md px-3 py-1 text-xs text-sub">通过</button>
+            <button class="rounded-md px-3 py-1 text-xs bg-sel text-danger font-semibold">不通过</button>
+          </span>
+        </div>
+        <div class="ml-6 mb-2.5 text-sub text-xs flex items-center gap-1.5">
+          <span class="text-hint">暂无可挂证据 · 请你自己判断走查</span>
+        </div>
+
+        <!-- 依据 -->
+        <div class="text-sub text-xs">依据（选填）</div>
+        <input class="w-full bg-card border border-line rounded-lg px-3 py-2 mt-1 text-ink" placeholder="写下你判定的依据，方便回溯" />
+
+        <!-- 动作 -->
+        <div class="flex gap-2.5 mt-3.5">
+          <button class="bg-accent text-accent-fg rounded-lg px-3.5 py-2 font-semibold">提交验收结果</button>
+          <button class="bg-card border border-line text-sub rounded-lg px-3.5 py-2">先不验，回复别的</button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="ceo-propose" id="ceo-propose">
+  <header class="spec-h">
+    <h2>CEO 提案确认卡片</h2><code>?only=ceo-propose</code>
+    <p>在编排会话里，CEO 把一个阶段计划（里程碑 + 任务）摆到你面前请你拍板。点「确认提案」由界面生成合规确认回复并落地任务会话，你不必手写。仅 ◎ 图标与主按钮用强调色，其余全灰。</p>
+  </header>
+  <div class="spec-stage max-w-[640px]">
+    <div class="stage-col">
+
+      <!-- 默认态：M1 → M2，两个任务 -->
+      <div class="specimen">
+        <div class="cap">默认（两任务）</div>
+        <div class="w-full bg-card border border-line rounded-xl p-4">
+
+          <!-- 头 -->
+          <div class="flex items-center gap-2 font-semibold text-sm text-accent">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 16 16">
+              <circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.25"/>
+            </svg>
+            <span>CEO · 阶段提案</span>
+          </div>
+
+          <!-- 里程碑行 -->
+          <div class="text-sm text-sub mt-2.5">
+            里程碑：<span class="text-ink font-semibold">M1 导出体验</span>
+            <span class="text-hint mx-0.5">→</span>
+            <span class="text-ink font-semibold">M2 分享链路</span>
+          </div>
+
+          <!-- 任务瓦片 -->
+          <div class="text-xs text-hint mt-2.5">阶段一任务</div>
+          <div class="flex flex-wrap gap-2 my-2.5">
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T1 一键导出全系列</span> <span class="text-hint">（验收 3 条）</span>
+            </span>
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T2 进度提示</span> <span class="text-hint">（验收 2 条）</span>
+            </span>
+          </div>
+
+          <!-- 动作 -->
+          <div class="flex flex-wrap items-center gap-2 mt-3">
+            <button class="inline-flex items-center gap-1.5 bg-accent text-accent-fg rounded-lg text-[13px] font-medium px-3.5 py-1.5 hover:opacity-90 transition-opacity">确认提案，建任务会话</button>
+            <button class="inline-flex items-center gap-1.5 bg-card border border-line text-sub rounded-lg text-[13px] font-medium px-3 py-1.5 hover:bg-hover hover:text-ink transition-colors">有意见，继续聊</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 长链里程碑 M1→M2→M3，三任务演示换行 -->
+      <div class="specimen">
+        <div class="cap">长链里程碑 · 三任务换行</div>
+        <div class="w-full bg-card border border-line rounded-xl p-4">
+
+          <!-- 头 -->
+          <div class="flex items-center gap-2 font-semibold text-sm text-accent">
+            <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 16 16">
+              <circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.25"/>
+            </svg>
+            <span>CEO · 阶段提案</span>
+          </div>
+
+          <!-- 里程碑行（长链） -->
+          <div class="text-sm text-sub mt-2.5">
+            里程碑：<span class="text-ink font-semibold">M1 导出体验</span>
+            <span class="text-hint mx-0.5">→</span>
+            <span class="text-ink font-semibold">M2 分享链路</span>
+            <span class="text-hint mx-0.5">→</span>
+            <span class="text-ink font-semibold">M3 团队协作</span>
+          </div>
+
+          <!-- 任务瓦片（换行） -->
+          <div class="text-xs text-hint mt-2.5">阶段一任务</div>
+          <div class="flex flex-wrap gap-2 my-2.5">
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T1 一键导出全系列</span> <span class="text-hint">（验收 3 条）</span>
+            </span>
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T2 进度提示</span> <span class="text-hint">（验收 2 条）</span>
+            </span>
+            <span class="bg-sunken border border-line rounded-md px-2.5 py-1.5 text-xs">
+              <span class="text-ink">T3 失败汇总与重试</span> <span class="text-hint">（验收 4 条）</span>
+            </span>
+          </div>
+
+          <!-- 动作 -->
+          <div class="flex flex-wrap items-center gap-2 mt-3">
+            <button class="inline-flex items-center gap-1.5 bg-accent text-accent-fg rounded-lg text-[13px] font-medium px-3.5 py-1.5 hover:opacity-90 transition-opacity">确认提案，建任务会话</button>
+            <button class="inline-flex items-center gap-1.5 bg-card border border-line text-sub rounded-lg text-[13px] font-medium px-3 py-1.5 hover:bg-hover hover:text-ink transition-colors">有意见，继续聊</button>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="spec" data-component="event-stream" id="event-stream">
+  <header class="spec-h">
+    <h2>进展事件流（查收点）</h2><code>?only=event-stream</code>
+    <p>编排会话里子会话里程碑自动回流成的紧凑事件流：每条一行、可点击跳转对应子会话。查收 = 扫会话头 + 事件流，不读子会话原文。全灰呈现，「等你」是普通状态不着色，仅「→ 去验收」用强调色作可点链接。</p>
+  </header>
+  <div class="spec-stage">
+    <div class="stage-col">
+
+      <!-- ① 完整事件流 -->
+      <div class="specimen">
+        <div class="cap">完整事件流（会话卡语境）</div>
+        <div class="max-w-[640px] bg-card border border-line rounded-xl p-4">
+
+          <!-- 进展分节标题 -->
+          <div class="flex items-center gap-2.5 text-hint text-xs font-semibold">
+            <span>进展</span>
+            <span class="flex-1 h-px bg-line"></span>
+          </div>
+
+          <!-- 事件行 -->
+          <div class="mt-1">
+
+            <!-- 1 · 已创建任务会话 -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+              <span class="flex-1 text-ink">已创建 3 个任务会话：T1 · T2 · T3</span>
+              <span class="shrink-0 text-hint text-[11px] tnum">昨天</span>
+            </div>
+
+            <!-- 2 · T1 验收通过（灰勾） -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+              <span class="flex-1 text-ink">T1 一键导出：验收通过（测试走查 3/3）</span>
+              <span class="shrink-0 text-hint text-[11px] tnum">2 小时前</span>
+            </div>
+
+            <!-- 3 · T3 验收未过 → 派生修复会话（仍全灰，不是裁决那一刻） -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+              <span class="flex-1 text-ink">T3 失败汇总：验收未过 → 已派生修复会话</span>
+              <span class="shrink-0 text-hint text-[11px] tnum">1 小时前</span>
+            </div>
+
+            <!-- 4 · T2 开发运行中 -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+              <span class="flex-1 text-ink">T2 进度提示：开发运行中</span>
+              <span class="shrink-0 text-hint text-[11px] tnum">12 分钟前</span>
+            </div>
+
+            <!-- 5 · 末条等你态（普通中性行，仅链接用强调色） -->
+            <div class="flex items-start gap-2.5 py-2 text-[13px] hover:bg-hover rounded-md cursor-pointer">
+              <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-hand"/></svg>
+              <span class="flex-1 text-ink">T3 修复完成，等你验收</span>
+              <span class="shrink-0 flex items-center gap-2">
+                <span class="text-hint text-[11px] tnum">刚刚</span>
+                <span class="text-accent font-semibold text-[11px]">→ 去验收</span>
+              </span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ② 悬停一行 -->
+      <div class="specimen">
+        <div class="cap">悬停一行（hover:bg-hover 常驻演示）</div>
+        <div class="max-w-[640px] bg-card border border-line rounded-xl p-4">
+          <div class="flex items-start gap-2.5 py-2 text-[13px] bg-hover rounded-md cursor-pointer">
+            <svg class="w-3.5 h-3.5 shrink-0 mt-0.5 stroke-current fill-none text-hint [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-diamond"/></svg>
+            <span class="flex-1 text-ink">T1 一键导出：验收通过（测试走查 3/3）</span>
+            <span class="shrink-0 text-hint text-[11px] tnum">2 小时前</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="spec" data-component="artifact" id="artifact">
+  <header class="spec-h">
+    <h2>产物瓦片（右侧面板）</h2><code>?only=artifact</code>
+    <p>右侧上下文面板置顶的成果预览。以产物为主体——缩略图 / 文件卡 / 导出进度，点开看大预览。普通用户关心成果本身，不关心管理字段。产物为空时整区收起，不出现在这里。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-row">
+
+      <!-- ① 进度条截图型（进行中） -->
+      <div class="specimen">
+        <div class="cap">进度型 · 进行中</div>
+        <div class="w-[260px] bg-card border border-line rounded-xl overflow-hidden hover:border-line-strong">
+          <div class="bg-sunken border-b border-line p-3.5 h-[150px] flex flex-col justify-center gap-2.5">
+            <div class="text-[11px] text-sub font-semibold">导出结果</div>
+            <div class="h-[7px] rounded bg-card border border-line overflow-hidden">
+              <div class="h-full bg-accent" style="width:68%"></div>
+            </div>
+            <div class="text-[11px] text-hint">已导出 <span class="tnum">68%</span> · <span class="tnum">82/120</span></div>
+          </div>
+          <div class="flex items-center justify-between px-3 py-2.5">
+            <span class="text-[12.5px] text-ink font-semibold">导出结果</span>
+            <span class="text-[11px] text-hint">点开预览</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ② 文件卡型 -->
+      <div class="specimen">
+        <div class="cap">文件卡型</div>
+        <div class="w-[260px] bg-card border border-line rounded-xl overflow-hidden hover:border-line-strong">
+          <div class="bg-sunken border-b border-line p-3.5 h-[150px] flex flex-col justify-center gap-2.5">
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center gap-1.5 text-[11px] text-hint">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+                <span class="truncate">卡片系列-01.png</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-[11px] text-hint">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+                <span class="truncate">卡片系列-02.png</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-[11px] text-hint">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+                <span class="truncate">卡片系列-03.png</span>
+              </div>
+              <div class="text-[11px] text-hint pl-[22px]">还有 9 个文件…</div>
+            </div>
+          </div>
+          <div class="flex items-center justify-between px-3 py-2.5">
+            <span class="text-[12.5px] text-ink font-semibold">导出结果（12 文件）</span>
+            <span class="text-[11px] text-hint">点开预览</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ 进度条型（已完成） -->
+      <div class="specimen">
+        <div class="cap">进度型 · 已完成</div>
+        <div class="w-[260px] bg-card border border-line rounded-xl overflow-hidden hover:border-line-strong">
+          <div class="bg-sunken border-b border-line p-3.5 h-[150px] flex flex-col justify-center gap-2.5">
+            <div class="text-[11px] text-sub font-semibold">失败汇总</div>
+            <div class="h-[7px] rounded bg-card border border-line overflow-hidden">
+              <div class="h-full bg-accent" style="width:100%"></div>
+            </div>
+            <div class="text-[11px] text-hint">已导出 <span class="tnum">100%</span> · <span class="tnum">120/120</span></div>
+          </div>
+          <div class="flex items-center justify-between px-3 py-2.5">
+            <span class="text-[12.5px] text-ink font-semibold">失败汇总示例</span>
+            <span class="text-[11px] text-hint">点开预览</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="context-panel" id="context-panel">
+  <header class="spec-h">
+    <h2>上下文面板</h2><code>?only=context-panel</code>
+    <p>任务会话右栏，以产物为主体自上而下陈列：产物瓦片置顶、验收语句逐条状态、运行记录、任务信息沉底，可折叠。产物为空时整区收起（不放占位）。颜色预算：全灰，仅进度条填充走 accent，勾一律中性灰，无绿无红。</p>
+  </header>
+  <div class="spec-stage">
+    <div class="stage-row items-start gap-6">
+
+      <!-- ① 进行中：产物为进度型，验收 2/3，运行记录含进行中 -->
+      <div class="specimen">
+        <div class="cap">进行中（产物·进度型 / 验收 2/3 / 记录含运行中）</div>
+        <div class="w-[300px] bg-card border border-line rounded-xl p-4">
+
+          <!-- ctx-top：产物区标题 + 折叠 -->
+          <div class="flex items-center">
+            <span class="text-xs font-semibold text-hint">产物</span>
+            <button type="button" class="ml-auto text-hint flex items-center">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            </button>
+          </div>
+
+          <!-- 产物瓦片：进度型 -->
+          <div class="mt-2 border border-line rounded-lg overflow-hidden">
+            <div class="bg-sunken px-3 py-3 flex flex-col gap-2">
+              <div class="flex items-center justify-between text-[12.5px]">
+                <span class="text-sub">导出实时进度</span>
+                <span class="tnum text-hint">68%</span>
+              </div>
+              <div class="h-1.5 rounded-full bg-line overflow-hidden">
+                <div class="h-full rounded-full bg-accent w-[68%]"></div>
+              </div>
+            </div>
+            <button type="button" class="w-full flex items-center gap-2 px-3 py-2 border-t border-line text-left hover:bg-hover">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5] text-hint" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+              <span class="flex-1 truncate text-[12.5px] text-sub">进度提示组件</span>
+              <span class="text-[11px] text-hint">点开预览</span>
+            </button>
+          </div>
+
+          <!-- 验收语句区 -->
+          <div class="mt-4">
+            <div class="flex items-center">
+              <span class="text-xs font-semibold text-hint">验收语句</span>
+              <!-- tally 1✓ 2✓ 3○ -->
+              <span class="ml-auto inline-flex items-center gap-2.5 text-xs">
+                <span class="inline-flex items-center gap-0.5">
+                  <span class="tnum font-semibold text-ink">1</span>
+                  <svg class="w-[13px] h-[13px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+                <span class="inline-flex items-center gap-0.5">
+                  <span class="tnum font-semibold text-ink">2</span>
+                  <svg class="w-[13px] h-[13px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+                <span class="inline-flex items-center gap-0.5">
+                  <span class="tnum font-semibold text-ink">3</span>
+                  <span class="inline-block w-2 h-2 rounded-full border-[1.5px] border-hint"></span>
+                </span>
+              </span>
+            </div>
+            <div class="flex flex-col gap-1.5 mt-2">
+              <div class="flex items-center gap-2 text-[12.5px] text-sub">
+                <span class="w-[14px] flex items-center justify-center text-sub">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+                <span class="flex-1">加实时进度提示</span>
+              </div>
+              <div class="flex items-center gap-2 text-[12.5px] text-sub">
+                <span class="w-[14px] flex items-center justify-center text-sub">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+                <span class="flex-1">空系列不卡在 0%</span>
+              </div>
+              <div class="flex items-center gap-2 text-[12.5px] text-sub">
+                <span class="w-[14px] flex items-center justify-center">
+                  <span class="inline-block w-2 h-2 rounded-full border-[1.5px] border-hint"></span>
+                </span>
+                <span class="flex-1 text-hint">超大系列不掉帧</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 运行记录区 -->
+          <div class="mt-4">
+            <span class="text-xs font-semibold text-hint">运行记录</span>
+            <div class="flex flex-col gap-1.5 mt-2">
+              <div class="flex items-center gap-2 text-[12.5px]">
+                <span class="text-hint tnum w-[38px]">14:05</span>
+                <span class="text-sub">开发</span>
+                <span class="ml-auto text-sub flex items-center">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+              </div>
+              <div class="flex items-center gap-2 text-[12.5px]">
+                <span class="text-hint tnum w-[38px]">14:12</span>
+                <span class="text-sub">测试</span>
+                <span class="ml-auto text-sub flex items-center">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+              </div>
+              <div class="flex items-center gap-2 text-[12.5px]">
+                <span class="text-hint tnum w-[38px]">14:31</span>
+                <span class="text-sub">开发</span>
+                <span class="ml-auto flex items-center">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 任务信息 -->
+          <div class="mt-4 pt-4 border-t border-line" id="taskinfo">
+            <div class="flex flex-col gap-1.5">
+              <div class="flex justify-between text-xs">
+                <span class="text-hint">任务</span>
+                <span class="text-sub tnum">T2</span>
+              </div>
+              <div class="flex justify-between text-xs">
+                <span class="text-hint">里程碑</span>
+                <span class="text-sub tnum">M1</span>
+              </div>
+              <div class="flex justify-between text-xs">
+                <span class="text-hint">阶段</span>
+                <span class="text-sub">执行中</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ② 已验收：产物为文件型，验收 3/3，运行记录全通过 -->
+      <div class="specimen">
+        <div class="cap">已验收（产物·文件型 / 验收 3/3 / 记录全通过）</div>
+        <div class="w-[300px] bg-card border border-line rounded-xl p-4">
+
+          <!-- ctx-top -->
+          <div class="flex items-center">
+            <span class="text-xs font-semibold text-hint">产物</span>
+            <button type="button" class="ml-auto text-hint flex items-center">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-caret-r"/></svg>
+            </button>
+          </div>
+
+          <!-- 产物瓦片：文件型 -->
+          <div class="mt-2 border border-line rounded-lg overflow-hidden">
+            <div class="bg-sunken px-3 py-4 flex items-center gap-2.5">
+              <svg class="w-6 h-6 stroke-current fill-none [stroke-width:1.5] text-hint" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+              <div class="flex flex-col min-w-0">
+                <span class="text-[12.5px] text-sub truncate">导出结果</span>
+                <span class="text-[11px] text-hint tnum">12 文件 · zip</span>
+              </div>
+            </div>
+            <button type="button" class="w-full flex items-center px-3 py-2 border-t border-line text-left hover:bg-hover">
+              <span class="text-[11px] text-hint">点开预览</span>
+            </button>
+          </div>
+
+          <!-- 验收语句区 -->
+          <div class="mt-4">
+            <div class="flex items-center">
+              <span class="text-xs font-semibold text-hint">验收语句</span>
+              <!-- tally 3✓（全过，勾仍中性灰非绿） -->
+              <span class="ml-auto inline-flex items-center gap-2.5 text-xs">
+                <span class="inline-flex items-center gap-0.5">
+                  <span class="tnum font-semibold text-ink">1</span>
+                  <svg class="w-[13px] h-[13px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+                <span class="inline-flex items-center gap-0.5">
+                  <span class="tnum font-semibold text-ink">2</span>
+                  <svg class="w-[13px] h-[13px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+                <span class="inline-flex items-center gap-0.5">
+                  <span class="tnum font-semibold text-ink">3</span>
+                  <svg class="w-[13px] h-[13px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+              </span>
+            </div>
+            <div class="flex flex-col gap-1.5 mt-2">
+              <div class="flex items-center gap-2 text-[12.5px] text-sub">
+                <span class="w-[14px] flex items-center justify-center text-sub">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+                <span class="flex-1">加实时进度提示</span>
+              </div>
+              <div class="flex items-center gap-2 text-[12.5px] text-sub">
+                <span class="w-[14px] flex items-center justify-center text-sub">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+                <span class="flex-1">空系列不卡在 0%</span>
+              </div>
+              <div class="flex items-center gap-2 text-[12.5px] text-sub">
+                <span class="w-[14px] flex items-center justify-center text-sub">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+                <span class="flex-1">超大系列不掉帧</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 运行记录区 -->
+          <div class="mt-4">
+            <span class="text-xs font-semibold text-hint">运行记录</span>
+            <div class="flex flex-col gap-1.5 mt-2">
+              <div class="flex items-center gap-2 text-[12.5px]">
+                <span class="text-hint tnum w-[38px]">14:05</span>
+                <span class="text-sub">开发</span>
+                <span class="ml-auto text-sub flex items-center">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+              </div>
+              <div class="flex items-center gap-2 text-[12.5px]">
+                <span class="text-hint tnum w-[38px]">14:12</span>
+                <span class="text-sub">测试</span>
+                <span class="ml-auto text-sub flex items-center">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+              </div>
+              <div class="flex items-center gap-2 text-[12.5px]">
+                <span class="text-hint tnum w-[38px]">14:31</span>
+                <span class="text-sub">开发</span>
+                <span class="ml-auto text-sub flex items-center">
+                  <svg class="w-[14px] h-[14px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 任务信息 -->
+          <div class="mt-4 pt-4 border-t border-line" id="taskinfo">
+            <div class="flex flex-col gap-1.5">
+              <div class="flex justify-between text-xs">
+                <span class="text-hint">任务</span>
+                <span class="text-sub tnum">T2</span>
+              </div>
+              <div class="flex justify-between text-xs">
+                <span class="text-hint">里程碑</span>
+                <span class="text-sub tnum">M1</span>
+              </div>
+              <div class="flex justify-between text-xs">
+                <span class="text-hint">阶段</span>
+                <span class="text-sub">已验收</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="spec" data-component="ledger-tree" id="ledger-tree">
+  <header class="spec-h">
+    <h2>账本视图（项目维度）</h2><code>?only=ledger-tree</code>
+    <p>唯一以树形展示项目全结构的地方：目标 → 里程碑 → 任务 → 派生会话，任务节点直通会话，闸口与派生关系在此可见。用左缩进块分层，不用终端连线。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="specimen w-full">
+      <div class="cap">账本树 · 阶段一执行中（含运行中 / 等你验收 / 派生 / 闸口）</div>
+
+      <div class="max-w-[640px] bg-card border border-line rounded-xl p-4">
+
+        <!-- 卡头 -->
+        <div class="flex items-center gap-2">
+          <span class="w-4 h-4 rounded bg-accent shrink-0"></span>
+          <span class="text-sm font-semibold text-ink">tranfu-agents-app · 账本</span>
+          <span class="ml-auto text-xs text-sub">阶段一 · 执行中</span>
+          <span class="bg-sunken border border-line rounded px-2 py-0.5 text-xs text-sub tnum">1/3 已验收</span>
+        </div>
+        <div class="mt-1 text-sub text-[13px]">目标 · 导出体验</div>
+
+        <!-- 树 -->
+        <div class="mt-3 text-[13px]">
+
+          <!-- 里程碑 M1 -->
+          <div class="flex items-center gap-2 py-1">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-diamond"/></svg>
+            <span class="font-semibold text-ink">里程碑 M1 · 导出体验</span>
+          </div>
+
+          <!-- M1 子任务 -->
+          <div class="ml-[7px] pl-4 border-l border-line">
+
+            <!-- T1 一键导出：验收通过（中性灰勾） -->
+            <div class="flex items-center gap-2 py-1">
+              <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+              <span class="text-ink">T1 一键导出</span>
+              <span class="text-sub text-xs">验收通过</span>
+              <a href="#" class="ml-auto text-accent text-xs shrink-0 hover:underline">打开会话 ›</a>
+            </div>
+
+            <!-- T2 进度提示：开发运行中（灰呼吸点） -->
+            <div class="flex items-center gap-2 py-1">
+              <span class="inline-block w-1.5 h-1.5 shrink-0 rounded-full bg-sub animate-breathe"></span>
+              <span class="text-ink">T2 进度提示</span>
+              <span class="text-sub text-xs">开发 · 运行中</span>
+              <a href="#" class="ml-auto text-accent text-xs shrink-0 hover:underline">打开会话 ›</a>
+            </div>
+
+            <!-- T3 失败汇总：等你验收（中性灰） -->
+            <div class="flex items-center gap-2 py-1">
+              <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="text-ink">T3 失败汇总</span>
+              <span class="text-sub text-xs">等你验收</span>
+              <a href="#" class="ml-auto text-accent text-xs shrink-0 hover:underline">打开会话 ›</a>
+            </div>
+
+            <!-- T3 派生：修复会话（运行中） -->
+            <div class="ml-[7px] pl-4 border-l border-line">
+              <div class="flex items-center gap-2 py-1">
+                <span class="inline-block w-1.5 h-1.5 shrink-0 rounded-full bg-sub animate-breathe"></span>
+                <span class="text-accent text-[11px] font-medium shrink-0">派生</span>
+                <span class="text-ink">修复会话</span>
+                <span class="text-sub text-xs">运行中</span>
+                <a href="#" class="ml-auto text-accent text-xs shrink-0 hover:underline">打开会话 ›</a>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- 里程碑 M2：未开始（整行弱化） -->
+          <div class="flex items-center gap-2 py-1 text-hint">
+            <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-diamond"/></svg>
+            <span>里程碑 M2 · 分享链路</span>
+            <span class="text-xs">未开始</span>
+          </div>
+
+          <!-- 闸口行（中性灰） -->
+          <div class="mt-2 flex items-center gap-2 bg-sunken border border-line rounded-lg p-2.5">
+            <span class="text-sub text-[11px] font-medium shrink-0">闸口</span>
+            <span class="text-ink">阶段一 → 阶段二</span>
+            <span class="ml-auto inline-flex items-center gap-1.5 shrink-0">
+              <svg class="w-[15px] h-[15px] shrink-0 stroke-current fill-none text-sub [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-hand"/></svg>
+              <span class="text-sub text-xs">需你做集成验收</span>
+            </span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="spec" data-component="empty-state" id="empty-state">
+  <header class="spec-h">
+    <h2>空态 / 新建会话</h2><code>?only=empty-state</code>
+    <p>还没有任何会话时的中栏落地页：一句话说清「交给一组角色办事」，一个大输入框直接描述目标，下方给一条账本里等你验收的任务作为现成入口。</p>
+  </header>
+  <div class="spec-stage">
+    <div class="stage-row gap-6">
+
+      <!-- ① 默认 -->
+      <div class="specimen">
+        <div class="cap">默认</div>
+        <div class="max-w-[560px] text-center">
+          <div class="w-8 h-8 rounded-lg bg-accent mx-auto mb-4"></div>
+          <h2 class="text-[17px] font-semibold text-ink">开始一个新会话</h2>
+          <p class="text-sub text-[13px] mt-1">交给一组角色替你把事办成，你只需在关键处点头。</p>
+
+          <div class="mt-5 bg-card border border-line rounded-xl pl-3.5 pr-1.5 py-1.5 flex items-center gap-2 text-left">
+            <span class="text-hint text-[13px]">描述你的目标，@一个角色开始…</span>
+            <button class="ml-auto bg-accent text-accent-fg rounded-lg px-3.5 py-2 text-[13px]">发送</button>
+          </div>
+
+          <div class="mt-5 text-left">
+            <div class="text-hint text-xs mb-2">或从账本任务开始：</div>
+            <div class="flex items-center gap-2.5 bg-card border border-line rounded-xl px-3.5 py-2.5 text-left">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+              <span class="text-ink text-[13px]">T3 失败汇总</span>
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub"></span>
+              <span class="text-sub text-xs">等你验收</span>
+              <span class="ml-auto text-accent text-[13px]">打开会话</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ② 聚焦（输入框边框转 accent） -->
+      <div class="specimen">
+        <div class="cap">聚焦（输入框边框转 accent）</div>
+        <div class="max-w-[560px] text-center">
+          <div class="w-8 h-8 rounded-lg bg-accent mx-auto mb-4"></div>
+          <h2 class="text-[17px] font-semibold text-ink">开始一个新会话</h2>
+          <p class="text-sub text-[13px] mt-1">交给一组角色替你把事办成，你只需在关键处点头。</p>
+
+          <div class="mt-5 bg-card border border-accent rounded-xl pl-3.5 pr-1.5 py-1.5 flex items-center gap-2 text-left">
+            <span class="text-hint text-[13px]">描述你的目标，@一个角色开始…</span>
+            <button class="ml-auto bg-accent text-accent-fg rounded-lg px-3.5 py-2 text-[13px]">发送</button>
+          </div>
+
+          <div class="mt-5 text-left">
+            <div class="text-hint text-xs mb-2">或从账本任务开始：</div>
+            <div class="flex items-center gap-2.5 bg-card border border-line rounded-xl px-3.5 py-2.5 text-left">
+              <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-doc"/></svg>
+              <span class="text-ink text-[13px]">T3 失败汇总</span>
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub"></span>
+              <span class="text-sub text-xs">等你验收</span>
+              <span class="ml-auto text-accent text-[13px]">打开会话</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+</main>
+<script>
+(function(){
+  var only = new URLSearchParams(location.search).get('only');
+  document.querySelectorAll('.spec').forEach(function(s){
+    s.style.display = (!only || s.dataset.component === only) ? '' : 'none';
+  });
+  document.querySelectorAll('.nav-link').forEach(function(a){
+    var id = a.dataset.id, active = only ? id === only : id === '__all';
+    a.classList.toggle('active', active);
+  });
+  var root = document.documentElement;
+  document.querySelectorAll('[data-theme-set]').forEach(function(b){
+    b.addEventListener('click', function(){
+      root.classList.remove('light','dark');
+      if(b.dataset.themeSet !== 'auto') root.classList.add(b.dataset.themeSet);
+      document.querySelectorAll('[data-theme-set]').forEach(function(x){ x.classList.toggle('on', x===b); });
+    });
+  });
+  // 折叠/展开交互（若组件用 hidden 切换）
+  document.addEventListener('click', function(e){
+    var t = e.target.closest('[data-toggle]'); if(!t) return;
+    var tgt = document.getElementById(t.getAttribute('data-toggle'));
+    if(tgt) tgt.classList.toggle('hidden');
+  });
+})();
+</script>
+</body>
+</html>

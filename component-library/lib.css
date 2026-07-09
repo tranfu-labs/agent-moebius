@@ -1,0 +1,36 @@
+/* 组件库外壳（shell）—— 用令牌变量，中性 Linear 面板。组件本身用 Tailwind utility */
+body.lib{margin:0;display:flex;min-height:100vh;background:var(--canvas);color:var(--ink);
+  font-family:"PingFang SC","Microsoft YaHei","Segoe UI",system-ui,-apple-system,sans-serif;font-size:13px;-webkit-font-smoothing:antialiased;}
+
+.lib-nav{flex:0 0 232px;width:232px;position:sticky;top:0;align-self:flex-start;height:100vh;overflow:auto;
+  background:var(--rail);border-right:1px solid var(--line);padding:14px 10px 20px;}
+.lib-brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;padding:2px 8px 14px;}
+.lib-mark{width:16px;height:16px;border-radius:5px;background:var(--accent);}
+.nav-group{margin-top:12px;}
+.nav-g-h{font-size:11px;font-weight:600;color:var(--hint);padding:0 8px 4px;letter-spacing:.02em;}
+.nav-link{display:block;text-decoration:none;color:var(--sub);font-size:12.5px;padding:6px 8px;border-radius:6px;}
+.nav-link:hover{background:var(--hover);color:var(--ink);}
+.nav-link.active{background:var(--sel);color:var(--ink);font-weight:600;}
+.nav-all{margin:2px 0 4px;font-weight:600;color:var(--ink);}
+.lib-theme{display:flex;gap:2px;margin:18px 4px 0;padding:3px;background:var(--card);border:1px solid var(--line);border-radius:8px;}
+.lib-theme button{flex:1;border:0;background:transparent;color:var(--sub);border-radius:5px;padding:5px 4px;font-size:11px;font-family:inherit;cursor:pointer;}
+.lib-theme button.on{background:var(--sel);color:var(--ink);font-weight:600;}
+
+.lib-main{flex:1;min-width:0;padding:28px 32px 80px;max-width:1120px;}
+.spec{margin-bottom:40px;scroll-margin-top:20px;}
+.spec-h{margin-bottom:14px;}
+.spec-h h2{font-size:17px;font-weight:600;letter-spacing:-0.01em;margin:0 0 4px;}
+.spec-h code{font-size:11.5px;color:var(--accent);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 7px;font-family:"SF Mono",Menlo,Consolas,monospace;}
+.spec-h p{margin:8px 0 0;font-size:12.5px;color:var(--sub);max-width:70ch;line-height:1.5;}
+
+/* demo 舞台 + 陈列助手（供 tokens/icons 等复用） */
+.spec-stage{background:var(--canvas);border:1px solid var(--line);border-radius:12px;padding:22px;overflow:auto;}
+.stage-row{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;}
+.stage-col{display:flex;flex-direction:column;gap:14px;}
+.specimen{display:flex;flex-direction:column;gap:8px;}
+.specimen>.cap{font-size:11px;color:var(--hint);font-weight:500;}
+.spec-todo{color:var(--hint);font-size:13px;padding:40px;text-align:center;}
+.swatch{display:flex;flex-direction:column;gap:6px;width:104px;}
+.swatch .chip{height:52px;border-radius:8px;border:1px solid var(--line);}
+.swatch .nm{font-size:11px;color:var(--ink);font-weight:500;}
+.swatch .hex{font-size:10.5px;color:var(--hint);font-family:"SF Mono",Menlo,monospace;}

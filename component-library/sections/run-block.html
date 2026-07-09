@@ -1,0 +1,128 @@
+<section class="spec" data-component="run-block" id="run-block">
+  <header class="spec-h">
+    <h2>运行块</h2><code>?only=run-block</code>
+    <p>时间线里正在动的活动块：角色 + 耗时 + 中断按钮，下接计划步骤逐条推进（已完成 / 进行中 / 未开始）。点开任一步看该步原始输出；拿不到步骤数据时降级为单行人话概括。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="stage-col gap-6 max-w-[640px]">
+
+      <!-- ① 完整步骤 -->
+      <div class="specimen">
+        <div class="cap">完整步骤</div>
+        <div class="border border-line rounded-lg bg-card p-3">
+          <!-- 头 -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-ink">开发</span>
+            <span class="text-sub text-xs tnum">运行中 3分12秒</span>
+            <button class="ml-auto border border-line-strong text-danger rounded-md px-2.5 py-0.5 text-xs hover:bg-hover">中断</button>
+          </div>
+          <!-- 步骤列 -->
+          <div class="flex flex-col gap-2 mt-2.5">
+            <!-- 已完成 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+              </span>
+              <span class="text-sub">1. 写进度事件桥</span>
+            </div>
+            <!-- 已完成 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+              </span>
+              <span class="text-sub">2. 接进度条组件</span>
+            </div>
+            <!-- 进行中 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center">
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+              </span>
+              <span class="text-ink font-semibold">3. 正在运行测试…</span>
+              <span class="text-hint text-[11px]">点开看输出</span>
+            </div>
+            <!-- 未开始 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center">
+                <span class="inline-block w-2 h-2 rounded-full border-[1.5px] border-hint"></span>
+              </span>
+              <span class="text-hint">4. 自测走查</span>
+            </div>
+          </div>
+          <div class="text-hint text-[11px] mt-2.5">点开任一步看原始输出</div>
+        </div>
+      </div>
+
+      <!-- ② 展开进行中步骤 -->
+      <div class="specimen">
+        <div class="cap">展开进行中步骤（原始输出）</div>
+        <div class="border border-line rounded-lg bg-card p-3">
+          <!-- 头 -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-ink">开发</span>
+            <span class="text-sub text-xs tnum">运行中 3分12秒</span>
+            <button class="ml-auto border border-line-strong text-danger rounded-md px-2.5 py-0.5 text-xs hover:bg-hover">中断</button>
+          </div>
+          <!-- 步骤列 -->
+          <div class="flex flex-col gap-2 mt-2.5">
+            <!-- 已完成 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+              </span>
+              <span class="text-sub">1. 写进度事件桥</span>
+            </div>
+            <!-- 已完成 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center text-sub">
+                <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5]" style="stroke-linecap:round;stroke-linejoin:round"><use href="#i-check"/></svg>
+              </span>
+              <span class="text-sub">2. 接进度条组件</span>
+            </div>
+            <!-- 进行中（已展开） -->
+            <div>
+              <div class="flex items-center gap-2.5 text-[13px]">
+                <span class="w-[15px] flex items-center justify-center">
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-sub animate-breathe"></span>
+                </span>
+                <span class="text-ink font-semibold">3. 正在运行测试…</span>
+                <span class="text-hint text-[11px]">点开看输出</span>
+              </div>
+              <!-- 原始输出 -->
+              <div class="bg-sunken rounded-lg p-3 mt-2 text-sub font-mono text-xs [white-space:pre-wrap]">$ npm test -- export/progress
+PASS  export/progress-bridge.test.ts
+PASS  export/progress-bar.test.tsx
+RUNS  export/boundary/empty-series.test.ts
+  ● 空系列进度提示 · 校验中…</div>
+            </div>
+            <!-- 未开始 -->
+            <div class="flex items-center gap-2.5 text-[13px]">
+              <span class="w-[15px] flex items-center justify-center">
+                <span class="inline-block w-2 h-2 rounded-full border-[1.5px] border-hint"></span>
+              </span>
+              <span class="text-hint">4. 自测走查</span>
+            </div>
+          </div>
+          <div class="text-hint text-[11px] mt-2.5">点开任一步看原始输出</div>
+        </div>
+      </div>
+
+      <!-- ③ 降级单行 -->
+      <div class="specimen">
+        <div class="cap">降级单行（拿不到步骤数据）</div>
+        <div class="border border-line rounded-lg bg-card p-3">
+          <!-- 头 -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-ink">开发</span>
+            <span class="text-sub text-xs tnum">运行中 3分12秒</span>
+            <button class="ml-auto border border-line-strong text-danger rounded-md px-2.5 py-0.5 text-xs hover:bg-hover">中断</button>
+          </div>
+          <!-- 单行灰字概括 -->
+          <div class="text-sub text-[13px] mt-2.5">正在运行测试 · 已进行 3 分 12 秒</div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>

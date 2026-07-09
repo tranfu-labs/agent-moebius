@@ -1,0 +1,87 @@
+<section class="spec" data-component="accept-card" id="accept-card">
+  <header class="spec-h">
+    <h2>「轮到你了」验收卡片</h2><code>?only=accept-card</code>
+    <p>会话时间线底部弹出的验收卡：证据先于裁决，逐条走查通过/不通过。</p>
+  </header>
+  <div class="spec-stage">
+
+    <div class="max-w-[680px]">
+      <div class="bg-card border border-line rounded-xl p-4">
+
+        <!-- 标题 -->
+        <div class="flex items-center gap-2 text-ink font-semibold mb-3">
+          <svg class="w-[15px] h-[15px] stroke-current fill-none [stroke-width:1.5] text-sub" style="stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24"><use href="#i-hand"/></svg>
+          <span>轮到你了 · 「用户代表」请你验收</span>
+        </div>
+
+        <!-- 证据头 -->
+        <div class="text-sm mb-1">
+          <span class="text-ink font-semibold">改了什么</span>
+          <span class="text-ink"> · 登录页加上「记住我」勾选，并把会话有效期延长到 30 天</span>
+        </div>
+        <div class="text-sm">
+          <span class="text-ink font-semibold">已自测</span>
+          <span class="text-ink"> · 测试走查 12 项用例全部通过</span>
+          <a class="text-accent"> 点开看记录</a>
+        </div>
+
+        <!-- lead -->
+        <div class="text-sub text-xs font-semibold my-2.5">按验收语句逐条走查：</div>
+
+        <!-- crit 1 -->
+        <div class="flex items-center gap-2.5 mb-1">
+          <span class="text-sub font-semibold">1</span>
+          <span class="flex-1 text-ink text-sm">勾选「记住我」后关闭浏览器再打开，仍保持登录</span>
+          <span class="bg-hover rounded-lg p-0.5 flex gap-0.5">
+            <button class="rounded-md px-3 py-1 text-xs bg-sel text-pass font-semibold">通过</button>
+            <button class="rounded-md px-3 py-1 text-xs text-sub">不通过</button>
+          </span>
+        </div>
+        <div class="ml-6 mb-2.5 text-sub text-xs flex items-center gap-1.5">
+          <a class="text-accent">打开</a>
+          <span>产物</span>
+          <span>· 自测 ✓</span>
+        </div>
+
+        <!-- crit 2 -->
+        <div class="flex items-center gap-2.5 mb-1">
+          <span class="text-sub font-semibold">2</span>
+          <span class="flex-1 text-ink text-sm">不勾选时，关闭浏览器后需要重新登录</span>
+          <span class="bg-hover rounded-lg p-0.5 flex gap-0.5">
+            <button class="rounded-md px-3 py-1 text-xs bg-sel text-pass font-semibold">通过</button>
+            <button class="rounded-md px-3 py-1 text-xs text-sub">不通过</button>
+          </span>
+        </div>
+        <div class="ml-6 mb-2.5 text-sub text-xs flex items-center gap-1.5">
+          <span>自测记录第 8 项 ✓</span>
+          <a class="text-accent">点开看输出</a>
+        </div>
+
+        <!-- crit 3 -->
+        <div class="flex items-center gap-2.5 mb-1">
+          <span class="text-sub font-semibold">3</span>
+          <span class="flex-1 text-ink text-sm">在手机上体验一遍，勾选框好按、文案看得懂</span>
+          <span class="bg-hover rounded-lg p-0.5 flex gap-0.5">
+            <button class="rounded-md px-3 py-1 text-xs text-sub">通过</button>
+            <button class="rounded-md px-3 py-1 text-xs bg-sel text-danger font-semibold">不通过</button>
+          </span>
+        </div>
+        <div class="ml-6 mb-2.5 text-sub text-xs flex items-center gap-1.5">
+          <span class="text-hint">暂无可挂证据 · 请你自己判断走查</span>
+        </div>
+
+        <!-- 依据 -->
+        <div class="text-sub text-xs">依据（选填）</div>
+        <input class="w-full bg-card border border-line rounded-lg px-3 py-2 mt-1 text-ink" placeholder="写下你判定的依据，方便回溯" />
+
+        <!-- 动作 -->
+        <div class="flex gap-2.5 mt-3.5">
+          <button class="bg-accent text-accent-fg rounded-lg px-3.5 py-2 font-semibold">提交验收结果</button>
+          <button class="bg-card border border-line text-sub rounded-lg px-3.5 py-2">先不验，回复别的</button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
