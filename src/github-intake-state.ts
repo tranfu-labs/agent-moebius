@@ -1,11 +1,24 @@
 import fs from "node:fs/promises";
-import path from "node:path";
+import { createHash } from "node:crypto";
 import { GITHUB_RESPONSE_INTAKE_STATE_PATH } from "./config.js";
 import type { GitHubResponseIntakeState, IntakeIssueState, IntakeRepositoryState } from "./github-response-intake.js";
+import { runSqliteStateCommand, sqlitePathForLegacyStateFile } from "./sqlite-state.js";
 
 export async function loadGitHubResponseIntakeState(
   filePath = GITHUB_RESPONSE_INTAKE_STATE_PATH,
 ): Promise<GitHubResponseIntakeState> {
+  await migrateLegacyGitHubIntakeState(filePath);
+  const state = await runSqliteStateCommand<unknown>({
+    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    command: { kind: "load-github-intake" },
+  });
+  if (!isGitHubResponseIntakeState(state)) {
+    throw new Error(`Invalid GitHub response intake state file: ${filePath}`);
+  }
+  return state;
+}
+
+async function loadLegacyGitHubResponseIntakeState(filePath: string): Promise<GitHubResponseIntakeState> {
   let raw: string;
   try {
     raw = await fs.readFile(filePath, "utf8");
@@ -29,10 +42,14 @@ export async function saveGitHubResponseIntakeState(
   state: GitHubResponseIntakeState,
   filePath = GITHUB_RESPONSE_INTAKE_STATE_PATH,
 ): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  await fs.rename(tempPath, filePath);
+  if (!isGitHubResponseIntakeState(state)) {
+    throw new Error(`Invalid GitHub response intake state file: ${filePath}`);
+  }
+  await migrateLegacyGitHubIntakeState(filePath);
+  await runSqliteStateCommand({
+    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    command: { kind: "save-github-intake", state },
+  });
 }
 
 function isGitHubResponseIntakeState(value: unknown): value is GitHubResponseIntakeState {
@@ -90,4 +107,35 @@ function isRecord<T>(value: unknown, isValue: (item: unknown) => item is T): val
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+async function migrateLegacyGitHubIntakeState(filePath: string): Promise<void> {
+  const sqlitePath = sqlitePathForLegacyStateFile(filePath);
+  const status = await runSqliteStateCommand<{ status: string | null }>({
+    sqlitePath,
+    command: { kind: "get-migration-status", source: "github-intake" },
+  });
+  if (status.status === "imported") {
+    return;
+  }
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+
+  const state = await loadLegacyGitHubResponseIntakeState(filePath);
+  await runSqliteStateCommand({
+    sqlitePath,
+    command: { kind: "import-github-intake", state, legacyDigest: digest(raw) },
+  });
+}
+
+function digest(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
 }

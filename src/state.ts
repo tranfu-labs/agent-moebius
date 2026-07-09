@@ -1,11 +1,24 @@
 import fs from "node:fs/promises";
-import path from "node:path";
+import { createHash } from "node:crypto";
 import { ROLE_THREADS_STATE_PATH } from "./config.js";
 import type { RoleThreadState } from "./conversation.js";
+import { runSqliteStateCommand, sqlitePathForLegacyStateFile } from "./sqlite-state.js";
 
 export type RoleThreadStateStore = Record<string, Record<string, RoleThreadState>>;
 
 export async function loadRoleThreadStateStore(filePath = ROLE_THREADS_STATE_PATH): Promise<RoleThreadStateStore> {
+  await migrateLegacyRoleThreadState(filePath);
+  const store = await runSqliteStateCommand<unknown>({
+    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    command: { kind: "load-role-threads" },
+  });
+  if (!isRoleThreadStateStore(store)) {
+    throw new Error(`Invalid role thread state file: ${filePath}`);
+  }
+  return store;
+}
+
+async function loadLegacyRoleThreadStateStore(filePath: string): Promise<RoleThreadStateStore> {
   let raw: string;
   try {
     raw = await fs.readFile(filePath, "utf8");
@@ -29,10 +42,14 @@ export async function saveRoleThreadStateStore(
   store: RoleThreadStateStore,
   filePath = ROLE_THREADS_STATE_PATH,
 ): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
-  await fs.rename(tempPath, filePath);
+  if (!isRoleThreadStateStore(store)) {
+    throw new Error(`Invalid role thread state file: ${filePath}`);
+  }
+  await migrateLegacyRoleThreadState(filePath);
+  await runSqliteStateCommand({
+    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    command: { kind: "save-role-threads", store },
+  });
 }
 
 export async function saveRoleThreadStateEntry(
@@ -42,8 +59,11 @@ export async function saveRoleThreadStateEntry(
   filePath = ROLE_THREADS_STATE_PATH,
 ): Promise<void> {
   await withStateFileLock(filePath, async () => {
-    const store = await loadRoleThreadStateStore(filePath);
-    await saveRoleThreadStateStore(withRoleThreadState(store, issueKey, role, state), filePath);
+    await migrateLegacyRoleThreadState(filePath);
+    await runSqliteStateCommand({
+      sqlitePath: sqlitePathForLegacyStateFile(filePath),
+      command: { kind: "save-role-thread-entry", issueKey, role, state },
+    });
   });
 }
 
@@ -102,6 +122,37 @@ function isRoleThreadState(value: unknown): value is RoleThreadState {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+async function migrateLegacyRoleThreadState(filePath: string): Promise<void> {
+  const sqlitePath = sqlitePathForLegacyStateFile(filePath);
+  const status = await runSqliteStateCommand<{ status: string | null }>({
+    sqlitePath,
+    command: { kind: "get-migration-status", source: "role-threads" },
+  });
+  if (status.status === "imported") {
+    return;
+  }
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+
+  const store = await loadLegacyRoleThreadStateStore(filePath);
+  await runSqliteStateCommand({
+    sqlitePath,
+    command: { kind: "import-role-threads", store, legacyDigest: digest(raw) },
+  });
+}
+
+function digest(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
 }
 
 const stateFileLocks = new Map<string, Promise<void>>();

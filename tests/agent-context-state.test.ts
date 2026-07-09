@@ -82,7 +82,23 @@ describe("agent context state store", () => {
       }),
       "utf8",
     );
-    await expect(loadAgentContextStateStore(filePath)).rejects.toThrow(/Invalid agent context state file/);
+    await expect(loadAgentContextStateStore(filePath)).resolves.toEqual(validStore);
+
+    const invalidLegacyPath = path.join(await makeTempDir(), ".state", "agent-contexts.json");
+    await fs.mkdir(path.dirname(invalidLegacyPath), { recursive: true });
+    await fs.writeFile(
+      invalidLegacyPath,
+      JSON.stringify({
+        "tranfu-labs/agent-moebius#4": {
+          "__issue-worktree": {
+            ...validEntry,
+            workspaceAccess: "admin",
+          },
+        },
+      }),
+      "utf8",
+    );
+    await expect(loadAgentContextStateStore(invalidLegacyPath)).rejects.toThrow(/Invalid agent context state file/);
   });
 
   it("merges concurrent entry saves without overwriting other issue contexts", async () => {

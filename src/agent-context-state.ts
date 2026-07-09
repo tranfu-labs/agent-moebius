@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
-import path from "node:path";
+import { createHash } from "node:crypto";
 import { AGENT_CONTEXTS_STATE_PATH } from "./config.js";
+import { runSqliteStateCommand, sqlitePathForLegacyStateFile } from "./sqlite-state.js";
 
 export interface AgentContextState {
   preScript: string;
@@ -20,6 +21,18 @@ export type AgentContextStateStore = Record<string, Record<string, AgentContextS
 export async function loadAgentContextStateStore(
   filePath = AGENT_CONTEXTS_STATE_PATH,
 ): Promise<AgentContextStateStore> {
+  await migrateLegacyAgentContextState(filePath);
+  const store = await runSqliteStateCommand<unknown>({
+    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    command: { kind: "load-agent-contexts" },
+  });
+  if (!isAgentContextStateStore(store)) {
+    throw new Error(`Invalid agent context state file: ${filePath}`);
+  }
+  return store;
+}
+
+async function loadLegacyAgentContextStateStore(filePath: string): Promise<AgentContextStateStore> {
   let raw: string;
   try {
     raw = await fs.readFile(filePath, "utf8");
@@ -43,10 +56,14 @@ export async function saveAgentContextStateStore(
   store: AgentContextStateStore,
   filePath = AGENT_CONTEXTS_STATE_PATH,
 ): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
-  await fs.rename(tempPath, filePath);
+  if (!isAgentContextStateStore(store)) {
+    throw new Error(`Invalid agent context state file: ${filePath}`);
+  }
+  await migrateLegacyAgentContextState(filePath);
+  await runSqliteStateCommand({
+    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    command: { kind: "save-agent-contexts", store },
+  });
 }
 
 export async function saveAgentContextStateEntry(
@@ -56,8 +73,11 @@ export async function saveAgentContextStateEntry(
   filePath = AGENT_CONTEXTS_STATE_PATH,
 ): Promise<void> {
   await withStateFileLock(filePath, async () => {
-    const store = await loadAgentContextStateStore(filePath);
-    await saveAgentContextStateStore(withAgentContextState(store, issueKey, role, state), filePath);
+    await migrateLegacyAgentContextState(filePath);
+    await runSqliteStateCommand({
+      sqlitePath: sqlitePathForLegacyStateFile(filePath),
+      command: { kind: "save-agent-context-entry", issueKey, role, state },
+    });
   });
 }
 
@@ -140,6 +160,37 @@ function isOptionalString(value: unknown): boolean {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+async function migrateLegacyAgentContextState(filePath: string): Promise<void> {
+  const sqlitePath = sqlitePathForLegacyStateFile(filePath);
+  const status = await runSqliteStateCommand<{ status: string | null }>({
+    sqlitePath,
+    command: { kind: "get-migration-status", source: "agent-contexts" },
+  });
+  if (status.status === "imported") {
+    return;
+  }
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+
+  const store = await loadLegacyAgentContextStateStore(filePath);
+  await runSqliteStateCommand({
+    sqlitePath,
+    command: { kind: "import-agent-contexts", store, legacyDigest: digest(raw) },
+  });
+}
+
+function digest(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
 }
 
 const stateFileLocks = new Map<string, Promise<void>>();

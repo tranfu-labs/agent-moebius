@@ -131,7 +131,7 @@ describe("goal ledger state", () => {
 
     await expect(
       Promise.race([
-        saveGoalLedgerEntry("goals", "goal-2", () => readyGoal("goal-2"), filePath),
+        saveGoalLedgerEntry("goals", "goal-2", () => readyGoal("goal-2"), filePath, { io: makeFsIo({}) }),
         new Promise((_, reject) => setTimeout(() => reject(new Error("lock not released")), 100)),
       ]),
     ).resolves.toBeUndefined();

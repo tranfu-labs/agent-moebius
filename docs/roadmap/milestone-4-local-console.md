@@ -49,11 +49,13 @@
 
 验收证据（2026-07-09）：T2 已按 `openspec/changes/local-console-t2-e2e-spike/` 实现最小本地 HTTP + SQLite + local intake/sink + Codex 闭环；真实本地运行截图见 `artifacts/acceptance/local-console-t2.png`，Codex 输出摘要见 `artifacts/acceptance/local-console-codex-output-summary.txt`，本地消息快照见 `artifacts/acceptance/local-console-snapshot.json`，验收环境摘要见 `artifacts/acceptance/local-console-acceptance-environment.txt`，fake `gh` 零调用日志见 `artifacts/acceptance/local-console-fake-gh.log`（0 bytes）。自动化回归：`pnpm vitest run tests/local-console.test.ts`、`pnpm typecheck`、`pnpm test` 均通过。
 
-### - [ ] T3 · SQLite 统一持久化 + 会话作基本单元（`数据正确级`）
+### - [x] T3 · SQLite 统一持久化 + 会话作基本单元（`数据正确级`）
 
 把 T1 的假持久化换成真实：会话时间线 + 会话树 + `role-threads` / `goal-ledger` / `intake` / `agent-contexts` 全部落 SQLite，废弃 `.state` JSON；GitHub 模式的既有持久化行为**零漂移**（behavior-preserving，回归靠现有 GitHub 全测试仍绿）。会话取代 issue 作 key。
 
 验收场景（细化时保留）：本地跑一轮对话后重启桌面壳 → 应看到会话历史、role thread、账本状态完全一致；跑现有 GitHub 全测试套件 → 应全绿，无行为差异。
+
+验收证据（2026-07-09）：T3 已按 `openspec/changes/local-console-t3-sqlite-persistence/` 实现统一 SQLite state store、GitHub deterministic session key、legacy `.state/*.json` source-local migration marker、worker-isolated SQLite timeout、只读 observer state loader，以及 local console `session_messages` 重启一致性。正式 8 条验收映射见 `artifacts/acceptance/t3-sqlite-persistence.md`。自动化回归：`pnpm vitest run tests/agent-context-state.test.ts tests/github-intake-state.test.ts tests/goal-ledger-state.test.ts tests/observer.test.ts tests/runner.test.ts tests/issue-worktree.test.ts tests/dev-workspace.test.ts` 退出码 0（7 个文件、143 个测试通过）；`pnpm vitest run tests/state.test.ts tests/sqlite-state.test.ts tests/local-console.test.ts` 退出码 0（3 个文件、16 个测试通过）；`pnpm typecheck` 退出码 0；`pnpm test` 退出码 0（根 35 个文件、393 个测试，desktop 5 个文件、15 个测试，console-ui 2 个文件、6 个测试）；`git diff --check` 退出码 0。
 
 ### - [ ] T4 · 桌面台成为完备操作台（`数据正确级`）
 

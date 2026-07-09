@@ -51,6 +51,7 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
     (await createSqliteLocalConsoleStore({
       sqlitePath,
       busyTimeoutMs: options.sqliteBusyTimeoutMs ?? LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS,
+      timeoutMs: options.storeTimeoutMs ?? LOCAL_CONSOLE_STORE_TIMEOUT_MS,
     }));
   const runtime = new LocalConsoleRuntime({
     store,

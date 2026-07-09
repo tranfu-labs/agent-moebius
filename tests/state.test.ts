@@ -69,6 +69,49 @@ describe("role thread state store", () => {
       },
     });
   });
+
+  it("migrates legacy issue role threads without sharing thread ids across issues", async () => {
+    const filePath = path.join(await makeTempDir(), ".state", "role-threads.json");
+    const legacyStore = {
+      "tranfu-labs/agent-moebius#101": {
+        dev: { threadId: "thread-101", lastSeenIndex: 7 },
+      },
+      "tranfu-labs/agent-moebius#102": {
+        dev: { threadId: "thread-102", lastSeenIndex: 3 },
+      },
+    };
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, JSON.stringify(legacyStore), "utf8");
+
+    const loaded = await loadRoleThreadStateStore(filePath);
+
+    expect(getRoleThreadState(loaded, "tranfu-labs/agent-moebius#101", "dev")).toEqual({
+      threadId: "thread-101",
+      lastSeenIndex: 7,
+    });
+    expect(getRoleThreadState(loaded, "tranfu-labs/agent-moebius#102", "dev")).toEqual({
+      threadId: "thread-102",
+      lastSeenIndex: 3,
+    });
+
+    await saveRoleThreadStateEntry(
+      "tranfu-labs/agent-moebius#101",
+      "dev",
+      { threadId: "thread-101-resumed", lastSeenIndex: 8 },
+      filePath,
+    );
+    const reloaded = await loadRoleThreadStateStore(filePath);
+
+    expect(getRoleThreadState(reloaded, "tranfu-labs/agent-moebius#101", "dev")).toEqual({
+      threadId: "thread-101-resumed",
+      lastSeenIndex: 8,
+    });
+    expect(getRoleThreadState(reloaded, "tranfu-labs/agent-moebius#102", "dev")).toEqual({
+      threadId: "thread-102",
+      lastSeenIndex: 3,
+    });
+    await expect(fs.readFile(filePath, "utf8")).resolves.toBe(JSON.stringify(legacyStore));
+  });
 });
 
 async function makeTempDir(): Promise<string> {
