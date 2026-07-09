@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Marketeam — Unlock Top Marketing Talent</title>
+<title>agent-moebius — @mention a role. Your AI team ships it.</title>
 
 <!-- 唯一外链：Google Fonts（Inter 400/500/600/700 + Urbanist 600/700）。离线则回退系统字体，版式不塌。 -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -35,6 +35,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
 
 body {
   font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -235,6 +236,17 @@ body {
 .t-black { color: var(--ink); }
 .t-white { color: var(--paper); }
 
+/* Hero 副文（打字机下方一行） */
+.hero-sub {
+  font-size: 18px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.72);
+  max-width: 540px;
+  margin: 0 0 32px;
+  animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 2.6s;
+}
+
 /* 打字机紫光标（闪烁） */
 .caret {
   display: inline-block;
@@ -252,7 +264,7 @@ body {
   animation-delay: 3.2s;        /* 打字完后出现 */
 }
 
-/* David 光标徽章 */
+/* @ceo mention 芯片（沿用光标徽章位与入场） */
 .david-badge {
   display: inline-flex;
   align-items: center;
@@ -332,19 +344,39 @@ body {
   animation: spinCW 30s linear infinite;   /* 抵消 orbit1 的 CCW */
   text-align: center;
 }
-.count-num {
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-size: 64px;
-  font-weight: 500;
-  line-height: 1;
-  color: var(--paper);
+/* 中心 CEO 角色卡（紫渐变卡 + CEO） + 标签，取代 20k+ count-up */
+.ceo-card {
+  width: 132px;
+  height: 132px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 30px;
+  cursor: pointer;
+  background:
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(150deg, #B98CFF 0%, #7C40F0 100%);
+  box-shadow: 0 12px 38px -8px rgba(160, 104, 255, 0.75);
 }
-.count-label {
+.ceo-card:hover { filter: brightness(1.06); }
+.ceo-badge {
+  font-family: 'Urbanist', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 40px;
+  letter-spacing: 1px;
+  color: var(--paper);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+  user-select: none;
+}
+.ceo-label {
   font-family: 'Urbanist', system-ui, sans-serif;
   font-size: 16px;
   font-weight: 600;
   color: var(--paper);
-  margin-top: 6px;
+  margin-top: 12px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 /* 头像定位层：静态 translate + 极坐标；rotate(-deg) 抵消角度让其正立 */
@@ -857,24 +889,24 @@ body {
     <!-- ============================== Header ============================== -->
     <header class="site-header">
       <div class="header-left">
-        <a class="brand" href="#" aria-label="Marketeam">
-          <!-- 内联 SVG wordmark + 菱形小标（高 32px） -->
-          <svg width="188" height="32" viewBox="0 0 188 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Marketeam">
+        <a class="brand" href="#" aria-label="agent-moebius">
+          <!-- 内联 SVG wordmark + 菱形小标（高 32px），复用页脚 agent-moebius 标 -->
+          <svg width="212" height="32" viewBox="0 0 212 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agent-moebius">
             <rect x="6" y="6" width="20" height="20" rx="4" transform="rotate(45 16 16)" fill="#A068FF"/>
-            <text x="40" y="24" font-family="Urbanist, sans-serif" font-size="23" font-weight="700" fill="#150033">Marketeam</text>
+            <text x="40" y="23" font-family="Urbanist, sans-serif" font-size="21" font-weight="700" fill="#150033">agent-moebius</text>
           </svg>
         </a>
         <nav class="nav">
-          <a class="nav-link" href="#">Your Team</a>
-          <a class="nav-link" href="#">Solutions</a>
-          <a class="nav-link" href="#">Blog</a>
-          <a class="nav-link" href="#">Pricing</a>
+          <a class="nav-link" href="#lp-about-h">Overview</a>
+          <a class="nav-link" href="#lp-how-h">How it works</a>
+          <a class="nav-link" href="#">Docs</a>
+          <a class="nav-link" href="#">GitHub</a>
         </nav>
       </div>
       <div class="header-right">
-        <a class="login" href="#">Log In</a>
+        <a class="login" href="#">GitHub</a>
         <div class="btn-border-wrap">
-          <button class="pill pill-join" type="button"><span>Join Now</span></button>
+          <button class="pill pill-join" type="button"><span>Get started</span></button>
         </div>
       </div>
     </header>
@@ -886,24 +918,26 @@ body {
       <div class="hero-left">
         <h1 class="hero-title" id="hero-title"></h1>
 
+        <p class="hero-sub">Runs Codex on your machine, guarded by a CEO, tracked to acceptance.</p>
+
         <div class="hero-cta">
           <div class="btn-border-wrap start-wrap">
             <button class="pill pill-start" type="button">
-              <span>Start Project</span>
+              <span>Get started</span>
               <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
             </button>
           </div>
         </div>
 
-        <!-- David 光标徽章（同款 hover：第 10 位提示词） -->
-        <div class="david-badge hoverable"
-             data-name="David"
-             data-role="Account Lead"
-             data-prompt="Photorealistic head-and-shoulders portrait of an approachable man in his 30s named David, an account lead, welcoming smile, casual blazer over a tee. Soft violet (#A068FF) rim light, deep near-black #060218 studio backdrop, soft shadows, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking at camera.">
+        <!-- @ceo mention 芯片（紫底白字药丸 + 紫光标箭头，hover 出 CEO charter，复用 role-tooltip） -->
+        <div class="david-badge role-card"
+             data-role="CEO"
+             data-label="orchestrates &amp; guards"
+             data-charter="Reviews and corrects every agent's reply, routes handoffs, and enforces the process gates.">
           <svg class="cursor-arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <path d="M4 2 L4 20 L9 15 L12.5 22 L15.5 20.5 L12 14 L19 14 Z" fill="#A068FF" stroke="#fff" stroke-width="1"/>
           </svg>
-          <span class="david-pill">David</span>
+          <span class="david-pill">@ceo</span>
         </div>
       </div>
 
@@ -912,104 +946,81 @@ body {
         <div class="orbit-wrap">
           <div class="orbits">
 
-            <!-- 轨1（内 353，左旋 30s）：中心块 + Maya -->
+            <!-- 轨1（内 353，左旋 30s）：中心 CEO 角色卡 + secretary -->
             <div class="orbit orbit1">
               <div class="center">
                 <div class="center-spin">
-                  <div class="count-num"><span id="count">0</span>k+</div>
-                  <div class="count-label">Specialists</div>
+                  <div class="ceo-card role-card"
+                       data-role="CEO" data-label="orchestrates &amp; guards"
+                       data-charter="Reviews and corrects every agent's reply, routes handoffs, and enforces the process gates.">
+                    <span class="ceo-badge">CEO</span>
+                  </div>
+                  <div class="ceo-label">orchestrates &amp; guards</div>
                 </div>
               </div>
-              <div class="avatar" style="--r:177px; --deg:270deg; --sz:58px; --glow:#A068FF; --delay:0.6s;">
+              <div class="avatar" style="--r:177px; --deg:270deg; --sz:58px; --glow:#5B9CFF; --delay:0.6s;">
                 <div class="avatar-counter counter1">
-                  <div class="avatar-card shape-sq20 hoverable"
-                       data-name="Maya Chen" data-role="Brand Strategist"
-                       data-prompt="Photorealistic head-and-shoulders portrait of a confident East-Asian woman in her early 30s, a brand strategist, warm assured smile, minimalist charcoal blazer over a plain tee. Soft violet (#A068FF) rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, square crop with rounded corners, natural skin texture, looking straight at camera.">
-                    <span class="ava-initials">MC</span>
+                  <div class="avatar-card shape-sq20 role-card"
+                       data-role="secretary" data-label="Keeps the rules"
+                       data-charter="Maintains and evolves the CEO's guardrail rules.">
+                    <span class="ava-initials">SEC</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- 轨2（501，右旋 40s）：Liam / Aisha / Kenji -->
+            <!-- 轨2（501，右旋 40s）：dev / product-manager -->
             <div class="orbit orbit2">
-              <div class="avatar" style="--r:251px; --deg:60deg; --sz:58px; --glow:#F5B23E; --delay:0.8s;">
+              <div class="avatar" style="--r:251px; --deg:60deg; --sz:58px; --glow:#3FCF8E; --delay:0.8s;">
                 <div class="avatar-counter counter2">
-                  <div class="avatar-card shape-round hoverable"
-                       data-name="Liam Novak" data-role="Growth Lead"
-                       data-prompt="Photorealistic head-and-shoulders portrait of a friendly white man in his late 20s, a growth marketing lead, relaxed grin, heather crewneck sweater. Warm amber-gold rim light from the right, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking slightly off camera.">
-                    <span class="ava-initials">LN</span>
+                  <div class="avatar-card shape-round role-card"
+                       data-role="dev" data-label="Writes the code"
+                       data-charter="The only role with write access to the issue worktree; implements and verifies changes.">
+                    <span class="ava-initials">DEV</span>
                   </div>
                 </div>
               </div>
-              <div class="avatar" style="--r:251px; --deg:180deg; --sz:78px; --glow:#E85CC4; --delay:1.0s;">
+              <div class="avatar" style="--r:251px; --deg:180deg; --sz:78px; --glow:#FF6FB5; --delay:1.0s;">
                 <div class="avatar-counter counter2">
-                  <div class="avatar-card shape-round hoverable"
-                       data-name="Aisha Rahman" data-role="Social Media Director"
-                       data-prompt="Photorealistic head-and-shoulders portrait of a bright South-Asian woman in her 30s wearing an elegant hijab, a social media director, approachable open expression, deep-teal blouse. Magenta-pink rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking straight at camera.">
-                    <span class="ava-initials">AR</span>
-                  </div>
-                </div>
-              </div>
-              <div class="avatar" style="--r:251px; --deg:300deg; --sz:58px; --glow:#5B9CFF; --delay:1.2s;">
-                <div class="avatar-counter counter2">
-                  <div class="avatar-card shape-sq20 hoverable"
-                       data-name="Kenji Tanaka" data-role="Performance Marketer"
-                       data-prompt="Photorealistic head-and-shoulders portrait of a focused Japanese man in his 30s, a performance marketer, thoughtful calm expression, thin-frame glasses, slate button-up shirt. Cool blue rim light from the right, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, square crop with rounded corners, natural skin texture, looking slightly off camera.">
-                    <span class="ava-initials">KT</span>
+                  <div class="avatar-card shape-round role-card"
+                       data-role="product-manager" data-label="Shapes the ask"
+                       data-charter="Turns intent into clear product requirements.">
+                    <span class="ava-initials">PM</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- 轨3（649，右旋 50s）：Sofia -->
+            <!-- 轨3（649，右旋 50s）：qa -->
             <div class="orbit orbit3">
-              <div class="avatar" style="--r:325px; --deg:130deg; --sz:88px; --glow:#FF9EC4; --delay:1.4s;">
+              <div class="avatar" style="--r:325px; --deg:130deg; --sz:88px; --glow:#F5B23E; --delay:1.4s;">
                 <div class="avatar-counter counter3">
-                  <div class="avatar-card shape-round hoverable"
-                       data-name="Sofia Ramirez" data-role="Content Strategist"
-                       data-prompt="Photorealistic head-and-shoulders portrait of a creative Latina woman in her late 20s, a content strategist, warm inviting smile, rust-colored knit. Soft pink rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking straight at camera.">
-                    <span class="ava-initials">SR</span>
+                  <div class="avatar-card shape-round role-card"
+                       data-role="qa" data-label="Breaks the plan"
+                       data-charter="Adversarially reviews the plan before any code is written, against the invariants oracle.">
+                    <span class="ava-initials">QA</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- 轨4（外 797，左旋 60s）：Noah / Priya / Zara / Lucas -->
+            <!-- 轨4（外 797，左旋 60s）：dev-manager / hermes-user -->
             <div class="orbit orbit4">
-              <div class="avatar" style="--r:399px; --deg:30deg; --sz:58px; --glow:#A068FF; --delay:1.6s;">
+              <div class="avatar" style="--r:399px; --deg:95deg; --sz:88px; --glow:#FF9A3D; --delay:1.8s;">
                 <div class="avatar-counter counter4">
-                  <div class="avatar-card shape-round hoverable"
-                       data-name="Noah Bennett" data-role="SEO Specialist"
-                       data-prompt="Photorealistic head-and-shoulders portrait of a composed Black man in his 30s, an SEO specialist, quietly confident expression, fine-knit charcoal turtleneck. Violet (#A068FF) rim light from the right, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking straight at camera.">
-                    <span class="ava-initials">NB</span>
+                  <div class="avatar-card shape-sq24 role-card"
+                       data-role="dev-manager" data-label="Tech lead"
+                       data-charter="Owns technical decisions, architecture choices and quality — without writing code.">
+                    <span class="ava-initials">DM</span>
                   </div>
                 </div>
               </div>
-              <div class="avatar" style="--r:399px; --deg:95deg; --sz:88px; --glow:#FF8A3D; --delay:1.8s;">
+              <div class="avatar" style="--r:399px; --deg:320deg; --sz:58px; --glow:#2FD4C6; --delay:2.2s;">
                 <div class="avatar-counter counter4">
-                  <div class="avatar-card shape-sq24 hoverable"
-                       data-name="Priya Nair" data-role="Creative Director"
-                       data-prompt="Photorealistic head-and-shoulders portrait of an artistic South-Asian woman in her 40s, a creative director, self-possessed expression, bold statement earrings, deep-plum blazer. Warm orange rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, square crop with rounded corners, natural skin texture, looking slightly off camera.">
-                    <span class="ava-initials">PN</span>
-                  </div>
-                </div>
-              </div>
-              <div class="avatar" style="--r:399px; --deg:220deg; --sz:88px; --glow:#FF6FB5; --delay:2.0s;">
-                <div class="avatar-counter counter4">
-                  <div class="avatar-card shape-sq24 hoverable"
-                       data-name="Zara Ahmed" data-role="Email/CRM Marketer"
-                       data-prompt="Photorealistic head-and-shoulders portrait of a poised Middle-Eastern woman in her 30s, an email and CRM marketer, serene professional expression, silk emerald blouse. Pink rim light from the right, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, square crop with rounded corners, natural skin texture, looking straight at camera.">
-                    <span class="ava-initials">ZA</span>
-                  </div>
-                </div>
-              </div>
-              <div class="avatar" style="--r:399px; --deg:320deg; --sz:58px; --glow:#A068FF; --delay:2.2s;">
-                <div class="avatar-counter counter4">
-                  <div class="avatar-card shape-round hoverable"
-                       data-name="Lucas Meyer" data-role="Paid Media Buyer"
-                       data-prompt="Photorealistic head-and-shoulders portrait of a sharp mixed white-Latino man in his 30s, a paid media buyer, decisive expression, tailored navy blazer. Violet (#A068FF) rim light from the left, deep near-black #060218 studio backdrop, soft shadows, shallow depth of field, 85mm lens, premium editorial talent-platform look, round crop, natural skin texture, looking straight at camera.">
-                    <span class="ava-initials">LM</span>
+                  <div class="avatar-card shape-round role-card"
+                       data-role="hermes-user" data-label="The user's voice"
+                       data-charter="Stands in for the end user — the Hermes persona.">
+                    <span class="ava-initials">HU</span>
                   </div>
                 </div>
               </div>
@@ -1243,26 +1254,15 @@ body {
   <div class="tt-charter rtt-charter"></div>
 </div>
 
-<!-- 头像 hover 标注框（全局单例） -->
-<div class="avatar-tooltip" id="tooltip" hidden>
-  <div class="tt-head"><span class="tt-name"></span> · <span class="tt-role"></span></div>
-  <div class="tt-divider"></div>
-  <div class="tt-sub">
-    <span class="tt-badge">A</span> AI 生成提示词
-    <button class="tt-copy" type="button" id="tt-copy">复制</button>
-  </div>
-  <div class="tt-prompt"></div>
-</div>
-
 <script>
 /* =========================================================================
    1) 打字机标题（逐字 setTimeout：35ms/字，延迟 400ms 起）
-      前 67 字 #000，其余 #fff，尾随闪烁紫光标。
+      前 16 字 "@mention a role." #000，其余 " Your AI team ships it." #fff，尾随闪烁紫光标。
    ========================================================================= */
 (function () {
   var el = document.getElementById('hero-title');
-  var full = 'Unlock Top Marketing Talent You Thought Was Out of Reach — Now Just One Click Away!';
-  var BLACK = 67;
+  var full = '@mention a role. Your AI team ships it.';
+  var BLACK = 16;
   var i = 0;
 
   function esc(s) {
@@ -1286,128 +1286,24 @@ body {
 })();
 
 /* =========================================================================
-   2) 中心数字 count-up（requestAnimationFrame，0→20，easeOutCubic，2s，延迟 1.2s）
-      显示为「20k+」（k+ 为静态后缀）。
-   ========================================================================= */
-(function () {
-  var out = document.getElementById('count');
-  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-  function run() {
-    var dur = 2000, start = performance.now();
-    function frame(now) {
-      var t = Math.min((now - start) / dur, 1);
-      out.textContent = Math.round(easeOutCubic(t) * 20);
-      if (t < 1) requestAnimationFrame(frame);
-      else out.textContent = '20';
-    }
-    requestAnimationFrame(frame);
-  }
-  setTimeout(run, 1200);
-})();
-
-/* =========================================================================
-   3) Logo Ticker：5 个唯一内联 SVG 标 ×4 无缝左滚
+   2) 技术栈 Ticker：5 个内联 SVG 芯片 ×4 无缝左滚（Node.js·TypeScript·Codex·gh·Electron）
    ========================================================================= */
 (function () {
   var logos = [
-    // Northwind —— 上三角标 + 粗体
-    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Northwind"><path d="M6 28 L14 10 L22 28 Z" fill="#B9A6E8"/><text x="30" y="26" font-family="Urbanist,sans-serif" font-size="17" font-weight="700" letter-spacing="0.3" fill="#D6CCF2">Northwind</text></svg>',
-    // Lumen —— 圆环标
-    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lumen"><circle cx="14" cy="20" r="8" fill="none" stroke="#B9A6E8" stroke-width="2.4"/><text x="30" y="26" font-family="Urbanist,sans-serif" font-size="19" font-weight="600" fill="#D6CCF2">Lumen</text></svg>',
-    // Vellum —— 旋方标 + 斜体
-    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Vellum"><rect x="8" y="14" width="12" height="12" fill="#B9A6E8" transform="rotate(45 14 20)"/><text x="30" y="26" font-family="Urbanist,sans-serif" font-size="19" font-weight="600" font-style="italic" fill="#D6CCF2">Vellum</text></svg>',
-    // Quartz —— 菱形描边 + 大写字距
-    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Quartz"><path d="M14 8 L22 20 L14 32 L6 20 Z" fill="none" stroke="#B9A6E8" stroke-width="2"/><text x="30" y="25" font-family="Urbanist,sans-serif" font-size="15" font-weight="700" letter-spacing="2.5" fill="#D6CCF2">QUARTZ</text></svg>',
-    // Habit —— 同心圆点 + 小写
-    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Habit"><circle cx="14" cy="20" r="7.5" fill="none" stroke="#B9A6E8" stroke-width="2.4"/><circle cx="14" cy="20" r="2.6" fill="#B9A6E8"/><text x="30" y="26" font-family="Urbanist,sans-serif" font-size="19" font-weight="600" fill="#D6CCF2">habit</text></svg>'
+    // Node.js —— 六边形标 + 文字
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Node.js"><path d="M14 6 L21 10 L21 30 L14 34 L7 30 L7 10 Z" fill="none" stroke="#B9A6E8" stroke-width="2"/><path d="M14 15 v10 M12 17 a3 3 0 1 0 0 5" fill="none" stroke="#D6CCF2" stroke-width="1.6" stroke-linecap="round"/><text x="32" y="26" font-family="Urbanist,sans-serif" font-size="18" font-weight="700" fill="#D6CCF2">Node.js</text></svg>',
+    // TypeScript —— 圆角方块 TS + 文字
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TypeScript"><rect x="5" y="10" width="20" height="20" rx="4" fill="#B9A6E8"/><text x="15" y="24" text-anchor="middle" font-family="Urbanist,sans-serif" font-size="12" font-weight="700" fill="#150033">TS</text><text x="32" y="26" font-family="Urbanist,sans-serif" font-size="18" font-weight="700" fill="#D6CCF2">TypeScript</text></svg>',
+    // Codex —— 终端提示符 + 文字
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Codex"><rect x="5" y="10" width="20" height="20" rx="4" fill="none" stroke="#B9A6E8" stroke-width="2"/><path d="M10 17 l4 3 l-4 3 M16 23 h5" fill="none" stroke="#D6CCF2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="32" y="26" font-family="Urbanist,sans-serif" font-size="18" font-weight="700" fill="#D6CCF2">Codex</text></svg>',
+    // gh —— GitHub 分支节点 + 文字
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="gh"><circle cx="11" cy="12" r="3" fill="none" stroke="#B9A6E8" stroke-width="2"/><circle cx="11" cy="28" r="3" fill="none" stroke="#B9A6E8" stroke-width="2"/><circle cx="22" cy="20" r="3" fill="none" stroke="#B9A6E8" stroke-width="2"/><path d="M11 15 v10 M11 20 h8 M22 17 v0" fill="none" stroke="#D6CCF2" stroke-width="1.6"/><text x="34" y="26" font-family="Urbanist,sans-serif" font-size="18" font-weight="700" fill="#D6CCF2">gh</text></svg>',
+    // Electron —— 电子轨道 + 文字
+    '<svg class="plogo" viewBox="0 0 137 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Electron"><circle cx="15" cy="20" r="2.4" fill="#D6CCF2"/><ellipse cx="15" cy="20" rx="10" ry="4.4" fill="none" stroke="#B9A6E8" stroke-width="1.6"/><ellipse cx="15" cy="20" rx="10" ry="4.4" fill="none" stroke="#B9A6E8" stroke-width="1.6" transform="rotate(60 15 20)"/><ellipse cx="15" cy="20" rx="10" ry="4.4" fill="none" stroke="#B9A6E8" stroke-width="1.6" transform="rotate(120 15 20)"/><text x="32" y="26" font-family="Urbanist,sans-serif" font-size="18" font-weight="700" fill="#D6CCF2">Electron</text></svg>'
   ];
   var group = '<div class="ticker-group">' + logos.join('') + '</div>';
   // 4 组：位移 -50%（=2 组）即无缝对齐
   document.getElementById('ticker-track').innerHTML = group + group + group + group;
-})();
-
-/* =========================================================================
-   4) 头像 / David 徽章 hover 标注框 + 复制
-      单例 tooltip，position:fixed，测量后夹在视口内（内翻/收敛，不溢出）。
-   ========================================================================= */
-(function () {
-  var tt = document.getElementById('tooltip');
-  var ttName = tt.querySelector('.tt-name');
-  var ttRole = tt.querySelector('.tt-role');
-  var ttPrompt = tt.querySelector('.tt-prompt');
-  var copyBtn = document.getElementById('tt-copy');
-  var hideTimer = null;
-  var current = '';
-
-  function place(el) {
-    var r = el.getBoundingClientRect();
-    var box = tt.getBoundingClientRect();
-    var pad = 12;
-    // 水平居中于目标，夹在视口内
-    var left = r.left + r.width / 2 - box.width / 2;
-    left = Math.max(pad, Math.min(left, window.innerWidth - box.width - pad));
-    // 默认放下方；下方放不下则翻到上方；仍不行则贴顶
-    var top = r.bottom + 10;
-    if (top + box.height > window.innerHeight - pad) {
-      var up = r.top - box.height - 10;
-      top = up >= pad ? up : pad;
-    }
-    tt.style.left = left + 'px';
-    tt.style.top = top + 'px';
-  }
-
-  function show(el) {
-    clearTimeout(hideTimer);
-    current = el.getAttribute('data-prompt') || '';
-    ttName.textContent = el.getAttribute('data-name') || '';
-    ttRole.textContent = el.getAttribute('data-role') || '';
-    ttPrompt.textContent = current;
-    copyBtn.textContent = '复制';
-    copyBtn.classList.remove('copied');
-    tt.hidden = false;         // 先显示再测量尺寸
-    place(el);
-  }
-  function scheduleHide() {
-    hideTimer = setTimeout(function () { tt.hidden = true; }, 160);
-  }
-
-  var targets = document.querySelectorAll('.hoverable');
-  for (var i = 0; i < targets.length; i++) {
-    (function (el) {
-      el.addEventListener('mouseenter', function () { show(el); });
-      el.addEventListener('mouseleave', scheduleHide);
-    })(targets[i]);
-  }
-  // 指针移入 tooltip 时取消隐藏，便于点「复制」
-  tt.addEventListener('mouseenter', function () { clearTimeout(hideTimer); });
-  tt.addEventListener('mouseleave', scheduleHide);
-
-  copyBtn.addEventListener('click', function () {
-    function done() {
-      copyBtn.textContent = '已复制';
-      copyBtn.classList.add('copied');
-      setTimeout(function () {
-        copyBtn.textContent = '复制';
-        copyBtn.classList.remove('copied');
-      }, 1400);
-    }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(current).then(done, fallback);
-    } else {
-      fallback();
-    }
-    function fallback() {
-      var ta = document.createElement('textarea');
-      ta.value = current;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch (e) {}
-      document.body.removeChild(ta);
-      done();
-    }
-  });
 })();
 </script>
 
