@@ -23,7 +23,7 @@
 - MUST NOT 在首屏出现对 agent-moebius 不成立的数字/战绩（如「20k+ Specialists」等虚构规模）。
 - 首屏圆环中心 MUST 呈现编排者角色 CEO（体现「orchestrates & guards」）；其余真实角色（secretary / dev / dev-manager / product-manager / qa / hermes-user）MUST 作为绕轨节点呈现。
 - 每个角色 MUST 配与其 `agents/*.md` 职责一致的一行 charter；角色节点 hover MUST 弹框显示该 charter（复用同一 tooltip 组件，此处不要求复制控件）。
-- 底部滚动条 MUST 呈现真实技术栈（如 Node.js · TypeScript · Codex · gh · Electron），MUST NOT 使用虚构合作方 logo 冒充「被信任墙」。
+- 首屏底部 MUST 呈现角色工牌架（见「员工工牌与工牌架」），MUST NOT 使用被动技术栈滚动条或虚构合作方 logo。
 
 ### 首屏下方正文（如实介绍项目）
 - MUST 在 `sites/marketeam/index.html` 首屏之后、同一文件内以长滚动追加正文，MUST NOT 拆成多文件或引入构建。
@@ -35,6 +35,14 @@
 ### 角色 charter 一致性
 - 首屏圆环角色与正文「角色阵容」一节的 charter MUST 逐字一致（同一事实源 `agents/*.md`）。
 
+### 员工工牌与工牌架
+- 角色 MUST 以「员工工牌」样式呈现：卡面含卡槽/打孔、头像（缩写色卡，底色=角色光晕色）、姓名（角色名）、职位（charter）、公司标 `agent-moebius`、条形码；MUST NOT 用长挂绳等重装饰，MUST NOT 虚构 agent-moebius 之外的岗位。
+- 工牌采用全息档：hover MUST 有轻 3D tilt（≤ ±6°）+ 光泽扫过 + 随指针流动的全息 foil，MUST 在 `prefers-reduced-motion` 下降级为静态。工牌样式 MUST 应用到正文「角色阵容」（完整工牌）与首屏圆环节点（简化版工牌，体量克制、不破坏轨旋转与正立）。
+- 首屏底部 MUST 呈现一排**侧立斜插叠放**的角色工牌（perspective + rotateY），两端渐隐；侧立态 MUST 至少露出角色缩写色卡便于辨认。
+- 工牌架 hover MUST 只做垂直位移（抬起）：MUST NOT 在 hover 时把工牌转正或放大到正面。
+- 工牌架点击/激活 MUST 打开详情并**此时才显示工牌正面**：呈现正面放大工牌 + 角色名、charter、`@<role>` 用法；MUST 可通过 Esc / 遮罩 / 关闭按钮关闭；MUST 键盘可达（focus + Enter）。
+- 工牌架 MUST NOT 触发页面横向滚动；MUST 在 `prefers-reduced-motion` 下降级去大位移。
+
 ### 滚动进场
 - 正文各段 MUST 用滚动进入视口时的一次性进场动画（原生 IntersectionObserver，无第三方动画库）。
 - MUST 在 `prefers-reduced-motion` 下降级为直接显示、不做位移。
@@ -45,7 +53,7 @@
 ### 场景 MS.1：落地页自包含可离线打开
 Given 用户双击 `sites/marketeam/index.html`
 When 页面加载（无第三方站点资源可用）
-Then 背景、品牌标、底部技术栈条、角色卡均正常渲染
+Then 背景、品牌标、底部角色工牌架、角色工牌均正常渲染
 And 仅字体可能回退到系统字体，版式不塌
 
 ### 场景 MS.4：窄屏不横滚
@@ -86,3 +94,24 @@ Then 中心为 CEO（orchestrates & guards）
 And 其余真实角色绕轨呈现
 When 用户 hover 某个绕轨角色
 Then 弹框显示该角色真实 charter（与正文一致），且不含复制控件
+
+### 场景 MS.10：角色以员工工牌呈现
+Given 正文「角色阵容」或首屏圆环已渲染
+When 用户查看某个角色
+Then 该角色以员工工牌样式呈现（卡槽、缩写色卡、角色名、charter、agent-moebius 标、条形码）
+When 用户 hover 该工牌
+Then 出现 ≤±6° 的 3D 倾斜、光泽扫过与随指针流动的全息 foil
+And 在 prefers-reduced-motion 下退化为静态
+
+### 场景 MS.11：底部工牌架 hover 只抬起不转正
+Given 底部角色工牌架已渲染（工牌侧立斜插）
+When 用户悬停某张工牌
+Then 该工牌仅垂直抬起（可含提亮），角度不变、不转正、不放大到正面
+And 页面不出现横向滚动
+
+### 场景 MS.12：点击工牌才显示正面详情
+Given 底部工牌架
+When 用户点击（或键盘激活）某张工牌
+Then 打开详情弹窗并显示该工牌正面放大视图
+And 展示角色名、charter 与 `@<role>` 在 issue 中的用法
+And 可通过 Esc / 遮罩 / 关闭按钮关闭

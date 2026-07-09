@@ -1,6 +1,6 @@
 # Landing Page Wireframe（agent-moebius）
 
-落地页 `sites/marketeam/index.html`（目录名 `marketeam` 为早期样例遗留）是自包含单文件：全视口 hero + 首屏下方正文，首屏与正文均如实呈现 agent-moebius。header + 左文案 + 右圆环可视化 + 底部技术栈滚动条；背景为 CSS mesh 渐变（深底 `#060218` + 紫粉光晕）。首屏圆环即 AI 角色团队：**CEO 居中、6 角色绕轨，hover 出角色真实 charter**（不再是营销人像/照片提示词）。
+落地页 `sites/marketeam/index.html`（目录名 `marketeam` 为早期样例遗留）是自包含单文件：全视口 hero + 首屏下方正文，首屏与正文均如实呈现 agent-moebius。header + 左文案 + 右圆环可视化 + 底部角色工牌架；背景为 CSS mesh 渐变（深底 `#060218` + 紫粉光晕）。首屏圆环即 AI 角色团队：**CEO 居中、6 角色绕轨**（节点为简化版员工工牌），hover 出角色真实 charter。角色统一以**员工工牌（全息档）**呈现，见文末「角色工牌 + 底部工牌架」。
 
 桌面态：
 
@@ -16,7 +16,7 @@
 │  │ [ Get started → ]      │      │    ╰─────────╯      │ │     │
 │  │      ▷[ @ceo ]          │       ╰ SEC  DM   HU ─────╯ │     │ @ceo mention 芯片
 │  └────────────────────────┘        ╰──────────────────╯     │
-│  ‹ Node.js · TypeScript · Codex · gh · Electron 左滚20s ›    │ 技术栈 ticker
+│  ‹渐隐  ╱▌╱▌╱▌╱▌╱▌╱▌╱▌  7 工牌侧立斜插  渐隐›            │ 工牌架
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@
 │        │   CEO    │            │ 中心 CEO + 6 角色绕轨
 │        │orchestr. │            │
 │        ╰──────────╯            │
-│ ‹ Node.js·TypeScript·Codex… ›  │ 技术栈 ticker
+│ ‹ ╱▌╱▌╱▌╱▌ 工牌架 ›            │ 工牌架
 └───────────────────────────────┘
 ```
 
@@ -68,7 +68,7 @@
 
 ## 首屏下方正文（如实介绍 agent-moebius）
 
-首屏 hero（Marketeam 营销壳）之下的同页长滚动正文，如实介绍本项目 agent-moebius。每段滚入视口时一次性淡入（IntersectionObserver，prefers-reduced-motion 降级为直接显示）。复用首屏设计系统：药丸+旋转描边按钮、紫 mesh/光晕、头像卡 + hover 弹框。
+首屏 hero 之下的同页长滚动正文，如实介绍本项目 agent-moebius。每段滚入视口时一次性淡入（IntersectionObserver，prefers-reduced-motion 降级为直接显示）。复用首屏设计系统：药丸+旋转描边按钮、紫 mesh/光晕、员工工牌 + hover 弹框。
 
 ```text
 ① What is agent-moebius
@@ -81,10 +81,10 @@
    扫描open  归一化    @mention   CEO      交棒 plan-written→
    issue    speaker时间线 触发本机codex  guardrail校正 code-verified→账本验收
 
-③ Your AI team —— 7 真实角色（复用头像卡 + hover）
+③ Your AI team —— 7 真实角色，完整员工工牌网格（见文末工牌解剖）
    [CEO Orchestrates&guards][secretary Keeps the rules][dev Writes the code][dev-manager Tech lead]
    [product-manager Shapes the ask][qa Breaks the plan][hermes-user The user's voice]
-   hover 弹框：角色名·短标签 + 真实 charter（复用首屏 tooltip，无复制按钮）
+   每张为工牌（缩写色卡+角色名+charter+agent-moebius+条形码），hover 出 ≤±6° tilt + 全息 foil
 
 ④ Goal ledger + CTA + Footer
    H2: From goal to acceptance — tracked end to end
@@ -119,4 +119,42 @@ dev-manager     Tech lead              橙  Owns technical decisions, architectu
 product-manager Shapes the ask         粉  Turns intent into clear product requirements.
 qa              Breaks the plan        黄  Adversarially reviews the plan before any code is written, against the invariants oracle.
 hermes-user     The user's voice       青  Stands in for the end user — the Hermes persona.
+```
+
+## 角色工牌 + 底部工牌架（全息档）
+
+角色统一以「员工工牌」呈现：③为完整工牌网格，首屏圆环节点为简化版工牌。工牌解剖：
+
+```text
+   ╭┈┈┈╮      顶部卡槽/打孔（无长挂绳）
+  ┌┴───┴┐
+  │┌───┐│     头像 = 缩写色卡（底色=光晕色）
+  ││DEV││
+  │└───┘│
+  │ dev  │     姓名 = 角色名
+  │Writes│     职位 = charter
+  │◆a-m ▐▌│    公司标 agent-moebius + 条形码
+  └──────┘
+  hover：±6° tilt + 光泽扫过 + 全息 foil 随鼠标流动；prefers-reduced-motion 降级静态
+```
+
+底部工牌架（借黑胶唱片架动效，主体是工牌，无黑胶碟）三态：
+
+```text
+默认：7 工牌侧立斜插（rotateY≈44°）叠放，两端渐隐，侧面露缩写色卡
+  ╱▌╱▌╱▌╱▌╱▌╱▌╱▌   CEO SEC DEV DM PM QA HU
+
+hover：目标工牌【只垂直抬起 translateY-26】，角度不变、不转正、不放大
+        ╱▌
+  ╱▌╱▌   ╱▌╱▌╱▌
+
+点击/Enter：弹详情弹窗，【此时才显示正面】
+  ┌──────────────────────────────────┐
+  │  ┌正面工牌┐  DEV-MANAGER      [✕] │
+  │  │ DM     │  dev-manager         │
+  │  │dev-mgr │  Owns technical …     │
+  │  │◆a-m ▐▌ │  @dev-manager → …     │
+  │  └────────┘                      │
+  └──────────────────────────────────┘
+  Esc/遮罩/关闭按钮可关；键盘可达；prefers-reduced-motion 去大位移
 ```
