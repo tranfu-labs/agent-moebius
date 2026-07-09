@@ -64,6 +64,11 @@ export const ISSUE_MEDIA_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 export const OUTPUT_ARTIFACT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const OUTPUT_ARTIFACT_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 export const OUTPUT_ARTIFACT_RELEASE_TAG = "agent-moebius-artifacts";
+export const LOCAL_CONSOLE_HOST = process.env.LOCAL_CONSOLE_HOST?.trim() || "127.0.0.1";
+export const LOCAL_CONSOLE_PORT = parseOptionalPort(process.env.LOCAL_CONSOLE_PORT) ?? 8788;
+export const LOCAL_CONSOLE_SQLITE_PATH = path.join(DATA_ROOT, ".state", "local-console.sqlite");
+export const LOCAL_CONSOLE_STORE_TIMEOUT_MS = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_STORE_TIMEOUT_MS) ?? 2_000;
+export const LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS) ?? 2_000;
 export const AGENTS_DIR = RUNTIME_PATHS.agentsDir;
 export const TMP_ROOT = "/tmp";
 export const ROLE_THREADS_STATE_PATH = ".state/role-threads.json";
@@ -111,6 +116,11 @@ export const CONFIG_LOG_FIELDS = {
   outputArtifactImageMaxBytes: OUTPUT_ARTIFACT_IMAGE_MAX_BYTES,
   outputArtifactVideoMaxBytes: OUTPUT_ARTIFACT_VIDEO_MAX_BYTES,
   outputArtifactReleaseTag: OUTPUT_ARTIFACT_RELEASE_TAG,
+  localConsoleHost: LOCAL_CONSOLE_HOST,
+  localConsolePort: LOCAL_CONSOLE_PORT,
+  localConsoleSqlitePath: LOCAL_CONSOLE_SQLITE_PATH,
+  localConsoleStoreTimeoutMs: LOCAL_CONSOLE_STORE_TIMEOUT_MS,
+  localConsoleSqliteBusyTimeoutMs: LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS,
   agentsDir: AGENTS_DIR,
   tmpRoot: TMP_ROOT,
   roleThreadsStatePath: ROLE_THREADS_STATE_PATH,
@@ -119,3 +129,25 @@ export const CONFIG_LOG_FIELDS = {
   goalLedgerStatePath: GOAL_LEDGER_STATE_PATH,
   workdirRoot: WORKDIR_ROOT,
 };
+
+function parseOptionalPort(value: string | undefined): number | null {
+  if (value === undefined || value.trim() === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65_535) {
+    throw new Error(`Invalid LOCAL_CONSOLE_PORT: ${value}`);
+  }
+  return parsed;
+}
+
+function parseOptionalPositiveInteger(value: string | undefined): number | null {
+  if (value === undefined || value.trim() === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid positive integer config value: ${value}`);
+  }
+  return parsed;
+}

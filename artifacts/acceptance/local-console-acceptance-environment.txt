@@ -1,0 +1,7 @@
+dataRoot=/tmp/agent-moebius-t2-acceptance/data
+configTomlExists=false
+configLocalTomlExists=false
+watchedRepositories=[]
+localConsoleUrl=http://127.0.0.1:8798/
+fakeGhLogBytes=0
+codexVersion=codex-cli 0.135.0

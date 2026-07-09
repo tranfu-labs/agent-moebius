@@ -39,11 +39,13 @@
 
 验收场景（细化时保留）：在 issue 里只写目标形状「我想做一个 X」（无明确拆分意图）→ 应看到 CEO 路由到方案链、不进 goal-intake 拆子 issue；在 issue 里明确写「把这个拆成多个任务并行做」→ 才应看到 goal-intake 采访 / 提案 / 拆分。
 
-### - [ ] T2 · 本地端到端最小闭环（风险优先 spike，`demo 级`）
+### - [x] T2 · 本地端到端最小闭环（风险优先 spike，`demo 级`）
 
 消除本里程碑最大不确定性：**纯本地通道能否替代 GitHub 做输入源 + 输出汇，同时核心链路照常工作**。一条最小垂直叙事——真人在最小本地界面发一条带 mention 的消息 → runner 经 local intake adapter 拾取 → codex 跑 → 回复经 local sink 落回本地并显示。允许其他能力假实现（无会话树、无持久化、单会话、UI 极简），但 adapter 边界 + 本地通道 + 最小 SQLite 消息表这条端到端路径不得断。
 
 验收场景（细化时保留）：不配 repository、不 `gh auth` 启动 → 在最小本地界面发「@dev 帮我写个 hello」→ 应看到 codex 真实运行并把回复显示在本地界面，全程无任何 GitHub 调用（fake `gh` 零调用）。
+
+验收证据（2026-07-09）：T2 已按 `openspec/changes/local-console-t2-e2e-spike/` 实现最小本地 HTTP + SQLite + local intake/sink + Codex 闭环；真实本地运行截图见 `artifacts/acceptance/local-console-t2.png`，Codex 输出摘要见 `artifacts/acceptance/local-console-codex-output-summary.txt`，本地消息快照见 `artifacts/acceptance/local-console-snapshot.json`，验收环境摘要见 `artifacts/acceptance/local-console-acceptance-environment.txt`，fake `gh` 零调用日志见 `artifacts/acceptance/local-console-fake-gh.log`（0 bytes）。自动化回归：`pnpm vitest run tests/local-console.test.ts`、`pnpm typecheck`、`pnpm test` 均通过。
 
 ### - [ ] T3 · SQLite 统一持久化 + 会话作基本单元（`数据正确级`）
 

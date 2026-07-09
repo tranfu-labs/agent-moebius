@@ -125,6 +125,7 @@ import {
 import { loadGitHubResponseIntakeState, saveGitHubResponseIntakeState } from "./github-intake-state.js";
 import { makeIssueSource, type IssueSource, type RepositoryRef } from "./issue-source.js";
 import { log } from "./log.js";
+import { startLocalConsoleServer } from "./local-console/server.js";
 import { maybeProcessIntegrationAcceptancePrePass } from "./runner/acceptance-prepass.js";
 import { addCodexExecutionReaction, resolveCodexExecutionReactionTarget } from "./runner/codex-execution-reaction.js";
 import { maybeRecoverRoundtableNoHandoff, maybeRouteExternalNoMentionComment } from "./runner/external-route.js";
@@ -2275,6 +2276,11 @@ function logCeoGuardrailResult(input: {
 
 export async function start(): Promise<NodeJS.Timeout> {
   log({ event: "start", config: CONFIG_LOG_FIELDS });
+  try {
+    await startLocalConsoleServer();
+  } catch (error) {
+    log({ event: "local-console-start-failed", error: formatError(error) });
+  }
   const runner = createRunner({ initialState: await loadGitHubResponseIntakeState() });
   void runner.heartbeat();
   return setInterval(() => {
