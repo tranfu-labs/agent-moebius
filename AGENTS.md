@@ -59,7 +59,7 @@
 ├── packages/
 │   └── console-ui/             # shadcn/Radix + Tailwind 的 React 对话操作台组件库与 Storybook
 ├── sites/                      # 面向公众的自包含静态营销站点（与产品运行时零耦合）
-│   └── marketeam/              # Marketeam 营销落地页单文件（marketing-site 域，见 openspec/specs/marketing-site）
+│   └── marketeam/              # 落地页单文件：Marketeam 首屏样例壳 + 首屏下方如实介绍 agent-moebius（marketing-site 域，见 openspec/specs/marketing-site）
 ├── tests/                      # Vitest 单元测试
 ├── docs/
 │   ├── adr/                    # 架构决策记录

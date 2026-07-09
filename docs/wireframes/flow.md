@@ -80,5 +80,12 @@ pnpm observer
   ├─ 头像错峰 fly-in（scale0.3+rotate-180+blur → 正常，0.6→2.3s）
   │     └─ hover 头像 → 弹标注框（姓名·角色 + AI 生成提示词 + 复制）
   ├─ 底部 ticker 5 标×4 无缝左滚 20s，两端渐隐
-  └─ 断点 1280/1024/768/480：逐档缩标题与圆环，≤1024 堆叠，≤768 隐藏 nav，无横向滚动
+  ├─ 断点 1280/1024/768/480：逐档缩标题与圆环，≤1024 堆叠，≤768 隐藏 nav，无横向滚动
+  │
+  └─ 继续向下滚动（同页正文，如实介绍 agent-moebius）
+       ├─ 每段 IntersectionObserver 滚入一次性淡入（prefers-reduced-motion 降级直显）
+       ├─ ① 是什么：定位一句话 + 3 概念芯片
+       ├─ ② 怎么跑：Watch→Normalize→Trigger→Guard→Track 真实闭环（≤768 纵向堆叠）
+       ├─ ③ AI 团队：7 角色卡，hover 出角色真实 charter（复用首屏 tooltip，无复制）
+       └─ ④ 目标账本：goal→milestone→task→phase + 过程保证芯片 + Get started CTA + footer
 ```

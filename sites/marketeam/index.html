@@ -540,6 +540,314 @@ body {
   .ticker-group { gap: 44px; }
 }
 </style>
+
+<!-- =========================================================================
+     追加：hero 之后正文 4 节样式（不改动上方任何 hero 规则；复用同一批设计令牌）
+     ========================================================================= -->
+<style>
+/* ---- 正文容器：延续深底 #060218 + 紫粉光晕，与首屏一页连贯 ---- */
+.lp {
+  position: relative;
+  background-color: var(--deep1);
+  color: var(--paper);
+  overflow: hidden;                 /* 裁掉光晕外溢，杜绝横向滚动 */
+  background-image:
+    radial-gradient(900px 720px at 82% 2%,  rgba(160, 104, 255, 0.20), rgba(160, 104, 255, 0) 60%),
+    radial-gradient(760px 700px at 6% 46%,  rgba(255, 111, 181, 0.12), rgba(255, 111, 181, 0) 60%),
+    radial-gradient(1000px 900px at 94% 98%, rgba(160, 104, 255, 0.18), rgba(160, 104, 255, 0) 60%);
+}
+.lp-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 112px 64px;
+}
+
+/* ---- 通用排版 ---- */
+.lp-head { max-width: 760px; }
+.lp-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 18px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--violet);
+}
+.lp-eyebrow::before {
+  content: '';
+  width: 22px; height: 1px;
+  background: var(--violet);
+  opacity: 0.7;
+}
+.lp-h2 {
+  font-family: 'Urbanist', system-ui, sans-serif;
+  font-size: 44px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -1px;
+  margin: 0 0 20px;
+  color: var(--paper);
+}
+.lp-lead {
+  font-size: 18px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+  max-width: 640px;
+  margin: 0 0 40px;
+}
+
+/* ---- 概念/事实芯片（① 与 ④ 复用） ---- */
+.lp-chips { display: flex; flex-wrap: wrap; gap: 14px; }
+.lp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border: 1px solid rgba(160, 104, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(160, 104, 255, 0.06);
+  font-size: 15px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+}
+.lp-chip svg { width: 18px; height: 18px; color: var(--violet); flex: 0 0 auto; }
+
+/* ---- ② How it works —— 5 步横向流水（窄屏纵向堆叠） ---- */
+.lp-flow {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+.lp-step {
+  position: relative;
+  flex: 1;
+  text-align: center;
+  padding: 0 12px;
+}
+/* 步与步之间的连接线（横向，穿过序号徽章中线） */
+.lp-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 21px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(160, 104, 255, 0.5) 0%, rgba(160, 104, 255, 0.12) 100%);
+  z-index: 0;
+}
+.lp-step-num {
+  position: relative;
+  z-index: 1;
+  width: 44px; height: 44px;
+  margin: 0 auto 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(160, 104, 255, 0.55);
+  background: #120a2a;              /* 实底盖住连接线 */
+  font-family: 'Urbanist', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--paper);
+  box-shadow: 0 6px 20px -8px rgba(160, 104, 255, 0.7);
+}
+.lp-step-title { font-size: 17px; font-weight: 600; margin-bottom: 8px; color: var(--paper); }
+.lp-step-desc { font-size: 14px; line-height: 1.55; color: rgba(255, 255, 255, 0.62); }
+
+/* ---- ③ Your AI team —— 7 角色卡（复用头像卡视觉语言） ---- */
+.lp-roles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 8px;
+}
+.lp-role {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+.lp-role:hover,
+.lp-role:focus-visible {
+  transform: translateY(-3px);
+  border-color: rgba(160, 104, 255, 0.45);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 14px 36px -16px var(--glow);
+  outline: none;
+}
+.lp-role-ava {
+  flex: 0 0 auto;
+  width: 54px; height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 60%),
+    var(--glow);
+  box-shadow: 0 8px 26px -6px var(--glow);
+  font-family: 'Urbanist', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--paper);
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.lp-role-text { min-width: 0; }
+.lp-role-name {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--paper);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lp-role-label {
+  display: block;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 3px;
+}
+
+/* ---- ④ Goal ledger —— goal → milestone → task → phase 链路小图 ---- */
+.lp-chain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 4px 0 36px;
+}
+.lp-node {
+  padding: 14px 22px;
+  border-radius: 12px;
+  border: 1px solid rgba(160, 104, 255, 0.42);
+  background: rgba(160, 104, 255, 0.08);
+  font-family: 'Urbanist', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--paper);
+}
+.lp-arrow { width: 22px; height: 22px; color: var(--violet); flex: 0 0 auto; }
+.lp-cta { margin-top: 8px; }
+
+/* ---- Footer ---- */
+.lp-footer { border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.lp-footer .lp-inner { padding-top: 56px; padding-bottom: 48px; }
+.lp-foot-top {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 40px;
+}
+.lp-foot-brand svg { height: 26px; width: auto; display: block; }
+.lp-foot-brand p {
+  margin: 16px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.55);
+  max-width: 300px;
+}
+.lp-foot-cols { display: flex; gap: 64px; flex-wrap: wrap; }
+.lp-foot-col h4 {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--paper);
+}
+.lp-foot-col a {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.lp-foot-col a:hover { color: var(--violet); }
+.lp-foot-copy {
+  margin-top: 44px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* ---- 角色 hover 弹框：复用 .avatar-tooltip 视觉，charter 段落 ---- */
+.role-tooltip .tt-charter {
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.88);
+  word-break: break-word;
+}
+
+/* ---- 唯一新增机制：滚动进场（尊重 prefers-reduced-motion） ---- */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--i, 0) * 80ms);
+  will-change: opacity, transform;
+}
+[data-reveal].is-visible { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] { opacity: 1 !important; transform: none !important; transition: none !important; }
+}
+
+/* ---- 响应式：沿用 1280 / 1024 / 768 / 480 断点 ---- */
+@media (max-width: 1024px) {
+  .lp-inner { padding: 96px 40px; }
+  .lp-h2 { font-size: 38px; }
+  .lp-roles { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 768px) {
+  .lp-inner { padding: 80px 24px; }
+  .lp-h2 { font-size: 32px; }
+  .lp-lead { font-size: 16px; }
+  .lp-roles { grid-template-columns: 1fr; }   /* 多列网格 ≤768 收单列 */
+  /* ② 窄屏纵向堆叠：序号在左、文案在右，连接线转竖向 */
+  .lp-flow { flex-direction: column; }
+  .lp-step {
+    display: flex;
+    text-align: left;
+    gap: 18px;
+    padding: 0 0 26px;
+  }
+  .lp-step:last-child { padding-bottom: 0; }
+  .lp-step-num { margin: 0; flex: 0 0 44px; }
+  .lp-step:not(:last-child)::after {
+    top: 44px;
+    left: 21px;
+    width: 2px;
+    height: calc(100% - 44px);
+    background: linear-gradient(180deg, rgba(160, 104, 255, 0.5), rgba(160, 104, 255, 0.12));
+  }
+  .lp-foot-cols { gap: 40px; }
+}
+@media (max-width: 480px) {
+  .lp-inner { padding: 64px 20px; }
+  .lp-h2 { font-size: 27px; }
+  .lp-roles { grid-template-columns: 1fr; }
+  /* ④ 链路小图窄屏转纵向，箭头旋转指下 */
+  .lp-chain { flex-direction: column; align-items: flex-start; }
+  .lp-arrow { transform: rotate(90deg); margin-left: 22px; }
+  .lp-node { width: 100%; }
+  .lp-foot-top { gap: 28px; }
+  .lp-foot-cols { gap: 32px; }
+}
+</style>
 </head>
 
 <body>
@@ -722,6 +1030,219 @@ body {
   </div>
 </div>
 
+<!-- ==========================================================================
+     追加：hero 之后的正文 4 节（首屏一字未改；内容/charter 逐字来自 design.md）
+     ========================================================================== -->
+<main class="lp">
+
+  <!-- ① What is agent-moebius -->
+  <section class="lp-section" aria-labelledby="lp-about-h">
+    <div class="lp-inner">
+      <div class="lp-head" data-reveal>
+        <p class="lp-eyebrow">Meet agent-moebius</p>
+        <h2 class="lp-h2" id="lp-about-h">An AI team that ships from your own machine.</h2>
+        <p class="lp-lead">It watches your GitHub issues. @mention a role and it runs Codex locally to do the work — while a CEO guards quality and a goal ledger tracks every task through to acceptance.</p>
+      </div>
+      <div class="lp-chips">
+        <span class="lp-chip" data-reveal style="--i:0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M2 21h20"/><path d="M7 9l3 2.5L7 14"/><path d="M12.5 14H16"/></svg>
+          <span>Runs locally · codex + gh</span>
+        </span>
+        <span class="lp-chip" data-reveal style="--i:1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></svg>
+          <span>Driven by GitHub issues</span>
+        </span>
+        <span class="lp-chip" data-reveal style="--i:2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="3"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5"/><path d="M16 7a3 3 0 0 1 0 6"/><path d="M18.5 20c0-2.3-.8-3.9-2-4.8"/></svg>
+          <span>A whole AI team, not one bot</span>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② How it works —— Watch → Normalize → Trigger → Guard → Track -->
+  <section class="lp-section" aria-labelledby="lp-how-h">
+    <div class="lp-inner">
+      <div class="lp-head" data-reveal>
+        <h2 class="lp-h2" id="lp-how-h">How it works</h2>
+      </div>
+      <div class="lp-flow">
+        <div class="lp-step" data-reveal style="--i:0">
+          <div class="lp-step-num">1</div>
+          <div class="lp-step-body">
+            <div class="lp-step-title">Watch</div>
+            <div class="lp-step-desc">Scans open issues across your whitelisted repos.</div>
+          </div>
+        </div>
+        <div class="lp-step" data-reveal style="--i:1">
+          <div class="lp-step-num">2</div>
+          <div class="lp-step-body">
+            <div class="lp-step-title">Normalize</div>
+            <div class="lp-step-desc">Folds issue body + comments into one speaker-tagged timeline.</div>
+          </div>
+        </div>
+        <div class="lp-step" data-reveal style="--i:2">
+          <div class="lp-step-num">3</div>
+          <div class="lp-step-body">
+            <div class="lp-step-title">Trigger</div>
+            <div class="lp-step-desc">An @mention decides whether to run local Codex — and drops a 👀 as instant feedback.</div>
+          </div>
+        </div>
+        <div class="lp-step" data-reveal style="--i:3">
+          <div class="lp-step-num">4</div>
+          <div class="lp-step-body">
+            <div class="lp-step-title">Guard</div>
+            <div class="lp-step-desc">The CEO reviews and corrects every agent reply before it's posted via gh.</div>
+          </div>
+        </div>
+        <div class="lp-step" data-reveal style="--i:4">
+          <div class="lp-step-num">5</div>
+          <div class="lp-step-body">
+            <div class="lp-step-title">Track</div>
+            <div class="lp-step-desc">Handoffs (plan-written → code-verified) carry the work through the goal ledger to acceptance.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ Your AI team —— 7 角色卡，hover 出真实 charter（复用 tooltip 组件，无复制按钮） -->
+  <section class="lp-section" aria-labelledby="lp-team-h">
+    <div class="lp-inner">
+      <div class="lp-head" data-reveal>
+        <h2 class="lp-h2" id="lp-team-h">Your AI team</h2>
+        <p class="lp-lead">Address any of them by @mention inside an issue.</p>
+      </div>
+      <div class="lp-roles">
+        <button type="button" class="lp-role role-card" data-reveal style="--i:0; --glow:#A068FF"
+                data-role="CEO" data-label="Orchestrates &amp; guards"
+                data-charter="Reviews and corrects every agent's reply, routes handoffs, and enforces the process gates.">
+          <span class="lp-role-ava">CEO</span>
+          <span class="lp-role-text"><span class="lp-role-name">CEO</span><span class="lp-role-label">Orchestrates &amp; guards</span></span>
+        </button>
+        <button type="button" class="lp-role role-card" data-reveal style="--i:1; --glow:#5B9CFF"
+                data-role="secretary" data-label="Keeps the rules"
+                data-charter="Maintains and evolves the CEO's guardrail rules.">
+          <span class="lp-role-ava">SEC</span>
+          <span class="lp-role-text"><span class="lp-role-name">secretary</span><span class="lp-role-label">Keeps the rules</span></span>
+        </button>
+        <button type="button" class="lp-role role-card" data-reveal style="--i:2; --glow:#3FCF8E"
+                data-role="dev" data-label="Writes the code"
+                data-charter="The only role with write access to the issue worktree; implements and verifies changes.">
+          <span class="lp-role-ava">DEV</span>
+          <span class="lp-role-text"><span class="lp-role-name">dev</span><span class="lp-role-label">Writes the code</span></span>
+        </button>
+        <button type="button" class="lp-role role-card" data-reveal style="--i:3; --glow:#FF9A3D"
+                data-role="dev-manager" data-label="Tech lead"
+                data-charter="Owns technical decisions, architecture choices and quality — without writing code.">
+          <span class="lp-role-ava">DM</span>
+          <span class="lp-role-text"><span class="lp-role-name">dev-manager</span><span class="lp-role-label">Tech lead</span></span>
+        </button>
+        <button type="button" class="lp-role role-card" data-reveal style="--i:0; --glow:#FF6FB5"
+                data-role="product-manager" data-label="Shapes the ask"
+                data-charter="Turns intent into clear product requirements.">
+          <span class="lp-role-ava">PM</span>
+          <span class="lp-role-text"><span class="lp-role-name">product-manager</span><span class="lp-role-label">Shapes the ask</span></span>
+        </button>
+        <button type="button" class="lp-role role-card" data-reveal style="--i:1; --glow:#F5B23E"
+                data-role="qa" data-label="Breaks the plan"
+                data-charter="Adversarially reviews the plan before any code is written, against the invariants oracle.">
+          <span class="lp-role-ava">QA</span>
+          <span class="lp-role-text"><span class="lp-role-name">qa</span><span class="lp-role-label">Breaks the plan</span></span>
+        </button>
+        <button type="button" class="lp-role role-card" data-reveal style="--i:2; --glow:#2FD4C6"
+                data-role="hermes-user" data-label="The user's voice"
+                data-charter="Stands in for the end user — the Hermes persona.">
+          <span class="lp-role-ava">HU</span>
+          <span class="lp-role-text"><span class="lp-role-name">hermes-user</span><span class="lp-role-label">The user's voice</span></span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ④ Goal ledger + CTA -->
+  <section class="lp-section" aria-labelledby="lp-ledger-h">
+    <div class="lp-inner">
+      <div class="lp-head" data-reveal>
+        <h2 class="lp-h2" id="lp-ledger-h">From goal to acceptance — tracked end to end</h2>
+        <p class="lp-lead">A goal ledger records every goal → milestone → task → phase, with plan-before-code and explicit acceptance gates.</p>
+      </div>
+      <div class="lp-chain" data-reveal>
+        <span class="lp-node">goal</span>
+        <svg class="lp-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13"/><path d="M12 6l6 6-6 6"/></svg>
+        <span class="lp-node">milestone</span>
+        <svg class="lp-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13"/><path d="M12 6l6 6-6 6"/></svg>
+        <span class="lp-node">task</span>
+        <svg class="lp-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13"/><path d="M12 6l6 6-6 6"/></svg>
+        <span class="lp-node">phase</span>
+      </div>
+      <div class="lp-chips" style="margin-bottom: 40px;">
+        <span class="lp-chip" data-reveal style="--i:0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+          <span>plan-written → code-verified</span>
+        </span>
+        <span class="lp-chip" data-reveal style="--i:1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+          <span>explicit acceptance gates</span>
+        </span>
+        <span class="lp-chip" data-reveal style="--i:2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+          <span>runs on your machine</span>
+        </span>
+      </div>
+      <div class="lp-cta" data-reveal>
+        <div class="btn-border-wrap">
+          <button class="pill pill-start" type="button">
+            <span>Get started</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="lp-footer">
+    <div class="lp-inner" data-reveal>
+      <div class="lp-foot-top">
+        <div class="lp-foot-brand">
+          <svg width="176" height="26" viewBox="0 0 176 26" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agent-moebius">
+            <rect x="4" y="4" width="17" height="17" rx="3" transform="rotate(45 12.5 12.5)" fill="#A068FF"/>
+            <text x="32" y="18" font-family="Urbanist, sans-serif" font-size="17" font-weight="700" fill="#ffffff">agent-moebius</text>
+          </svg>
+          <p>An AI team that watches your GitHub issues and ships from your own machine.</p>
+        </div>
+        <nav class="lp-foot-cols" aria-label="Footer">
+          <div class="lp-foot-col">
+            <h4>Product</h4>
+            <a href="#">Overview</a>
+            <a href="#">How it works</a>
+          </div>
+          <div class="lp-foot-col">
+            <h4>Docs</h4>
+            <a href="#">Getting started</a>
+            <a href="#">Guardrails</a>
+          </div>
+          <div class="lp-foot-col">
+            <h4>GitHub</h4>
+            <a href="#">Repository</a>
+            <a href="#">Issues</a>
+          </div>
+        </nav>
+      </div>
+      <div class="lp-foot-copy">© 2026 agent-moebius</div>
+    </div>
+  </footer>
+
+</main>
+
+<!-- ③ 角色 hover 弹框：复用 .avatar-tooltip 视觉，去掉复制按钮，内容换为 角色名·短标签 + charter -->
+<div class="avatar-tooltip role-tooltip" id="role-tooltip" hidden>
+  <div class="tt-head"><span class="tt-role rtt-role"></span> · <span class="rtt-label"></span></div>
+  <div class="tt-divider"></div>
+  <div class="tt-charter rtt-charter"></div>
+</div>
+
 <!-- 头像 hover 标注框（全局单例） -->
 <div class="avatar-tooltip" id="tooltip" hidden>
   <div class="tt-head"><span class="tt-name"></span> · <span class="tt-role"></span></div>
@@ -887,6 +1408,88 @@ body {
       done();
     }
   });
+})();
+</script>
+
+<!-- =========================================================================
+     追加脚本：滚动进场 + ③ 角色 hover 弹框（不改动上方 hero 脚本）
+     ========================================================================= -->
+<script>
+/* -------------------------------------------------------------------------
+   5) 滚动进场：IntersectionObserver 给 [data-reveal] 加 .is-visible（只触发一次）。
+      prefers-reduced-motion 或无 IO 支持时，直接显示、无位移。
+   ------------------------------------------------------------------------- */
+(function () {
+  var els = document.querySelectorAll('[data-reveal]');
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce || !('IntersectionObserver' in window)) {
+    for (var i = 0; i < els.length; i++) els[i].classList.add('is-visible');
+    return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    for (var k = 0; k < entries.length; k++) {
+      var e = entries[k];
+      if (e.isIntersecting) {
+        e.target.classList.add('is-visible');
+        io.unobserve(e.target);
+      }
+    }
+  }, { threshold: 0.15, rootMargin: '0px 0px -8% 0px' });
+  for (var j = 0; j < els.length; j++) io.observe(els[j]);
+})();
+
+/* -------------------------------------------------------------------------
+   6) ③ 角色卡 hover 弹框：复用 .avatar-tooltip 视觉与视口内夹取逻辑，
+      内容为 角色名·短标签 + charter（无复制按钮）。独立单例，不碰 hero tooltip。
+   ------------------------------------------------------------------------- */
+(function () {
+  var tt = document.getElementById('role-tooltip');
+  if (!tt) return;
+  var ttRole = tt.querySelector('.rtt-role');
+  var ttLabel = tt.querySelector('.rtt-label');
+  var ttCharter = tt.querySelector('.rtt-charter');
+  var hideTimer = null;
+
+  function place(el) {
+    var r = el.getBoundingClientRect();
+    var box = tt.getBoundingClientRect();
+    var pad = 12;
+    var left = r.left + r.width / 2 - box.width / 2;
+    left = Math.max(pad, Math.min(left, window.innerWidth - box.width - pad));
+    var top = r.bottom + 10;
+    if (top + box.height > window.innerHeight - pad) {
+      var up = r.top - box.height - 10;
+      top = up >= pad ? up : pad;
+    }
+    tt.style.left = left + 'px';
+    tt.style.top = top + 'px';
+  }
+
+  function show(el) {
+    clearTimeout(hideTimer);
+    ttRole.textContent = el.getAttribute('data-role') || '';
+    ttLabel.textContent = el.getAttribute('data-label') || '';
+    ttCharter.textContent = el.getAttribute('data-charter') || '';
+    tt.hidden = false;          // 先显示再测量尺寸
+    place(el);
+  }
+  function scheduleHide() {
+    hideTimer = setTimeout(function () { tt.hidden = true; }, 160);
+  }
+
+  var cards = document.querySelectorAll('.role-card');
+  for (var i = 0; i < cards.length; i++) {
+    (function (el) {
+      el.addEventListener('mouseenter', function () { show(el); });
+      el.addEventListener('mouseleave', scheduleHide);
+      el.addEventListener('focus', function () { show(el); });
+      el.addEventListener('blur', scheduleHide);
+    })(cards[i]);
+  }
+  tt.addEventListener('mouseenter', function () { clearTimeout(hideTimer); });
+  tt.addEventListener('mouseleave', scheduleHide);
+  // fixed 弹框在滚动时会脱离目标，滚动即隐藏
+  window.addEventListener('scroll', function () { if (!tt.hidden) tt.hidden = true; }, { passive: true });
 })();
 </script>
 </body>
