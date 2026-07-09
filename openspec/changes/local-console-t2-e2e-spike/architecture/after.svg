@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-label="After local console T2">
+  <defs>
+    <style>
+      .box { fill: #ffffff; stroke: #222222; stroke-width: 1.5; rx: 8; }
+      .local { fill: #eef6ff; stroke: #1f5f9f; stroke-width: 1.5; rx: 8; }
+      .defer { fill: #f7f7f7; stroke: #999999; stroke-width: 1.2; stroke-dasharray: 5 4; rx: 8; }
+      .text { font-family: Arial, sans-serif; font-size: 16px; fill: #111111; }
+      .small { font-family: Arial, sans-serif; font-size: 13px; fill: #333333; }
+      .arrow { stroke: #222222; stroke-width: 1.5; marker-end: url(#arrowhead); fill: none; }
+      .blue { stroke: #1f5f9f; stroke-width: 1.7; marker-end: url(#bluehead); fill: none; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#222222"/>
+    </marker>
+    <marker id="bluehead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#1f5f9f"/>
+    </marker>
+  </defs>
+
+  <rect x="40" y="35" width="170" height="70" class="local"/>
+  <text x="125" y="65" text-anchor="middle" class="text">Local HTTP UI</text>
+  <text x="125" y="87" text-anchor="middle" class="small">single session</text>
+
+  <rect x="270" y="35" width="170" height="70" class="local"/>
+  <text x="355" y="65" text-anchor="middle" class="text">SQLite Messages</text>
+  <text x="355" y="87" text-anchor="middle" class="small">local_messages</text>
+
+  <rect x="500" y="35" width="170" height="70" class="local"/>
+  <text x="585" y="65" text-anchor="middle" class="text">Local Intake</text>
+  <text x="585" y="87" text-anchor="middle" class="small">timeline adapter</text>
+
+  <rect x="730" y="35" width="170" height="70" class="box"/>
+  <text x="815" y="65" text-anchor="middle" class="text">Runner Core</text>
+  <text x="815" y="87" text-anchor="middle" class="small">conversation + trigger</text>
+
+  <rect x="730" y="175" width="170" height="70" class="box"/>
+  <text x="815" y="205" text-anchor="middle" class="text">Codex</text>
+  <text x="815" y="227" text-anchor="middle" class="small">real local CLI</text>
+
+  <rect x="500" y="175" width="170" height="70" class="local"/>
+  <text x="585" y="205" text-anchor="middle" class="text">Local Sink</text>
+  <text x="585" y="227" text-anchor="middle" class="small">write response</text>
+
+  <rect x="270" y="300" width="170" height="70" class="defer"/>
+  <text x="355" y="330" text-anchor="middle" class="text">GitHub Features</text>
+  <text x="355" y="352" text-anchor="middle" class="small">deferred T3-T6</text>
+
+  <path d="M210 70 L270 70" class="blue"/>
+  <path d="M440 70 L500 70" class="blue"/>
+  <path d="M670 70 L730 70" class="blue"/>
+  <path d="M815 105 L815 175" class="arrow"/>
+  <path d="M730 210 L670 210" class="arrow"/>
+  <path d="M500 210 L355 210 L355 105" class="blue"/>
+  <path d="M270 335 L125 335 L125 105" class="blue"/>
+  <path d="M440 335 L730 335" class="arrow"/>
+  <text x="585" y="332" text-anchor="middle" class="small">reaction / artifact / issue worktree not used in T2</text>
+</svg>
