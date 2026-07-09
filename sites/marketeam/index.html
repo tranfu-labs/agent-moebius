@@ -925,6 +925,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
+  perspective: 1400px;
 }
 .rack-modal[hidden] { display: none; }
 .rack-modal-overlay {
@@ -946,7 +947,9 @@ body {
   background: rgba(14, 8, 32, 0.97);
   border: 1px solid rgba(160, 104, 255, 0.35);
   box-shadow: 0 40px 90px -30px #000;
-  animation: rmIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-style: preserve-3d;
+  transform-origin: 30% 50%;
+  animation: rmIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .rack-modal-close {
   position: absolute; top: 14px; right: 14px;
@@ -975,7 +978,7 @@ body {
   font-size: 12.5px;
 }
 @keyframes rmFade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes rmIn { from { opacity: 0; transform: translateY(24px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes rmIn { from { opacity: 0; transform: translateY(14px) scale(0.95) rotateY(34deg); } to { opacity: 1; transform: translateY(0) scale(1) rotateY(0deg); } }
 
 /* 全息/工牌架 —— 尊重 prefers-reduced-motion：关 tilt/foil/高光/大位移 */
 @media (prefers-reduced-motion: reduce) {
