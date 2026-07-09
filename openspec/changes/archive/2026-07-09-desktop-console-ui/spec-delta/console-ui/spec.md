@@ -8,7 +8,8 @@
 - MUST map core shadcn semantic variables (`--background`, `--foreground`, `--primary`, `--border`, `--muted`, `--destructive`, `--ring`) onto the console token variables in `globals.css`.
 - MUST provide Storybook as the development-time browser showcase for console UI components.
 - MUST include at least one shadcn-style primitive sample and one project-specific composite sample so the token chain, Storybook setup, and renderer-consumable package shape are verified before the full desktop console app exists.
-- MUST keep `component-library/` as a Tailwind HTML visual reference only; the reusable React component package lives in `packages/console-ui`.
+- MUST keep Storybook under `packages/console-ui` as the only shipped browser showcase for this domain.
+- MUST NOT keep a parallel static Tailwind HTML component library as a second UI source of truth.
 - MUST keep `console-ui` free of runner, observer, GitHub, Codex, `.state`, and IPC dependencies. Real desktop console app state management, renderer bundling, IPC, and runner/state-file integration are out of scope for this change.
 
 ## 场景新增

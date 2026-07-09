@@ -11,7 +11,8 @@
 - MUST use shadcn-style source components built on Tailwind CSS variables and Radix primitives, with component source checked into this repository rather than hidden behind a runtime UI package.
 - MUST provide Storybook as the development-time browser showcase for console UI components.
 - MUST include at least one shadcn-style primitive sample and one project-specific composite sample so the token chain, Storybook setup, and renderer-consumable package shape are verified before the full desktop console app exists.
-- MUST keep `component-library/` as a Tailwind HTML visual reference only; the reusable React component package lives in `packages/console-ui`.
+- MUST keep Storybook under `packages/console-ui` as the only shipped browser showcase for this domain.
+- MUST NOT keep a parallel static Tailwind HTML component library as a second UI source of truth.
 
 ### 近单色令牌
 - MUST keep `packages/console-ui/src/styles/tokens.css` as the package-local near-monochrome token source: neutral surfaces and text dominate, indigo is limited to interactive emphasis, green/red are reserved for verdict and danger facts, and waiting-for-human states use neutral structural signals instead of a dedicated hue.

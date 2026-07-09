@@ -6,7 +6,7 @@
 
 ### 1. 框架选型：shadcn/ui
 
-对比四条路线，代入约束「复用近单色 Tailwind 令牌 + 22 组件标记 / 进 Electron renderer / Storybook 展示 / Linear 近单色」：
+对比四条路线，代入约束「复用近单色 Tailwind 令牌 / 进 Electron renderer / Storybook 展示 / Linear 近单色」：
 
 | 方案 | 底层样式 | 复用现有 Tailwind 令牌 | 成熟度 | 结论 |
 |---|---|---|---|---|
@@ -29,15 +29,15 @@ packages/console-ui/            # 新增，React 组件库
     ui/                         # shadcn 原语（button/badge/avatar/input/card/popover…）
     console/                    # 本项目专属复合组件（粒度待定，见 §开放决策）
   .storybook/                   # Storybook 配置
-  stories/                      # 每个组件一组 story（?only= 的 React 对应物）
+  stories/                      # 已实现组件的 story
 ```
 
 - `pnpm-workspace.yaml` 增列 `packages/*`（当前只有 `.` 与 `desktop`）。
-- **令牌单一事实源**：`packages/console-ui/src/styles/tokens.css` 承载近单色取值（灰阶 + indigo + 绿/红，无等待专属色、无浅色裁决填充）。旧 HTML 库若保留，构建时直接引用这同一份值，避免两处漂移。
+- **令牌单一事实源**：`packages/console-ui/src/styles/tokens.css` 承载近单色取值（灰阶 + indigo + 绿/红，无等待专属色、无浅色裁决填充）。本 change 不再保留旧 HTML 组件库，避免两处漂移。
 
 ### 3. 展示：Storybook
 
-- 每个组件一个 `*.stories.tsx`，用 args/controls 暴露状态（如运行块的三态、验收卡的逐条裁决），取代 HTML 版的 `?only=` 手动过滤。
+- 每个已实现 React 组件一个 `*.stories.tsx`，用 args/controls 暴露状态；后续复合组件补齐时继续按同一规则添加 stories。
 - 全局 decorator 提供浅/深主题切换（切 `:root` class，令牌变量翻转），与 HTML 版一致。
 - `pnpm --filter @agent-moebius/console-ui storybook` 起本地站——即用户要的「可在浏览器查看的 React 示例」。
 
@@ -70,13 +70,13 @@ packages/console-ui/            # 新增，React 组件库
    - B 全部 22 个都抽成可复用组件（含大视图），工作量最大、大视图复用价值有限。
    - C 只做展示：组件写进 story 的静态组合即可，props 抽象从简。
 2. **renderer 打包器**：Vite（生态顺、Storybook 同源）vs 沿用 esbuild（与现壳一致，配置少）。倾向 Vite。
-3. **旧 HTML 组件库去留**：保留为视觉参照（默认）vs 用 React 版取代。默认保留，双方共享同一份 `tokens.css` 值。
+3. **历史 22 个界面片段去留**：不在本 change 保留静态 HTML 目录；后续若要恢复 22 个条目，应以 React 复合组件或 Storybook-only showcase 的形式进入 `packages/console-ui`。
 
 ## 权衡
 
 - 选 shadcn 而非 Astryx：放弃了 Astryx「150+ 组件开箱、Meta 背书」，换来**不推翻已建的 Tailwind 近单色资产**、无 StyleX 构建摩擦、无 beta 风险。若未来要押注 StyleX 生态可另立 change 重估。
 - 组件库与 renderer app 拆成两个 change：放弃「一次到位看到桌面里跑」，换来本次范围可控、可先交付一个能审的 Storybook，且不被 IPC/数据对接的复杂度拖住。
-- 令牌单一事实源（一份 CSS 变量喂 shadcn / Storybook / 未来 renderer / 旧 HTML 库）：放弃各库独立调色的自由，换来近单色基线不漂移。
+- 令牌单一事实源（一份 CSS 变量喂 shadcn / Storybook / 未来 renderer）：放弃各库独立调色的自由，换来近单色基线不漂移。
 
 ## 风险
 

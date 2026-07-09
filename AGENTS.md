@@ -58,7 +58,6 @@
 │   └── tests/                  # 桌面壳纯模块 Vitest
 ├── packages/
 │   └── console-ui/             # shadcn/Radix + Tailwind 的 React 对话操作台组件库与 Storybook
-├── component-library/          # Tailwind HTML 静态原型，作为 React 组件库的视觉参照
 ├── tests/                      # Vitest 单元测试
 ├── docs/
 │   ├── adr/                    # 架构决策记录

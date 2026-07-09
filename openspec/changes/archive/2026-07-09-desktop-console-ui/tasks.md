@@ -10,14 +10,15 @@
 - [x] 建 `packages/console-ui`：package.json（react / tailwind / radix / shadcn / storybook）、tsconfig、路径别名。
 - [x] `components.json` + Tailwind 预设 + `src/styles/tokens.css`（沿用现有近单色令牌值）+ `globals.css`（映射到 shadcn 变量名 `--background/--foreground/--primary/--border/--muted/--destructive/--ring`）。
 
-## C. 组件（粒度定了再全量；先跑样板）
+## C. 组件（先跑底座与样板；22 个复合项另起后续 change）
 - [x] `shadcn add` 基础原语：button / badge / avatar / input / card / popover / dropdown-menu。
-- [x] 样板：先落 1 个原子（button）+ 1 个复合（验收卡 accept-card）验证令牌链路与近单色。
-- [ ] 【阻塞：粒度决策】按敲定粒度补齐其余组件（原子映射 shadcn 原语；复合 agent 折叠/运行块/账本树/事件流/上下文面板等组合件）。
+- [x] 样板：落 7 个基础原语 + 1 个复合（验收卡 accept-card）验证令牌链路与近单色。
+- [x] 移除静态 `component-library/`，避免把 22 个 HTML 片段误读为已交付 React 组件。
+- [ ] 【后续 change】按敲定粒度补齐 22 个对话操作台复合项（agent 折叠/运行块/账本树/事件流/上下文面板等组合件）。
 
 ## D. Storybook 展示台
 - [x] 配 `.storybook/`（Tailwind + 令牌注入 + 浅/深主题 decorator）。
-- [x] 每个组件一组 `*.stories.tsx`，args/controls 暴露状态变体。
+- [x] 每个已实现 React 组件一组 `*.stories.tsx`，args/controls 暴露状态变体。
 - [x] `storybook` 脚本可起本地站，浏览器可查看。
 
 ## E. Electron 消费路径（只铺路）
