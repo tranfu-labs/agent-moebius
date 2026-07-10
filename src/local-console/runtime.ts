@@ -14,7 +14,6 @@ import { readLocalConsoleOutputTail } from "./output-tail.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
-  LOCAL_CONSOLE_PROJECT_ID,
   LocalConsoleBusyError,
   LocalConsoleStoreTimeoutError,
   type LocalConsoleMessage,
@@ -25,6 +24,7 @@ import {
   type LocalConsoleStateSnapshot,
   type LocalConsoleStore,
 } from "./types.js";
+import { resolveLocalWorkspaceSource, type ResolvedLocalWorkspace } from "./workspace-source.js";
 
 export interface LocalConsoleAgentFile {
   name: string;
@@ -37,10 +37,12 @@ export interface LocalConsoleRuntimeOptions {
   runCodex: (options: CodexRunOptions) => Promise<CodexRunResult>;
   makeRunDir: (count: number, now?: Date) => string;
   projectRoot: string;
+  workdirRoot: string;
   sessionId?: string;
   storeTimeoutMs?: number;
   codexIdleTimeoutMs?: number;
   codexMaxDurationMs?: number;
+  workspaceGitTimeoutMs?: number;
   staleRunningGraceMs?: number;
   now?: () => Date;
 }
@@ -51,6 +53,9 @@ interface ActiveLocalRun {
   userMessageId: number;
   role: string | null;
   runDir: string | null;
+  cwd: string | null;
+  workspaceMode: "direct" | "worktree" | null;
+  worktreeUnavailableReason: string | null;
   startedAt: string;
   controller: AbortController;
 }
@@ -90,11 +95,33 @@ export class LocalConsoleRuntime {
     await this.options.store.close();
   }
 
-  async createSession(title?: string): Promise<LocalConsoleSessionSummary> {
+  async createProject(input: { folderPath: string; worktreeMode: boolean }): Promise<LocalConsoleProjectSummary> {
+    return await this.storeCall("local-console-store-create-project", () =>
+      this.options.store.createProject({
+        folderPath: input.folderPath,
+        worktreeMode: input.worktreeMode,
+        now: this.nowIso(),
+      }),
+    );
+  }
+
+  async updateProject(input: { projectId: string; worktreeMode: boolean }): Promise<LocalConsoleProjectSummary> {
+    return await this.storeCall("local-console-store-update-project", () =>
+      this.options.store.updateProject({
+        projectId: input.projectId,
+        worktreeMode: input.worktreeMode,
+        now: this.nowIso(),
+      }),
+    );
+  }
+
+  async createSession(title?: string, projectId?: string): Promise<LocalConsoleSessionSummary> {
     const sessionId = `local:${this.now().toISOString()}-${Math.random().toString(36).slice(2, 8)}`;
+    const resolvedProjectId = projectId ?? (await this.defaultProjectId());
     return await this.storeCall("local-console-store-create-session", () =>
       this.options.store.createSession({
         sessionId,
+        projectId: resolvedProjectId,
         title: normalizeTitle(title),
         now: this.nowIso(),
       }),
@@ -152,15 +179,31 @@ export class LocalConsoleRuntime {
     };
   }
 
-  async state(selectedSessionId = this.sessionId): Promise<LocalConsoleStateSnapshot> {
-    const sessions = await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions());
-    const selectedSession = sessions.find((session) => session.sessionId === selectedSessionId) ?? sessions[0] ?? null;
+  async state(selected: string | { sessionId?: string; projectId?: string } = this.sessionId): Promise<LocalConsoleStateSnapshot> {
+    const selectedSessionId = typeof selected === "string" ? selected : (selected.sessionId ?? this.sessionId);
+    const requestedProjectId = typeof selected === "string" ? undefined : selected.projectId;
+    const projects = await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects());
+    const sessions = projects.flatMap((project) => project.sessions);
+    const requestedProject = requestedProjectId === undefined ? undefined : projects.find((project) => project.projectId === requestedProjectId);
+    const requestedSession = (requestedProject?.sessions ?? sessions).find((session) => session.sessionId === selectedSessionId);
+    const selectedProject =
+      requestedProject ??
+      (requestedSession === undefined ? undefined : projects.find((project) => project.projectId === requestedSession.projectId)) ??
+      projects[0] ??
+      buildFallbackProjectSummary(this.options.projectRoot);
+    const selectedSession =
+      (requestedSession?.projectId === selectedProject.projectId ? requestedSession : undefined) ??
+      selectedProject.sessions[0] ??
+      (requestedProject === undefined ? sessions[0] : undefined) ??
+      null;
     const sessionId = selectedSession?.sessionId ?? selectedSessionId;
     const messages = selectedSession === null
       ? []
       : await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
     return {
-      project: buildProjectSummary(sessions),
+      projects,
+      project: selectedProject,
+      selectedProjectId: selectedProject.projectId,
       selectedSessionId: sessionId,
       selectedSession,
       messages,
@@ -261,12 +304,16 @@ export class LocalConsoleRuntime {
           );
 
           const controller = new AbortController();
+          const workspace = await this.resolveWorkspace(sessionId, controller.signal);
           this.activeRuns.set(sessionId, {
             sessionId,
             runId: nextRunId,
             userMessageId: claimedMessage.id,
             role: trigger.role,
             runDir: resolvedRunDir,
+            cwd: workspace.cwd,
+            workspaceMode: workspace.mode,
+            worktreeUnavailableReason: workspace.worktreeUnavailableReason,
             startedAt: this.nowIso(),
             controller,
           });
@@ -274,7 +321,7 @@ export class LocalConsoleRuntime {
           const result = await this.options.runCodex({
             prompt: plan.prompt,
             runDir: activeRunDir,
-            cwd: this.options.projectRoot,
+            cwd: workspace.cwd,
             mode: { kind: "full" },
             signal: controller.signal,
             ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
@@ -345,6 +392,39 @@ export class LocalConsoleRuntime {
         reason: `stale-running>${String(maxDurationMs + this.staleRunningGraceMs)}ms`,
       }),
     );
+  }
+
+  private async defaultProjectId(): Promise<string> {
+    const projects = await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects());
+    const firstProject = projects[0];
+    if (firstProject === undefined) {
+      throw new Error("local console project list is empty");
+    }
+    return firstProject.projectId;
+  }
+
+  private async resolveWorkspace(sessionId: string, signal: AbortSignal): Promise<ResolvedLocalWorkspace> {
+    const source = await this.storeCall("local-console-store-session-workspace", () => this.options.store.getSessionWorkspace(sessionId));
+    const workspace = await resolveLocalWorkspaceSource({
+      projectId: source.projectId,
+      sessionId,
+      folderPath: source.folderPath,
+      worktreeMode: source.worktreeMode,
+      workdirRoot: this.options.workdirRoot,
+      gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+      signal,
+    });
+    await this.storeCall("local-console-store-record-workspace", () =>
+      this.options.store.recordProjectWorkspaceStatus({
+        projectId: source.projectId,
+        cwd: workspace.cwd,
+        mode: workspace.mode,
+        worktreePath: workspace.worktreePath,
+        worktreeUnavailableReason: workspace.worktreeUnavailableReason,
+        now: this.nowIso(),
+      }),
+    );
+    return workspace;
   }
 
   private async recordFailedCodexResult(
@@ -424,6 +504,9 @@ export class LocalConsoleRuntime {
       startedAt: active.startedAt,
       elapsedMs: Math.max(0, this.now().getTime() - Date.parse(active.startedAt)),
       runDir: active.runDir,
+      cwd: active.cwd,
+      workspaceMode: active.workspaceMode,
+      worktreeUnavailableReason: active.worktreeUnavailableReason,
       stdoutTail: tail.stdoutTail,
       stderrTail: tail.stderrTail,
       lastOutputSummary: tail.lastOutputSummary,
@@ -513,15 +596,23 @@ export class LocalConsoleRuntime {
   }
 }
 
-function buildProjectSummary(sessions: LocalConsoleSessionSummary[]): LocalConsoleProjectSummary {
+function buildFallbackProjectSummary(projectRoot: string): LocalConsoleProjectSummary {
   return {
-    projectId: LOCAL_CONSOLE_PROJECT_ID,
-    title: "agent-moebius",
-    sessions,
-    runningCount: sessions.reduce((sum, session) => sum + session.runningCount, 0),
-    waitingCount: sessions.reduce((sum, session) => sum + session.waitingCount, 0),
-    stuckCount: sessions.reduce((sum, session) => sum + session.stuckCount, 0),
-    errorCount: sessions.reduce((sum, session) => sum + session.errorCount, 0),
+    projectId: "local",
+    sourceType: "local-folder",
+    title: path.basename(projectRoot) || projectRoot,
+    folderPath: projectRoot,
+    worktreeMode: false,
+    workspaceCwd: projectRoot,
+    workspaceMode: "direct",
+    worktreePath: null,
+    worktreeUnavailableReason: null,
+    workspaceUpdatedAt: null,
+    sessions: [],
+    runningCount: 0,
+    waitingCount: 0,
+    stuckCount: 0,
+    errorCount: 0,
   };
 }
 

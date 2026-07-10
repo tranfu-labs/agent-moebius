@@ -21,6 +21,7 @@ export interface LocalConsoleServerOptions {
   host?: string;
   port?: number;
   projectRoot?: string;
+  workdirRoot?: string;
   store?: LocalConsoleStore;
   sqlitePath?: string;
   listAgentFiles?: () => Promise<LocalConsoleAgentFile[]>;
@@ -30,6 +31,7 @@ export interface LocalConsoleServerOptions {
   sqliteBusyTimeoutMs?: number;
   codexIdleTimeoutMs?: number;
   codexMaxDurationMs?: number;
+  workspaceGitTimeoutMs?: number;
 }
 
 export interface StartedLocalConsoleServer {
@@ -44,6 +46,7 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
   const host = options.host ?? LOCAL_CONSOLE_HOST;
   const requestedPort = options.port ?? LOCAL_CONSOLE_PORT;
   const projectRoot = options.projectRoot ?? PROJECT_ROOT;
+  const workdirRoot = options.workdirRoot ?? path.join(projectRoot, "workdir");
   const sqlitePath = options.sqlitePath ?? (options.projectRoot === undefined ? LOCAL_CONSOLE_SQLITE_PATH : path.join(projectRoot, ".state", "local-console.sqlite"));
   const store =
     options.store ??
@@ -58,9 +61,11 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
     runCodex: options.runCodex ?? runCodex,
     makeRunDir: options.makeRunDir ?? makeLocalConsoleRunDir,
     projectRoot,
+    workdirRoot,
     storeTimeoutMs: options.storeTimeoutMs ?? LOCAL_CONSOLE_STORE_TIMEOUT_MS,
     codexIdleTimeoutMs: options.codexIdleTimeoutMs ?? CODEX_RUN_IDLE_TIMEOUT_MS,
     codexMaxDurationMs: options.codexMaxDurationMs ?? CODEX_RUN_MAX_DURATION_MS,
+    workspaceGitTimeoutMs: options.workspaceGitTimeoutMs,
   });
   await runtime.init();
 
@@ -116,7 +121,39 @@ async function handleRequest(
     }
 
     if (request.method === "GET" && url.pathname === "/api/local-console/state") {
-      sendJson(response, 200, await runtime.state(readOptionalString(url.searchParams.get("sessionId"))));
+      sendJson(response, 200, await runtime.state({
+        sessionId: readOptionalString(url.searchParams.get("sessionId")),
+        projectId: readOptionalString(url.searchParams.get("projectId")),
+      }));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/local-console/projects") {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload) || typeof payload.folderPath !== "string") {
+        sendJson(response, 400, { error: "Expected JSON body with a string folderPath field" });
+        return;
+      }
+      const project = await runtime.createProject({
+        folderPath: payload.folderPath,
+        worktreeMode: readOptionalBoolean(payload.worktreeMode) ?? false,
+      });
+      sendJson(response, 201, { project });
+      return;
+    }
+
+    const projectMatch = matchProjectRoute(url.pathname);
+    if (request.method === "PATCH" && projectMatch !== null) {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload) || typeof payload.worktreeMode !== "boolean") {
+        sendJson(response, 400, { error: "Expected JSON body with a boolean worktreeMode field" });
+        return;
+      }
+      const project = await runtime.updateProject({
+        projectId: projectMatch.projectId,
+        worktreeMode: payload.worktreeMode,
+      });
+      sendJson(response, 200, { project });
       return;
     }
 
@@ -126,7 +163,10 @@ async function handleRequest(
         sendJson(response, 400, { error: "Expected JSON object body" });
         return;
       }
-      const session = await runtime.createSession(isRecord(payload) ? readOptionalString(payload.title) : undefined);
+      const session = await runtime.createSession(
+        isRecord(payload) ? readOptionalString(payload.title) : undefined,
+        isRecord(payload) ? readOptionalString(payload.projectId) : undefined,
+      );
       sendJson(response, 201, { session });
       return;
     }
@@ -215,7 +255,7 @@ async function readJsonBody(request: http.IncomingMessage): Promise<unknown> {
 function sendHtml(response: http.ServerResponse, body: string): void {
   response.writeHead(200, {
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
     "access-control-allow-headers": "content-type",
     "content-type": "text/html; charset=utf-8",
   });
@@ -225,7 +265,7 @@ function sendHtml(response: http.ServerResponse, body: string): void {
 function sendJson(response: http.ServerResponse, statusCode: number, body: unknown): void {
   response.writeHead(statusCode, {
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
     "access-control-allow-headers": "content-type",
     "content-type": "application/json; charset=utf-8",
   });
@@ -235,7 +275,7 @@ function sendJson(response: http.ServerResponse, statusCode: number, body: unkno
 function sendNoContent(response: http.ServerResponse): void {
   response.writeHead(204, {
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
     "access-control-allow-headers": "content-type",
   });
   response.end();
@@ -428,6 +468,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function readOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function matchProjectRoute(pathname: string): { projectId: string } | null {
+  const match = /^\/api\/local-console\/projects\/(.+)$/u.exec(pathname);
+  if (match === null) {
+    return null;
+  }
+  return { projectId: decodeURIComponent(match[1] ?? "") };
 }
 
 function matchSessionRoute(

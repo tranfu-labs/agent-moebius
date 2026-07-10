@@ -3,10 +3,13 @@ import path from "node:path";
 import { LOCAL_CONSOLE_STORE_TIMEOUT_MS } from "../config.js";
 import { runSqliteStateCommand, type SqliteStateCommand } from "../sqlite-state.js";
 import {
+  LOCAL_CONSOLE_PROJECT_ID,
   type LocalConsoleMessage,
   type LocalConsoleMessageStatus,
+  type LocalConsoleProjectSummary,
   type LocalConsoleSessionStatus,
   type LocalConsoleSessionSummary,
+  type LocalConsoleSessionWorkspaceSource,
   type LocalConsoleSpeaker,
   type LocalConsoleStore,
 } from "./types.js";
@@ -41,8 +44,35 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
 
   async close(): Promise<void> {}
 
-  async createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
-    return this.run({ kind: "local-create-session", ...input });
+  async createProject(input: { folderPath: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    return this.run({ kind: "local-create-project", ...input });
+  }
+
+  async updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    return this.run({ kind: "local-update-project", ...input });
+  }
+
+  async listProjects(): Promise<LocalConsoleProjectSummary[]> {
+    return this.run({ kind: "local-list-projects" });
+  }
+
+  async getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource> {
+    return this.run({ kind: "local-get-session-workspace", sessionId });
+  }
+
+  async recordProjectWorkspaceStatus(input: {
+    projectId: string;
+    cwd: string;
+    mode: "direct" | "worktree";
+    worktreePath: string | null;
+    worktreeUnavailableReason: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.run({ kind: "local-record-project-workspace-status", ...input });
+  }
+
+  async createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    return this.run({ kind: "local-create-session", ...input, projectId: input.projectId ?? LOCAL_CONSOLE_PROJECT_ID });
   }
 
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {
@@ -252,6 +282,7 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
   }
   return {
     sessionId: readString(value.sessionId, "sessionId"),
+    projectId: readString(value.projectId, "projectId"),
     title: readString(value.title, "title"),
     status: readSessionStatus(value.status),
     runningCount: readNumber(value.runningCount, "runningCount"),

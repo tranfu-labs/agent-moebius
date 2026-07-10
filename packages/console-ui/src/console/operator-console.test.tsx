@@ -70,6 +70,7 @@ function renderConsole(overrides: Partial<OperatorConsoleProps> = {}) {
 const sessions: OperatorSession[] = [
   {
     sessionId: "session-a",
+    projectId: "local",
     title: "默认会话",
     status: "running",
     runningCount: 1,
@@ -82,6 +83,7 @@ const sessions: OperatorSession[] = [
   },
   {
     sessionId: "session-b",
+    projectId: "local",
     title: "验收会话",
     status: "failed",
     runningCount: 0,
@@ -96,7 +98,15 @@ const sessions: OperatorSession[] = [
 
 const project: OperatorProject = {
   projectId: "local",
+  sourceType: "local-folder",
   title: "agent-moebius",
+  folderPath: "/Users/example/agent-moebius",
+  worktreeMode: true,
+  workspaceCwd: "/tmp/agent-moebius-local-worktree",
+  workspaceMode: "worktree",
+  worktreePath: "/tmp/agent-moebius-local-worktree",
+  worktreeUnavailableReason: null,
+  workspaceUpdatedAt: "2026-07-09T00:00:01.000Z",
   sessions,
   runningCount: 1,
   waitingCount: 0,
@@ -112,6 +122,9 @@ const runSnapshot: OperatorRunSnapshot = {
   startedAt: "2026-07-09T00:00:00.000Z",
   elapsedMs: 12_000,
   runDir: "/tmp/agent-moebius-run",
+  cwd: "/tmp/agent-moebius-local-worktree",
+  workspaceMode: "worktree",
+  worktreeUnavailableReason: null,
   stdoutTail: "live tail from codex",
   stderrTail: null,
   lastOutputSummary: "live tail from codex",

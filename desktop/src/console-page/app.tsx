@@ -15,6 +15,7 @@ interface DesktopApi {
   getLocalConsoleUrl?: () => Promise<string | null>;
   onStatus?: (listener: (snapshot: DesktopStatusSnapshot) => void) => () => void;
   openStatusPage?: () => Promise<void>;
+  selectProjectFolder?: () => Promise<string | null>;
 }
 
 interface DesktopStatusSnapshot {
@@ -30,7 +31,9 @@ interface DesktopStatusSnapshot {
 }
 
 interface LocalConsoleState {
+  projects: OperatorProject[];
   project: OperatorProject;
+  selectedProjectId: string;
   selectedSessionId: string;
   selectedSession: OperatorSession | null;
   messages: OperatorMessage[];
@@ -48,6 +51,7 @@ declare global {
 
 function App(): JSX.Element {
   const [apiBase, setApiBase] = useState<string | null>(readQueryApiBase());
+  const [selectedProjectId, setSelectedProjectId] = useState("local");
   const [selectedSessionId, setSelectedSessionId] = useState("default");
   const [state, setState] = useState<LocalConsoleState | null>(null);
   const [composerValue, setComposerValue] = useState("");
@@ -96,17 +100,21 @@ function App(): JSX.Element {
     try {
       const url = endpoint(apiBase, "/api/local-console/state");
       url.searchParams.set("sessionId", selectedSessionId);
+      url.searchParams.set("projectId", selectedProjectId);
       const response = await fetch(url);
       const body = await response.json() as LocalConsoleState | { error?: string };
       if (!response.ok) {
         throw new Error("error" in body && body.error ? body.error : "state request failed");
       }
-      setState(body as LocalConsoleState);
+      const nextState = body as LocalConsoleState;
+      setState(nextState);
+      setSelectedProjectId(nextState.selectedProjectId);
+      setSelectedSessionId(nextState.selectedSessionId);
       setClientError(null);
     } catch (error) {
       setClientError(formatError(error));
     }
-  }, [apiBase, selectedSessionId]);
+  }, [apiBase, selectedProjectId, selectedSessionId]);
 
   useEffect(() => {
     void refresh();
@@ -117,6 +125,7 @@ function App(): JSX.Element {
   }, [refresh]);
 
   const project = state?.project ?? emptyProject;
+  const projects = state?.projects ?? [project];
   const lastError = clientError ?? state?.lastError ?? null;
   const selectedSession = state?.selectedSession ?? null;
   const messages = state?.messages ?? [];
@@ -132,7 +141,7 @@ function App(): JSX.Element {
       const response = await fetch(endpoint(apiBase, "/api/local-console/sessions"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "新会话" }),
+        body: JSON.stringify({ title: "新会话", projectId: selectedProjectId }),
       });
       const body = await response.json() as { session?: OperatorSession; error?: string };
       if (!response.ok || body.session === undefined) {
@@ -140,6 +149,64 @@ function App(): JSX.Element {
       }
       setSelectedSessionId(body.session.sessionId);
       setComposerValue("");
+      await refresh();
+    } catch (error) {
+      setClientError(formatError(error));
+    }
+  }, [apiBase, refresh, selectedProjectId]);
+
+  const openProject = useCallback(async () => {
+    if (apiBase === null) {
+      setClientError("local console server unavailable");
+      return;
+    }
+    if (window.agentMoebius?.selectProjectFolder === undefined) {
+      setClientError("desktop folder picker unavailable");
+      return;
+    }
+    try {
+      const folderPath = await window.agentMoebius.selectProjectFolder();
+      if (folderPath === null) {
+        return;
+      }
+      const response = await fetch(endpoint(apiBase, "/api/local-console/projects"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ folderPath, worktreeMode: false }),
+      });
+      const body = await response.json() as { project?: OperatorProject; error?: string };
+      if (!response.ok || body.project === undefined) {
+        throw new Error(body.error ?? "open project failed");
+      }
+      setSelectedProjectId(body.project.projectId);
+      setSelectedSessionId(body.project.sessions[0]?.sessionId ?? selectedSessionId);
+      await refresh();
+    } catch (error) {
+      setClientError(formatError(error));
+    }
+  }, [apiBase, refresh, selectedSessionId]);
+
+  const selectProject = useCallback((projectId: string) => {
+    const nextProject = projects.find((candidate) => candidate.projectId === projectId);
+    setSelectedProjectId(projectId);
+    setSelectedSessionId(nextProject?.sessions[0]?.sessionId ?? selectedSessionId);
+  }, [projects, selectedSessionId]);
+
+  const toggleProjectWorktree = useCallback(async (projectId: string, worktreeMode: boolean) => {
+    if (apiBase === null) {
+      setClientError("local console server unavailable");
+      return;
+    }
+    try {
+      const response = await fetch(endpoint(apiBase, `/api/local-console/projects/${encodeURIComponent(projectId)}`), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ worktreeMode }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "update project failed");
+      }
       await refresh();
     } catch (error) {
       setClientError(formatError(error));
@@ -202,6 +269,8 @@ function App(): JSX.Element {
   return (
     <OperatorConsole
       project={project}
+      projects={projects}
+      selectedProjectId={state?.selectedProjectId ?? selectedProjectId}
       selectedSessionId={state?.selectedSessionId ?? selectedSessionId}
       selectedSession={selectedSession}
       messages={messages}
@@ -213,6 +282,9 @@ function App(): JSX.Element {
       onComposerChange={setComposerValue}
       onSend={sendMessage}
       onCreateSession={createSession}
+      onOpenProject={openProject}
+      onSelectProject={selectProject}
+      onToggleProjectWorktree={toggleProjectWorktree}
       onSelectSession={setSelectedSessionId}
       onInterrupt={interrupt}
       onOpenDiagnostics={openDiagnostics}
@@ -223,7 +295,15 @@ function App(): JSX.Element {
 
 const emptyProject: OperatorProject = {
   projectId: "local",
+  sourceType: "local-folder",
   title: "agent-moebius",
+  folderPath: "",
+  worktreeMode: false,
+  workspaceCwd: null,
+  workspaceMode: null,
+  worktreePath: null,
+  worktreeUnavailableReason: null,
+  workspaceUpdatedAt: null,
   sessions: [],
   runningCount: 0,
   waitingCount: 0,

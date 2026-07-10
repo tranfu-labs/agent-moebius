@@ -5,10 +5,19 @@ import { OperatorConsole, type OperatorConsoleProps } from "@/console/operator-c
 const sample: OperatorConsoleProps = {
   project: {
     projectId: "local",
+    sourceType: "local-folder",
     title: "agent-moebius",
+    folderPath: "/Users/example/agent-moebius",
+    worktreeMode: true,
+    workspaceCwd: "/tmp/agent-moebius-local-worktree",
+    workspaceMode: "worktree",
+    worktreePath: "/tmp/agent-moebius-local-worktree",
+    worktreeUnavailableReason: null,
+    workspaceUpdatedAt: "2026-07-09T00:03:00.000Z",
     sessions: [
       {
         sessionId: "default",
+        projectId: "local",
         title: "默认会话",
         status: "running",
         runningCount: 1,
@@ -21,6 +30,7 @@ const sample: OperatorConsoleProps = {
       },
       {
         sessionId: "failure",
+        projectId: "local",
         title: "失败构造",
         status: "failed",
         runningCount: 0,
@@ -33,6 +43,7 @@ const sample: OperatorConsoleProps = {
       },
       {
         sessionId: "human",
+        projectId: "local",
         title: "等待验收",
         status: "waiting",
         runningCount: 0,
@@ -52,6 +63,7 @@ const sample: OperatorConsoleProps = {
   selectedSessionId: "default",
   selectedSession: {
     sessionId: "default",
+    projectId: "local",
     title: "默认会话",
     status: "running",
     runningCount: 1,
@@ -85,6 +97,9 @@ const sample: OperatorConsoleProps = {
     startedAt: "2026-07-09T00:00:00.000Z",
     elapsedMs: 34_000,
     runDir: "/tmp/agent-moebius-local-run",
+    cwd: "/tmp/agent-moebius-local-worktree",
+    workspaceMode: "worktree",
+    worktreeUnavailableReason: null,
     stdoutTail: "{\"message\":\"正在生成 code-verified 证据\"}",
     stderrTail: null,
     lastOutputSummary: "正在生成 code-verified 证据",
