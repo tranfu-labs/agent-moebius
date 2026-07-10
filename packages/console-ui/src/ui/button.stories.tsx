@@ -36,7 +36,7 @@ export const ConsoleActions: Story = {
         发送
       </Button>
       <Button variant="outline">新会话</Button>
-      <Button variant="danger">
+      <Button variant={"danger"}>
         <Square className="h-4 w-4" />
         中断
       </Button>

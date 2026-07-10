@@ -13,7 +13,9 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Badge, type BadgeProps } from "@/ui/badge";
 import { Button } from "@/ui/button";
+import { Card } from "@/ui/card";
 
 export type OperatorMessageSpeaker = "user" | "agent" | "system";
 export type OperatorMessageStatus =
@@ -263,7 +265,9 @@ export function OperatorConsole({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <StatusBadge status={activeRun ? "running" : (selectedSession?.status ?? "idle")} />
+            <Badge variant={statusVariant(activeRun ? "running" : (selectedSession?.status ?? "idle"))}>
+              {statusLabel(activeRun ? "running" : (selectedSession?.status ?? "idle"))}
+            </Badge>
             {onOpenDiagnostics ? (
               <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
                 诊断
@@ -300,7 +304,7 @@ export function OperatorConsole({
             }}
           >
             <textarea
-              className="min-h-10 max-h-28 resize-y rounded-lg border border-line bg-input px-3 py-2 text-sm text-ink placeholder:text-hint disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-10 max-h-28 resize-y rounded-sm border-line border bg-input px-3 py-2 text-sm text-ink placeholder:text-hint disabled:cursor-not-allowed disabled:opacity-50"
               value={composerValue}
               placeholder="输入本地对话消息，例如 @dev ..."
               disabled={activeRun !== null || isSending}
@@ -353,12 +357,13 @@ function RunLiveBlock({
   onInterrupt(sessionId: string, runId: string): void;
 }): JSX.Element {
   return (
-    <div className="mb-3 border border-line bg-card p-3">
+    <Card className="mb-3 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden="true" />
             <span>运行直播</span>
+            <Badge variant="running">进行中</Badge>
             <span className="text-xs font-normal text-sub tnum">{formatElapsed(activeRun.elapsedMs)}</span>
           </div>
           <div className="mt-1 truncate text-xs text-sub">{activeRun.runDir ?? "runDir 未记录"}</div>
@@ -370,7 +375,7 @@ function RunLiveBlock({
         </div>
         <Button
           type="button"
-          variant="danger"
+          variant={"danger"}
           size="sm"
           disabled={!activeRun.interruptible}
           onClick={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
@@ -388,7 +393,7 @@ function RunLiveBlock({
           {activeRun.tailDiagnostic}
         </div>
       ) : null}
-    </div>
+    </Card>
   );
 }
 
@@ -401,10 +406,10 @@ function TimelineMessage({ message }: { message: OperatorMessage }): JSX.Element
         ? "border-line bg-card"
         : "border-line bg-rail";
   return (
-    <article className={cn("border p-3", tone)}>
+    <Card className={cn("p-3", tone)}>
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-sub">
         <span className="font-semibold text-ink">{message.role ?? speakerLabel(message.speaker)}</span>
-        <StatusBadge status={message.status} />
+        <Badge variant={statusVariant(message.status)}>{statusLabel(message.status)}</Badge>
         {message.runDir ? <span className="truncate">{message.runDir}</span> : null}
         <span className="inline-flex items-center gap-1 tnum">
           <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -413,15 +418,7 @@ function TimelineMessage({ message }: { message: OperatorMessage }): JSX.Element
       </div>
       <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-5 text-ink">{message.body}</pre>
       {message.error ? <div className="mt-2 text-xs text-danger">{message.error}</div> : null}
-    </article>
-  );
-}
-
-function StatusBadge({ status }: { status: OperatorSessionStatus | OperatorMessageStatus }): JSX.Element {
-  return (
-    <span className={cn("inline-flex h-6 items-center rounded-md border px-2 text-xs", statusClass(status))}>
-      {statusLabel(status)}
-    </span>
+    </Card>
   );
 }
 
@@ -429,20 +426,8 @@ function StatusDot({ status }: { status: OperatorSessionStatus | "idle" }): JSX.
   return <span className={cn("h-2 w-2 rounded-full", dotClass(status))} aria-hidden="true" />;
 }
 
-function statusClass(status: OperatorSessionStatus | OperatorMessageStatus): string {
-  if (status === "running") {
-    return "border-accent text-accent";
-  }
-  if (status === "failed" || status === "stuck") {
-    return "border-danger text-danger";
-  }
-  if (status === "interrupted") {
-    return "border-line-strong text-sub";
-  }
-  if (status === "waiting" || status === "pending") {
-    return "border-line-strong text-ink";
-  }
-  return "border-line text-sub";
+function statusVariant(status: OperatorSessionStatus | OperatorMessageStatus): BadgeProps["variant"] {
+  return status;
 }
 
 function dotClass(status: OperatorSessionStatus | "idle"): string {

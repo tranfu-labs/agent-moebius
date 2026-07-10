@@ -19,6 +19,7 @@ describe("OperatorConsole", () => {
     expect(screen.getAllByText("默认会话").length).toBeGreaterThan(0);
     expect(screen.getByText("验收会话")).toBeInTheDocument();
     expect(screen.getByText("运行直播")).toBeInTheDocument();
+    expect(screen.getAllByText("进行中").length).toBeGreaterThan(0);
     expect(screen.getByText("live tail from codex")).toBeInTheDocument();
     expect(screen.getAllByText(/\/tmp\/agent-moebius-run/).length).toBeGreaterThan(0);
 
@@ -34,6 +35,8 @@ describe("OperatorConsole", () => {
         message({ id: 2, speaker: "system", status: "failed", body: "Codex failed: exit:42", error: "exit:42" }),
         message({ id: 3, speaker: "system", status: "stuck", body: "Codex stuck: idle-timeout:10ms", error: "idle-timeout:10ms" }),
         message({ id: 4, speaker: "agent", status: "displayed", body: "## 下一步\n等待真人：请确认" }),
+        message({ id: 5, speaker: "agent", status: "pending", body: "queued" }),
+        message({ id: 6, speaker: "agent", status: "completed", body: "done" }),
       ],
     });
 
@@ -41,6 +44,9 @@ describe("OperatorConsole", () => {
     expect(screen.getAllByText("错误").length).toBeGreaterThan(0);
     expect(screen.getAllByText("卡住").length).toBeGreaterThan(0);
     expect(screen.getAllByText("等待真人").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("排队中").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("已显示").length).toBeGreaterThan(0);
     expect(screen.getByText("interrupted:user-interrupted")).toBeInTheDocument();
     expect(screen.getByText("idle-timeout:10ms")).toBeInTheDocument();
   });

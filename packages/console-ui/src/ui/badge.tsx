@@ -4,29 +4,33 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium transition-colors",
+  "inline-flex h-6 items-center rounded-sm border px-2 text-xs font-medium leading-none transition-colors whitespace-nowrap",
   {
     variants: {
       variant: {
-        neutral: "border-line bg-card text-sub",
-        selected: "border-line bg-sel text-ink",
-        accent: "border-transparent bg-accent text-accent-fg",
-        pass: "border-transparent bg-card text-pass",
-        danger: "border-transparent bg-card text-danger"
+        idle: "border-line bg-card text-sub",
+        running: "border-accent bg-card text-accent",
+        waiting: "border-line-strong bg-sel text-ink",
+        pending: "border-line-strong bg-sel text-ink",
+        completed: "border-line bg-card text-ink",
+        displayed: "border-line bg-card text-sub",
+        failed: "border-danger bg-card text-danger",
+        stuck: "border-danger bg-card text-danger",
+        interrupted: "border-line-strong bg-card text-sub"
       }
     },
     defaultVariants: {
-      variant: "neutral"
+      variant: "idle"
     }
   }
 );
 
 export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
+  extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof badgeVariants> {}
 
 function Badge({ className, variant, ...props }: BadgeProps): JSX.Element {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
+  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
 export { Badge, badgeVariants };

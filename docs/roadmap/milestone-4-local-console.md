@@ -93,7 +93,7 @@ T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packa
 
 验收证据（2026-07-10，#116）：T5 集成收尾按 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case all` 生成全量证据 `artifacts/acceptance/t5-evidence.json`，覆盖多子任务目标、CEO 兜底路由、`parent_session_id` 树、qa/product-manager 走查、父级集成回流、worktree diff 回流对等、dead-letter 降级、MUST 矩阵与 fake `gh` 零调用。MUST 矩阵以 `openspec/specs/github-issue-runner/spec.md` 当前 564 行含 `MUST`、475 行项目符号 `- MUST` 为口径，并由 `openspec/changes/local-console-t5-full-parity/proposal.md` / `tasks.md` 映射。自动化回归：`pnpm test` 退出码 0（root 35 文件 425 测试、desktop 5 文件 15 测试、console-ui 3 文件 10 测试）；`pnpm typecheck` 退出码 0；`pnpm --filter @agent-moebius/desktop build` 退出码 0；`pnpm --filter @agent-moebius/console-ui test` 退出码 0。T6 互斥 flag 与 M3 A-K 遗留卡点仍不在 T5 范围。
 
-### - [ ] T6 · console-ui 扁平锚归位（组件库对齐 Linear + 主界面回收组件，`成品级`）
+### - [x] T6 · console-ui 扁平锚归位（组件库对齐 Linear + 主界面回收组件，`成品级`）
 
 **问题**：T4 建 `packages/console-ui/src/console/operator-console.tsx`（527 行）时除 `Button` 外几乎绕开了组件库——`RunLiveBlock`（第 348 行起）/ `TimelineMessage`（第 395 行起）/ `StatusBadge`（第 420 行起）三处用原生 `<article>` / `<div>` / `<span>` + tailwind 手撸重写了 `Card` / `Badge` 的等价形态；组件库里 `Card` 默认 `rounded-lg` + 浮起观感与项目视觉锚（conversation-console 对标 Linear 扁平语言：方角 / 细边 / 紧凑 / 纯色扁平按钮 / 阴影只留浮层）不符，是「作者绕开组件库」的直接诱因。**目标**：把组件库改到扁平锚一致，主界面回收组件，让 T5 #113 等后续 UI 增量默认在统一基线上生长，不再各处 tailwind 手撸。
 
@@ -102,6 +102,8 @@ T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packa
 依赖：建议 T5 全部合入后启动，避免与 #113 树形渲染新增 UI 节点叠加返工；如需并行，可先跑「组件库 `Card` / `Badge` 扁平化」子步骤，主界面替换段等 T5 合入。
 
 验收场景（细化时保留）：(a) 跑 `pnpm --filter @agent-moebius/console-ui storybook` → 应看到 Card / Badge 与主界面视觉一致，不出现「组件库偏浮起、主界面偏扁平」两套观感；(b) 打开桌面台会话页 → 应看到时间线消息、`RunLiveBlock`、状态徽章的圆角 / 边框 / 内边距与 `accept-card` 规范样例、Linear 扁平锚一致（方角 / 细边 / 紧凑）；(c) 在 `packages/console-ui/src/console/operator-console.tsx` 主内容区（`<main>` 及以内，除侧栏导航按钮外）跑 `grep -nE 'border border-line|<article'` → 应命中 0，卡片/徽章全部通过组件；(d) 跑 `pnpm --filter @agent-moebius/console-ui test`、`pnpm --filter @agent-moebius/desktop build`、`pnpm typecheck` → 应全绿；(e) 回归 `accept-card` 规范样例视觉与交互 → 应无回退。
+
+验收证据（2026-07-10）：T6 已按 `openspec/changes/archive/2026-07-10-console-ui-flat-anchor/` 实现 console-ui 扁平锚归位：`Card` 默认方角细边无阴影，`Badge` 从旧 `neutral / selected / accent / pass / danger` 收敛为 status 语义，`operator-console.tsx` 主内容区的 RunLiveBlock / TimelineMessage / status labels 回收到 `Card` / `Badge`。视觉证据见 `artifacts/acceptance/t6-desktop-renderer.png`（desktop renderer 静态包 + fake local console state，覆盖 active RunLiveBlock、普通 TimelineMessage、running/pending/completed/displayed/failed/stuck/interrupted 状态 Badge）与 `artifacts/acceptance/t6-component-gallery.png`（Card / Badge / OperatorConsole-like timeline / AcceptCard-like surface 同一方角、细边、紧凑、无浮起阴影基线），结构化摘要见 `artifacts/acceptance/t6-evidence.json`。静态 gate：`rg 'variant="(neutral|selected|accent|pass|danger)"|variant: "(neutral|selected|accent|pass|danger)"' packages/console-ui/src` 命中 0；`rg 'StatusBadge|statusClass|<article|border border-line' packages/console-ui/src/console/operator-console.tsx` 命中 0，并已确认 RunLiveBlock / TimelineMessage 根容器来自 `Card`、状态标签来自 `Badge`。回归命令：`pnpm --filter @agent-moebius/console-ui test` 退出码 0（3 文件 10 测试，含 AcceptCard 与 OperatorConsole 回归）；`pnpm --filter @agent-moebius/desktop build` 退出码 0；`pnpm typecheck` 退出码 0；`pnpm exec openspec validate console-ui --type spec --strict` 退出码 0；`git diff --check` 退出码 0。
 
 ### - [ ] T7 · GitHub 降为互斥 flag 模式 + 收尾（`成品级`）
 

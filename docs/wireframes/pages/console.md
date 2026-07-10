@@ -91,3 +91,30 @@ Requirements:
 
 Requirements:
 - Status and observer pages are reachable as diagnostics, but the operator console is the default main window.
+
+## T6 Flat Component Anchor
+
+```text
+┌────────────────────┬─────────────────────────────────────────────────────────┐
+│ Project/session nav│ 会话: 本地 T6 验收                         [running]   │
+│ remains navigation │                                                         │
+│                    │ ┌ 运行直播 [running] 00:43 ─────────────── [中断] ┐    │
+│                    │ │ runDir: /tmp/agent-moebius-t6-run             │    │
+│                    │ │ cwd: /tmp/agent-moebius-local-worktree        │    │
+│                    │ │ live tail from codex                          │    │
+│                    │ └───────────────────────────────────────────────┘    │
+│                    │ ┌ dev [completed] 23:01:00 ─────────────────────┐    │
+│                    │ │ 已完成组件回收。                              │    │
+│                    │ └───────────────────────────────────────────────┘    │
+│                    │ ┌ system [failed] 23:01:00 ─────────────────────┐    │
+│                    │ │ Codex failed: exit:42                         │    │
+│                    │ └───────────────────────────────────────────────┘    │
+└────────────────────┴─────────────────────────────────────────────────────────┘
+```
+
+Requirements:
+- Main-content live run blocks and timeline messages use the shared `Card` primitive: square or near-square corners, thin border, compact padding, neutral surface, and no floating shadow.
+- Session and message status labels use the shared `Badge` primitive with runtime status semantics.
+- Waiting and pending statuses remain neutral structural facts; failed and stuck statuses use danger fact styling; interrupted stays neutral and distinct from failure.
+- Main content does not keep native `article` timeline shells or hand-written `border border-line` card/badge containers.
+- Sidebar project/session rows remain navigation controls, not Card surfaces.
