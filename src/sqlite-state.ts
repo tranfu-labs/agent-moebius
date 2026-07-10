@@ -98,6 +98,16 @@ export type SqliteStateCommand =
       now: string;
     }
   | {
+      kind: "local-record-system";
+      sessionId: string;
+      body: string;
+      runId: string | null;
+      runDir: string | null;
+      error: string | null;
+      status?: "displayed" | "failed" | "stuck";
+      now: string;
+    }
+  | {
       kind: "local-record-failure";
       userMessageId: number;
       sessionId: string;

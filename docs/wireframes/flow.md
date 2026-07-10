@@ -56,6 +56,10 @@ pnpm observer
   │    ├─ runner 状态 / 崩溃重启进度 / 日志路径
   │    ├─ local console URL
   │    ├─ 单本地项目 / 多会话列表
+  │    │    ├─ flat sessions 带 parentSessionId
+  │    │    ├─ renderer 构造 project → parent session → child session 树
+  │    │    ├─ 刷新后仅靠持久化 summaries 恢复层级
+  │    │    └─ missing parent / self-parent / cycle → 每个 session 至多显示一次，无法归属者 root fallback
   │    ├─ 当前会话时间线
   │    ├─ active run 直播块 / runDir / elapsed / tail
   │    ├─ 中断按钮

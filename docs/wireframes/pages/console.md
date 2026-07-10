@@ -10,10 +10,11 @@ The console page is the Electron desktop shell's default main window. It is a lo
 ├────────────────────┬──────────────────────────────────────┬────────────────┤
 │ ▾ agent-moebius     │ 会话: 本地 T4 验收                 运行中│ 运行详情       │
 │  »  本地 T4 验收    │                                      │ runDir          │
-│     失败构造验证    │ ┌ 你 · 14:02 ─────────────────────┐ │ /tmp/.../run-1  │
-│     卡住状态验证    │ │ dev 帮我验证本地操作台直播       │ │                │
-│     空白会话        │ └──────────────────────────────────┘ │ 最近输出        │
-│                    │                                      │ running tests... │
+│     ├─ 子会话 · 编排│ ┌ 你 · 14:02 ─────────────────────┐ │ /tmp/.../run-1  │
+│     └─ 子会话 · 路由│ │ dev 帮我验证本地操作台直播       │ │                │
+│     失败构造验证    │ └──────────────────────────────────┘ │ 最近输出        │
+│     卡住状态验证    │                                      │ running tests... │
+│     空白会话        │                                      │                │
 │                    │ ┌ 开发 · 运行中 00:43 ─── [中断] ┐ │                │
 │                    │ │ 正在运行 · stdout.jsonl 已更新   │ │ 状态           │
 │                    │ │ runDir: /tmp/agent-moebius...    │ │ running        │
@@ -26,7 +27,10 @@ The console page is the Electron desktop shell's default main window. It is a lo
 ```
 
 Requirements:
-- The left side keeps project -> session hierarchy even though T4 has one local project.
+- The left side keeps project -> parent session -> child session hierarchy when `parentSessionId` is present.
+- Root and child rows use the same selection model; child rows are compact and indented under their parent.
+- A renderer refresh restores the hierarchy from flat session summaries alone.
+- Missing, self-parented, or cyclic parent references do not hang rendering; each session appears at most once and unsafe children fall back as root rows.
 - The middle timeline mixes user, agent, and system records.
 - The active run block always displays a non-empty summary, elapsed time, and runDir when available.
 - Tail-read timeout, missing files, or unparseable output display a deterministic fallback and optional diagnostic text, never a blank running block.

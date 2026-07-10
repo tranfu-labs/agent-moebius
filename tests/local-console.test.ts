@@ -330,26 +330,12 @@ describe("local console", () => {
         now: "2026-07-10T00:00:01.000Z",
       },
     );
-    await store.appendUserMessage({
-      sessionId: "local:child-accept",
-      body: "@product-manager 请验收",
-      now: "2026-07-10T00:00:02.000Z",
-    });
-    const claimedUser = await store.claimNextPendingMessage({
-      sessionId: "local:child-accept",
-      runId: "run-user",
-      now: "2026-07-10T00:00:03.000Z",
-    });
-    expect(claimedUser).not.toBeNull();
-    await store.recordAgentResponse({
-      userMessageId: claimedUser!.id,
-      sessionId: "local:child-accept",
-      role: "product-manager",
-      body: ["1. 通过 — one ok", "2. 通过 — two ok", "验收结论：通过", "@dev should-not-run"].join("\n"),
-      runId: "run-user",
-      runDir: path.join(root, "runs", "pm"),
-      now: "2026-07-10T00:00:04.000Z",
-    });
+    await appendDisplayedAgent(store, "local:child-accept", "product-manager", [
+      "1. 通过 — one ok",
+      "2. 通过 — two ok",
+      "验收结论：通过",
+      "@dev should-not-run",
+    ].join("\n"), 2);
     await store.close();
 
     const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected"));
@@ -545,6 +531,155 @@ describe("local console", () => {
       await started.close();
     }
   });
+  it("rejects cross-project local child sessions and hidden key collisions", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const otherFolder = path.join(root, "other-project");
+    await fs.mkdir(otherFolder, { recursive: true });
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    try {
+      const otherProject = await store.createProject({
+        folderPath: otherFolder,
+        worktreeMode: false,
+        now: "2026-07-09T00:00:00.000Z",
+      });
+      await store.createSession({ sessionId: "local:parent", title: "parent", now: "2026-07-09T00:00:01.000Z" });
+
+      await expect(
+        createLocalChildSession(
+          { sqlitePath },
+          {
+            parentSessionId: "local:parent",
+            childSessionId: "local:cross-project",
+            projectId: otherProject.projectId,
+            title: "bad child",
+            relation: "task",
+            hiddenKey: "hidden:cross-project",
+            initialRole: "dev",
+            initialBody: "bad",
+            now: "2026-07-09T00:00:02.000Z",
+          },
+        ),
+      ).rejects.toThrow(/project mismatch/u);
+
+      const childA = await createLocalChildSession(
+        { sqlitePath },
+        {
+          parentSessionId: "local:parent",
+          childSessionId: "local:child-a",
+          projectId: LOCAL_CONSOLE_PROJECT_ID,
+          title: "child A",
+          relation: "task",
+          hiddenKey: "hidden:collision",
+          initialRole: "dev",
+          initialBody: "child A",
+          now: "2026-07-09T00:00:03.000Z",
+        },
+      );
+
+      const database = new DatabaseSync(sqlitePath);
+      try {
+        database
+          .prepare(
+            `INSERT INTO sessions
+              (session_id, project_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, title, status, created_at, updated_at)
+             VALUES ('local:child-b', ?, 'local', NULL, NULL, NULL, 'local:parent', 'child B', 'active', ?, ?)`,
+          )
+          .run(LOCAL_CONSOLE_PROJECT_ID, "2026-07-09T00:00:04.000Z", "2026-07-09T00:00:04.000Z");
+        database
+          .prepare(
+            `INSERT INTO session_edges (parent_session_id, child_session_id, relation, hidden_key, created_at)
+             VALUES ('local:parent', 'local:child-b', 'task', 'hidden:collision', ?)`,
+          )
+          .run("2026-07-09T00:00:04.000Z");
+      } finally {
+        database.close();
+      }
+
+      await expect(
+        createLocalChildSession(
+          { sqlitePath },
+          {
+            parentSessionId: "local:parent",
+            childSessionId: "local:child-c",
+            projectId: LOCAL_CONSOLE_PROJECT_ID,
+            title: "child C",
+            relation: "task",
+            hiddenKey: "hidden:collision",
+            initialRole: "dev",
+            initialBody: "child C",
+            now: "2026-07-09T00:00:05.000Z",
+          },
+        ),
+      ).rejects.toThrow(/hidden key collision/u);
+
+      expect((await store.listSessions()).find((entry) => entry.sessionId === "local:cross-project")).toBeUndefined();
+      expect(childA).toMatchObject({ parentSessionId: "local:parent", projectId: LOCAL_CONSOLE_PROJECT_ID });
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("maps a local CEO child orchestration result to child sessions", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "ceo", "# CEO\n\nROLE:ceo");
+    await writeAgent(root, "dev", "# Dev\n\nROLE:dev");
+    await writeCeoScript(root, "milestone-spawn-child-issues", "spawn_child_issues");
+    const ceoOutput = `${JSON.stringify({
+      action: "spawn_child_issues",
+      workflowId: "milestone-spawn-child-issues",
+      summary: "spawn local children",
+      groups: [{ id: "g-runtime-sqlite-serial", reason: "runtime sqlite serial" }],
+      issues: [
+        {
+          ledgerTaskId: "task-a",
+          groupId: "g-runtime-sqlite-serial",
+          title: "Task A",
+          description: "Implement task A",
+          initialRole: "dev",
+          qualityBaseline: "production",
+          acceptanceStatements: ["跑 A → 应通过"],
+          dependencies: [],
+          provenance: "local test",
+        },
+        {
+          ledgerTaskId: "task-b",
+          groupId: "g-runtime-sqlite-serial",
+          title: "Task B",
+          description: "Implement task B",
+          initialRole: "dev",
+          qualityBaseline: "production",
+          acceptanceStatements: ["跑 B → 应通过"],
+          dependencies: ["task-a"],
+          provenance: "local test",
+        },
+      ],
+    })}\n\n<!-- agent-moebius:stage=in-progress -->`;
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, ceoOutput));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `child-orchestration-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const parent = await createSession(started.url, "parent goal");
+      await postSessionMessage(started.url, parent.sessionId, "@ceo spawn child sessions");
+      const state = await waitForState(started.url, parent.sessionId, (data) => {
+        const sessions = data.projects.flatMap((project) => project.sessions);
+        return sessions.filter((session) => session.parentSessionId === parent.sessionId).length === 2;
+      });
+      const childSessions = state.projects.flatMap((project) => project.sessions).filter((session) => session.parentSessionId === parent.sessionId);
+      expect(childSessions.map((session) => session.title).sort()).toEqual(["Task A", "Task B"]);
+      expect(state.messages.some((entry) => entry.body.includes("Local child session orchestration completed"))).toBe(true);
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, parent.sessionId);
+      expect(facts.sessionEdges).toHaveLength(2);
+    } finally {
+      await started.close();
+    }
+  }, 10_000);
 
   it("builds local timelines that reuse mention parsing rules", () => {
     const agents = ["dev"];
@@ -1680,6 +1815,16 @@ async function writeAgent(root: string, name: string, body: string): Promise<voi
   await fs.writeFile(path.join(agentsDir, `${name}.md`), body, "utf8");
 }
 
+async function writeCeoScript(root: string, id: string, action: string): Promise<void> {
+  const scriptsDir = path.join(root, "agents", "ceo-scripts");
+  await fs.mkdir(scriptsDir, { recursive: true });
+  await fs.writeFile(
+    path.join(scriptsDir, `${id}.md`),
+    `---\nid: ${id}\naction: ${action}\ntitle: ${id}\n---\nLocal test script.\n`,
+    "utf8",
+  );
+}
+
 async function appendDisplayedAgent(
   store: LocalConsoleStore,
   sessionId: string,
@@ -1687,15 +1832,35 @@ async function appendDisplayedAgent(
   body: string,
   offsetSeconds: number,
 ): Promise<LocalConsoleMessage> {
+  const existingMessages = await store.listMessages(sessionId);
+  const hasPendingInitialHandoff = existingMessages.some(
+    (message) => message.speaker === "user" && message.status === "pending" && message.body.includes("Acceptance statements:"),
+  );
+  if (hasPendingInitialHandoff) {
+    const initial = await store.claimNextPendingMessage({
+      sessionId,
+      runId: `run-initial-${String(offsetSeconds)}`,
+      now: localTestNow(offsetSeconds),
+    });
+    expect(initial).not.toBeNull();
+    await store.recordSystemAndComplete({
+      userMessageId: initial!.id,
+      sessionId,
+      body: "Initial handoff completed in fixture",
+      runId: `run-initial-${String(offsetSeconds)}`,
+      runDir: `/tmp/run-initial-${String(offsetSeconds)}`,
+      now: localTestNow(offsetSeconds + 1),
+    });
+  }
   const user = await store.appendUserMessage({
     sessionId,
     body: `@${role} 请验收`,
-    now: localTestNow(offsetSeconds),
+    now: localTestNow(offsetSeconds + 2),
   });
   const claimed = await store.claimNextPendingMessage({
     sessionId,
     runId: `run-${String(offsetSeconds)}`,
-    now: localTestNow(offsetSeconds + 1),
+    now: localTestNow(offsetSeconds + 3),
   });
   expect(claimed?.id).toBe(user.id);
   await store.recordAgentResponse({
@@ -1705,7 +1870,7 @@ async function appendDisplayedAgent(
     body,
     runId: `run-${String(offsetSeconds)}`,
     runDir: `/tmp/run-${String(offsetSeconds)}`,
-    now: localTestNow(offsetSeconds + 2),
+    now: localTestNow(offsetSeconds + 4),
   });
   const messages = await store.listMessages(sessionId);
   const agent = messages.find((message) => message.speaker === "agent" && message.role === role && message.body === body);
@@ -2066,6 +2231,8 @@ class FastFailAppendStore implements LocalConsoleStore {
 
   async recordSystemAndComplete(): Promise<void> {}
 
+  async recordSystemMessage(): Promise<void> {}
+
   async recordMessageProcessed(): Promise<void> {}
 
   async findRouteDecision(): Promise<null> {
@@ -2199,6 +2366,18 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
     now: string;
   }): Promise<void> {
     await this.inner.recordSystemAndComplete(input);
+  }
+
+  async recordSystemMessage(input: {
+    sessionId: string;
+    body: string;
+    runId: string | null;
+    runDir: string | null;
+    error: string | null;
+    status?: "displayed" | "failed" | "stuck";
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordSystemMessage(input);
   }
 
   async recordMessageProcessed(input: {
@@ -2403,6 +2582,18 @@ class FailOnceRecordRouteAppendStore implements LocalConsoleStore {
     now: string;
   }): Promise<void> {
     await this.inner.recordSystemAndComplete(input);
+  }
+
+  async recordSystemMessage(input: {
+    sessionId: string;
+    body: string;
+    runId: string | null;
+    runDir: string | null;
+    error: string | null;
+    status?: "displayed" | "failed" | "stuck";
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordSystemMessage(input);
   }
 
   async recordMessageProcessed(input: {
@@ -2655,6 +2846,8 @@ class RecoveringAppendStore implements LocalConsoleStore {
   }
 
   async recordSystemAndComplete(): Promise<void> {}
+
+  async recordSystemMessage(): Promise<void> {}
 
   async recordMessageProcessed(input: {
     userMessageId: number;

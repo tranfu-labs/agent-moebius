@@ -127,6 +127,18 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     await this.run({ kind: "local-record-system-and-complete", ...input });
   }
 
+  async recordSystemMessage(input: {
+    sessionId: string;
+    body: string;
+    runId: string | null;
+    runDir: string | null;
+    error: string | null;
+    status?: "displayed" | "failed" | "stuck";
+    now: string;
+  }): Promise<void> {
+    await this.run({ kind: "local-record-system", ...input });
+  }
+
   async recordMessageProcessed(input: {
     userMessageId: number;
     sessionId: string;

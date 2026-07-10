@@ -30,7 +30,7 @@
 - 入口：`src/local-console/server.ts`、`src/local-console/runtime.ts`、`src/local-console/store.ts`、`src/local-console/output-tail.ts`。
 - 上游：Electron main process、兼容的本地浏览器调试页、local-console 测试。
 - 下游：`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、SQLite state worker、agent Markdown 素材目录、Codex runDir stdout/stderr artifacts。
-- 禁止依赖：MUST NOT 调用 GitHub / artifact publisher / CEO orchestration；MUST NOT 修改 conversation、trigger、stage、goal-ledger 或 GitHub issue runner 的业务规则；MUST NOT 实现未确认的 T5 child session orchestration、full acceptance pre-pass、artifact publishing 或 T6 GitHub/local mode flag。
+- 禁止依赖：MUST NOT 调用 GitHub / artifact publisher / CEO orchestration；MUST NOT 修改 conversation、trigger、stage、goal-ledger 或 GitHub issue runner 的业务规则；MUST NOT 实现 T5-only CEO fallback、artifact publishing parity、未确认的 cross-mode 行为或 T6 GitHub/local mode flag。T5 child session orchestration 只允许在 local-console 内映射为 local child session、`sessions.parent_session_id` 和桌面侧栏树形展示，不得反向调用 GitHub child issue 编排；T5 acceptance-loop 与 dead-letter/recovery 仅限本地 SQLite 可见收敛切片。
 
 ### agents
 - 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `preScript`，或通过 `workspaceAccess: write | read-run` 选择内置 issue worktree capability，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是 CEO 的共享身份素材：发布前 guardrail 路径只读取 persona body 并保持无状态 fail-open，普通 `@ceo` agent 路径执行 frontmatter prescript 并进入 fail-closed 编排。`agents/ceo-scripts/` 存放 CEO 剧本数据，不作为可 mention agent。`agents/secretary.md` 是 CEO 规则维护入口，作为普通 mention agent 运行但只维护当前仓库的 CEO 规则与相关事实源。

@@ -32,6 +32,15 @@
 - MUST support a single local project with multiple sessions while preserving the project -> session visual hierarchy.
 - MUST render tail-read fallback or diagnostic copy without leaving the run live block blank.
 
+### T5 父子会话侧栏树
+- MUST render sessions as a project -> parent session -> child session tree when parent session ids are available.
+- MUST keep root session selection and child session selection controlled by the same selected session id.
+- MUST restore the same parent-child tree after refresh from session summary data alone.
+- MUST keep child session rows compact, indented, and scannable with title and status visible.
+- MUST render child sessions with missing parent summaries as visible root fallback rows rather than dropping them.
+- MUST render each session at most once even when parent session references are cyclic, self-referential, or otherwise corrupt.
+- MUST bound parent tree construction so corrupt parent references cannot hang rendering.
+
 ## 场景
 
 ### 场景 CUI.1：未来 renderer 可消费组件库
@@ -77,3 +86,22 @@ When the sidebar renders
 Then it shows the project row
 And it shows all sessions under the project
 And the running, stuck, and failed sessions have visible state indicators.
+
+### 场景 CUI.T5.1：侧栏渲染持久化子会话
+Given a project has a parent session and two child sessions whose `parentSessionId` references the parent
+When the operator console sidebar renders
+Then the two child sessions appear under the parent session
+And selecting a child session calls the normal session selection callback with that child session id.
+
+### 场景 CUI.T5.2：刷新保持树形层级
+Given the operator console receives the same flat session summaries after a renderer refresh
+When the sidebar renders again
+Then the child sessions still appear under the same parent session
+And their order and selected state remain stable.
+
+### 场景 CUI.T5.3：损坏 parent 链仍有限可见
+Given flat session summaries contain a parent cycle or self-parent reference
+When the operator console sidebar renders
+Then rendering completes
+And each session appears at most once
+And sessions that cannot be safely attached are shown as root fallback rows.

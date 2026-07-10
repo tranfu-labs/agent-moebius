@@ -1,7 +1,15 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 import { LOCAL_CONSOLE_FAILURE_RETRY_LIMIT } from "../config.js";
 import { parseAgentManifest } from "../agent-manifest.js";
+import { loadCeoScripts } from "../ceo-scripts.js";
+import {
+  CEO_ORCHESTRATION_STAGE,
+  parseCeoOrchestrationOutput,
+  type CeoChildIssueDescriptor,
+  type CeoOrchestrationGroup,
+} from "../ceo-orchestration.js";
 import { buildRolePromptPlan } from "../conversation.js";
 import {
   type CodexRunOptions,
@@ -24,7 +32,12 @@ import {
 } from "./acceptance-loop.js";
 import { readLocalConsoleOutputTail } from "./output-tail.js";
 import { maybeRouteLocalNoMentionMessage, type LocalRouteJudgment } from "./route-bus.js";
-import { listLocalT5Facts, recordLocalAcceptancePrePassResult, recordLocalWorkspaceDiff } from "./t5-store.js";
+import {
+  createLocalChildSession,
+  listLocalT5Facts,
+  recordLocalAcceptancePrePassResult,
+  recordLocalWorkspaceDiff,
+} from "./t5-store.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
@@ -164,6 +177,44 @@ export class LocalConsoleRuntime {
         now: this.nowIso(),
       }),
     );
+  }
+
+  async createChildSession(input: {
+    parentSessionId: string;
+    childSessionId: string;
+    projectId: string;
+    title: string;
+    relation?: string;
+    hiddenKey: string;
+    initialBody: string;
+    initialRole?: string | null;
+  }): Promise<LocalConsoleSessionSummary> {
+    try {
+      return await this.storeCall("local-console-store-create-child-session", () =>
+        createLocalChildSession(
+          {
+            sqlitePath: this.options.store.sqlitePath,
+            timeoutMs: this.storeTimeoutMs,
+          },
+          {
+            parentSessionId: input.parentSessionId,
+            childSessionId: input.childSessionId,
+            projectId: input.projectId,
+            title: input.title,
+            relation: input.relation ?? "task",
+            hiddenKey: input.hiddenKey,
+            initialBody: input.initialBody,
+            initialRole: input.initialRole ?? null,
+            now: this.nowIso(),
+          },
+        ),
+      );
+    } catch (error) {
+      const message = formatLocalError(error);
+      this.lastError = message;
+      await this.recordVisibleChildSessionFailureBestEffort(input.parentSessionId, message);
+      throw error;
+    }
   }
 
   async submitUserMessage(body: string, sessionId = this.sessionId): Promise<LocalConsoleMessage> {
@@ -419,6 +470,16 @@ export class LocalConsoleRuntime {
             return;
           }
 
+          if (trigger.role === "ceo") {
+            await this.executeLocalCeoChildSessionOrchestrationIfNeeded({
+              sessionId,
+              runId: nextRunId,
+              runDir: result.runDir,
+              finalText: result.finalText,
+              availableAgentNames: agentFiles.map((agent) => agent.name),
+            });
+          }
+
           await this.recordWorkspaceDiffIfNeeded(sessionId, nextRunId, resolvedRunDir, workspace, controller.signal);
 
           try {
@@ -640,8 +701,10 @@ export class LocalConsoleRuntime {
       this.options.store.listMessages(sessionId),
     );
     const initialBody =
-      messages.find((message) => message.speaker === "system" && /(?:Acceptance statements|验收语句)/iu.test(message.body))?.body ??
-      null;
+      messages.find((message) =>
+        (message.speaker === "user" || message.speaker === "system") &&
+        /(?:Acceptance statements|验收语句)/iu.test(message.body)
+      )?.body ?? null;
     const facts = await this.storeCall("local-console-store-list-acceptance-edges", () =>
       listLocalT5Facts({ sqlitePath: this.options.store.sqlitePath, timeoutMs: this.storeTimeoutMs }, sessionId),
     );
@@ -892,6 +955,103 @@ export class LocalConsoleRuntime {
     }
   }
 
+  private async recordVisibleChildSessionFailureBestEffort(parentSessionId: string, reason: string): Promise<void> {
+    try {
+      await this.storeCall("local-console-store-child-session-failure", () =>
+        this.options.store.recordSystemMessage({
+          sessionId: parentSessionId,
+          body: `Local child session orchestration failed: ${reason}`,
+          runId: `local-child-session-${this.now().toISOString()}`,
+          runDir: null,
+          error: reason,
+          status: "failed",
+          now: this.nowIso(),
+        }),
+      );
+    } catch (error) {
+      this.lastError = formatLocalError(error);
+      log({ event: "local-console-child-session-failure-record-failed", error: this.lastError, originalError: reason });
+    }
+  }
+
+  private async executeLocalCeoChildSessionOrchestrationIfNeeded(input: {
+    sessionId: string;
+    runId: string;
+    runDir: string;
+    finalText: string;
+    availableAgentNames: string[];
+  }): Promise<void> {
+    const visibleTaskIds = collectLocalCeoLedgerTaskIds(input.finalText);
+    if (visibleTaskIds.length === 0) {
+      return;
+    }
+    const scripts = await loadCeoScripts({ agentsDir: path.join(this.options.projectRoot, "agents"), required: false });
+    const parsed = parseCeoOrchestrationOutput({
+      output: input.finalText,
+      scripts,
+      availableAgentNames: input.availableAgentNames,
+      visibleTaskIds,
+    });
+    if (!parsed.ok) {
+      return;
+    }
+    const descriptors =
+      parsed.value.action === "spawn_child_issues"
+        ? { workflowId: parsed.value.workflowId, groups: parsed.value.groups, issues: parsed.value.issues }
+        : parsed.value.action === "goal_intake" && parsed.value.mode === "confirm"
+          ? { workflowId: parsed.value.workflowId, groups: parsed.value.groups, issues: parsed.value.issues }
+          : null;
+    if (descriptors === null || descriptors.issues.length === 0) {
+      return;
+    }
+
+    const workspace = await this.storeCall("local-console-store-session-workspace", () => this.options.store.getSessionWorkspace(input.sessionId));
+    const created: LocalConsoleSessionSummary[] = [];
+    for (const descriptor of descriptors.issues) {
+      const group = descriptors.groups.find((entry) => entry.id === descriptor.groupId);
+      if (group === undefined) {
+        throw new Error(`local child orchestration missing group: ${descriptor.groupId}`);
+      }
+      const hiddenKey = localOrchestrationKey({
+        parentSessionId: input.sessionId,
+        workflowId: descriptors.workflowId,
+        ledgerTaskId: descriptor.ledgerTaskId,
+      });
+      created.push(
+        await this.createChildSession({
+          parentSessionId: input.sessionId,
+          childSessionId: localChildSessionId(input.sessionId, descriptor.ledgerTaskId),
+          projectId: workspace.projectId,
+          title: descriptor.title,
+          relation: "task",
+          hiddenKey,
+          initialRole: descriptor.initialRole,
+          initialBody: renderLocalChildSessionInitialBody({
+            parentSessionId: input.sessionId,
+            workflowId: descriptors.workflowId,
+            group,
+            descriptor,
+            orchestrationKey: hiddenKey,
+          }),
+        }),
+      );
+    }
+    await this.storeCall("local-console-store-child-session-summary", () =>
+      this.options.store.recordSystemMessage({
+        sessionId: input.sessionId,
+        body: `Local child session orchestration completed: ${created.map((session) => session.sessionId).join(", ")}`,
+        runId: input.runId,
+        runDir: input.runDir,
+        error: null,
+        status: "displayed",
+        now: this.nowIso(),
+      }),
+    );
+    for (const child of created) {
+      void this.processPending(child.sessionId);
+    }
+  }
+
   private async recordWorkspaceDiffIfNeeded(
     sessionId: string,
     runId: string,
@@ -1013,4 +1173,99 @@ export async function withLocalConsoleTimeout<T>(
 
 export function formatLocalError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function collectLocalCeoLedgerTaskIds(finalText: string): string[] {
+  const jsonText = stripLocalCeoJson(finalText);
+  if (jsonText === null) {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return [];
+  }
+  if (!isPlainObject(parsed)) {
+    return [];
+  }
+  const issues = parsed["issues"];
+  if (!Array.isArray(issues)) {
+    return [];
+  }
+  return issues
+    .map((issue) => (isPlainObject(issue) && typeof issue["ledgerTaskId"] === "string" ? issue["ledgerTaskId"] : null))
+    .filter((value): value is string => value !== null && value.trim() !== "");
+}
+
+function stripLocalCeoJson(finalText: string): string | null {
+  const marker = `<!-- agent-moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
+  const withoutMarker = finalText.includes(marker) ? finalText.slice(0, finalText.lastIndexOf(marker)).trim() : finalText.trim();
+  const fenced = withoutMarker.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/u);
+  return (fenced?.[1] ?? withoutMarker).trim();
+}
+
+function localOrchestrationKey(input: {
+  parentSessionId: string;
+  workflowId: string;
+  ledgerTaskId: string;
+}): string {
+  const digest = crypto
+    .createHash("sha256")
+    .update(`${input.parentSessionId}|${input.workflowId}|${input.ledgerTaskId}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `agent-moebius-local-orchestration-key:${digest}`;
+}
+
+function localChildSessionId(parentSessionId: string, ledgerTaskId: string): string {
+  const digest = crypto.createHash("sha256").update(`${parentSessionId}|${ledgerTaskId}`).digest("hex").slice(0, 12);
+  return `local:child:${slugForLocalSessionId(ledgerTaskId)}:${digest}`;
+}
+
+function slugForLocalSessionId(value: string): string {
+  const slug = value.toLowerCase().replace(/[^a-z0-9_-]+/gu, "-").replace(/^-+|-+$/gu, "");
+  return slug === "" ? "task" : slug.slice(0, 40);
+}
+
+function renderLocalChildSessionInitialBody(input: {
+  parentSessionId: string;
+  workflowId: string;
+  group: CeoOrchestrationGroup;
+  descriptor: CeoChildIssueDescriptor;
+  orchestrationKey: string;
+}): string {
+  const acceptance = input.descriptor.acceptanceStatements.map((statement, index) => `${String(index + 1)}. ${statement}`).join("\n");
+  const dependencies =
+    input.descriptor.dependencies.length === 0
+      ? "- none"
+      : input.descriptor.dependencies.map((dependency) => `- ${dependency}`).join("\n");
+
+  return `${input.descriptor.description.trimEnd()}
+
+Parent session: ${input.parentSessionId}
+Ledger task id: ${input.descriptor.ledgerTaskId}
+Workflow id: ${input.workflowId}
+Quality baseline: ${input.descriptor.qualityBaseline}
+
+Dependencies:
+${dependencies}
+
+Acceptance statements:
+${acceptance}
+
+Initial handoff:
+@${input.descriptor.initialRole} 请按本子会话的质量基准与验收语句推进。
+
+Conflict group: ${input.group.id}
+Conflict reason: ${input.group.reason}
+
+Provenance:
+${input.descriptor.provenance}
+
+<!-- ${input.orchestrationKey} -->`;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
