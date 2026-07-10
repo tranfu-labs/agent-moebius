@@ -165,6 +165,8 @@ function runCommand(input: WorkerInput): unknown {
         return recordLocalDeadLetter(database, input.command);
       case "local-record-workspace-diff":
         return recordLocalWorkspaceDiff(database, input.command);
+      case "local-record-acceptance-prepass-result":
+        return recordLocalAcceptancePrePassResult(database, input.command);
       case "local-list-t5-facts":
         return listLocalT5Facts(database, input.command.sessionId);
       case "local-mark-stale-running":
@@ -292,14 +294,18 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       PRIMARY KEY(session_id, route_key)
     );
     CREATE TABLE IF NOT EXISTS local_acceptance_facts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
       task_id TEXT NOT NULL,
       role TEXT NOT NULL,
       verdict TEXT NOT NULL,
       evidence_json TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      PRIMARY KEY(session_id, task_id, role)
+      source_message_id INTEGER,
+      superseded_at TEXT,
+      created_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_local_acceptance_facts_latest
+      ON local_acceptance_facts(session_id, task_id, role, created_at);
     CREATE TABLE IF NOT EXISTS local_integration_events (
       session_id TEXT NOT NULL,
       event_key TEXT NOT NULL,
@@ -335,6 +341,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
     );
   `);
   migrateSessionEdgesHiddenKey(database);
+  migrateLocalAcceptanceFactsHistory(database);
   const now = new Date().toISOString();
   ensureDefaultLocalProject(database, defaultLocalProjectFolderPath(sqlitePath), now);
   migrateSessionsProjectId(database, now);
@@ -348,6 +355,40 @@ function migrateSessionEdgesHiddenKey(database: SqliteDatabase): void {
     database.exec("ALTER TABLE session_edges ADD COLUMN hidden_key TEXT");
   }
   database.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_edges_hidden_key ON session_edges(hidden_key) WHERE hidden_key IS NOT NULL");
+}
+
+function migrateLocalAcceptanceFactsHistory(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "local_acceptance_facts", "id")) {
+    database.exec("ALTER TABLE local_acceptance_facts RENAME TO local_acceptance_facts_legacy_history");
+    database.exec(`
+      CREATE TABLE local_acceptance_facts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        evidence_json TEXT NOT NULL,
+        source_message_id INTEGER,
+        superseded_at TEXT,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO local_acceptance_facts
+        (session_id, task_id, role, verdict, evidence_json, source_message_id, superseded_at, created_at)
+      SELECT session_id, task_id, role, verdict, evidence_json, NULL, NULL, created_at
+      FROM local_acceptance_facts_legacy_history
+      ORDER BY created_at ASC;
+      DROP TABLE local_acceptance_facts_legacy_history;
+    `);
+  }
+  if (!tableHasColumn(database, "local_acceptance_facts", "source_message_id")) {
+    database.exec("ALTER TABLE local_acceptance_facts ADD COLUMN source_message_id INTEGER");
+  }
+  if (!tableHasColumn(database, "local_acceptance_facts", "superseded_at")) {
+    database.exec("ALTER TABLE local_acceptance_facts ADD COLUMN superseded_at TEXT");
+  }
+  database.exec(
+    "CREATE INDEX IF NOT EXISTS idx_local_acceptance_facts_latest ON local_acceptance_facts(session_id, task_id, role, created_at)",
+  );
 }
 
 function migrateSessionsProjectId(database: SqliteDatabase, now: string): void {
@@ -1190,17 +1231,123 @@ function recordLocalAcceptanceFact(
 ): null {
   return transaction(database, () => {
     ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    supersedeLocalAcceptanceFacts(database, input.sessionId, input.taskId, input.role, input.now);
     database
       .prepare(
         `INSERT INTO local_acceptance_facts
-          (session_id, task_id, role, verdict, evidence_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(session_id, task_id, role)
-         DO UPDATE SET verdict = excluded.verdict, evidence_json = excluded.evidence_json, created_at = excluded.created_at`,
+          (session_id, task_id, role, verdict, evidence_json, source_message_id, superseded_at, created_at)
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)`,
       )
       .run(input.sessionId, input.taskId, input.role, input.verdict, input.evidenceJson, input.now);
     return null;
   });
+}
+
+function recordLocalAcceptancePrePassResult(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-acceptance-prepass-result" }>,
+): null {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.messageId, input.sessionId);
+    if (source.speaker !== "agent") {
+      throw new Error(`local acceptance pre-pass requires agent message: ${String(input.messageId)}`);
+    }
+
+    if (input.verdict === "passed" || input.verdict === "failed") {
+      supersedeLocalAcceptanceFacts(database, input.sessionId, input.taskId, input.role, input.now);
+      database
+        .prepare(
+          `INSERT INTO local_acceptance_facts
+            (session_id, task_id, role, verdict, evidence_json, source_message_id, superseded_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+        )
+        .run(input.sessionId, input.taskId, input.role, input.verdict, input.evidenceJson, input.messageId, input.now);
+    }
+
+    insertSystemMessage(database, input.sessionId, input.visibleBody, input.runId, null, null, input.now);
+
+    if (input.parentSessionId !== null) {
+      ensureSession(database, input.parentSessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    }
+
+    if (input.parentSessionId !== null && input.parentEventKey !== null && input.parentEventStatus !== null) {
+      const detailJson = input.parentEventDetailJson ?? "{}";
+      database
+        .prepare(
+          `INSERT INTO local_integration_events
+            (session_id, event_key, status, detail_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(session_id, event_key)
+           DO UPDATE SET status = excluded.status, detail_json = excluded.detail_json, updated_at = excluded.updated_at`,
+        )
+        .run(input.parentSessionId, input.parentEventKey, input.parentEventStatus, detailJson, input.now, input.now);
+      insertSystemMessage(
+        database,
+        input.parentSessionId,
+        `Local acceptance progress: ${input.parentEventStatus} (${input.parentEventKey})`,
+        input.runId,
+        null,
+        null,
+        input.now,
+      );
+    }
+
+    if (
+      input.repairChildSessionId !== null &&
+      input.repairTitle !== null &&
+      input.repairHiddenKey !== null &&
+      input.repairInitialBody !== null
+    ) {
+      const parentSessionId = input.parentSessionId ?? input.sessionId;
+      const existing = database
+        .prepare("SELECT child_session_id FROM session_edges WHERE parent_session_id = ? AND hidden_key = ? LIMIT 1")
+        .get(parentSessionId, input.repairHiddenKey);
+      if (!isRecord(existing)) {
+        ensureSession(database, input.repairChildSessionId, input.now, input.repairTitle, LOCAL_CONSOLE_PROJECT_ID);
+        database
+          .prepare("UPDATE sessions SET parent_session_id = ?, title = COALESCE(title, ?), updated_at = ? WHERE session_id = ?")
+          .run(parentSessionId, input.repairTitle, input.now, input.repairChildSessionId);
+        database
+          .prepare(
+            `INSERT INTO session_edges (parent_session_id, child_session_id, relation, hidden_key, created_at)
+             VALUES (?, ?, 'repair', ?, ?)
+             ON CONFLICT(parent_session_id, child_session_id, relation)
+             DO UPDATE SET hidden_key = COALESCE(session_edges.hidden_key, excluded.hidden_key)`,
+          )
+          .run(parentSessionId, input.repairChildSessionId, input.repairHiddenKey, input.now);
+        database
+          .prepare(
+            `INSERT INTO session_messages
+              (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
+             VALUES (?, 'system', 'dev', ?, 'displayed', NULL, NULL, NULL, 'local-acceptance-repair', ?, ?, ?)`,
+          )
+          .run(input.repairChildSessionId, input.repairInitialBody, input.repairHiddenKey, input.now, input.now);
+        ensureLocalCursor(database, input.repairChildSessionId, input.now);
+      }
+      insertSystemMessage(database, parentSessionId, `Local repair session ready: ${input.repairTitle} (${input.repairChildSessionId})`, input.runId, null, null, input.now);
+    }
+
+    completeSourceMessage(database, source, "completed", null, input.runId, null, input.now);
+    return null;
+  });
+}
+
+function supersedeLocalAcceptanceFacts(
+  database: SqliteDatabase,
+  sessionId: string,
+  taskId: string,
+  role: string,
+  now: string,
+): void {
+  database
+    .prepare(
+      `UPDATE local_acceptance_facts
+       SET superseded_at = ?
+       WHERE session_id = ? AND task_id = ? AND role = ? AND superseded_at IS NULL`,
+    )
+    .run(now, sessionId, taskId, role);
 }
 
 function recordLocalIntegrationEvent(

@@ -4,7 +4,7 @@
 
 `local-console` 是默认本地对话操作台的数据通道。它复用 GitHub issue runner 已有的 conversation、mention trigger、agent persona 与 Codex driver 能力，但输入输出落在本机 HTTP API 与 `.state/local-console.sqlite`，供 Electron 操作台或本地浏览器客户端使用。
 
-本域只规定一个本地项目下多会话、运行直播、中断、卡住状态和本地错误记录；不承载 T5 的交棒总线、CEO 兜底、子会话编排、验收全功能对等，也不承载 T6 的 GitHub/local 互斥启动 flag。
+本域只规定一个本地项目下多会话、运行直播、中断、卡住状态、本地错误记录，以及 T5 本地验收走查/验收回流切片；不承载 T5 的完整 CEO 兜底、完整子会话编排、dead-letter 全量 parity、artifact publishing parity，也不承载 T6 的 GitHub/local 互斥启动 flag。
 
 ## 业务规则
 
@@ -45,9 +45,38 @@
 - MUST NOT leave a session permanently running after timeout or stale running repair.
 
 ### 边界
-- MUST NOT modify `conversation`, `triggers`, agent mention parsing, stage parsing, CEO guardrail, goal-ledger business rules, or GitHub issue runner semantics to satisfy local-console behavior.
-- MUST NOT implement T5-only local equivalents for CEO no-mention fallback, child session orchestration, full acceptance pre-pass, dead-letter parity, or artifact publishing.
+- MUST keep GitHub runner semantics untouched while allowing the local acceptance-loop slice in this domain.
+- MUST allow local acceptance-role walkthrough parsing, local acceptance fact recording, parent integration progress, repair routing, and visible format diagnostics in `.state/local-console.sqlite`.
+- MUST NOT modify `conversation`, `triggers`, agent mention parsing, stage parsing, CEO guardrail, goal-ledger business rules, GitHub issue timeline normalization, GitHub issue intake scheduling, GitHub comment publication, reaction targets, release artifact publication, issue media handling, issue worktree behavior, observer behavior, GitHub driver pool semantics, or other GitHub issue runner semantics to satisfy local-console behavior.
+- MUST NOT use the local acceptance-loop slice to implement unrelated T5 local equivalents such as full CEO no-mention fallback, full child session orchestration, dead-letter parity, artifact publishing parity, or worktree diff return.
 - MUST NOT implement T6 GitHub/local mutually exclusive startup flag or cross-mode data migration in this domain.
+
+### 本地验收走查解析
+- MUST parse acceptance-role walkthrough messages that use one line per formal acceptance statement plus one final overall conclusion line.
+- MUST accept `qa`, `product-manager`, and `hermes-user` as local acceptance roles for this pre-pass.
+- MUST require each walkthrough item to be numbered from 1 through the number of formal acceptance statements without gaps.
+- MUST require each walkthrough item to state either pass or fail and include evidence text.
+- MUST require the overall `验收结论：通过/不通过` line to match the per-statement results.
+- MUST NOT infer a pass fact from a summary-only acceptance message that lacks parseable per-statement walkthrough lines.
+- MUST preserve enough acceptance history to audit a failed walkthrough followed by a later passing recheck.
+- MUST use the latest valid acceptance fact for routing decisions when the same acceptance role rechecks after repair.
+
+### 本地验收 pre-pass 回流
+- MUST run acceptance pre-pass before normal mention trigger handling.
+- MUST write local acceptance facts before consuming any handoff mention in the same acceptance message.
+- MUST create or update parent integration progress after all in-scope local child session acceptance facts pass.
+- MUST route acceptance failure into a repair path instead of treating the original implementation as accepted.
+- MUST keep acceptance facts, integration events, repair references, visible system messages, and cursor advancement within an atomic local SQLite boundary.
+- MUST NOT advance the local processing cursor as successfully handled when visible acceptance side effects fail to write.
+- MUST NOT consume a handoff mention from the same acceptance message when acceptance pre-pass fails before required visible side effects are written.
+- MUST dedupe parent integration progress and repair routing by stable local keys across retries.
+- MUST surface a visible blocked or error state when formal acceptance statements cannot be found for an acceptance-role message.
+
+### 本地验收格式诊断
+- MUST produce a visible format reminder or error state when an acceptance-role message clearly attempts acceptance but cannot be parsed.
+- MUST NOT save a passed acceptance fact for an unparseable walkthrough.
+- MUST keep the original message retryable or visibly diagnosed when format handling fails.
+- MUST ensure format reminders contain no legal agent mention and do not trigger an agent run by themselves.
 
 ## 场景
 
@@ -111,3 +140,61 @@ Given a local session contains interrupted, failed, and stuck records
 When the renderer refreshes or the desktop window restarts
 Then the records are restored from SQLite/API
 And their status, reason, and runDir remain distinguishable.
+
+### 场景 LC.T5.1：本地验收角色通过走查写入事实并驱动父级回流
+Given a local child session has formal acceptance statements
+When `product-manager`, `hermes-user`, or `qa` writes parseable numbered walkthrough lines and `验收结论：通过`
+Then the local console records a passed local acceptance fact
+And the evidence records statement-level results
+And the parent session receives one deduped integration progress or request event.
+
+### 场景 LC.T5.2：本地验收角色不通过走查创建回修路径
+Given a local child session has formal acceptance statements
+When an acceptance role writes one or more failed walkthrough lines and `验收结论：不通过`
+Then the local console records a failed local acceptance fact
+And a stable repair handoff or repair child session is created or recovered
+And the parent session can see the repair reference.
+
+### 场景 LC.T5.3：先失败后复验通过使用最新事实
+Given an acceptance role first writes a parseable failed walkthrough
+And a repair path is created or recovered
+When the same acceptance role later writes a parseable passing walkthrough for the same task
+Then the latest passed fact drives parent rejoin or integration progress
+And the previous failed repair remains visible as a system record, repair reference, or historical acceptance fact.
+
+### 场景 LC.T5.4：父级可见写失败可重试且不消费同消息 handoff
+Given a local child acceptance fact is ready to trigger parent integration progress
+And writing the visible parent progress fails
+When local acceptance pre-pass settles
+Then the triggering message cursor is not advanced
+And any handoff mention in the same message is not consumed
+And a completed parent integration request is not recorded
+And a later retry creates only one deduped parent integration progress.
+
+### 场景 LC.T5.5：验收格式错误产生可见提醒
+Given a local child session has formal acceptance statements
+When an acceptance role writes `验收结论：通过` without parseable numbered walkthrough lines
+Then the local console writes a visible format reminder or error state
+And no passed local acceptance fact is recorded
+And the missing fact remains visible in local T5 facts or session status.
+
+### 场景 LC.T5.6：格式错误同消息 handoff 不触发普通交棒
+Given a local child session has formal acceptance statements
+When an acceptance role writes malformed walkthrough lines and also includes a legal handoff mention
+Then the local console writes a visible format reminder or error state
+And no passed local acceptance fact is recorded
+And the handoff mention in that same message is not consumed by normal trigger handling.
+
+### 场景 LC.T5.7：缺 formal acceptance statements 时阻塞验收
+Given a local child session has no readable formal acceptance statements
+When an acceptance role writes an acceptance walkthrough
+Then the local console writes a visible blocked or error state
+And no passed acceptance fact is recorded
+And the local console does not invent an acceptance scope.
+
+### 场景 LC.T5.8：验收 store timeout 释放 drain
+Given a local acceptance pre-pass SQLite command never settles
+When the configured local store timeout is reached
+Then the session drain is released
+And the triggering message remains retryable or visibly diagnosed
+And no successful acceptance fact is saved for that attempt.

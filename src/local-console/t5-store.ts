@@ -16,6 +16,26 @@ export interface LocalT5Facts {
   sessionEdges: unknown[];
 }
 
+export interface LocalAcceptancePrePassRecordInput {
+  sessionId: string;
+  messageId: number;
+  runId: string;
+  taskId: string;
+  role: string;
+  verdict: "passed" | "failed" | "format_error" | "blocked";
+  evidence: unknown;
+  visibleBody: string;
+  parentSessionId?: string | null;
+  parentEventKey?: string | null;
+  parentEventStatus?: "requested" | "completed" | "failed" | "blocked" | null;
+  parentEventDetail?: unknown;
+  repairChildSessionId?: string | null;
+  repairTitle?: string | null;
+  repairHiddenKey?: string | null;
+  repairInitialBody?: string | null;
+  now: string;
+}
+
 export async function createLocalChildSession(
   options: LocalT5CommandOptions,
   input: {
@@ -133,6 +153,34 @@ export async function recordLocalWorkspaceDiff(
     kind: "local-record-workspace-diff",
     ...input,
     error: input.error ?? null,
+  });
+}
+
+export async function recordLocalAcceptancePrePassResult(
+  options: LocalT5CommandOptions,
+  input: LocalAcceptancePrePassRecordInput,
+): Promise<void> {
+  await runLocalT5Command(options, {
+    kind: "local-record-acceptance-prepass-result",
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    runId: input.runId,
+    taskId: input.taskId,
+    role: input.role,
+    verdict: input.verdict,
+    evidenceJson: JSON.stringify(input.evidence),
+    visibleBody: input.visibleBody,
+    parentSessionId: input.parentSessionId ?? null,
+    parentEventKey: input.parentEventKey ?? null,
+    parentEventStatus: input.parentEventStatus ?? null,
+    parentEventDetailJson: input.parentEventDetail === undefined || input.parentEventDetail === null
+      ? null
+      : JSON.stringify(input.parentEventDetail),
+    repairChildSessionId: input.repairChildSessionId ?? null,
+    repairTitle: input.repairTitle ?? null,
+    repairHiddenKey: input.repairHiddenKey ?? null,
+    repairInitialBody: input.repairInitialBody ?? null,
+    now: input.now,
   });
 }
 

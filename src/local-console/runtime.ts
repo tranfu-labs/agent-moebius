@@ -10,9 +10,20 @@ import {
 } from "../codex.js";
 import { log } from "../log.js";
 import { resolveTrigger } from "../triggers/index.js";
+import {
+  buildLocalAcceptanceBlockedMessage,
+  buildLocalAcceptanceEvidence,
+  buildLocalAcceptancePrePassDecision,
+  buildLocalAcceptanceReminder,
+  extractLocalAcceptanceStatements,
+  extractLocalTaskId,
+  isLocalAcceptanceRole,
+  parseLocalAcceptanceWalkthrough,
+  type LocalAcceptancePrePassDecision,
+} from "./acceptance-loop.js";
 import { readLocalConsoleOutputTail } from "./output-tail.js";
 import { maybeRouteLocalNoMentionMessage, type LocalRouteJudgment } from "./route-bus.js";
-import { recordLocalWorkspaceDiff } from "./t5-store.js";
+import { listLocalT5Facts, recordLocalAcceptancePrePassResult, recordLocalWorkspaceDiff } from "./t5-store.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
@@ -101,7 +112,14 @@ export class LocalConsoleRuntime {
     await this.storeCall("local-console-store-init", () => this.options.store.init());
     const sessions = await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions());
     const sessionIds = sessions.length === 0 ? [this.sessionId] : sessions.map((session) => session.sessionId);
-    await Promise.all(sessionIds.map((sessionId) => this.repairStaleRunning(sessionId)));
+    await Promise.all(sessionIds.map(async (sessionId) => {
+      try {
+        await this.repairStaleRunning(sessionId);
+      } catch (error) {
+        this.lastError = formatLocalError(error);
+        log({ event: "local-console-repair-stale-failed", sessionId, error: this.lastError });
+      }
+    }));
   }
 
   async close(): Promise<void> {
@@ -262,6 +280,19 @@ export class LocalConsoleRuntime {
             return;
           }
           const claimedMessage = activeMessage;
+          let acceptanceHandled = false;
+          try {
+            acceptanceHandled = await this.maybeProcessAcceptancePrePass(claimedMessage, sessionId, nextRunId);
+          } catch (error) {
+            activeMessage = null;
+            activeRunId = null;
+            throw error;
+          }
+          if (acceptanceHandled) {
+            activeMessage = null;
+            activeRunId = null;
+            continue;
+          }
 
           const agentFiles = await this.options.listAgentFiles();
           const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
@@ -424,7 +455,9 @@ export class LocalConsoleRuntime {
   async processAllPending(): Promise<void> {
     const sessions = await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions());
     const sessionIds = sessions.length === 0 ? [this.sessionId] : sessions.map((session) => session.sessionId);
-    await Promise.all(sessionIds.map((sessionId) => this.processPending(sessionId)));
+    for (const sessionId of sessionIds) {
+      await this.processPending(sessionId);
+    }
   }
 
   async repairStaleRunning(sessionId = this.sessionId): Promise<number> {
@@ -494,6 +527,197 @@ export class LocalConsoleRuntime {
       return;
     }
     await this.recordFailureBestEffort(message, sessionId, runId, result.runDir, result.reason);
+  }
+
+  private async maybeProcessAcceptancePrePass(
+    message: LocalConsoleMessage,
+    sessionId: string,
+    runId: string,
+  ): Promise<boolean> {
+    if (message.speaker !== "agent" || !isLocalAcceptanceRole(message.role)) {
+      return false;
+    }
+    const role = message.role;
+
+    const context = await this.loadAcceptanceContext(sessionId);
+    const taskId = extractLocalTaskId(context.initialBody ?? "", `local-task:${sessionId}`);
+    const parseResult = parseLocalAcceptanceWalkthrough(message.body, context.acceptanceStatements);
+    const decision = buildLocalAcceptancePrePassDecision({
+      message,
+      role,
+      taskId,
+      acceptanceStatements: context.acceptanceStatements,
+      parseResult,
+    });
+    if (decision === null) {
+      return false;
+    }
+
+    const parentEvent =
+      decision.kind === "pass" && context.parentSessionId !== null
+        ? {
+            eventKey: `local-acceptance:${sessionId}:${taskId}`,
+            status: "requested" as const,
+            detail: {
+              childSessionId: sessionId,
+              taskId,
+              role,
+              messageId: message.id,
+              verdict: "passed",
+            },
+          }
+        : null;
+    const repair =
+      decision.kind === "fail"
+        ? this.buildRepairDescriptor({
+            sessionId,
+            parentSessionId: context.parentSessionId,
+            taskId,
+            role,
+            messageId: message.id,
+            statementResults: decision.statementResults,
+          })
+        : null;
+
+    try {
+      await this.storeCall("local-console-store-acceptance-prepass", () =>
+        recordLocalAcceptancePrePassResult(
+          {
+            sqlitePath: this.options.store.sqlitePath,
+            timeoutMs: this.storeTimeoutMs,
+          },
+          {
+            sessionId,
+            messageId: message.id,
+            runId,
+            taskId,
+            role,
+            verdict: decision.kind === "pass" ? "passed" : decision.kind === "fail" ? "failed" : decision.kind === "blocked" ? "blocked" : "format_error",
+            evidence: this.buildAcceptanceEvidence(message, decision),
+            visibleBody: this.buildAcceptanceVisibleBody(decision),
+            parentSessionId: context.parentSessionId,
+            parentEventKey: parentEvent?.eventKey ?? null,
+            parentEventStatus: parentEvent?.status ?? null,
+            parentEventDetail: parentEvent?.detail ?? null,
+            repairChildSessionId: repair?.childSessionId ?? null,
+            repairTitle: repair?.title ?? null,
+            repairHiddenKey: repair?.hiddenKey ?? null,
+            repairInitialBody: repair?.initialBody ?? null,
+            now: this.nowIso(),
+          },
+        ),
+      );
+      return true;
+    } catch (error) {
+      await this.releaseForRetryBestEffort(message, sessionId);
+      throw error;
+    }
+  }
+
+  private async loadAcceptanceContext(sessionId: string): Promise<{
+    parentSessionId: string | null;
+    initialBody: string | null;
+    acceptanceStatements: string[];
+  }> {
+    const messages = await this.storeCall("local-console-store-list-acceptance-context", () =>
+      this.options.store.listMessages(sessionId),
+    );
+    const initialBody =
+      messages.find((message) => message.speaker === "system" && /(?:Acceptance statements|验收语句)/iu.test(message.body))?.body ??
+      null;
+    const facts = await this.storeCall("local-console-store-list-acceptance-edges", () =>
+      listLocalT5Facts({ sqlitePath: this.options.store.sqlitePath, timeoutMs: this.storeTimeoutMs }, sessionId),
+    );
+    const edge = (facts.sessionEdges as Array<{ parent_session_id?: unknown; child_session_id?: unknown }>).find((entry) =>
+      entry.child_session_id === sessionId,
+    );
+    return {
+      parentSessionId: typeof edge?.parent_session_id === "string" ? edge.parent_session_id : null,
+      initialBody,
+      acceptanceStatements: initialBody === null ? [] : extractLocalAcceptanceStatements(initialBody),
+    };
+  }
+
+  private buildAcceptanceVisibleBody(decision: LocalAcceptancePrePassDecision): string {
+    if (decision.kind === "blocked") {
+      return buildLocalAcceptanceBlockedMessage({ role: decision.role, reason: decision.diagnostics.join(", ") });
+    }
+    if (decision.kind === "format-error") {
+      return buildLocalAcceptanceReminder({
+        role: decision.role,
+        expectedCount: decision.acceptanceStatements.length,
+        diagnostics: decision.diagnostics,
+      });
+    }
+    const label = decision.kind === "pass" ? "通过" : "不通过";
+    return [
+      `本地验收事实已记录：${label}`,
+      `taskId: ${decision.taskId}`,
+      `role: ${decision.role}`,
+      `statementResults: ${decision.statementResults.map((result) => `${result.index}:${result.status}`).join(", ")}`,
+    ].join("\n");
+  }
+
+  private buildAcceptanceEvidence(
+    message: LocalConsoleMessage,
+    decision: LocalAcceptancePrePassDecision,
+  ): Record<string, unknown> {
+    if (decision.kind === "pass" || decision.kind === "fail") {
+      return buildLocalAcceptanceEvidence({
+        message,
+        role: decision.role,
+        taskId: decision.taskId,
+        acceptanceStatements: decision.acceptanceStatements,
+        parsed: {
+          kind: "parsed",
+          verdict: decision.kind === "pass" ? "passed" : "failed",
+          statementResults: decision.statementResults,
+          rawConclusion: decision.rawConclusion ?? (decision.kind === "pass" ? "通过" : "不通过"),
+        },
+      });
+    }
+    return {
+      role: decision.role,
+      taskId: decision.taskId,
+      messageId: message.id,
+      sourceBodyDigest: decision.bodyDigest,
+      diagnostics: decision.diagnostics,
+      acceptanceStatements: decision.acceptanceStatements,
+    };
+  }
+
+  private buildRepairDescriptor(input: {
+    sessionId: string;
+    parentSessionId: string | null;
+    taskId: string;
+    role: string;
+    messageId: number;
+    statementResults: LocalAcceptancePrePassDecision["statementResults"];
+  }): {
+    childSessionId: string;
+    title: string;
+    hiddenKey: string;
+    initialBody: string;
+  } {
+    const owner = input.parentSessionId ?? input.sessionId;
+    const digest = Buffer.from(`${owner}:${input.taskId}:${input.role}`).toString("base64url").slice(0, 16);
+    const failed = input.statementResults.filter((result) => result.status === "failed").map((result) => `${result.index}. ${result.evidence}`);
+    return {
+      childSessionId: `local:repair:${digest}`,
+      title: `Repair ${input.taskId}`,
+      hiddenKey: `local-acceptance-repair:${digest}`,
+      initialBody: [
+        `Repair handoff for ${input.taskId}`,
+        "",
+        `Source session: ${input.sessionId}`,
+        `Source message: ${input.messageId}`,
+        "Failed statements:",
+        ...(failed.length === 0 ? ["- 未提供逐条失败依据"] : failed.map((line) => `- ${line}`)),
+        "",
+        "Initial handoff:",
+        "@dev 请修复本地验收不通过项。",
+      ].join("\n"),
+    };
   }
 
   private async recordNoTrigger(message: LocalConsoleMessage, sessionId: string, runId: string): Promise<void> {

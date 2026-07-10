@@ -9,6 +9,7 @@ import { buildLocalConsoleTimeline } from "../src/local-console/timeline.js";
 import { createSqliteLocalConsoleStore } from "../src/local-console/store.js";
 import { startLocalConsoleServer } from "../src/local-console/server.js";
 import { readLocalConsoleOutputTail } from "../src/local-console/output-tail.js";
+import { parseLocalAcceptanceWalkthrough } from "../src/local-console/acceptance-loop.js";
 import {
   createLocalChildSession,
   listLocalT5Facts,
@@ -36,6 +37,43 @@ afterEach(() => {
 });
 
 describe("local console", () => {
+  it("parses local acceptance walkthroughs strictly", () => {
+    expect(
+      parseLocalAcceptanceWalkthrough(
+        ["1. 通过 — evidence one", "2. 不通过 — evidence two", "验收结论：不通过"].join("\n"),
+        ["a", "b"],
+      ),
+    ).toMatchObject({
+      kind: "parsed",
+      verdict: "failed",
+      statementResults: [
+        { index: 1, status: "passed", evidence: "evidence one" },
+        { index: 2, status: "failed", evidence: "evidence two" },
+      ],
+    });
+
+    expect(
+      parseLocalAcceptanceWalkthrough(
+        ["1. 通过 — evidence one", "验收结论：通过", "@dev continue"].join("\n"),
+        ["a", "b"],
+      ),
+    ).toMatchObject({
+      kind: "unparsed",
+      attemptedAcceptance: true,
+      diagnostics: expect.arrayContaining(["statement-count-mismatch:1/2", "missing-index:2"]),
+    });
+
+    expect(
+      parseLocalAcceptanceWalkthrough(
+        ["1. 不通过 — failed", "验收结论：通过"].join("\n"),
+        ["a"],
+      ),
+    ).toMatchObject({
+      kind: "unparsed",
+      diagnostics: expect.arrayContaining(["conclusion-mismatch"]),
+    });
+  });
+
   it("stores user and agent messages in SQLite", async () => {
     const root = await makeFixtureRoot();
     const store = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
@@ -267,6 +305,244 @@ describe("local console", () => {
       expect(facts.deadLetters).toHaveLength(1);
     } finally {
       await store.close();
+    }
+  });
+
+  it("records local acceptance pass facts and parent integration before trigger handling", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+    await writeAgent(root, "product-manager", "# product-manager\n\nROLE:product-manager");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    await store.createSession({ sessionId: "local:parent-accept", title: "parent", now: "2026-07-10T00:00:00.000Z" });
+    await createLocalChildSession(
+      { sqlitePath },
+      {
+        parentSessionId: "local:parent-accept",
+        childSessionId: "local:child-accept",
+        projectId: LOCAL_CONSOLE_PROJECT_ID,
+        title: "child accept",
+        relation: "task",
+        hiddenKey: "accept-child-key",
+        initialRole: "dev",
+        initialBody: acceptanceChildBody(["跑 one → 应退出码 0", "跑 two → 应退出码 0"], "task-accept"),
+        now: "2026-07-10T00:00:01.000Z",
+      },
+    );
+    await store.appendUserMessage({
+      sessionId: "local:child-accept",
+      body: "@product-manager 请验收",
+      now: "2026-07-10T00:00:02.000Z",
+    });
+    const claimedUser = await store.claimNextPendingMessage({
+      sessionId: "local:child-accept",
+      runId: "run-user",
+      now: "2026-07-10T00:00:03.000Z",
+    });
+    expect(claimedUser).not.toBeNull();
+    await store.recordAgentResponse({
+      userMessageId: claimedUser!.id,
+      sessionId: "local:child-accept",
+      role: "product-manager",
+      body: ["1. 通过 — one ok", "2. 通过 — two ok", "验收结论：通过", "@dev should-not-run"].join("\n"),
+      runId: "run-user",
+      runDir: path.join(root, "runs", "pm"),
+      now: "2026-07-10T00:00:04.000Z",
+    });
+    await store.close();
+
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `accept-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      await started.runtime.processPending("local:child-accept");
+      const facts = await listLocalT5Facts({ sqlitePath }, "local:child-accept");
+      const parentFacts = await listLocalT5Facts({ sqlitePath }, "local:parent-accept");
+      expect(facts.acceptanceFacts).toHaveLength(1);
+      expect(facts.acceptanceFacts[0]).toMatchObject({ verdict: "passed", task_id: "task-accept", role: "product-manager" });
+      expect(parentFacts.integrationEvents).toHaveLength(1);
+      expect(runCodex).not.toHaveBeenCalled();
+      const state = await getState(started.url, "local:child-accept");
+      expect(state.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ speaker: "system", body: expect.stringContaining("本地验收事实已记录：通过") }),
+      ]));
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("keeps failed acceptance history and routes latest repair recheck", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+    await writeAgent(root, "product-manager", "# product-manager\n\nROLE:product-manager");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    await store.createSession({ sessionId: "local:parent-recheck", title: "parent", now: "2026-07-10T00:00:00.000Z" });
+    await createLocalChildSession(
+      { sqlitePath },
+      {
+        parentSessionId: "local:parent-recheck",
+        childSessionId: "local:child-recheck",
+        projectId: LOCAL_CONSOLE_PROJECT_ID,
+        title: "child recheck",
+        relation: "task",
+        hiddenKey: "recheck-child-key",
+        initialRole: "dev",
+        initialBody: acceptanceChildBody(["跑 one → 应退出码 0"], "task-recheck"),
+        now: "2026-07-10T00:00:01.000Z",
+      },
+    );
+    const source = await appendDisplayedAgent(store, "local:child-recheck", "product-manager", [
+      "1. 不通过 — one failed",
+      "验收结论：不通过",
+    ].join("\n"), 2);
+    await store.close();
+
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex: vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected")),
+      makeRunDir: (count) => path.join(root, "runs", `recheck-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      await started.runtime.processPending("local:child-recheck");
+      let facts = await listLocalT5Facts({ sqlitePath }, "local:child-recheck");
+      let parentFacts = await listLocalT5Facts({ sqlitePath }, "local:parent-recheck");
+      expect(facts.acceptanceFacts).toHaveLength(1);
+      expect(facts.acceptanceFacts[0]).toMatchObject({ verdict: "failed", superseded_at: null });
+      expect(parentFacts.sessionEdges).toEqual(expect.arrayContaining([expect.objectContaining({ relation: "repair" })]));
+
+      await started.runtime.close();
+    } finally {
+      await started.close().catch(() => {});
+    }
+
+    const store2 = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store2.init();
+    await appendDisplayedAgent(store2, "local:child-recheck", "product-manager", [
+      "1. 通过 — repair verified",
+      "验收结论：通过",
+    ].join("\n"), source.id + 10);
+    await store2.close();
+
+    const restarted = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex: vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected")),
+      makeRunDir: (count) => path.join(root, "runs", `recheck-pass-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      await restarted.runtime.processPending("local:child-recheck");
+      const facts = await listLocalT5Facts({ sqlitePath }, "local:child-recheck");
+      const parentFacts = await listLocalT5Facts({ sqlitePath }, "local:parent-recheck");
+      expect(facts.acceptanceFacts).toHaveLength(2);
+      expect(facts.acceptanceFacts).toEqual(expect.arrayContaining([
+        expect.objectContaining({ verdict: "failed", superseded_at: expect.any(String) }),
+        expect.objectContaining({ verdict: "passed", superseded_at: null }),
+      ]));
+      expect(parentFacts.integrationEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ status: "requested" }),
+      ]));
+    } finally {
+      await restarted.close();
+    }
+  });
+
+  it("diagnoses malformed acceptance without consuming same-message handoff", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+    await writeAgent(root, "qa", "# qa\n\nROLE:qa");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    await store.createSession({ sessionId: "local:parent-format", title: "parent", now: "2026-07-10T00:00:00.000Z" });
+    await createLocalChildSession(
+      { sqlitePath },
+      {
+        parentSessionId: "local:parent-format",
+        childSessionId: "local:child-format",
+        projectId: LOCAL_CONSOLE_PROJECT_ID,
+        title: "child format",
+        relation: "task",
+        hiddenKey: "format-child-key",
+        initialRole: "dev",
+        initialBody: acceptanceChildBody(["跑 one → 应退出码 0", "跑 two → 应退出码 0"], "task-format"),
+        now: "2026-07-10T00:00:01.000Z",
+      },
+    );
+    await appendDisplayedAgent(store, "local:child-format", "qa", [
+      "1. 通过 — one ok",
+      "验收结论：通过",
+      "@dev should-not-run",
+    ].join("\n"), 2);
+    await store.close();
+
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `format-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      await started.runtime.processPending("local:child-format");
+      const facts = await listLocalT5Facts({ sqlitePath }, "local:child-format");
+      expect(facts.acceptanceFacts).toHaveLength(0);
+      expect(runCodex).not.toHaveBeenCalled();
+      const state = await getState(started.url, "local:child-format");
+      expect(state.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ speaker: "system", body: expect.stringContaining("本地验收走查格式无法解析") }),
+      ]));
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("blocks acceptance when formal statements are missing", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "qa", "# qa\n\nROLE:qa");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    await store.createSession({ sessionId: "local:no-projection", title: "no projection", now: "2026-07-10T00:00:00.000Z" });
+    await appendDisplayedAgent(store, "local:no-projection", "qa", [
+      "1. 通过 — ok",
+      "验收结论：通过",
+    ].join("\n"), 1);
+    await store.close();
+
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex: vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected")),
+      makeRunDir: (count) => path.join(root, "runs", `blocked-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      await started.runtime.processPending("local:no-projection");
+      const facts = await listLocalT5Facts({ sqlitePath }, "local:no-projection");
+      expect(facts.acceptanceFacts).toHaveLength(0);
+      const state = await getState(started.url, "local:no-projection");
+      expect(state.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ speaker: "system", body: expect.stringContaining("未找到 formal acceptance statements") }),
+      ]));
+    } finally {
+      await started.close();
     }
   });
 
@@ -1395,6 +1671,55 @@ async function writeAgent(root: string, name: string, body: string): Promise<voi
   const agentsDir = path.join(root, "agents");
   await fs.mkdir(agentsDir, { recursive: true });
   await fs.writeFile(path.join(agentsDir, `${name}.md`), body, "utf8");
+}
+
+async function appendDisplayedAgent(
+  store: LocalConsoleStore,
+  sessionId: string,
+  role: string,
+  body: string,
+  offsetSeconds: number,
+): Promise<LocalConsoleMessage> {
+  const user = await store.appendUserMessage({
+    sessionId,
+    body: `@${role} 请验收`,
+    now: localTestNow(offsetSeconds),
+  });
+  const claimed = await store.claimNextPendingMessage({
+    sessionId,
+    runId: `run-${String(offsetSeconds)}`,
+    now: localTestNow(offsetSeconds + 1),
+  });
+  expect(claimed?.id).toBe(user.id);
+  await store.recordAgentResponse({
+    userMessageId: user.id,
+    sessionId,
+    role,
+    body,
+    runId: `run-${String(offsetSeconds)}`,
+    runDir: `/tmp/run-${String(offsetSeconds)}`,
+    now: localTestNow(offsetSeconds + 2),
+  });
+  const messages = await store.listMessages(sessionId);
+  const agent = messages.find((message) => message.speaker === "agent" && message.role === role && message.body === body);
+  expect(agent).toBeDefined();
+  return agent!;
+}
+
+function acceptanceChildBody(statements: string[], taskId: string): string {
+  return [
+    `Ledger task id: ${taskId}`,
+    "",
+    "Acceptance statements:",
+    ...statements.map((statement, index) => `${index + 1}. ${statement}`),
+    "",
+    "Initial handoff:",
+    "@dev 请实现。",
+  ].join("\n");
+}
+
+function localTestNow(offsetSeconds: number): string {
+  return new Date(Date.UTC(2026, 6, 10, 0, 0, offsetSeconds)).toISOString();
 }
 
 function message(input: { id: number; body: string; speaker?: "user" | "agent" | "system"; role?: string | null }): LocalConsoleMessage {

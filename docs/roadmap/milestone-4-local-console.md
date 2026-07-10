@@ -89,6 +89,8 @@ T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packa
 
 验收场景（细化时保留）：在纯本地发起一个多子任务目标 → 应看到 CEO 兜底路由、按会话拆子会话（`parent_session_id` 落库并在桌面台侧栏正确渲染树形层级）、qa 走查、验收回流全部在本地跑通，与 GitHub 模式行为对齐；worktree 开启态下走一遍 dev 修改回流 → 与 `issue-worktree` 在开分支 / 回流 / 原目录洁净三点上行为全等；逐条比对 spec MUST 清单无遗漏。
 
+子切片证据（2026-07-10，#112）：T5 本地验收走查 / 验收回流已按 `openspec/changes/archive/2026-07-10-local-console-t5-acceptance-loop/` 实现并归档。正式 2 条验收语句与 product-manager 确认接受的 QA 增补 5 条验收口径，汇总证据见 `artifacts/acceptance/t5-evidence.json` 的 `acceptance-loop-suite`：边界替换消除预 T5 acceptance 禁止冲突；通过走查写入 passed fact 并驱动 parent integration progress；格式错误写 visible reminder 且不保存 passed fact、不消费同消息 handoff；parent visible write 失败后 cursor / handoff / completed event 不被错误推进，retry 后只生成一个 deduped parent progress；先失败后复验通过保留 failed repair reference 并以 latest passed fact 驱动 rejoin；缺 formal acceptance statements 时 visible blocked 且不伪造范围；SQLite store timeout 后 session drain 释放且不保存成功验收事实。自动化回归：`pnpm exec tsx scripts/acceptance/local-console-t5.ts --case acceptance-loop-suite`、`pnpm exec vitest run tests/local-console.test.ts`、`pnpm typecheck` 均退出码 0；`pnpm exec openspec validate local-console-t5-acceptance-loop --strict` 在归档前退出码 0，归档后 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case boundary-replacement` 退出码 0。
+
 ### - [ ] T6 · GitHub 降为互斥 flag 模式 + 收尾（`成品级`）
 
 默认 local；启动参数切纯 GitHub 模式，二选一、运行时不并存、数据不互通。事实源收尾：`github-issue-runner` spec 中观察页 / GitHub 呈现类规格迁移到新业务域（如 `local-console`）；`docs/wireframes/pages/observer.md` → `pages/console.md` + `flow.md` 同步；AGENTS.md 更新启动形态。

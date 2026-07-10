@@ -172,6 +172,26 @@ export type SqliteStateCommand =
       error: string | null;
       now: string;
     }
+  | {
+      kind: "local-record-acceptance-prepass-result";
+      sessionId: string;
+      messageId: number;
+      runId: string;
+      taskId: string;
+      role: string;
+      verdict: "passed" | "failed" | "format_error" | "blocked";
+      evidenceJson: string;
+      visibleBody: string;
+      parentSessionId: string | null;
+      parentEventKey: string | null;
+      parentEventStatus: "requested" | "completed" | "failed" | "blocked" | null;
+      parentEventDetailJson: string | null;
+      repairChildSessionId: string | null;
+      repairTitle: string | null;
+      repairHiddenKey: string | null;
+      repairInitialBody: string | null;
+      now: string;
+    }
   | { kind: "local-list-t5-facts"; sessionId: string | null }
   | { kind: "local-mark-stale-running"; sessionId: string; cutoffIso: string; now: string; reason: string };
 

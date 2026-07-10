@@ -1,0 +1,202 @@
+{
+  "ok": true,
+  "selectedCase": "acceptance-loop-suite",
+  "acceptance": [
+    {
+      "id": 4,
+      "case": "boundary-replacement",
+      "statement": "查看 `specs/local-console/spec.md` → 应看到 T5-only 禁止规则被修改，归档后不得有 MUST/MUST NOT 冲突。",
+      "evidence": {
+        "modifiedRequirements": true,
+        "boundaryScenario": true,
+        "githubRunnerUnchangedClause": true,
+        "archivedSpecHasAcceptanceLoop": true,
+        "archivedSpecConflictRemoved": true
+      }
+    },
+    {
+      "id": 16,
+      "case": "acceptance-loop",
+      "statement": "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case acceptance-loop` → 应输出本地验收通过事实并驱动 parent integration progress。",
+      "evidence": {
+        "acceptanceFacts": [
+          {
+            "id": 1,
+            "session_id": "local:acceptance-child",
+            "task_id": "task-acceptance-loop",
+            "role": "product-manager",
+            "verdict": "passed",
+            "evidence_json": "{\"role\":\"product-manager\",\"taskId\":\"task-acceptance-loop\",\"messageId\":3,\"sourceBodyDigest\":\"c4906b9a25cec164eab926f19578174d80ba8ae21cabe15eeee774be8102de1b\",\"rawConclusion\":\"通过\",\"statementResults\":[{\"index\":1,\"status\":\"passed\",\"evidence\":\"parser evidence\"},{\"index\":2,\"status\":\"passed\",\"evidence\":\"runtime evidence\"}],\"acceptanceStatements\":[\"跑 parser → 应退出码 0\",\"跑 runtime → 应退出码 0\"]}",
+            "source_message_id": 3,
+            "superseded_at": null,
+            "created_at": "2026-07-10T11:51:44.490Z"
+          }
+        ],
+        "parentIntegrationEvents": [
+          {
+            "session_id": "local:acceptance-parent",
+            "event_key": "local-acceptance:local:acceptance-child:task-acceptance-loop",
+            "status": "requested",
+            "detail_json": "{\"childSessionId\":\"local:acceptance-child\",\"taskId\":\"task-acceptance-loop\",\"role\":\"product-manager\",\"messageId\":3,\"verdict\":\"passed\"}",
+            "created_at": "2026-07-10T11:51:44.490Z",
+            "updated_at": "2026-07-10T11:51:44.490Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "case": "acceptance-format-error",
+      "statement": "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case acceptance-format-error` → 应输出格式错误可见提醒，不保存 passed fact，不消费同消息 handoff。",
+      "evidence": {
+        "acceptanceFacts": [],
+        "reminder": {
+          "id": 4,
+          "sessionId": "local:format-child",
+          "speaker": "system",
+          "role": null,
+          "body": "本地验收走查格式无法解析：statement-count-mismatch:1/2, missing-index:2\n期望 2 条逐条结果，每行使用：N. 通过 — 依据 或 N. 不通过 — 依据\n最后单独一行：验收结论：通过/不通过\n来源角色：qa",
+          "status": "displayed",
+          "runId": "local-2026-07-10T11:51:45.215Z-81fd7kng",
+          "runDir": null,
+          "error": null,
+          "createdAt": "2026-07-10T11:51:45.385Z",
+          "updatedAt": "2026-07-10T11:51:45.385Z"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "case": "acceptance-integration-write-failure",
+      "statement": "注入 parent integration visible write 失败 → 应不推进 cursor、不消费同消息 handoff、不记录 completed integration request，retry 后只生成一个 deduped parent progress。",
+      "evidence": {
+        "sourceMessageId": 3,
+        "acceptanceFacts": [
+          {
+            "id": 1,
+            "session_id": "local:write-child",
+            "task_id": "task-write",
+            "role": "product-manager",
+            "verdict": "passed",
+            "evidence_json": "{\"role\":\"product-manager\",\"taskId\":\"task-write\",\"messageId\":3,\"sourceBodyDigest\":\"93d38d67744d129366f06f836a189363a45cec1ed1ef0e337541920d4a9d7627\",\"rawConclusion\":\"通过\",\"statementResults\":[{\"index\":1,\"status\":\"passed\",\"evidence\":\"ok\"}],\"acceptanceStatements\":[\"跑 one → 应退出码 0\"]}",
+            "source_message_id": 3,
+            "superseded_at": null,
+            "created_at": "2026-07-10T11:51:47.368Z"
+          }
+        ],
+        "parentEvents": [
+          {
+            "session_id": "local:write-parent",
+            "event_key": "local-acceptance:local:write-child:task-write",
+            "status": "requested",
+            "detail_json": "{\"childSessionId\":\"local:write-child\",\"taskId\":\"task-write\",\"role\":\"product-manager\",\"messageId\":3,\"verdict\":\"passed\"}",
+            "created_at": "2026-07-10T11:51:47.368Z",
+            "updated_at": "2026-07-10T11:51:47.368Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": 19,
+      "case": "acceptance-recheck-after-repair",
+      "statement": "同一验收角色先输出不通过走查，再 repair 后输出通过走查 → latest passed fact 应驱动 rejoin，旧 failed repair visible record 或 repair reference 仍可审计。",
+      "evidence": {
+        "acceptanceFacts": [
+          {
+            "id": 1,
+            "session_id": "local:recheck-child",
+            "task_id": "task-recheck",
+            "role": "product-manager",
+            "verdict": "failed",
+            "evidence_json": "{\"role\":\"product-manager\",\"taskId\":\"task-recheck\",\"messageId\":3,\"sourceBodyDigest\":\"8997bd5b362c3da85f4afb3f7cf54b0b5eddebc18d2c1677b19d3f216fe7ab11\",\"rawConclusion\":\"不通过\",\"statementResults\":[{\"index\":1,\"status\":\"failed\",\"evidence\":\"failed before repair\"}],\"acceptanceStatements\":[\"跑 one → 应退出码 0\"]}",
+            "source_message_id": 3,
+            "superseded_at": "2026-07-10T11:51:48.726Z",
+            "created_at": "2026-07-10T11:51:48.251Z"
+          },
+          {
+            "id": 2,
+            "session_id": "local:recheck-child",
+            "task_id": "task-recheck",
+            "role": "product-manager",
+            "verdict": "passed",
+            "evidence_json": "{\"role\":\"product-manager\",\"taskId\":\"task-recheck\",\"messageId\":7,\"sourceBodyDigest\":\"fcd63771b86826752542e683cc501c8ccf29554314b48c46852d5c5f4b90ec18\",\"rawConclusion\":\"通过\",\"statementResults\":[{\"index\":1,\"status\":\"passed\",\"evidence\":\"repair verified\"}],\"acceptanceStatements\":[\"跑 one → 应退出码 0\"]}",
+            "source_message_id": 7,
+            "superseded_at": null,
+            "created_at": "2026-07-10T11:51:48.726Z"
+          }
+        ],
+        "sessionEdges": [
+          {
+            "parent_session_id": "local:recheck-parent",
+            "child_session_id": "local:recheck-child",
+            "relation": "task",
+            "hidden_key": "recheck-child-key",
+            "created_at": "2026-07-10T00:00:01.000Z"
+          },
+          {
+            "parent_session_id": "local:recheck-parent",
+            "child_session_id": "local:repair:bG9jYWw6cmVjaGVj",
+            "relation": "repair",
+            "hidden_key": "local-acceptance-repair:bG9jYWw6cmVjaGVj",
+            "created_at": "2026-07-10T11:51:48.251Z"
+          }
+        ],
+        "integrationEvents": [
+          {
+            "session_id": "local:recheck-parent",
+            "event_key": "local-acceptance:local:recheck-child:task-recheck",
+            "status": "requested",
+            "detail_json": "{\"childSessionId\":\"local:recheck-child\",\"taskId\":\"task-recheck\",\"role\":\"product-manager\",\"messageId\":7,\"verdict\":\"passed\"}",
+            "created_at": "2026-07-10T11:51:48.726Z",
+            "updated_at": "2026-07-10T11:51:48.726Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": 20,
+      "case": "acceptance-projection-missing",
+      "statement": "缺 formal acceptance statements projection 的 child session 收到验收角色消息 → 应写 visible blocked/error，不伪造验收范围，不保存 passed fact。",
+      "evidence": {
+        "acceptanceFacts": [],
+        "blocked": {
+          "id": 2,
+          "sessionId": "local:projection-missing",
+          "speaker": "system",
+          "role": null,
+          "body": "本地验收无法入账：missing-acceptance-statements\n未找到 formal acceptance statements，不能伪造验收范围。\n来源角色：qa",
+          "status": "displayed",
+          "runId": "local-2026-07-10T11:51:49.336Z-bgifoqmn",
+          "runDir": null,
+          "error": null,
+          "createdAt": "2026-07-10T11:51:49.492Z",
+          "updatedAt": "2026-07-10T11:51:49.492Z"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "case": "acceptance-store-timeout",
+      "statement": "SQLite 组合事务或 store command timeout → 系统应在配置超时内释放 session drain，消息保持 retryable 或 visible diagnosed，且不保存成功验收事实。",
+      "evidence": {
+        "factsAfterTimeout": [],
+        "factsAfterRetry": [
+          {
+            "id": 1,
+            "session_id": "local:timeout-child",
+            "task_id": "task-timeout",
+            "role": "qa",
+            "verdict": "passed",
+            "evidence_json": "{\"role\":\"qa\",\"taskId\":\"task-timeout\",\"messageId\":3,\"sourceBodyDigest\":\"84fca5cdc039f3337e471a41ba3ecbe91578300e49751013f9d37cbcc1b3818b\",\"rawConclusion\":\"通过\",\"statementResults\":[{\"index\":1,\"status\":\"passed\",\"evidence\":\"ok\"}],\"acceptanceStatements\":[\"跑 one → 应退出码 0\"]}",
+            "source_message_id": 3,
+            "superseded_at": null,
+            "created_at": "2026-07-10T11:51:50.684Z"
+          }
+        ]
+      }
+    }
+  ],
+  "artifacts": {
+    "evidence": "artifacts/acceptance/t5-evidence.json"
+  }
+}
