@@ -41,7 +41,7 @@
   - [x] 运行 `pnpm --filter @agent-moebius/console-ui test`。
   - [x] 运行 `git diff --check`。
   - [x] 将 T4.6 验收证据追记到 `docs/roadmap/milestone-4-local-console.md` 并勾选。
-- [ ] 发布收尾
-  - [ ] `git add -A && git commit`，commit message/body 含 `Closes #107`。
-  - [ ] `git push -u origin` 当前分支。
-  - [ ] `gh pr create --base main`，PR body 含 `Closes #107` 与验收证据摘要。
+- [x] 发布收尾
+  - [x] `git add -A && git commit`，commit message/body 含 `Closes #107`。
+  - [x] `git push -u origin` 当前分支。
+  - [x] `gh pr create --base main`，PR body 含 `Closes #107` 与验收证据摘要。
