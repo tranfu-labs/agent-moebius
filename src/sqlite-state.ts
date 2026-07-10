@@ -35,6 +35,18 @@ export type SqliteStateCommand =
       now: string;
     }
   | { kind: "local-create-session"; sessionId: string; projectId: string; title: string; now: string }
+  | {
+      kind: "local-create-child-session";
+      parentSessionId: string;
+      childSessionId: string;
+      projectId: string;
+      title: string;
+      relation: string;
+      hiddenKey: string;
+      initialBody: string;
+      initialRole: string | null;
+      now: string;
+    }
   | { kind: "local-list-sessions" }
   | { kind: "local-append-user"; sessionId: string; body: string; now: string }
   | { kind: "local-list"; sessionId: string }
@@ -89,6 +101,55 @@ export type SqliteStateCommand =
       runDir: string | null;
       now: string;
     }
+  | {
+      kind: "local-record-route-decision";
+      sessionId: string;
+      messageId: number;
+      routeKey: string;
+      outcome: "append" | "no_action" | "fail_open" | "dead_letter";
+      targetRole: string | null;
+      reason: string;
+      now: string;
+    }
+  | {
+      kind: "local-record-acceptance-fact";
+      sessionId: string;
+      taskId: string;
+      role: string;
+      verdict: "passed" | "failed";
+      evidenceJson: string;
+      now: string;
+    }
+  | {
+      kind: "local-record-integration-event";
+      sessionId: string;
+      eventKey: string;
+      status: "requested" | "completed" | "failed" | "blocked";
+      detailJson: string;
+      now: string;
+    }
+  | {
+      kind: "local-record-dead-letter";
+      sessionId: string;
+      sourceMessageId: number;
+      failureCount: number;
+      reason: string;
+      recovered: boolean;
+      now: string;
+    }
+  | {
+      kind: "local-record-workspace-diff";
+      sessionId: string;
+      runId: string;
+      baseRef: string;
+      branchName: string;
+      worktreePath: string;
+      patchPath: string;
+      status: "generated" | "applied" | "failed";
+      error: string | null;
+      now: string;
+    }
+  | { kind: "local-list-t5-facts"; sessionId: string | null }
   | { kind: "local-mark-stale-running"; sessionId: string; cutoffIso: string; now: string; reason: string };
 
 export interface SqliteStateCommandOptions {

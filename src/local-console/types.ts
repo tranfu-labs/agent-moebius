@@ -40,6 +40,7 @@ export interface LocalConsoleSessionWorkspaceSource {
 export interface LocalConsoleSessionSummary {
   sessionId: string;
   projectId: string;
+  parentSessionId?: string | null;
   title: string;
   status: LocalConsoleSessionStatus;
   runningCount: number;
@@ -47,6 +48,7 @@ export interface LocalConsoleSessionSummary {
   stuckCount: number;
   errorCount: number;
   interruptedCount: number;
+  childCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,6 +82,8 @@ export interface LocalConsoleRunSnapshot {
   cwd: string | null;
   workspaceMode: LocalConsoleWorkspaceMode | null;
   worktreeUnavailableReason: string | null;
+  branchName?: string | null;
+  baseRef?: string | null;
   stdoutTail: string | null;
   stderrTail: string | null;
   lastOutputSummary: string;

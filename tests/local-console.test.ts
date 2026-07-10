@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveTrigger } from "../src/triggers/index.js";
@@ -8,6 +9,14 @@ import { buildLocalConsoleTimeline } from "../src/local-console/timeline.js";
 import { createSqliteLocalConsoleStore } from "../src/local-console/store.js";
 import { startLocalConsoleServer } from "../src/local-console/server.js";
 import { readLocalConsoleOutputTail } from "../src/local-console/output-tail.js";
+import {
+  createLocalChildSession,
+  listLocalT5Facts,
+  recordLocalAcceptanceFact,
+  recordLocalDeadLetter,
+  recordLocalIntegrationEvent,
+  recordLocalRouteDecision,
+} from "../src/local-console/t5-store.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
   LOCAL_CONSOLE_PROJECT_ID,
@@ -163,6 +172,104 @@ describe("local console", () => {
     }
   });
 
+  it("persists T5 child session and local fact records idempotently", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    try {
+      await store.createSession({ sessionId: "local:parent", title: "parent", now: "2026-07-09T00:00:00.000Z" });
+      const child = await createLocalChildSession(
+        { sqlitePath },
+        {
+          parentSessionId: "local:parent",
+          childSessionId: "local:child",
+          projectId: LOCAL_CONSOLE_PROJECT_ID,
+          title: "child task",
+          relation: "task",
+          hiddenKey: "child-key-1",
+          initialRole: "dev",
+          initialBody: "Initial handoff",
+          now: "2026-07-09T00:00:01.000Z",
+        },
+      );
+      const duplicate = await createLocalChildSession(
+        { sqlitePath },
+        {
+          parentSessionId: "local:parent",
+          childSessionId: "local:child-duplicate",
+          projectId: LOCAL_CONSOLE_PROJECT_ID,
+          title: "duplicate",
+          relation: "task",
+          hiddenKey: "child-key-1",
+          initialRole: "dev",
+          initialBody: "Should recover existing",
+          now: "2026-07-09T00:00:02.000Z",
+        },
+      );
+      expect(duplicate.sessionId).toBe(child.sessionId);
+
+      await recordLocalRouteDecision(
+        { sqlitePath },
+        {
+          sessionId: "local:parent",
+          messageId: 1,
+          routeKey: "route:1",
+          outcome: "append",
+          targetRole: "dev",
+          reason: "goal-shape",
+          now: "2026-07-09T00:00:03.000Z",
+        },
+      );
+      await recordLocalAcceptanceFact(
+        { sqlitePath },
+        {
+          sessionId: "local:child",
+          taskId: "task-1",
+          role: "product-manager",
+          verdict: "passed",
+          evidence: { lines: [1, 2] },
+          now: "2026-07-09T00:00:04.000Z",
+        },
+      );
+      await recordLocalIntegrationEvent(
+        { sqlitePath },
+        {
+          sessionId: "local:parent",
+          eventKey: "integration:1",
+          status: "requested",
+          detail: { child: "local:child" },
+          now: "2026-07-09T00:00:05.000Z",
+        },
+      );
+      await recordLocalDeadLetter(
+        { sqlitePath },
+        {
+          sessionId: "local:parent",
+          sourceMessageId: 1,
+          failureCount: 5,
+          reason: "exit-code-1",
+          recovered: false,
+          now: "2026-07-09T00:00:06.000Z",
+        },
+      );
+
+      const sessions = await store.listSessions();
+      expect(sessions.find((entry) => entry.sessionId === "local:parent")).toMatchObject({ childCount: 1 });
+      expect(sessions.find((entry) => entry.sessionId === "local:child")).toMatchObject({
+        parentSessionId: "local:parent",
+      });
+      const facts = await listLocalT5Facts({ sqlitePath });
+      expect(facts.sessionEdges).toHaveLength(1);
+      expect(facts.routeDecisions).toHaveLength(1);
+      expect(facts.acceptanceFacts).toHaveLength(1);
+      expect(facts.integrationEvents).toHaveLength(1);
+      expect(facts.deadLetters).toHaveLength(1);
+    } finally {
+      await store.close();
+    }
+  });
+
   it("builds local timelines that reuse mention parsing rules", () => {
     const agents = ["dev"];
     const runTimeline = buildLocalConsoleTimeline([message({ id: 1, body: "@dev hello" })], agents);
@@ -265,6 +372,45 @@ describe("local console", () => {
       });
       await expect(fs.readFile(path.join(folderPath, "local-output.txt"), "utf8")).resolves.toBe("changed");
       await expect(fs.stat(path.join(folderPath, ".git"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("generates a workspace diff fact after a successful git worktree run", async () => {
+    const root = await makeFixtureRoot();
+    const folderPath = path.join(root, "git-project");
+    await createGitRepo(folderPath);
+    await writeAgent(root, "dev", "# Dev\n\nROLE:dev");
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      if (options.cwd === undefined) {
+        throw new Error("codex cwd is required");
+      }
+      await fs.writeFile(path.join(options.cwd, "local-output.txt"), "changed", "utf8");
+      return codexOk(options, "done in worktree");
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      workdirRoot: path.join(root, "workdir"),
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `git-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const project = await createProject(started.url, folderPath, true);
+      const session = await createProjectSession(started.url, "git", project.projectId);
+      await postSessionMessage(started.url, session.sessionId, "@dev write in worktree");
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body === "done in worktree"),
+      );
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
+      expect(facts.workspaceDiffs).toHaveLength(1);
+      const [diff] = facts.workspaceDiffs as Array<{ patch_path: string; status: string; worktree_path: string }>;
+      expect(diff).toMatchObject({ status: "generated" });
+      await expect(fs.readFile(diff.patch_path, "utf8")).resolves.toContain("local-output.txt");
+      await expect(fs.stat(path.join(diff.worktree_path, "local-output.txt"))).resolves.toBeDefined();
+      expect(await gitStatus(folderPath)).toBe("");
     } finally {
       await started.close();
     }
@@ -947,6 +1093,52 @@ type LocalRunCodex = (options: CodexRunOptions) => Promise<CodexRunResult>;
 
 async function makeFixtureRoot(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-local-console-"));
+}
+
+async function createGitRepo(folderPath: string): Promise<void> {
+  await fs.mkdir(folderPath, { recursive: true });
+  await runGit(folderPath, ["init"]);
+  await runGit(folderPath, ["config", "user.email", "local-console@example.test"]);
+  await runGit(folderPath, ["config", "user.name", "Local Console"]);
+  await fs.writeFile(path.join(folderPath, "README.md"), "initial\n", "utf8");
+  await runGit(folderPath, ["add", "README.md"]);
+  await runGit(folderPath, ["commit", "-m", "initial"]);
+}
+
+async function gitStatus(folderPath: string): Promise<string> {
+  return (await runGit(folderPath, ["status", "--short"])).stdout.trim();
+}
+
+async function runGit(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`git timeout: ${args.join(" ")}`));
+    }, 5_000);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("close", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      reject(new Error(`git ${args.join(" ")} failed: ${stderr}`));
+    });
+  });
 }
 
 async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {

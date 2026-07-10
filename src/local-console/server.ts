@@ -14,6 +14,7 @@ import {
 import { run as runCodex } from "../codex.js";
 import { log } from "../log.js";
 import { createSqliteLocalConsoleStore } from "./store.js";
+import { createLocalChildSession, listLocalT5Facts } from "./t5-store.js";
 import { LocalConsoleBusyError, type LocalConsoleStore } from "./types.js";
 import { formatLocalError, LocalConsoleRuntime, type LocalConsoleAgentFile } from "./runtime.js";
 
@@ -128,6 +129,11 @@ async function handleRequest(
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/local-console/t5-facts") {
+      sendJson(response, 200, await listLocalT5Facts({ sqlitePath: runtime.sqlitePath }, readOptionalString(url.searchParams.get("sessionId")) ?? null));
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/api/local-console/projects") {
       const payload = await readJsonBody(request);
       if (!isRecord(payload) || typeof payload.folderPath !== "string") {
@@ -166,6 +172,40 @@ async function handleRequest(
       const session = await runtime.createSession(
         isRecord(payload) ? readOptionalString(payload.title) : undefined,
         isRecord(payload) ? readOptionalString(payload.projectId) : undefined,
+      );
+      sendJson(response, 201, { session });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/local-console/child-sessions") {
+      const payload = await readJsonBody(request);
+      if (
+        !isRecord(payload) ||
+        typeof payload.parentSessionId !== "string" ||
+        typeof payload.childSessionId !== "string" ||
+        typeof payload.projectId !== "string" ||
+        typeof payload.title !== "string" ||
+        typeof payload.hiddenKey !== "string" ||
+        typeof payload.initialBody !== "string"
+      ) {
+        sendJson(response, 400, {
+          error: "Expected JSON body with parentSessionId, childSessionId, projectId, title, hiddenKey, and initialBody",
+        });
+        return;
+      }
+      const session = await createLocalChildSession(
+        { sqlitePath: runtime.sqlitePath },
+        {
+          parentSessionId: payload.parentSessionId,
+          childSessionId: payload.childSessionId,
+          projectId: payload.projectId,
+          title: payload.title,
+          relation: readOptionalString(payload.relation) ?? "task",
+          hiddenKey: payload.hiddenKey,
+          initialBody: payload.initialBody,
+          initialRole: readOptionalString(payload.initialRole),
+          now: new Date().toISOString(),
+        },
       );
       sendJson(response, 201, { session });
       return;
