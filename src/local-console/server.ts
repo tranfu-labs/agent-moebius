@@ -14,7 +14,7 @@ import {
 import { run as runCodex } from "../codex.js";
 import { log } from "../log.js";
 import { createSqliteLocalConsoleStore } from "./store.js";
-import { createLocalChildSession, listLocalT5Facts } from "./t5-store.js";
+import { listLocalT5Facts } from "./t5-store.js";
 import type { LocalRouteJudgment } from "./route-bus.js";
 import { LocalConsoleBusyError, type LocalConsoleStore } from "./types.js";
 import { formatLocalError, LocalConsoleRuntime, type LocalConsoleAgentFile } from "./runtime.js";
@@ -200,20 +200,16 @@ async function handleRequest(
         });
         return;
       }
-      const session = await createLocalChildSession(
-        { sqlitePath: runtime.sqlitePath },
-        {
-          parentSessionId: payload.parentSessionId,
-          childSessionId: payload.childSessionId,
-          projectId: payload.projectId,
-          title: payload.title,
-          relation: readOptionalString(payload.relation) ?? "task",
-          hiddenKey: payload.hiddenKey,
-          initialBody: payload.initialBody,
-          initialRole: readOptionalString(payload.initialRole),
-          now: new Date().toISOString(),
-        },
-      );
+      const session = await runtime.createChildSession({
+        parentSessionId: payload.parentSessionId,
+        childSessionId: payload.childSessionId,
+        projectId: payload.projectId,
+        title: payload.title,
+        relation: readOptionalString(payload.relation) ?? "task",
+        hiddenKey: payload.hiddenKey,
+        initialBody: payload.initialBody,
+        initialRole: readOptionalString(payload.initialRole),
+      });
       sendJson(response, 201, { session });
       return;
     }

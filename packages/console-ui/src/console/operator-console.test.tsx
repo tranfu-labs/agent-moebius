@@ -59,6 +59,25 @@ describe("OperatorConsole", () => {
     expect(screen.getByText("子会话 · 实现子任务")).toBeInTheDocument();
     expect(screen.getByText(/子会话 1/u)).toBeInTheDocument();
   });
+
+  it("keeps corrupt parent chains visible without duplicating sessions", () => {
+    renderConsole({
+      project: {
+        ...project,
+        sessions: [
+          { ...sessions[0], parentSessionId: "session-b", title: "Cycle A" },
+          { ...sessions[1], parentSessionId: "session-a", title: "Cycle B" },
+          { ...sessions[1], sessionId: "session-c", parentSessionId: "session-c", title: "Self parent" },
+          { ...sessions[1], sessionId: "session-d", parentSessionId: "missing", title: "Missing parent" },
+        ],
+      },
+    });
+
+    expect(screen.getAllByText("Cycle A")).toHaveLength(1);
+    expect(screen.getAllByText("Cycle B")).toHaveLength(1);
+    expect(screen.getAllByText("Self parent")).toHaveLength(1);
+    expect(screen.getAllByText("Missing parent")).toHaveLength(1);
+  });
 });
 
 function renderConsole(overrides: Partial<OperatorConsoleProps> = {}) {

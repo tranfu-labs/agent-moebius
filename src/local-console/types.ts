@@ -170,6 +170,15 @@ export interface LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<void>;
+  recordSystemMessage(input: {
+    sessionId: string;
+    body: string;
+    runId: string | null;
+    runDir: string | null;
+    error: string | null;
+    status?: "displayed" | "failed" | "stuck";
+    now: string;
+  }): Promise<void>;
   recordMessageProcessed(input: {
     userMessageId: number;
     sessionId: string;

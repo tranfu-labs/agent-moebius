@@ -151,6 +151,8 @@ function runCommand(input: WorkerInput): unknown {
         return recordAgentResponse(database, input.command);
       case "local-record-system-and-complete":
         return recordSystemAndComplete(database, input.command);
+      case "local-record-system":
+        return recordSystemMessage(database, input.command);
       case "local-record-failure":
         return recordFailure(database, input.command);
       case "local-record-retryable-failure":
@@ -253,6 +255,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_session_messages_session_id_id ON session_messages(session_id, id);
     CREATE INDEX IF NOT EXISTS idx_session_messages_session_status_id ON session_messages(session_id, status, id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_parent_session_id ON sessions(parent_session_id) WHERE parent_session_id IS NOT NULL;
     CREATE TABLE IF NOT EXISTS local_message_cursors (
       session_id TEXT PRIMARY KEY,
       processed_through_message_id INTEGER NOT NULL DEFAULT 0,
@@ -363,7 +366,8 @@ function migrateSessionEdgesHiddenKey(database: SqliteDatabase): void {
   if (!tableHasColumn(database, "session_edges", "hidden_key")) {
     database.exec("ALTER TABLE session_edges ADD COLUMN hidden_key TEXT");
   }
-  database.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_edges_hidden_key ON session_edges(hidden_key) WHERE hidden_key IS NOT NULL");
+  database.exec("DROP INDEX IF EXISTS idx_session_edges_hidden_key");
+  database.exec("CREATE INDEX IF NOT EXISTS idx_session_edges_parent_hidden_key ON session_edges(parent_session_id, hidden_key) WHERE hidden_key IS NOT NULL");
 }
 
 function migrateLocalAcceptanceFactsHistory(database: SqliteDatabase): void {
@@ -869,26 +873,38 @@ function createLocalChildSession(
   input: Extract<SqliteStateCommand, { kind: "local-create-child-session" }>,
 ): unknown {
   return transaction(database, () => {
+    const parent = database.prepare("SELECT * FROM sessions WHERE session_id = ? AND source_type = 'local'").get(input.parentSessionId);
+    if (!isRecord(parent)) {
+      throw new Error(`local parent session not found: ${input.parentSessionId}`);
+    }
+    const parentProjectId = readString(parent.project_id, "project_id");
+    if (input.projectId !== parentProjectId) {
+      throw new Error(`local child project mismatch: parent=${parentProjectId} input=${input.projectId}`);
+    }
+
     const existing = database
       .prepare(
         `SELECT child_session_id FROM session_edges
          WHERE parent_session_id = ? AND hidden_key = ?
-         LIMIT 1`,
+         ORDER BY created_at ASC, child_session_id ASC`,
       )
-      .get(input.parentSessionId, input.hiddenKey);
-    if (isRecord(existing)) {
-      return requireLocalSession(database, readString(existing.child_session_id, "child_session_id"));
+      .all(input.parentSessionId, input.hiddenKey);
+    if (existing.length > 1) {
+      throw new Error(`local child hidden key collision: ${input.hiddenKey}`);
+    }
+    const existingEdge = existing[0];
+    if (isRecord(existingEdge)) {
+      return requireLocalSession(database, readString(existingEdge.child_session_id, "child_session_id"));
     }
 
-    ensureSession(database, input.parentSessionId, input.now, undefined, input.projectId);
-    ensureSession(database, input.childSessionId, input.now, input.title, input.projectId);
+    ensureSession(database, input.childSessionId, input.now, input.title, parentProjectId);
     database
       .prepare(
         `UPDATE sessions
          SET parent_session_id = ?, project_id = ?, title = COALESCE(title, ?), updated_at = ?
          WHERE session_id = ?`,
       )
-      .run(input.parentSessionId, input.projectId, input.title, input.now, input.childSessionId);
+      .run(input.parentSessionId, parentProjectId, input.title, input.now, input.childSessionId);
     database
       .prepare(
         `INSERT INTO session_edges (parent_session_id, child_session_id, relation, hidden_key, created_at)
@@ -901,9 +917,9 @@ function createLocalChildSession(
       .prepare(
         `INSERT INTO session_messages
           (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
-        VALUES (?, 'system', ?, ?, 'displayed', NULL, NULL, NULL, 'local-child-session', ?, ?, ?)`,
+        VALUES (?, 'user', NULL, ?, 'pending', NULL, NULL, NULL, 'local-child-session', ?, ?, ?)`,
       )
-      .run(input.childSessionId, input.initialRole, input.initialBody, input.hiddenKey, input.now, input.now);
+      .run(input.childSessionId, input.initialBody, input.hiddenKey, input.now, input.now);
     insertSystemMessage(
       database,
       input.parentSessionId,
@@ -1149,6 +1165,16 @@ function recordSystemAndComplete(
     const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
     insertSystemMessage(database, input.sessionId, input.body, input.runId, input.runDir, null, input.now);
     completeSourceMessage(database, source, "completed", null, input.runId, input.runDir, input.now);
+    return null;
+  });
+}
+
+function recordSystemMessage(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-system" }>,
+): null {
+  return transaction(database, () => {
+    insertSystemMessage(database, input.sessionId, input.body, input.runId, input.runDir, input.error, input.now, input.status ?? "displayed");
     return null;
   });
 }

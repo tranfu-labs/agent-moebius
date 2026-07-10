@@ -4,7 +4,7 @@
 
 `local-console` 是默认本地对话操作台的数据通道。它复用 GitHub issue runner 已有的 conversation、mention trigger、agent persona 与 Codex driver 能力，但输入输出落在本机 HTTP API 与 `.state/local-console.sqlite`，供 Electron 操作台或本地浏览器客户端使用。
 
-本域规定一个本地项目下多会话、运行直播、中断、卡住状态、本地错误记录、agent 接力位点、本地 no-mention 交棒总线、workspace diff 事实、T5 本地验收走查/验收回流切片，以及 dead-letter / recovery 可见收敛；不承载 T5 的完整 CEO 兜底、完整子会话编排、artifact publishing parity，也不承载 T6 的 GitHub/local 互斥启动 flag。
+本域规定一个本地项目下多会话、运行直播、中断、卡住状态、本地错误记录、agent 接力位点、本地 no-mention 交棒总线、workspace diff 事实、T5 child session orchestration 的本地子会话等价能力、T5 本地验收走查/验收回流切片，以及 dead-letter / recovery 可见收敛；不承载 T5 的完整 CEO 兜底、完整 GitHub child issue 编排、artifact publishing parity，也不承载 T6 的 GitHub/local 互斥启动 flag。
 
 ## 业务规则
 
@@ -20,6 +20,24 @@
 - MUST support creating and selecting multiple local sessions under the single local project; session ids for new local sessions must be stable and persisted in SQLite.
 - MUST expose session-scoped message submission and interrupt operations.
 - MUST keep the local console API loopback-only by default.
+
+### 本地子会话持久化
+- MUST persist parent-child session relationships in `.state/local-console.sqlite` using `sessions.parent_session_id` or an equivalent column on the existing `sessions` table.
+- MUST return each session's parent session id through local session summaries and local console state APIs.
+- MUST keep child sessions in the same project as their parent session.
+- MUST NOT create a child session under a different project than its persisted parent session.
+- MUST preserve existing root sessions with no parent reference when migrating older SQLite databases.
+- MUST bound local child session creation through the existing local store timeout path so a locked database, slow worker, or hung worker cannot permanently occupy the parent session drain.
+
+### 本地 CEO 子会话编排
+- MUST map local CEO child task descriptors to local child sessions instead of GitHub child issues.
+- MUST create child sessions through the existing local console SQLite store, not through GitHub APIs or a second persistence file.
+- MUST derive a stable local orchestration key from parent session id, workflow id, and ledger task id before creating a child session.
+- MUST recover an existing child session by hidden orchestration key before creating a new child session.
+- MUST fail closed when a hidden orchestration key maps to multiple child sessions in the same parent scope.
+- MUST write the child session creation and the initial child handoff message in one SQLite transaction.
+- MUST write a visible parent-session progress record after child sessions are created or recovered.
+- MUST NOT delete already-created child sessions as compensation after a later orchestration failure.
 
 ### 运行直播
 - MUST expose active Codex run state while a local session is running: run id, role when known, runDir, elapsed time, status, a recent stdout/stderr summary, and any tail-read diagnostic.
@@ -63,10 +81,11 @@
 - MUST continue startup catch-up from the next unprocessed local trigger after restart.
 
 ### 边界
-- MUST keep GitHub runner semantics untouched while allowing the local acceptance-loop slice in this domain.
+- MUST keep GitHub runner semantics untouched while allowing the local child session orchestration, local acceptance-loop, and dead-letter/recovery slices in this domain.
+- MUST allow T5 child session orchestration only as local child session creation, `sessions.parent_session_id` persistence, and sidebar parent-child rendering.
 - MUST allow local acceptance-role walkthrough parsing, local acceptance fact recording, parent integration progress, repair routing, and visible format diagnostics in `.state/local-console.sqlite`.
 - MUST NOT modify `conversation`, `triggers`, agent mention parsing, stage parsing, CEO guardrail, goal-ledger business rules, GitHub issue timeline normalization, GitHub issue intake scheduling, GitHub comment publication, reaction targets, release artifact publication, issue media handling, issue worktree behavior, observer behavior, GitHub driver pool semantics, or other GitHub issue runner semantics to satisfy local-console behavior.
-- MUST NOT use the local acceptance-loop or dead-letter/recovery slices to implement unrelated T5 local equivalents such as full CEO no-mention fallback, full child session orchestration, artifact publishing parity, or unconfirmed cross-mode behavior.
+- MUST NOT use the local child session, acceptance-loop, or dead-letter/recovery slices to implement unrelated T5 local equivalents such as full CEO no-mention fallback, artifact publishing parity, extra worktree diff return behavior beyond the existing T5 store fact, or unconfirmed cross-mode behavior.
 - MUST NOT implement T6 GitHub/local mutually exclusive startup flag or cross-mode data migration in this domain.
 
 ### 本地验收走查解析
@@ -159,28 +178,69 @@ When the renderer refreshes or the desktop window restarts
 Then the records are restored from SQLite/API
 And their status, reason, and runDir remain distinguishable.
 
-### 场景 LC.T5.1：本地验收角色通过走查写入事实并驱动父级回流
+### 场景 LC.T5.1：子会话保存父会话引用
+Given a local parent session exists
+When local child session creation runs for a CEO-orchestrated task
+Then a child session row is inserted or recovered
+And the child session row stores the parent session id
+And listing sessions returns the child with that parent session id.
+
+### 场景 LC.T5.2：project mismatch 不创建跨 project child
+Given a local parent session is persisted under project A
+When local child session creation is called with project B
+Then the command fails closed or uses the persisted project A
+And no child session is created under project B
+And the parent session project is not silently rewritten.
+
+### 场景 LC.T5.3：child creation 挂起有界释放
+Given local child session creation never returns or exceeds the local store timeout
+When the runtime handles the orchestration attempt
+Then the parent session run is recorded as visible failed or stuck
+And orchestration success is not saved
+And the parent session can accept a later local message.
+
+### 场景 LC.T5.4：多子任务目标创建本地子会话
+Given a local parent session receives a CEO orchestration result with multiple child task descriptors
+When the local child session executor runs
+Then one local child session is created or recovered for each descriptor
+And each child session contains an initial handoff message
+And the parent session receives a visible progress record referencing the child sessions.
+
+### 场景 LC.T5.5：重试不重复创建子会话
+Given a previous local child session was created with a hidden orchestration key
+And the orchestration success state was not saved
+When the same descriptor is retried
+Then the existing child session is recovered
+And no duplicate child session or duplicate initial handoff message is inserted.
+
+### 场景 LC.T5.6：hidden key collision fail closed
+Given two existing child sessions under the same parent contain the same hidden orchestration key
+When local child session recovery retries that key
+Then recovery fails closed with a visible error
+And neither child session is selected as a successful recovery.
+
+### 场景 LC.T5.7：本地验收角色通过走查写入事实并驱动父级回流
 Given a local child session has formal acceptance statements
 When `product-manager`, `hermes-user`, or `qa` writes parseable numbered walkthrough lines and `验收结论：通过`
 Then the local console records a passed local acceptance fact
 And the evidence records statement-level results
 And the parent session receives one deduped integration progress or request event.
 
-### 场景 LC.T5.2：本地验收角色不通过走查创建回修路径
+### 场景 LC.T5.8：本地验收角色不通过走查创建回修路径
 Given a local child session has formal acceptance statements
 When an acceptance role writes one or more failed walkthrough lines and `验收结论：不通过`
 Then the local console records a failed local acceptance fact
 And a stable repair handoff or repair child session is created or recovered
 And the parent session can see the repair reference.
 
-### 场景 LC.T5.3：先失败后复验通过使用最新事实
+### 场景 LC.T5.9：先失败后复验通过使用最新事实
 Given an acceptance role first writes a parseable failed walkthrough
 And a repair path is created or recovered
 When the same acceptance role later writes a parseable passing walkthrough for the same task
 Then the latest passed fact drives parent rejoin or integration progress
 And the previous failed repair remains visible as a system record, repair reference, or historical acceptance fact.
 
-### 场景 LC.T5.4：父级可见写失败可重试且不消费同消息 handoff
+### 场景 LC.T5.10：父级可见写失败可重试且不消费同消息 handoff
 Given a local child acceptance fact is ready to trigger parent integration progress
 And writing the visible parent progress fails
 When local acceptance pre-pass settles
@@ -189,28 +249,28 @@ And any handoff mention in the same message is not consumed
 And a completed parent integration request is not recorded
 And a later retry creates only one deduped parent integration progress.
 
-### 场景 LC.T5.5：验收格式错误产生可见提醒
+### 场景 LC.T5.11：验收格式错误产生可见提醒
 Given a local child session has formal acceptance statements
 When an acceptance role writes `验收结论：通过` without parseable numbered walkthrough lines
 Then the local console writes a visible format reminder or error state
 And no passed local acceptance fact is recorded
 And the missing fact remains visible in local T5 facts or session status.
 
-### 场景 LC.T5.6：格式错误同消息 handoff 不触发普通交棒
+### 场景 LC.T5.12：格式错误同消息 handoff 不触发普通交棒
 Given a local child session has formal acceptance statements
 When an acceptance role writes malformed walkthrough lines and also includes a legal handoff mention
 Then the local console writes a visible format reminder or error state
 And no passed local acceptance fact is recorded
 And the handoff mention in that same message is not consumed by normal trigger handling.
 
-### 场景 LC.T5.7：缺 formal acceptance statements 时阻塞验收
+### 场景 LC.T5.13：缺 formal acceptance statements 时阻塞验收
 Given a local child session has no readable formal acceptance statements
 When an acceptance role writes an acceptance walkthrough
 Then the local console writes a visible blocked or error state
 And no passed acceptance fact is recorded
 And the local console does not invent an acceptance scope.
 
-### 场景 LC.T5.8：验收 store timeout 释放 drain
+### 场景 LC.T5.14：验收 store timeout 释放 drain
 Given a local acceptance pre-pass SQLite command never settles
 When the configured local store timeout is reached
 Then the session drain is released

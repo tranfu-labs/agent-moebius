@@ -84,6 +84,9 @@ async function main(): Promise<void> {
     "fake-gh-zero": runFakeGhZeroCase,
     "roadmap-evidence": runRoadmapEvidenceCase,
     "pr-evidence": runPrEvidenceCase,
+    "child-session-acceptance": runChildSessionAcceptanceCase,
+    "child-session-orchestration": runChildSessionOrchestrationCase,
+    "child-session-sidebar-tree": runChildSessionSidebarTreeCase,
   };
 
   const acceptance =
@@ -219,6 +222,154 @@ async function runMultiChildGoalCase(): Promise<EvidenceItem[]> {
     ];
   } finally {
     await store.close();
+  }
+}
+
+async function runChildSessionOrchestrationCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("child-session-orchestration");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  try {
+    const parent = await store.createSession({ sessionId: "local:parent", title: "Parent goal", now: now(0) });
+    const childA = await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-a", "Task A", now(1)));
+    const childB = await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-b", "Task B", now(2)));
+    const rows = readSessionParentRows(sqlitePath);
+    assert(rows.filter((row) => row.parent_session_id === parent.sessionId).length === 2, "child parent_session_id rows missing");
+
+    const timeoutRoot = await makeRoot("child-session-timeout");
+    const timeoutSqlite = path.join(timeoutRoot, ".state", "local-console.sqlite");
+    const timeoutStore = await createSqliteLocalConsoleStore({ sqlitePath: timeoutSqlite });
+    await timeoutStore.init();
+    await timeoutStore.createSession({ sessionId: "local:parent", title: "Parent", now: now(0) });
+    await timeoutStore.close();
+    const lockDb = new DatabaseSync(timeoutSqlite);
+    let timeoutError: string | null = null;
+    try {
+      lockDb.exec("BEGIN EXCLUSIVE");
+      await createLocalChildSession(
+        { sqlitePath: timeoutSqlite, busyTimeoutMs: 5_000, timeoutMs: 50 },
+        childInput("local:parent", "local:child-timeout", "Timeout child", now(1)),
+      );
+    } catch (error) {
+      timeoutError = error instanceof Error ? error.message : String(error);
+    } finally {
+      lockDb.exec("ROLLBACK");
+      lockDb.close();
+    }
+    assert(timeoutError?.includes("timeout") === true, `expected timeout error, got ${String(timeoutError)}`);
+
+    const project = await store.createProject({ folderPath: path.join(root, "project-b"), worktreeMode: false, now: now(3) });
+    let projectMismatchError: string | null = null;
+    try {
+      await createLocalChildSession(
+        { sqlitePath },
+        { ...childInput(parent.sessionId, "local:cross-project", "Cross project", now(4)), projectId: project.projectId },
+      );
+    } catch (error) {
+      projectMismatchError = error instanceof Error ? error.message : String(error);
+    }
+    assert(projectMismatchError?.includes("project mismatch") === true, `expected project mismatch, got ${String(projectMismatchError)}`);
+
+    const collisionDb = new DatabaseSync(sqlitePath);
+    try {
+      collisionDb
+        .prepare(
+          `INSERT INTO sessions
+            (session_id, project_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, title, status, created_at, updated_at)
+           VALUES ('local:collision-b', ?, 'local', NULL, NULL, NULL, ?, 'Collision B', 'active', ?, ?)`,
+        )
+        .run(LOCAL_CONSOLE_PROJECT_ID, parent.sessionId, now(5), now(5));
+      collisionDb
+        .prepare(
+          `INSERT INTO session_edges (parent_session_id, child_session_id, relation, hidden_key, created_at)
+           VALUES (?, 'local:collision-b', 'task', ?, ?)`,
+        )
+        .run(parent.sessionId, `hidden:${childA.sessionId}`, now(5));
+    } finally {
+      collisionDb.close();
+    }
+    let collisionError: string | null = null;
+    try {
+      await createLocalChildSession(
+        { sqlitePath },
+        { ...childInput(parent.sessionId, "local:collision-c", childA.title, now(6)), hiddenKey: `hidden:${childA.sessionId}` },
+      );
+    } catch (error) {
+      collisionError = error instanceof Error ? error.message : String(error);
+    }
+    assert(collisionError?.includes("hidden key collision") === true, `expected collision, got ${String(collisionError)}`);
+
+    return [
+      item(1, "child-session-orchestration", "本地 CEO 编排多子任务目标 → 应创建子会话并在 SQLite sessions.parent_session_id 写入父会话 id。", {
+        parentSessionId: parent.sessionId,
+        childSessions: [childA, childB],
+        sqliteRows: rows,
+      }),
+      item(3, "child-session-orchestration", "QA 增补：验收 evidence 中记录 store timeout、project mismatch、hidden key collision、corrupt parent chain 四类故障用例。", {
+        storeTimeout: timeoutError,
+        projectMismatch: projectMismatchError,
+        hiddenKeyCollision: collisionError,
+      }),
+    ];
+  } finally {
+    await store.close();
+  }
+}
+
+async function runChildSessionAcceptanceCase(): Promise<EvidenceItem[]> {
+  const orchestration = await runChildSessionOrchestrationCase();
+  const sidebar = await runChildSessionSidebarTreeCase();
+  const failureEvidence = orchestration.find((entry) => entry.id === 3);
+  const sidebarEvidence = sidebar.find((entry) => entry.id === 4);
+  if (failureEvidence !== undefined && sidebarEvidence !== undefined) {
+    const sidebarDetails = asObject(sidebarEvidence.evidence);
+    failureEvidence.evidence = {
+      ...asObject(failureEvidence.evidence),
+      corruptParentChain: sidebarDetails["corruptParentChain"],
+      boundedUiTest: sidebarDetails["boundedUiTest"],
+    };
+  }
+  return [...orchestration, ...sidebar];
+}
+
+async function runChildSessionSidebarTreeCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("child-session-sidebar");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  try {
+    const parent = await store.createSession({ sessionId: "local:parent", title: "Parent goal", now: now(0) });
+    await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-a", "Task A", now(1)));
+    await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-b", "Task B", now(2)));
+    const beforeRefresh = await store.listSessions();
+    await store.close();
+    const restarted = await createSqliteLocalConsoleStore({ sqlitePath });
+    await restarted.init();
+    const afterRefresh = await restarted.listSessions();
+    await restarted.close();
+    const corruptParentChain = [
+      { sessionId: "cycle-a", parentSessionId: "cycle-b" },
+      { sessionId: "cycle-b", parentSessionId: "cycle-a" },
+      { sessionId: "self-parent", parentSessionId: "self-parent" },
+      { sessionId: "missing-parent", parentSessionId: "missing" },
+    ];
+    return [
+      item(2, "child-session-sidebar-tree", "打开桌面台侧栏 → 应看到父会话下按 parent_session_id 渲染的树形子会话层级，刷新后仍保持。", {
+        parentSessionId: parent.sessionId,
+        beforeRefresh: beforeRefresh.filter((session) => session.sessionId === parent.sessionId || session.parentSessionId === parent.sessionId),
+        afterRefresh: afterRefresh.filter((session) => session.sessionId === parent.sessionId || session.parentSessionId === parent.sessionId),
+        uiTest: "packages/console-ui/src/console/operator-console.test.tsx",
+      }),
+      item(4, "child-session-sidebar-tree", "QA 增补：查看归档后的 local-console spec 与 module-map → 应看到只开放 child session orchestration，仍禁止未纳入能力。", {
+        corruptParentChain,
+        boundedUiTest: "packages/console-ui/src/console/operator-console.test.tsx",
+        currentLocalConsoleSpec: "openspec/specs/local-console/spec.md",
+        moduleMap: "docs/architecture/module-map.md",
+      }),
+    ];
+  } finally {
+    await store.close().catch(() => undefined);
   }
 }
 
@@ -1027,6 +1178,17 @@ function childInput(parentSessionId: string, childSessionId: string, title: stri
   };
 }
 
+function readSessionParentRows(sqlitePath: string): Array<{ session_id: string; parent_session_id: string | null }> {
+  const database = new DatabaseSync(sqlitePath, { readOnly: true });
+  try {
+    return database
+      .prepare("SELECT session_id, parent_session_id FROM sessions ORDER BY session_id ASC")
+      .all() as Array<{ session_id: string; parent_session_id: string | null }>;
+  } finally {
+    database.close();
+  }
+}
+
 async function appendDisplayedAcceptance(
   store: Awaited<ReturnType<typeof createSqliteLocalConsoleStore>>,
   sessionId: string,
@@ -1323,6 +1485,10 @@ function readCaseArg(argv: string[]): string {
 
 function item(id: number, caseName: string, statement: string, evidence: unknown): EvidenceItem {
   return { id, case: caseName, statement, evidence };
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function now(offsetSeconds: number): string {
