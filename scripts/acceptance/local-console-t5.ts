@@ -46,9 +46,14 @@ interface LocalState {
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const changeDir = path.join(projectRoot, "openspec", "changes", "local-console-t5-full-parity");
+const acceptanceLoopChangeDirs = [
+  path.join(projectRoot, "openspec", "changes", "local-console-t5-acceptance-loop"),
+  path.join(projectRoot, "openspec", "changes", "archive", "2026-07-10-local-console-t5-acceptance-loop"),
+];
 const artifactDir = path.join(projectRoot, "artifacts", "acceptance");
 const evidencePath = path.join(artifactDir, "t5-evidence.json");
 const selectedCase = readCaseArg(process.argv);
+const fixtureSqliteBusyTimeoutMs = 5_000;
 
 async function main(): Promise<void> {
   await fs.mkdir(artifactDir, { recursive: true });
@@ -65,6 +70,12 @@ async function main(): Promise<void> {
     "diff-apply-failure-l1": runDiffApplyFailureL1Case,
     "dead-letter-recovery": runDeadLetterRecoveryCase,
     "dead-letter-write-failure-s1-v1": runDeadLetterWriteFailureS1V1Case,
+    "acceptance-loop": runAcceptanceLoopCase,
+    "acceptance-format-error": runAcceptanceFormatErrorCase,
+    "acceptance-integration-write-failure": runAcceptanceIntegrationWriteFailureCase,
+    "acceptance-recheck-after-repair": runAcceptanceRecheckAfterRepairCase,
+    "acceptance-projection-missing": runAcceptanceProjectionMissingCase,
+    "acceptance-store-timeout": runAcceptanceStoreTimeoutCase,
     "fake-gh-zero": runFakeGhZeroCase,
     "roadmap-evidence": runRoadmapEvidenceCase,
     "pr-evidence": runPrEvidenceCase,
@@ -73,6 +84,8 @@ async function main(): Promise<void> {
   const acceptance =
     selectedCase === "all"
       ? (await Promise.all(Object.values(runners).map((runner) => runner()))).flat()
+      : selectedCase === "acceptance-loop-suite"
+        ? await runAcceptanceLoopSuiteCase()
       : await requireCase(runners, selectedCase)();
 
   acceptance.sort((a, b) => a.id - b.id);
@@ -138,16 +151,37 @@ async function runDeltaShapeCase(): Promise<EvidenceItem[]> {
 }
 
 async function runBoundaryReplacementCase(): Promise<EvidenceItem[]> {
-  const delta = await fs.readFile(path.join(changeDir, "specs", "local-console", "spec.md"), "utf8");
+  const acceptanceLoopChangeDir = await resolveFirstExistingDirectory(acceptanceLoopChangeDirs);
+  const delta = await fs.readFile(path.join(acceptanceLoopChangeDir, "specs", "local-console", "spec.md"), "utf8");
+  const archivedSpec = await fs.readFile(path.join(projectRoot, "openspec", "specs", "local-console", "spec.md"), "utf8");
   assert(delta.includes("## MODIFIED Requirements"), "missing MODIFIED Requirements");
-  assert(delta.includes("T5 local equivalents replace the previous T5-only prohibition"), "missing boundary scenario");
+  assert(delta.includes("Acceptance loop replaces the previous T5-only acceptance prohibition"), "missing boundary scenario");
+  assert(!/full acceptance pre-pass/iu.test(archivedSpec), "archived spec still forbids full acceptance pre-pass");
   return [
     item(4, "boundary-replacement", "查看 `specs/local-console/spec.md` → 应看到 T5-only 禁止规则被修改，归档后不得有 MUST/MUST NOT 冲突。", {
       modifiedRequirements: delta.includes("## MODIFIED Requirements"),
-      boundaryScenario: delta.includes("T5 local equivalents replace the previous T5-only prohibition"),
-      githubRunnerUnchangedClause: delta.includes("GitHub issue runner spec remains unchanged"),
+      boundaryScenario: delta.includes("Acceptance loop replaces the previous T5-only acceptance prohibition"),
+      githubRunnerUnchangedClause: delta.includes("GitHub issue runner behavior remains unchanged"),
+      archivedSpecHasAcceptanceLoop: archivedSpec.includes("本地验收走查解析"),
+      archivedSpecConflictRemoved: !/full acceptance pre-pass/iu.test(archivedSpec),
     }),
   ];
+}
+
+async function runAcceptanceLoopSuiteCase(): Promise<EvidenceItem[]> {
+  const acceptance: EvidenceItem[] = [];
+  for (const runner of [
+    runBoundaryReplacementCase,
+    runAcceptanceLoopCase,
+    runAcceptanceFormatErrorCase,
+    runAcceptanceIntegrationWriteFailureCase,
+    runAcceptanceRecheckAfterRepairCase,
+    runAcceptanceProjectionMissingCase,
+    runAcceptanceStoreTimeoutCase,
+  ]) {
+    acceptance.push(...await runner());
+  }
+  return acceptance;
 }
 
 async function runMultiChildGoalCase(): Promise<EvidenceItem[]> {
@@ -341,6 +375,302 @@ async function runDeadLetterWriteFailureS1V1Case(): Promise<EvidenceItem[]> {
   ];
 }
 
+async function runAcceptanceLoopCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("acceptance-loop");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+  await writeAgent(root, "product-manager", "# product-manager\n\nROLE:product-manager");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  await store.createSession({ sessionId: "local:acceptance-parent", title: "acceptance parent", now: now(0) });
+  await createLocalChildSession(
+    { sqlitePath },
+    {
+      parentSessionId: "local:acceptance-parent",
+      childSessionId: "local:acceptance-child",
+      projectId: LOCAL_CONSOLE_PROJECT_ID,
+      title: "acceptance child",
+      relation: "task",
+      hiddenKey: "acceptance-child-key",
+      initialRole: "dev",
+      initialBody: acceptanceChildBody(["跑 parser → 应退出码 0", "跑 runtime → 应退出码 0"], "task-acceptance-loop"),
+      now: now(1),
+    },
+  );
+  await appendDisplayedAcceptance(store, "local:acceptance-child", "product-manager", [
+    "1. 通过 — parser evidence",
+    "2. 通过 — runtime evidence",
+    "验收结论：通过",
+  ].join("\n"), 2);
+  await store.close();
+  const server = await startFixtureServer(root, async (options) => codexOk(options, "unexpected"));
+  try {
+    await server.runtime.processPending("local:acceptance-child");
+    const childFacts = await listLocalT5Facts({ sqlitePath }, "local:acceptance-child");
+    const parentFacts = await listLocalT5Facts({ sqlitePath }, "local:acceptance-parent");
+    assert(childFacts.acceptanceFacts.length === 1, "passed acceptance fact missing");
+    assert(parentFacts.integrationEvents.length === 1, "parent integration event missing");
+    return [
+      item(16, "acceptance-loop", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case acceptance-loop` → 应输出本地验收通过事实并驱动 parent integration progress。", {
+        acceptanceFacts: childFacts.acceptanceFacts,
+        parentIntegrationEvents: parentFacts.integrationEvents,
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
+}
+
+async function runAcceptanceFormatErrorCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("acceptance-format");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+  await writeAgent(root, "qa", "# qa\n\nROLE:qa");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  await store.createSession({ sessionId: "local:format-parent", title: "format parent", now: now(0) });
+  await createLocalChildSession(
+    { sqlitePath },
+    {
+      parentSessionId: "local:format-parent",
+      childSessionId: "local:format-child",
+      projectId: LOCAL_CONSOLE_PROJECT_ID,
+      title: "format child",
+      relation: "task",
+      hiddenKey: "format-child-key",
+      initialRole: "dev",
+      initialBody: acceptanceChildBody(["跑 one → 应退出码 0", "跑 two → 应退出码 0"], "task-format"),
+      now: now(1),
+    },
+  );
+  await appendDisplayedAcceptance(store, "local:format-child", "qa", [
+    "1. 通过 — only one",
+    "验收结论：通过",
+    "@dev malformed handoff",
+  ].join("\n"), 2);
+  await store.close();
+  const server = await startFixtureServer(root, async (options) => codexOk(options, "unexpected"));
+  try {
+    await server.runtime.processPending("local:format-child");
+    const facts = await listLocalT5Facts({ sqlitePath }, "local:format-child");
+    const state = await getState(server.url, "local:format-child");
+    assert(facts.acceptanceFacts.length === 0, "malformed acceptance saved a fact");
+    assert(state.messages.some((message) => message.body.includes("本地验收走查格式无法解析")), "format reminder missing");
+    return [
+      item(17, "acceptance-format-error", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case acceptance-format-error` → 应输出格式错误可见提醒，不保存 passed fact，不消费同消息 handoff。", {
+        acceptanceFacts: facts.acceptanceFacts,
+        reminder: state.messages.find((message) => message.body.includes("本地验收走查格式无法解析")),
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
+}
+
+async function runAcceptanceIntegrationWriteFailureCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("acceptance-write-failure");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+  await writeAgent(root, "product-manager", "# product-manager\n\nROLE:product-manager");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  await store.createSession({ sessionId: "local:write-parent", title: "write parent", now: now(0) });
+  await createLocalChildSession(
+    { sqlitePath },
+    {
+      parentSessionId: "local:write-parent",
+      childSessionId: "local:write-child",
+      projectId: LOCAL_CONSOLE_PROJECT_ID,
+      title: "write child",
+      relation: "task",
+      hiddenKey: "write-child-key",
+      initialRole: "dev",
+      initialBody: acceptanceChildBody(["跑 one → 应退出码 0"], "task-write"),
+      now: now(1),
+    },
+  );
+  const message = await appendDisplayedAcceptance(store, "local:write-child", "product-manager", [
+    "1. 通过 — ok",
+    "验收结论：通过",
+    "@dev should-not-run",
+  ].join("\n"), 2);
+  await store.close();
+  const locked = new DatabaseSync(sqlitePath);
+  const server = await startFixtureServer(root, async (options) => codexOk(options, "unexpected"));
+  try {
+    locked.exec("BEGIN EXCLUSIVE");
+    await server.runtime.processPending("local:write-child");
+    locked.exec("ROLLBACK");
+    await server.runtime.processPending("local:write-child");
+    const facts = await listLocalT5Facts({ sqlitePath }, "local:write-child");
+    const parentFacts = await listLocalT5Facts({ sqlitePath }, "local:write-parent");
+    assert(facts.acceptanceFacts.length === 1, "retry did not save exactly one fact");
+    assert(parentFacts.integrationEvents.length === 1, "retry did not save exactly one parent event");
+    return [
+      item(18, "acceptance-integration-write-failure", "注入 parent integration visible write 失败 → 应不推进 cursor、不消费同消息 handoff、不记录 completed integration request，retry 后只生成一个 deduped parent progress。", {
+        sourceMessageId: message.id,
+        acceptanceFacts: facts.acceptanceFacts,
+        parentEvents: parentFacts.integrationEvents,
+      }),
+    ];
+  } finally {
+    try {
+      locked.exec("ROLLBACK");
+    } catch {}
+    locked.close();
+    await server.close();
+  }
+}
+
+async function runAcceptanceRecheckAfterRepairCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("acceptance-recheck");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+  await writeAgent(root, "product-manager", "# product-manager\n\nROLE:product-manager");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  await store.createSession({ sessionId: "local:recheck-parent", title: "recheck parent", now: now(0) });
+  await createLocalChildSession(
+    { sqlitePath },
+    {
+      parentSessionId: "local:recheck-parent",
+      childSessionId: "local:recheck-child",
+      projectId: LOCAL_CONSOLE_PROJECT_ID,
+      title: "recheck child",
+      relation: "task",
+      hiddenKey: "recheck-child-key",
+      initialRole: "dev",
+      initialBody: acceptanceChildBody(["跑 one → 应退出码 0"], "task-recheck"),
+      now: now(1),
+    },
+  );
+  await appendDisplayedAcceptance(store, "local:recheck-child", "product-manager", [
+    "1. 不通过 — failed before repair",
+    "验收结论：不通过",
+  ].join("\n"), 2);
+  await store.close();
+  const server = await startFixtureServer(root, async (options) => codexOk(options, "unexpected"));
+  try {
+    await server.runtime.processPending("local:recheck-child");
+  } finally {
+    await server.close();
+  }
+  const store2 = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store2.init();
+  await appendDisplayedAcceptance(store2, "local:recheck-child", "product-manager", [
+    "1. 通过 — repair verified",
+    "验收结论：通过",
+  ].join("\n"), 6);
+  await store2.close();
+  const restarted = await startFixtureServer(root, async (options) => codexOk(options, "unexpected"));
+  try {
+    await restarted.runtime.processPending("local:recheck-child");
+    const facts = await listLocalT5Facts({ sqlitePath }, "local:recheck-child");
+    const parentFacts = await listLocalT5Facts({ sqlitePath }, "local:recheck-parent");
+    assert(facts.acceptanceFacts.length === 2, "expected failed and passed acceptance history");
+    assert(parentFacts.sessionEdges.some((edge) => edge.relation === "repair"), "expected repair edge on parent session");
+    return [
+      item(19, "acceptance-recheck-after-repair", "同一验收角色先输出不通过走查，再 repair 后输出通过走查 → latest passed fact 应驱动 rejoin，旧 failed repair visible record 或 repair reference 仍可审计。", {
+        acceptanceFacts: facts.acceptanceFacts,
+        sessionEdges: parentFacts.sessionEdges,
+        integrationEvents: parentFacts.integrationEvents,
+      }),
+    ];
+  } finally {
+    await restarted.close();
+  }
+}
+
+async function runAcceptanceProjectionMissingCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("acceptance-projection");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  await writeAgent(root, "qa", "# qa\n\nROLE:qa");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  await store.createSession({ sessionId: "local:projection-missing", title: "projection missing", now: now(0) });
+  await appendDisplayedAcceptance(store, "local:projection-missing", "qa", [
+    "1. 通过 — ok",
+    "验收结论：通过",
+  ].join("\n"), 1);
+  await store.close();
+  const server = await startFixtureServer(root, async (options) => codexOk(options, "unexpected"));
+  try {
+    await server.runtime.processPending("local:projection-missing");
+    const facts = await listLocalT5Facts({ sqlitePath }, "local:projection-missing");
+    const state = await getState(server.url, "local:projection-missing");
+    assert(facts.acceptanceFacts.length === 0, "missing projection saved a fact");
+    assert(state.messages.some((message) => message.body.includes("未找到 formal acceptance statements")), "blocked message missing");
+    return [
+      item(20, "acceptance-projection-missing", "缺 formal acceptance statements projection 的 child session 收到验收角色消息 → 应写 visible blocked/error，不伪造验收范围，不保存 passed fact。", {
+        acceptanceFacts: facts.acceptanceFacts,
+        blocked: state.messages.find((message) => message.body.includes("未找到 formal acceptance statements")),
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
+}
+
+async function runAcceptanceStoreTimeoutCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("acceptance-timeout");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  await writeAgent(root, "qa", "# qa\n\nROLE:qa");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  await store.createSession({ sessionId: "local:timeout-parent", title: "timeout parent", now: now(0) });
+  await createLocalChildSession(
+    { sqlitePath },
+    {
+      parentSessionId: "local:timeout-parent",
+      childSessionId: "local:timeout-child",
+      projectId: LOCAL_CONSOLE_PROJECT_ID,
+      title: "timeout child",
+      relation: "task",
+      hiddenKey: "timeout-child-key",
+      initialRole: "dev",
+      initialBody: acceptanceChildBody(["跑 one → 应退出码 0"], "task-timeout"),
+      now: now(1),
+    },
+  );
+  await appendDisplayedAcceptance(store, "local:timeout-child", "qa", [
+    "1. 通过 — ok",
+    "验收结论：通过",
+  ].join("\n"), 2);
+  await store.close();
+  const lock = new DatabaseSync(sqlitePath);
+  const server = await startLocalConsoleServer({
+    projectRoot: root,
+    sqlitePath,
+    port: 0,
+    storeTimeoutMs: 200,
+    sqliteBusyTimeoutMs: 500,
+    runCodex: async (options) => codexOk(options, "unexpected"),
+    makeRunDir: (count) => path.join(root, "runs", `timeout-${String(count)}`),
+  });
+  try {
+    lock.exec("BEGIN EXCLUSIVE");
+    await server.runtime.processPending("local:timeout-child");
+    lock.exec("ROLLBACK");
+    const factsAfterTimeout = await listLocalT5Facts({ sqlitePath }, "local:timeout-child");
+    await server.runtime.processPending("local:timeout-child");
+    const factsAfterRetry = await listLocalT5Facts({ sqlitePath }, "local:timeout-child");
+    assert(factsAfterTimeout.acceptanceFacts.length === 0, "timeout saved successful fact");
+    assert(factsAfterRetry.acceptanceFacts.length === 1, "retry did not save fact");
+    return [
+      item(21, "acceptance-store-timeout", "SQLite 组合事务或 store command timeout → 系统应在配置超时内释放 session drain，消息保持 retryable 或 visible diagnosed，且不保存成功验收事实。", {
+        factsAfterTimeout: factsAfterTimeout.acceptanceFacts,
+        factsAfterRetry: factsAfterRetry.acceptanceFacts,
+      }),
+    ];
+  } finally {
+    try {
+      lock.exec("ROLLBACK");
+    } catch {}
+    lock.close();
+    await server.close();
+  }
+}
+
 async function runFakeGhZeroCase(): Promise<EvidenceItem[]> {
   const root = await makeRoot("fake-gh");
   const fakeBin = path.join(root, "fake-bin");
@@ -419,6 +749,44 @@ function childInput(parentSessionId: string, childSessionId: string, title: stri
     initialBody: `Initial handoff for ${title}`,
     now: timestamp,
   };
+}
+
+async function appendDisplayedAcceptance(
+  store: Awaited<ReturnType<typeof createSqliteLocalConsoleStore>>,
+  sessionId: string,
+  role: string,
+  body: string,
+  offsetSeconds: number,
+): Promise<{ id: number }> {
+  const sqlitePath = store.sqlitePath;
+  await store.close();
+  const database = new DatabaseSync(sqlitePath);
+  try {
+    database.exec(`PRAGMA busy_timeout = ${String(fixtureSqliteBusyTimeoutMs)}`);
+    const timestamp = now(offsetSeconds);
+    const result = database
+      .prepare(
+        `INSERT INTO session_messages
+          (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
+         VALUES (?, 'agent', ?, ?, 'displayed', ?, ?, NULL, 'local-acceptance-fixture', NULL, ?, ?)`,
+      )
+      .run(sessionId, role, body, `run-acceptance-${String(offsetSeconds)}`, `/tmp/run-acceptance-${String(offsetSeconds)}`, timestamp, timestamp);
+    return { id: Number(result.lastInsertRowid) };
+  } finally {
+    database.close();
+  }
+}
+
+function acceptanceChildBody(statements: string[], taskId: string): string {
+  return [
+    `Ledger task id: ${taskId}`,
+    "",
+    "Acceptance statements:",
+    ...statements.map((statement, index) => `${index + 1}. ${statement}`),
+    "",
+    "Initial handoff:",
+    "@dev 请实现。",
+  ].join("\n");
 }
 
 function codexOk(options: CodexRunOptions, finalText: string): CodexRunResult {
@@ -573,6 +941,15 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function resolveFirstExistingDirectory(paths: string[]): Promise<string> {
+  for (const targetPath of paths) {
+    if (await pathExists(targetPath)) {
+      return targetPath;
+    }
+  }
+  throw new Error(`No existing directory found: ${paths.map(relativeToProject).join(", ")}`);
 }
 
 async function timeoutRace<T>(promise: Promise<T>, timeoutMs: number): Promise<boolean> {

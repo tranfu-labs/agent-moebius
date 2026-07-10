@@ -1,0 +1,33 @@
+# 任务：local-console-t5-acceptance-loop
+
+- [x] qa 方案审查
+  - [x] 将本 plan-written 交 qa，要求按两条验收语句做测试设计审查。
+  - [x] 若 qa 增补验收建议，等待需求持有者明确确认后再并入实现清单。
+- [x] product-manager / hermes-user 验收协议建模
+  - [x] 新增本地验收走查 parser，覆盖逐条通过、逐条不通过、编号缺失、总状态冲突、数量不匹配。
+  - [x] 定义 parser 输出到 `local_acceptance_facts.evidence_json` 的结构，包含 statementResults、messageId、role、body digest。
+  - [x] 定义格式提醒文案，确保不含合法 agent mention 且不会自触发。
+  - [x] 明确先失败后复验通过的历史保留策略，确保 latest verdict 驱动 rejoin 且旧 failed repair 可审计。
+- [x] runtime / SQLite 实现
+  - [x] 在 `LocalConsoleRuntime.processPending()` 的普通 mention trigger 前接入 acceptance pre-pass。
+  - [x] 从 child session body 或 local projection 读取 formal acceptance statements；缺失时写 visible blocked/error，不伪造范围。
+  - [x] 通过验收时写 passed fact，并驱动 parent integration request / progress event。
+  - [x] 不通过验收时写 failed fact，并创建/找回 repair child session 或 visible dev handoff。
+  - [x] 解析失败时写 visible reminder / error state，不保存 passed fact，不消费同消息 handoff。
+  - [x] 补齐组合 SQLite command，保证 visible side effect 与 fact/event/cursor 在同一事务边界内。
+  - [x] 确认归档后的 `openspec/specs/local-console/spec.md` 已替换预 T5 acceptance pre-pass 禁止条款，不保留冲突事实源。
+- [x] 落地验收与回归
+  - [x] 扩展 `tests/local-console.test.ts` 覆盖 parser、pre-pass 正向、不通过回修、先失败后复验通过、解析失败提醒、缺 projection blocked、可见写失败不推进 cursor。
+  - [x] 扩展 `scripts/acceptance/local-console-t5.ts --case acceptance-loop`，输出通过回流与失败回修证据。
+  - [x] 扩展 `scripts/acceptance/local-console-t5.ts --case acceptance-format-error`，输出格式错误可见提醒证据。
+  - [x] 扩展 `scripts/acceptance/local-console-t5.ts --case acceptance-integration-write-failure`，输出 visible write 失败后 cursor / handoff / completed event 均未被错误推进，retry 后只生成一个 deduped parent progress。
+  - [x] 扩展 `scripts/acceptance/local-console-t5.ts --case acceptance-recheck-after-repair`，输出 latest passed fact 驱动 rejoin，旧 failed repair visible record 或 repair reference 保留。
+  - [x] 扩展 `scripts/acceptance/local-console-t5.ts --case acceptance-projection-missing`，输出缺 formal acceptance statements 时 visible blocked/error 且不写 passed fact。
+  - [x] 扩展 `scripts/acceptance/local-console-t5.ts --case acceptance-store-timeout`，输出 SQLite 组合事务 timeout 后 session drain 释放且消息 retryable 或 visible diagnosed。
+  - [x] 运行 `pnpm exec openspec validate local-console-t5-acceptance-loop --strict`。
+  - [x] 运行 `pnpm test`、`pnpm typecheck` 与 T5 相关 acceptance cases。
+- [x] 收尾
+  - [x] 归档 OpenSpec change，合并 local-console spec delta。
+  - [x] 更新 `docs/roadmap/milestone-4-local-console.md` 的 T5 acceptance-loop 证据。
+  - [x] commit 到当前 issue 分支。
+  - [x] push 当前分支并创建 `--base main` PR，PR body 包含验证输出与 `Closes #112`。
