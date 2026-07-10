@@ -798,7 +798,7 @@ describe("local console", () => {
         throw new Error("codex cwd is required");
       }
       await fs.writeFile(path.join(options.cwd, "local-output.txt"), "changed", "utf8");
-      return codexOk(options, "done in worktree");
+      return codexOk(options, "done in worktree\n\n<!-- agent-moebius:stage=code-verified -->");
     });
     const started = await startLocalConsoleServer({
       projectRoot: root,
@@ -813,14 +813,57 @@ describe("local console", () => {
       const session = await createProjectSession(started.url, "git", project.projectId);
       await postSessionMessage(started.url, session.sessionId, "@dev write in worktree");
       await waitForState(started.url, session.sessionId, (data) =>
-        data.messages.some((entry) => entry.speaker === "agent" && entry.body === "done in worktree"),
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body.includes("done in worktree")),
       );
       const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
       expect(facts.workspaceDiffs).toHaveLength(1);
-      const [diff] = facts.workspaceDiffs as Array<{ patch_path: string; status: string; worktree_path: string }>;
+      const [diff] = facts.workspaceDiffs as Array<{
+        affected_files_json: string;
+        original_repo_root: string;
+        patch_path: string;
+        status: string;
+        worktree_path: string;
+      }>;
+      await expect(fs.realpath(diff.original_repo_root)).resolves.toBe(await fs.realpath(folderPath));
       expect(diff).toMatchObject({ status: "generated" });
+      expect(JSON.parse(diff.affected_files_json) as string[]).toContain("local-output.txt");
       await expect(fs.readFile(diff.patch_path, "utf8")).resolves.toContain("local-output.txt");
       await expect(fs.stat(path.join(diff.worktree_path, "local-output.txt"))).resolves.toBeDefined();
+      expect(await gitStatus(folderPath)).toBe("");
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("does not generate a returnable workspace diff for plan-written worktree runs", async () => {
+    const root = await makeFixtureRoot();
+    const folderPath = path.join(root, "git-project-plan");
+    await createGitRepo(folderPath);
+    await writeAgent(root, "dev", "# Dev\n\nROLE:dev");
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      if (options.cwd === undefined) {
+        throw new Error("codex cwd is required");
+      }
+      await fs.writeFile(path.join(options.cwd, "plan-output.txt"), "draft", "utf8");
+      return codexOk(options, "plan only\n\n<!-- agent-moebius:stage=plan-written -->");
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      workdirRoot: path.join(root, "workdir"),
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `git-plan-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const project = await createProject(started.url, folderPath, true);
+      const session = await createProjectSession(started.url, "git plan", project.projectId);
+      await postSessionMessage(started.url, session.sessionId, "@dev write plan in worktree");
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body.includes("plan only")),
+      );
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
+      expect(facts.workspaceDiffs).toHaveLength(0);
       expect(await gitStatus(folderPath)).toBe("");
     } finally {
       await started.close();

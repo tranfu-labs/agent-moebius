@@ -37,6 +37,10 @@ The console UI MUST render visible local dead-letter records as recoverable syst
 
 The console UI MUST render worktree diff bundle summary, affected files, and explicit diff return action when provided by local state.
 
+The console UI MUST render generated, applied, abandoned, rolled_back, and failed worktree diff states distinctly.
+
+The console UI MUST expose abandon and rollback actions only when the supplied local diff state allows those actions.
+
 The console UI MUST render diff return failure as a visible local error while keeping the diff bundle accessible.
 
 #### Scenario: Diff return status is visible
@@ -44,3 +48,10 @@ Given a worktree diff bundle is available
 When the details panel renders
 Then the affected files and explicit apply action are visible
 And no UI text implies the original directory has already been modified before apply succeeds.
+
+#### Scenario: Diff rollback and abandon actions follow state
+Given a generated worktree diff is visible
+When the operator console renders the diff controls
+Then abandon is available before apply
+And rollback is available only after apply succeeds
+And neither action implies a destructive reset or deletion of the original directory.

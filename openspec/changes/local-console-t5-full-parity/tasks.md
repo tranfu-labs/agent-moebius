@@ -6,7 +6,7 @@
   - [ ] 保持 delta 位于 `openspec/changes/local-console-t5-full-parity/specs/local-console/spec.md` 与 `specs/console-ui/spec.md`。
   - [ ] 不新增 `openspec/changes/local-console-t5-full-parity/specs/github-issue-runner/spec.md`，`github-issue-runner` 只作为 MUST 矩阵事实源。
   - [ ] 用 local-console delta 修改现有 T5-only 禁止边界，确保归档后不同时保留同一能力的 MUST 与 MUST NOT 冲突。
-  - [ ] 运行 `pnpm exec openspec validate local-console-t5-full-parity --strict` 并保持退出码 0。
+  - [x] 运行 `pnpm exec openspec validate local-console-t5-full-parity --strict` 并保持退出码 0。
 - [ ] 建立本地对等状态模型
   - [ ] 为 local sessions 增加 `parent_session_id` 与 child session 查询。
   - [ ] 建立 local role thread store，按 session + role 维护 thread id 与 last seen message id。
@@ -38,12 +38,16 @@
   - [ ] 为 local message 处理失败维护 failure count、last reason、next retry。
   - [ ] 达预算后写 visible dead-letter system record，不含合法 agent mention。
   - [ ] 新消息或相关子会话状态变化后可恢复处理，不重放已 dead-lettered 消息。
-- [ ] 补齐 worktree 三点对等
-  - [ ] worktree mode 下为 session 创建/复用稳定 local branch。
-  - [ ] 记录 base ref、branch name、worktree path、diff path。
-  - [ ] code-verified 后生成 diff bundle 和 affected files summary。
-  - [ ] 显式回流时有界 apply diff 到原目录；失败保留 patch 并写 visible error。
-  - [ ] 验证回流前原目录 `git status --short` 为空，回流后出现预期 diff。
+- [x] 补齐 worktree 三点对等
+  - [x] Issue #115：worktree mode 下为 session 从目标 base 创建/复用稳定 local branch，Codex cwd 指向 temporary worktree。
+  - [x] Issue #115：记录 original repo root、base ref、branch name、worktree path、run id、patch path、affected files summary 与 diff status。
+  - [x] Issue #115：只在 local agent 输出合法 `code-verified` stage 后生成 diff bundle；`in-progress` / `plan-written` 不生成可回流 bundle。
+  - [x] Issue #115：diff 生成前验证原目录 `git status --short` 为空；非空时写 visible local error，不继续自动回流。
+  - [x] Issue #115：显式回流时有界 `git apply --check` + apply 到原目录；成功后 status 变为 `applied`，原目录只出现 patch 预期改动。
+  - [x] Issue #115：回流失败或挂起时保留 patch、写 visible local error、释放 session，且不 reset/delete 原目录。
+  - [x] Issue #115：放弃 generated diff 只更新 status 为 `abandoned`，不触碰原目录、不删除 worktree、不破坏后续同 session 重跑。
+  - [x] Issue #115：已 applied diff 的回滚使用同一 patch 做 bounded reverse check + reverse apply，成功后原目录重新洁净，失败时保留 patch 并写 visible local error。
+  - [x] Issue #115：对照 `src/agent-prescripts/issue-worktree.ts` 写 parity 证明，确认本地开分支、cwd 指向 worktree、回流前原目录洁净三点对等，且不改变 GitHub issue-worktree 行为。
 - [ ] 扩展桌面操作台 UI
   - [ ] 侧栏渲染 project -> parent session -> child session 树。
   - [ ] 父会话渲染子会话进展流和 blocked/dead-letter/recovery 状态。
@@ -66,23 +70,26 @@
   - [ ] 增加 acceptance fact 成功但 parent integration request visible write failure 的 S1/V1 故障注入，验证不消费同消息 handoff、不记录 completed integration request。
   - [ ] 增加 dead-letter retry/recovery 测试。
   - [ ] 增加 visible dead-letter write failure 的 S1/V1 故障注入，验证 cursor 不推进且可 retry。
-  - [ ] 增加 worktree branch/diff/apply/no-pollution 测试。
-  - [ ] 增加 diff apply 冲突或永久挂起的 L1 故障注入，验证超时写 visible error、保留 patch、释放 session、原目录不半写脏。
+  - [x] 增加 worktree branch/diff/apply/no-pollution 测试。
+  - [x] 增加 diff apply 冲突或永久挂起的 L1 故障注入，验证超时写 visible error、保留 patch、释放 session、原目录不半写脏。
+  - [x] Issue #115：增加 `worktree-return-rollback` 验收 case，证明显式回流后只出现预期 diff，reverse rollback 后原目录洁净。
+  - [x] Issue #115：增加 `worktree-abandon` 验收 case，证明放弃 generated diff 不触碰原目录、不删除 worktree、不破坏后续重跑。
+  - [x] Issue #115：增加 `worktree-issue-parity` 验收 case，证明 local workspace source 与 issue-worktree 在开分支、cwd、原目录洁净三点对等，且 GitHub issue-worktree tests 保持通过。
   - [ ] 增加 console-ui child tree、acceptance submit、dead-letter、diff 回流测试。
   - [ ] 新增 `scripts/acceptance/local-console-t5.ts`，支持 `multi-child-goal`、`route-hang-l1`、`visible-write-s1-v1`、`acceptance-integration-s1-v1`、`worktree-diff`、`diff-apply-failure-l1`、`dead-letter-recovery`、`dead-letter-write-failure-s1-v1`、`fake-gh-zero` case，并生成 `artifacts/acceptance/t5-evidence.json` 和必要截图。
 - [ ] 验收与收尾
   - [ ] 运行 `pnpm exec tsx scripts/acceptance/local-console-t5.ts`。
   - [ ] 使用 fake `gh` 前置 PATH 跑 T5 acceptance，确认 fake `gh` 调用次数为 0。
-  - [ ] 运行 `pnpm test`。
-  - [ ] 运行 `pnpm typecheck`。
+  - [x] 运行 `pnpm test`。
+  - [x] 运行 `pnpm typecheck`。
   - [ ] 运行 `pnpm --filter @agent-moebius/desktop build`。
   - [ ] 运行 `pnpm --filter @agent-moebius/console-ui test`。
-  - [ ] 运行 `git diff --check`。
+  - [x] 运行 `git diff --check`。
   - [ ] 更新 `docs/roadmap/milestone-4-local-console.md`，勾选 T5，记录验收证据，并明确 T6 flag 与 M3 A-K 不在 T5。
   - [ ] commit、push、开 PR；PR body 包含 T5 证据、MUST 矩阵路径和 `Closes #...`。
 
 ## MUST 矩阵索引
-说明：完整分类与处理说明见 `proposal.md` 的「MUST 矩阵」。本节保留同一组源行映射，便于直接在任务文件中核对验收。矩阵覆盖 `openspec/specs/github-issue-runner/spec.md` 中全部 552 行包含字面量 `MUST` 的源行；只统计项目符号 `- MUST` 的 463 行不是本任务验收口径。
+说明：完整分类与处理说明见 `proposal.md` 的「MUST 矩阵」。本节保留同一组源行映射，便于直接在任务文件中核对验收。矩阵覆盖 `openspec/specs/github-issue-runner/spec.md` 中全部 564 行包含字面量 `MUST` 的源行；只统计项目符号 `- MUST` 的 475 行不是本任务验收口径。
 
 | 源 | 分类 | 执行任务 |
 | --- | --- | --- |
@@ -116,18 +123,18 @@
 | GIR:L264-L292 | 已对等 | shared persona / qa / invariants。 |
 | GIR:L293-L327 | 本任务补齐 | local CEO guardrail / CEO agent parity。 |
 | GIR:L328 | 不在 T5 范围 | T5 不新增 driver agent；未来 agent 白名单维护不进本任务。 |
-| GIR:L329-L334 | 本任务补齐 | local agent writeback and role-thread boundary。 |
-| GIR:L336-L371 | 不在 T5 范围 | roundtable / M4 T6 flag out of T5。 |
+| GIR:L329-L335 | 本任务补齐 | local agent writeback / guardrail fail-open / role-thread boundary。 |
+| GIR:L336-L386 | 不在 T5 范围 | roundtable / M4 T6 flag out of T5。 |
 | GIR:L449-L462 | 已对等 | shared security and spawn constraints。 |
 | GIR:L466-L472 | 本任务补齐 | local handoff/wait rendering and validation。 |
 | GIR:L473-L500 | 已对等 | shared T7 guardrail scenarios reused by local visible sink。 |
 | GIR:L501-L1716 | 已对等 | scenarios inherit mapped rules; local acceptance covers T5-relevant subset。 |
-| GIR:L1722-L1745 | 不在 T5 范围 | observer ledger UI only。 |
-| GIR:L1847-L1879 | 本任务补齐 | CEO child issue -> child session executor。 |
-| GIR:L2027-L2046 | 本任务补齐 | local acceptance pre-pass / integration / repair。 |
-| GIR:L2143-L2164 | 本任务补齐 | local goal-intake runtime to child sessions。 |
-| GIR:L2272-L2277 | 本任务补齐 | local agent-authored no-mention route。 |
-| GIR:L2303-L2308 | 本任务补齐 | T5 tests/typecheck/roadmap/PR evidence。 |
+| GIR:L1722-L1760 | 不在 T5 范围 | observer ledger UI only。 |
+| GIR:L1847-L1894 | 本任务补齐 | CEO child issue -> child session executor。 |
+| GIR:L2027-L2061 | 本任务补齐 | local acceptance pre-pass / integration / repair。 |
+| GIR:L2143-L2179 | 本任务补齐 | local goal-intake runtime to child sessions。 |
+| GIR:L2272-L2292 | 本任务补齐 | local agent-authored no-mention route。 |
+| GIR:L2303-L2323 | 本任务补齐 | T5 tests/typecheck/roadmap/PR evidence。 |
 | LC:T4.5 | 已对等 | handoff drain / cursor / restart catch-up。 |
 | LC:T4.6 | 已对等 | project/workspace source / worktree on-off。 |
 | LC:spec L48-L50 | 本任务补齐 | replace T5 prohibition with positive T5 rules through current `specs/local-console/spec.md` delta。 |

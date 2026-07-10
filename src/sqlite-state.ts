@@ -193,11 +193,13 @@ export type SqliteStateCommand =
       kind: "local-record-workspace-diff";
       sessionId: string;
       runId: string;
+      originalRepoRoot: string | null;
       baseRef: string;
       branchName: string;
       worktreePath: string;
       patchPath: string;
-      status: "generated" | "applied" | "failed";
+      affectedFilesJson: string;
+      status: "generated" | "applied" | "failed" | "abandoned" | "rolled_back";
       error: string | null;
       now: string;
     }
