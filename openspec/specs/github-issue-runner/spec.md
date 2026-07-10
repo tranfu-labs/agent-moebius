@@ -94,6 +94,21 @@
 - runner MUST 按 reason 前缀分流看门狗日志：`idle-timeout:*` 记 `event = "codex-idle-timeout"`，`max-duration-timeout:*` 记 `event = "codex-watchdog-timeout"`（语义收窄为仅硬上限超时），两者均含 `timeoutMs` 字段并将该次处理判为 `failed`，走既有失败重试链路（区别于收到新消息的 `interrupted`）。
 - MUST 让 `src/codex.ts` adapter 在收到 abort 时终止底层 `codex` 子进程并返回 interrupted failure result，必要时从温和中断升级到强杀，避免 driver pool 依赖永不返回的真实子进程自行释放名额。
 - MUST 把 `GITHUB_CLI_RETRY_POLICY`、`CODEX_RUN_MAX_DURATION_MS` 与 `CODEX_RUN_IDLE_TIMEOUT_MS` 写入启动日志 `CONFIG_LOG_FIELDS`。
+
+### Codex provider 覆盖
+- MUST let the local configuration TOML expose an optional `[codex]` table carrying an optional `provider` string, so that a repository can switch its `codex` CLI invocations from the built-in subscription auth to an API gateway without editing the user's `~/.codex/config.toml`.
+- MUST default to the subscription mode when the `[codex]` table is absent or `provider` is missing/empty; in this mode the `codex exec` argv MUST be byte-for-byte equivalent to the baseline (`--yolo`, `--json`, `-m gpt-5.5`, `-c service_tier="fast"`, `-c features.fast_mode=true`, `-c model_reasoning_effort="xhigh"` and no additional `-c` entries).
+- MUST, when `provider = "<name>"` is set, load the API key and base URL from the process environment using the convention `<NAME_UPPERCASE>_API_KEY` and `<NAME_UPPERCASE>_BASE_URL` before spawning `codex`.
+- MUST reject startup with a visible error containing the missing variable name when either `<NAME_UPPERCASE>_API_KEY` or `<NAME_UPPERCASE>_BASE_URL` is absent; MUST NOT spawn `codex` under these conditions.
+- MUST, when a provider is resolved, append exactly five `-c` overrides to the end of the base `codex exec` argv, in this order: `model_provider=<name>`, `model_providers.<name>.name=<name>`, `model_providers.<name>.base_url=<literal-url>`, `model_providers.<name>.env_key=<NAME_UPPERCASE>_API_KEY`, `model_providers.<name>.wire_api=responses`.
+- MUST expand `base_url` to the literal URL string read from `<NAME_UPPERCASE>_BASE_URL` before writing it into the `-c` argument; MUST NOT ship the argument as a shell variable placeholder such as `${...}`.
+- MUST NOT emit the API key value into any argv position; the key MUST only reach the `codex` subprocess through inherited process environment, referenced by name via `env_key`.
+- MUST NOT rename or drop any element of the baseline `codex exec` argv; the five provider overrides are additive.
+- MUST load `.env` from the project root into `process.env` before any `process.env` read that could depend on it, using Node's built-in `process.loadEnvFile`; the shared configuration module (transitively imported by the main runner, local console server, and desktop main) MUST perform this load at its earliest module body statement.
+- MUST tolerate a missing `.env` file or an older Node runtime without `process.loadEnvFile` support without failing.
+- MUST NOT let `.env` loading override variables already present in `process.env` (i.e., an explicit `export TRANFU_API_KEY=...` wins over `.env`).
+- MUST pass the parent process environment explicitly to the `codex` subprocess so that the variable named by `env_key` is guaranteed to reach it.
+
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
 - MUST 将 agent 触发决策封装为独立触发器；runner 只消费触发器结果，不把具体触发方式写死在编排流程中。

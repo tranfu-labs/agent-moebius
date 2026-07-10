@@ -2,8 +2,13 @@ import fs from "node:fs";
 import { parse as parseToml } from "smol-toml";
 import type { RepositoryRef } from "./issue-source.js";
 
+export interface CodexLocalConfig {
+  provider?: string;
+}
+
 export interface LocalConfig {
   watchRepositories: RepositoryRef[];
+  codex?: CodexLocalConfig;
 }
 
 export const DEFAULT_LOCAL_CONFIG: LocalConfig = {
@@ -48,16 +53,24 @@ export function parseLocalConfig(raw: string, source = "config.toml"): LocalConf
     throw new Error(`Invalid local config shape at ${source}`);
   }
 
-  return {
+  const result: LocalConfig = {
     watchRepositories: parsed.watchRepositories.map((repository) => ({
       owner: repository.owner.trim(),
       repo: repository.repo.trim(),
     })),
   };
+
+  if (parsed.codex !== undefined) {
+    const provider = parsed.codex.provider;
+    result.codex = provider === undefined ? {} : { provider: provider.trim() };
+  }
+
+  return result;
 }
 
 function isLocalConfigShape(value: unknown): value is {
   watchRepositories: Array<{ owner: string; repo: string }>;
+  codex?: { provider?: string };
 } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -65,13 +78,41 @@ function isLocalConfigShape(value: unknown): value is {
 
   const config = value as Partial<{
     watchRepositories: unknown;
+    codex: unknown;
   }>;
 
   if (config.watchRepositories === undefined) {
     config.watchRepositories = [];
   }
 
-  return Array.isArray(config.watchRepositories) && config.watchRepositories.every(isRepositoryRefShape);
+  if (!Array.isArray(config.watchRepositories) || !config.watchRepositories.every(isRepositoryRefShape)) {
+    return false;
+  }
+
+  if (config.codex !== undefined && !isCodexShape(config.codex)) {
+    return false;
+  }
+
+  return true;
+}
+
+function isCodexShape(value: unknown): value is { provider?: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const codex = value as Record<string, unknown>;
+  for (const key of Object.keys(codex)) {
+    if (key !== "provider") {
+      return false;
+    }
+  }
+
+  if (codex.provider === undefined) {
+    return true;
+  }
+
+  return typeof codex.provider === "string" && codex.provider.trim().length > 0;
 }
 
 function isRepositoryRefShape(value: unknown): value is RepositoryRef {

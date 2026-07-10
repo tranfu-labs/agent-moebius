@@ -1,0 +1,32 @@
+# 任务：codex-provider-override
+
+- [ ] 扩展本地配置层
+  - [ ] `src/local-config.ts`：`LocalConfig` 增加可选 `codex?: { provider?: string }` 字段。
+  - [ ] `DEFAULT_LOCAL_CONFIG` 保留原有 `watchRepositories`，`codex` 缺省。
+  - [ ] `isLocalConfigShape` 校验 `codex` 缺省合法、`codex.provider` 为非空 string 或未定义；`codex` 内其他键不允许。
+- [ ] 抽取 codex 执行参数 builder
+  - [ ] `src/config.ts`：把现有 `CODEX_EXEC_OPTIONS` 改名为 `CODEX_EXEC_OPTIONS_BASE`（保留 6 组 flag 不改）。
+  - [ ] 新增 `CodexProviderConfig` 接口 `{ provider: string; baseUrl: string }`。
+  - [ ] 新增 `buildCodexExecOptions(cfg: CodexProviderConfig | null): string[]`；`cfg=null` 返回等价于 base 的副本。
+  - [ ] 新增 `resolveCodexProviderConfig(local, env=process.env): CodexProviderConfig | null`；缺 `<UPPER>_API_KEY` 或 `<UPPER>_BASE_URL` 时抛可见错误。
+- [ ] 集成到 `src/codex.ts`
+  - [ ] 加模块级 `getExecOptions()` lazy getter，内部调用 `loadLocalConfig() + resolveCodexProviderConfig + buildCodexExecOptions`，结果缓存。
+  - [ ] `buildCodexArgs` 签名扩展一个可选入参用于测试注入（默认走 `getExecOptions()`），保持向后兼容。
+  - [ ] `spawn("codex", args, { cwd, stdio, env: process.env })` 显式传 env。
+- [ ] 加载 `.env`
+  - [ ] `src/config.ts` 顶层（imports 之后、任何 `process.env` 读取之前）加 `try { process.loadEnvFile(path.join(projectRoot, ".env")); } catch {}`；`projectRoot` 由 `path.dirname(fileURLToPath(import.meta.url))` 上溯一层解析。
+  - [ ] 单点集中：因 `config.ts` 是 runner、local-console/server、desktop/main 三条链路的共同祖先，单点加载覆盖全部入口；无需在三个入口分别再调 `process.loadEnvFile`。
+- [ ] 配置示例
+  - [ ] `config.toml` 追加注释块：`# [codex]` / `# provider = "tranfu"`；不落实际值。
+- [ ] 单元测试
+  - [ ] `tests/codex.test.ts`：新增"订阅模式基线"断言 —— 无 `[codex]` 段时 `buildCodexArgs("hi")` 结果与当前基线一致。
+  - [ ] 新增"API 模式尾巴"断言 —— provider=tranfu + env 齐时，argv 尾部按顺序含 5 组 provider `-c` 覆盖、`base_url` 为字面 URL、`env_key=TRANFU_API_KEY`、`wire_api=responses`。
+  - [ ] 新增"缺 env 报错"断言 —— provider=tranfu 但 env 缺 base_url 时，`buildCodexArgs` / `resolveCodexProviderConfig` 抛错，错误信息含 `TRANFU_BASE_URL`。
+- [ ] 手动验收（Agent 跑一遍）
+  - [ ] 无 `[codex]` 段跑 `pnpm start` 一次心跳 → 检查子进程 argv 尾部与 `main` 一致。
+  - [ ] `config.local.toml` 加 `[codex] provider = "tranfu"` + `.env` 补 `TRANFU_API_KEY` / `TRANFU_BASE_URL` → 触发一次心跳 → 观察 codex 请求实际打到 `api.tranfu.com`（用 tranfu 后台账单或日志证实）。
+  - [ ] 删掉 `[codex]` 段再跑一次 → 请求回到 OpenAI 订阅。
+  - [ ] `[codex] provider = "tranfu"` 但删掉 `.env` 中 `TRANFU_BASE_URL` → 启动时报可见错误，含变量名，codex 不被 spawn。
+- [ ] 校验
+  - [ ] `pnpm typecheck` 全绿。
+  - [ ] `pnpm test` 全绿。
