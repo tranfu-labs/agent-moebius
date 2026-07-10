@@ -17,7 +17,7 @@ import {
   recordLocalWorkspaceDiff,
 } from "../../src/local-console/t5-store.js";
 import { applyLocalWorkspaceDiff } from "../../src/local-console/workspace-source.js";
-import { LOCAL_CONSOLE_PROJECT_ID } from "../../src/local-console/types.js";
+import { LOCAL_CONSOLE_PROJECT_ID, type LocalConsoleMessage, type LocalConsoleStore } from "../../src/local-console/types.js";
 
 interface EvidenceItem {
   id: number;
@@ -40,7 +40,7 @@ interface LocalState {
     worktreeMode: boolean;
     worktreeUnavailableReason: string | null;
   };
-  messages: Array<{ speaker: string; role: string | null; body: string; status: string; error: string | null }>;
+  messages: Array<{ speaker: string; role: string | null; body: string; status: string; error: string | null; failureCount?: number }>;
   activeRun: { runId: string; cwd: string | null } | null;
 }
 
@@ -68,8 +68,13 @@ async function main(): Promise<void> {
     "acceptance-integration-s1-v1": runAcceptanceIntegrationS1V1Case,
     "worktree-diff": runWorktreeDiffCase,
     "diff-apply-failure-l1": runDiffApplyFailureL1Case,
+    "deadletter-recovery-suite": runDeadLetterRecoverySuiteCase,
     "dead-letter-recovery": runDeadLetterRecoveryCase,
+    "restart-stuck-recovery": runRestartStuckRecoveryCase,
+    "record-response-dead-letter": runRecordResponseDeadLetterCase,
     "dead-letter-write-failure-s1-v1": runDeadLetterWriteFailureS1V1Case,
+    "legacy-failure-metadata-recovery": runLegacyFailureMetadataRecoveryCase,
+    "dead-letter-no-mention": runDeadLetterNoMentionCase,
     "acceptance-loop": runAcceptanceLoopCase,
     "acceptance-format-error": runAcceptanceFormatErrorCase,
     "acceptance-integration-write-failure": runAcceptanceIntegrationWriteFailureCase,
@@ -339,40 +344,309 @@ async function runDiffApplyFailureL1Case(): Promise<EvidenceItem[]> {
 
 async function runDeadLetterRecoveryCase(): Promise<EvidenceItem[]> {
   const root = await makeRoot("dead-letter");
-  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
-  const store = await initStoreWithSession(sqlitePath, "local:dead-letter");
-  const source = await store.appendUserMessage({ sessionId: "local:dead-letter", body: "@dev bad", now: now(1) });
-  await recordLocalDeadLetter({ sqlitePath }, { sessionId: "local:dead-letter", sourceMessageId: source.id, failureCount: 5, reason: "exit-code-1", recovered: false, now: now(2) });
-  await store.appendUserMessage({ sessionId: "local:dead-letter", body: "@dev recovery", now: now(3) });
-  const facts = await listLocalT5Facts({ sqlitePath }, "local:dead-letter");
-  await store.close();
+  let runCount = 0;
+  const server = await startFixtureServer(
+    root,
+    async (options) => {
+      runCount += 1;
+      if (options.prompt.includes("@dev recovery")) {
+        return codexOk(options, "recovered");
+      }
+      return codexFailed(options, "exit-code-1");
+    },
+    { failureRetryLimit: 2 },
+  );
+  try {
+    const session = await createSession(server.url, "dead-letter", LOCAL_CONSOLE_PROJECT_ID);
+    await postMessage(server.url, session.sessionId, "@dev bad");
+    await waitForState(server.url, session.sessionId, (state) =>
+      state.messages.some((message) => message.speaker === "user" && message.status === "pending" && message.error === "exit-code-1"),
+    );
+    await server.runtime.processPending(session.sessionId);
+    const deadLetterState = await waitForState(server.url, session.sessionId, (state) =>
+      state.messages.some((message) => message.speaker === "system" && message.body.includes("Local dead-letter")),
+    );
+    await server.runtime.processPending(session.sessionId);
+    const afterPoll = await getState(server.url, session.sessionId);
+    await postMessage(server.url, session.sessionId, "@dev recovery");
+    const recovered = await waitForState(server.url, session.sessionId, (state) =>
+      state.messages.some((message) => message.speaker === "agent" && message.body === "recovered"),
+    );
+    const facts = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
+    const deadLetterMessages = afterPoll.messages.filter((message) => message.speaker === "system" && message.body.includes("Local dead-letter"));
+    assert(deadLetterMessages.length === 1, `expected one dead-letter, got ${String(deadLetterMessages.length)}`);
+    assert(facts.deadLetters.length === 1, `expected one dead-letter fact, got ${String(facts.deadLetters.length)}`);
+    return [
+      item(11, "dead-letter-recovery", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case dead-letter-recovery` → 应输出连续失败进入 visible dead-letter，后续不重复刷，新消息可恢复。", {
+        runCount,
+        deadLetters: facts.deadLetters,
+        deadLetterMessages,
+        userStatuses: deadLetterState.messages.filter((message) => message.speaker === "user").map((message) => ({ body: message.body, status: message.status, error: message.error })),
+        recovered: recovered.messages.some((message) => message.speaker === "agent" && message.body === "recovered"),
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
+}
+
+async function runDeadLetterRecoverySuiteCase(): Promise<EvidenceItem[]> {
   return [
-    item(11, "dead-letter-recovery", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case dead-letter-recovery` → 应输出 dead-letter 可见、不自触发、追加新消息可恢复。", {
-      deadLetters: facts.deadLetters,
-      deadLetterSelfTrigger: false,
-      laterMessageCanRecover: true,
-    }),
+    ...(await runDeadLetterRecoveryCase()),
+    ...(await runRestartStuckRecoveryCase()),
+    ...(await runRecordResponseDeadLetterCase()),
+    ...(await runDeadLetterWriteFailureS1V1Case()),
+    ...(await runLegacyFailureMetadataRecoveryCase()),
+    ...(await runDeadLetterNoMentionCase()),
   ];
+}
+
+async function runRestartStuckRecoveryCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("restart-stuck");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  await writeAgent(root, "dev", "# Dev\n\nROLE:dev");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  const session = await store.createSession({ sessionId: "local:restart-stuck", title: "restart stuck", now: now(0) });
+  const completedSource = await store.appendUserMessage({ sessionId: session.sessionId, body: "@dev completed", now: now(1) });
+  await store.recordAgentResponse({
+    userMessageId: completedSource.id,
+    sessionId: session.sessionId,
+    role: "dev",
+    body: "already completed",
+    runId: "run-completed",
+    runDir: path.join(root, "runs", "completed"),
+    now: now(2),
+  });
+  const stale = await store.appendUserMessage({ sessionId: session.sessionId, body: "@dev stale", now: now(3) });
+  await store.claimNextPendingMessage({ sessionId: session.sessionId, runId: "run-stale", now: now(4) });
+  await store.close();
+
+  const runCalls: string[] = [];
+  const server = await startLocalConsoleServer({
+    projectRoot: root,
+    workdirRoot: path.join(root, "workdir"),
+    sqlitePath,
+    port: 0,
+    storeTimeoutMs: 1_000,
+    codexMaxDurationMs: 1,
+    staleRunningGraceMs: 1,
+    makeRunDir: (count) => path.join(root, "runs", `restart-${String(count)}`),
+    runCodex: async (options) => {
+      runCalls.push(options.prompt);
+      return codexOk(options, "should not duplicate");
+    },
+  });
+  try {
+    const state = await waitForState(server.url, session.sessionId, (data) =>
+      data.messages.some((message) => message.status === "stuck" && message.error?.includes("stale-running") === true),
+    );
+    const completedResponses = state.messages.filter((message) => message.speaker === "agent" && message.body === "already completed");
+    assert(completedResponses.length === 1, `completed response duplicated: ${String(completedResponses.length)}`);
+    assert(state.messages.some((message) => message.status === "stuck" && message.error?.includes("stale-running") === true), "stale message was not stuck");
+    assert(!state.messages.some((message) => message.status === "running"), "session still has running messages");
+    await postMessage(server.url, session.sessionId, "@dev after restart");
+    const continued = await waitForState(server.url, session.sessionId, (data) =>
+      data.messages.some((message) => message.speaker === "agent" && message.body === "should not duplicate"),
+    );
+    return [
+      item(12, "restart-stuck-recovery", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case restart-stuck-recovery` → 应输出重启释放 stale running、不重复已完成 response、后续消息可继续。", {
+        staleSourceId: stale.id,
+        completedResponseCount: completedResponses.length,
+        runningCount: state.messages.filter((message) => message.status === "running").length,
+        stuckMessages: state.messages.filter((message) => message.status === "stuck"),
+        continued: continued.messages.some((message) => message.speaker === "agent" && message.body === "should not duplicate"),
+        runCallsAfterRestart: runCalls.length,
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
+}
+
+async function runRecordResponseDeadLetterCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("record-response-dead-letter");
+  const inner = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
+  const store = new AlwaysFailRecordAgentResponseStore(inner);
+  let runCount = 0;
+  const server = await startFixtureServer(
+    root,
+    async (options) => {
+      runCount += 1;
+      if (options.prompt.includes("@dev recovery")) {
+        return codexOk(options, "recovered after record failure");
+      }
+      return codexOk(options, "response that never commits");
+    },
+    { store, failureRetryLimit: 2 },
+  );
+  try {
+    const session = await createSession(server.url, "record response dead-letter", LOCAL_CONSOLE_PROJECT_ID);
+    await postMessage(server.url, session.sessionId, "@dev bad response");
+    await waitForState(server.url, session.sessionId, (state) =>
+      state.messages.some((message) => message.speaker === "user" && message.status === "pending"),
+    );
+    await server.runtime.processPending(session.sessionId);
+    const deadLetter = await waitForState(server.url, session.sessionId, (state) =>
+      state.messages.some((message) => message.speaker === "system" && message.body.includes("Local dead-letter")),
+    );
+    await postMessage(server.url, session.sessionId, "@dev recovery");
+    store.failAgentResponses = false;
+    const recovered = await waitForState(server.url, session.sessionId, (state) =>
+      state.messages.some((message) => message.speaker === "agent" && message.body === "recovered after record failure"),
+    );
+    const facts = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
+    const agentResponses = deadLetter.messages.filter((message) => message.speaker === "agent" && message.body === "response that never commits");
+    assert(agentResponses.length === 0, "agent response was duplicated despite record failure");
+    assert(facts.deadLetters.length === 1, `expected one dead-letter fact, got ${String(facts.deadLetters.length)}`);
+    return [
+      item(13, "record-response-dead-letter", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case record-response-dead-letter` → 应输出 recordAgentResponse 提交前连续失败只产生一条 dead-letter，不重复写 agent response，后续新消息可处理。", {
+        runCount,
+        deadLetters: facts.deadLetters,
+        duplicateAgentResponses: agentResponses.length,
+        recovered: recovered.messages.some((message) => message.speaker === "agent" && message.body === "recovered after record failure"),
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
+}
+
+async function runLegacyFailureMetadataRecoveryCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("legacy-metadata");
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  await writeAgent(root, "dev", "# Dev\n\nROLE:dev");
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  const session = await store.createSession({ sessionId: "local:legacy-metadata", title: "legacy metadata", now: now(0) });
+  const completedSource = await store.appendUserMessage({ sessionId: session.sessionId, body: "@dev completed", now: now(1) });
+  await store.recordAgentResponse({
+    userMessageId: completedSource.id,
+    sessionId: session.sessionId,
+    role: "dev",
+    body: "legacy completed",
+    runId: "run-completed",
+    runDir: path.join(root, "runs", "completed"),
+    now: now(2),
+  });
+  await store.appendUserMessage({ sessionId: session.sessionId, body: "@dev stale legacy", now: now(3) });
+  await store.claimNextPendingMessage({ sessionId: session.sessionId, runId: "run-stale", now: now(4) });
+  await store.close();
+  const db = new DatabaseSync(sqlitePath);
+  try {
+    db.exec("ALTER TABLE session_messages DROP COLUMN failure_count");
+    db.exec("ALTER TABLE session_messages DROP COLUMN last_failure_reason");
+  } finally {
+    db.close();
+  }
+  const server = await startLocalConsoleServer({
+    projectRoot: root,
+    workdirRoot: path.join(root, "workdir"),
+    sqlitePath,
+    port: 0,
+    storeTimeoutMs: 1_000,
+    codexMaxDurationMs: 1,
+    staleRunningGraceMs: 1,
+    makeRunDir: (count) => path.join(root, "runs", `legacy-${String(count)}`),
+    runCodex: async (options) => codexOk(options, "legacy should not duplicate"),
+  });
+  try {
+    const state = await waitForState(server.url, session.sessionId, (data) =>
+      data.messages.some((message) => message.status === "stuck" && message.error?.includes("stale-running") === true),
+    );
+    const completedResponses = state.messages.filter((message) => message.speaker === "agent" && message.body === "legacy completed");
+    const sourceRows = state.messages.filter((message) => message.speaker === "user").map((message) => ({
+      body: message.body,
+      status: message.status,
+      failureCount: "failureCount" in message ? (message as { failureCount?: unknown }).failureCount : "not-in-api",
+    }));
+    return [
+      item(14, "legacy-failure-metadata-recovery", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case legacy-failure-metadata-recovery` → 应输出旧 SQLite 缺失 failure metadata 时默认值补齐、stale running 释放或 stuck、已完成 response 不重复。", {
+        completedResponseCount: completedResponses.length,
+        sourceRows,
+        stuckMessages: state.messages.filter((message) => message.status === "stuck"),
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
+}
+
+async function runDeadLetterNoMentionCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("dead-letter-no-mention");
+  let runCount = 0;
+  const server = await startFixtureServer(
+    root,
+    async (options) => {
+      runCount += 1;
+      return codexFailed(options, "handoff-like failure for @dev and @qa");
+    },
+    { failureRetryLimit: 1 },
+  );
+  try {
+    const session = await createSession(server.url, "dead-letter no mention", LOCAL_CONSOLE_PROJECT_ID);
+    await postMessage(server.url, session.sessionId, "@dev bad");
+    const state = await waitForState(server.url, session.sessionId, (data) =>
+      data.messages.some((message) => message.speaker === "system" && message.body.includes("Local dead-letter")),
+    );
+    await server.runtime.processPending(session.sessionId);
+    const afterDrain = await getState(server.url, session.sessionId);
+    const deadLetter = state.messages.find((message) => message.speaker === "system" && message.body.includes("Local dead-letter"));
+    assert(deadLetter !== undefined, "missing dead-letter");
+    assert(!/@[A-Za-z][A-Za-z0-9_-]*/u.test(deadLetter.body), `dead-letter contains legal mention: ${deadLetter.body}`);
+    assert(afterDrain.messages.filter((message) => message.speaker === "agent").length === 0, "dead-letter triggered agent");
+    return [
+      item(15, "dead-letter-no-mention", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case dead-letter-no-mention` → 应输出 dead-letter reason/body 含交棒文本时可见记录仍无合法 agent mention，后续 drain 不自触发。", {
+        runCount,
+        deadLetterBody: deadLetter.body,
+        containsLegalMention: /@[A-Za-z][A-Za-z0-9_-]*/u.test(deadLetter.body),
+        agentMessagesAfterDrain: afterDrain.messages.filter((message) => message.speaker === "agent").length,
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
 }
 
 async function runDeadLetterWriteFailureS1V1Case(): Promise<EvidenceItem[]> {
   const root = await makeRoot("dead-letter-write-failure");
-  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
-  const store = await initStoreWithSession(sqlitePath, "local:dead-letter-fail");
-  const source = await store.appendUserMessage({ sessionId: "local:dead-letter-fail", body: "@dev bad", now: now(1) });
-  const injectedError = "injected-dead-letter-visible-write-failure";
-  const facts = await listLocalT5Facts({ sqlitePath }, "local:dead-letter-fail");
-  const messages = await store.listMessages("local:dead-letter-fail");
-  await store.close();
-  assert(facts.deadLetters.length === 0, "dead-letter outcome saved despite visible write failure");
-  return [
-    item(12, "dead-letter-write-failure-s1-v1", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case dead-letter-write-failure-s1-v1` → 应输出 dead-letter 可见写失败时 cursor 不推进且可 retry。", {
-      injectedError,
-      sourceMessage: { id: source.id, status: messages.find((message) => message.id === source.id)?.status },
-      deadLetterCount: facts.deadLetters.length,
-      retryable: true,
-    }),
-  ];
+  const inner = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
+  const store = new FailOnceDeadLetterStore(inner);
+  const server = await startFixtureServer(root, async (options) => codexFailed(options, "exit-code-1"), {
+    store,
+    failureRetryLimit: 1,
+  });
+  try {
+    const session = await createSession(server.url, "dead-letter write failure", LOCAL_CONSOLE_PROJECT_ID);
+    await postMessage(server.url, session.sessionId, "@dev bad");
+    await waitForState(server.url, session.sessionId, (state) =>
+      store.failedDeadLetterWrites === 1 &&
+      state.messages.some((message) => message.speaker === "user" && message.status === "pending"),
+    );
+    const factsBeforeRetry = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
+    const messagesBeforeRetry = await getState(server.url, session.sessionId);
+    assert(factsBeforeRetry.deadLetters.length === 0, "dead-letter outcome saved despite visible write failure");
+    await server.runtime.processPending(session.sessionId);
+    const deadLetter = await waitForState(server.url, session.sessionId, (state) =>
+      state.messages.some((message) => message.speaker === "system" && message.body.includes("Local dead-letter")),
+    );
+    const factsAfterRetry = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
+    return [
+      item(16, "dead-letter-write-failure-s1-v1", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case dead-letter-write-failure-s1-v1` → 应输出 dead-letter 可见写失败时 cursor 不推进且可 retry，恢复后同一 source 可写入 dead-letter。", {
+        injectedError: "injected-dead-letter-visible-write-failure",
+        beforeRetry: {
+          messages: messagesBeforeRetry.messages,
+          deadLetterCount: factsBeforeRetry.deadLetters.length,
+        },
+        afterRetry: {
+          deadLetterMessages: deadLetter.messages.filter((message) => message.speaker === "system" && message.body.includes("Local dead-letter")),
+          deadLetterCount: factsAfterRetry.deadLetters.length,
+        },
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
 }
 
 async function runAcceptanceLoopCase(): Promise<EvidenceItem[]> {
@@ -718,6 +992,7 @@ async function runPrEvidenceCase(): Promise<EvidenceItem[]> {
 async function startFixtureServer(
   root: string,
   runCodex: (options: CodexRunOptions) => Promise<CodexRunResult>,
+  options: Partial<Parameters<typeof startLocalConsoleServer>[0]> = {},
 ): Promise<StartedLocalConsoleServer> {
   await writeAgent(root, "dev", "# Dev\n\nROLE:dev");
   return await startLocalConsoleServer({
@@ -727,6 +1002,7 @@ async function startFixtureServer(
     storeTimeoutMs: 1_000,
     makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
     runCodex,
+    ...options,
   });
 }
 
@@ -799,6 +1075,76 @@ function codexOk(options: CodexRunOptions, finalText: string): CodexRunResult {
     stdoutPath: path.join(options.runDir, "stdout.jsonl"),
     stderrPath: path.join(options.runDir, "stderr.log"),
   };
+}
+
+function codexFailed(options: CodexRunOptions, reason: string): CodexRunResult {
+  return {
+    ok: false,
+    reason,
+    runDir: options.runDir,
+    stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+    stderrPath: path.join(options.runDir, "stderr.log"),
+  };
+}
+
+class AlwaysFailRecordAgentResponseStore implements LocalConsoleStore {
+  readonly sqlitePath: string;
+  failAgentResponses = true;
+
+  constructor(protected readonly inner: LocalConsoleStore) {
+    this.sqlitePath = inner.sqlitePath;
+  }
+
+  async init(): Promise<void> { await this.inner.init(); }
+  async close(): Promise<void> { await this.inner.close(); }
+  async createProject(input: Parameters<LocalConsoleStore["createProject"]>[0]) { return await this.inner.createProject(input); }
+  async updateProject(input: Parameters<LocalConsoleStore["updateProject"]>[0]) { return await this.inner.updateProject(input); }
+  async listProjects() { return await this.inner.listProjects(); }
+  async getSessionWorkspace(sessionId: string) { return await this.inner.getSessionWorkspace(sessionId); }
+  async recordProjectWorkspaceStatus(input: Parameters<LocalConsoleStore["recordProjectWorkspaceStatus"]>[0]) { await this.inner.recordProjectWorkspaceStatus(input); }
+  async createSession(input: Parameters<LocalConsoleStore["createSession"]>[0]) { return await this.inner.createSession(input); }
+  async listSessions() { return await this.inner.listSessions(); }
+  async appendUserMessage(input: Parameters<LocalConsoleStore["appendUserMessage"]>[0]) { return await this.inner.appendUserMessage(input); }
+  async listMessages(sessionId: string) { return await this.inner.listMessages(sessionId); }
+  async hasRunningMessage(sessionId: string) { return await this.inner.hasRunningMessage(sessionId); }
+  async claimNextPendingMessage(input: Parameters<LocalConsoleStore["claimNextPendingMessage"]>[0]) { return await this.inner.claimNextPendingMessage(input); }
+  async setRunDir(input: Parameters<LocalConsoleStore["setRunDir"]>[0]) { await this.inner.setRunDir(input); }
+  async recordAgentResponse(input: Parameters<LocalConsoleStore["recordAgentResponse"]>[0]) {
+    if (this.failAgentResponses) {
+      throw new Error("injected-record-agent-response-before-commit");
+    }
+    await this.inner.recordAgentResponse(input);
+  }
+  async recordSystemAndComplete(input: Parameters<LocalConsoleStore["recordSystemAndComplete"]>[0]) { await this.inner.recordSystemAndComplete(input); }
+  async recordMessageProcessed(input: Parameters<LocalConsoleStore["recordMessageProcessed"]>[0]) { await this.inner.recordMessageProcessed(input); }
+  async findRouteDecision(input: Parameters<LocalConsoleStore["findRouteDecision"]>[0]) { return await this.inner.findRouteDecision(input); }
+  async recordRouteAppend(input: Parameters<LocalConsoleStore["recordRouteAppend"]>[0]) { await this.inner.recordRouteAppend(input); }
+  async recordRouteNoAction(input: Parameters<LocalConsoleStore["recordRouteNoAction"]>[0]) { await this.inner.recordRouteNoAction(input); }
+  async releaseMessageForRetry(input: Parameters<LocalConsoleStore["releaseMessageForRetry"]>[0]) { await this.inner.releaseMessageForRetry(input); }
+  async recordFailure(input: Parameters<LocalConsoleStore["recordFailure"]>[0]) { await this.inner.recordFailure(input); }
+  async recordRetryableFailure(input: Parameters<LocalConsoleStore["recordRetryableFailure"]>[0]): Promise<LocalConsoleMessage> { return await this.inner.recordRetryableFailure(input); }
+  async recordDeadLetter(input: Parameters<LocalConsoleStore["recordDeadLetter"]>[0]) { await this.inner.recordDeadLetter(input); }
+  async recordInterrupted(input: Parameters<LocalConsoleStore["recordInterrupted"]>[0]) { await this.inner.recordInterrupted(input); }
+  async recordStuck(input: Parameters<LocalConsoleStore["recordStuck"]>[0]) { await this.inner.recordStuck(input); }
+  async markStaleRunning(input: Parameters<LocalConsoleStore["markStaleRunning"]>[0]) { return await this.inner.markStaleRunning(input); }
+}
+
+class FailOnceDeadLetterStore extends AlwaysFailRecordAgentResponseStore {
+  private failNextDeadLetter = true;
+  failedDeadLetterWrites = 0;
+
+  override async recordAgentResponse(input: Parameters<LocalConsoleStore["recordAgentResponse"]>[0]) {
+    await this.inner.recordAgentResponse(input);
+  }
+
+  override async recordDeadLetter(input: Parameters<LocalConsoleStore["recordDeadLetter"]>[0]) {
+    if (this.failNextDeadLetter) {
+      this.failNextDeadLetter = false;
+      this.failedDeadLetterWrites += 1;
+      throw new Error("injected-dead-letter-visible-write-failure");
+    }
+    await super.recordDeadLetter(input);
+  }
 }
 
 async function createProject(url: string, folderPath: string, worktreeMode: boolean): Promise<{ projectId: string }> {

@@ -1341,7 +1341,7 @@ describe("local console", () => {
     }
   });
 
-  it("records Codex failures with run metadata and restores them after restart", async () => {
+  it("dead-letters repeated Codex failures with run metadata and restores them after restart", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "dev", "# Dev");
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
@@ -1359,12 +1359,17 @@ describe("local console", () => {
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
       storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+      failureRetryLimit: 2,
     });
     const session = await createSession(started.url, "failure");
     try {
       await postSessionMessage(started.url, session.sessionId, "@dev fail");
       await waitForState(started.url, session.sessionId, (data) =>
-        data.messages.some((entry) => entry.status === "failed" && entry.error === "exit:42"),
+        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending" && entry.error === "exit:42"),
+      );
+      await started.runtime.processPending(session.sessionId);
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "system" && entry.body.includes("Local dead-letter")),
       );
     } finally {
       await started.close();
@@ -1377,15 +1382,17 @@ describe("local console", () => {
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `restart-${String(count)}`),
       storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+      failureRetryLimit: 2,
     });
     try {
       const state = await getState(restarted.url, session.sessionId);
       expect(state.messages).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ status: "failed", error: "exit:42", runDir: path.join(root, "runs", "run-1") }),
-          expect.objectContaining({ speaker: "system", body: "Codex failed: exit:42", error: "exit:42" }),
+          expect.objectContaining({ speaker: "system", body: expect.stringContaining("Local dead-letter"), error: "exit:42" }),
         ]),
       );
+      expect(state.messages.filter((entry) => entry.speaker === "system" && entry.body.includes("Local dead-letter"))).toHaveLength(1);
     } finally {
       await restarted.close();
     }
@@ -1733,6 +1740,8 @@ function message(input: { id: number; body: string; speaker?: "user" | "agent" |
     runId: null,
     runDir: null,
     error: null,
+    failureCount: 0,
+    lastFailureReason: null,
     createdAt: "2026-07-09T00:00:00.000Z",
     updatedAt: "2026-07-09T00:00:00.000Z",
   };
@@ -2071,6 +2080,20 @@ class FastFailAppendStore implements LocalConsoleStore {
 
   async recordFailure(): Promise<void> {}
 
+  async recordRetryableFailure(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<LocalConsoleMessage> {
+    void input;
+    throw new Error("read-only local console store");
+  }
+
+  async recordDeadLetter(): Promise<void> {}
+
   async recordInterrupted(): Promise<void> {}
 
   async recordStuck(): Promise<void> {}
@@ -2231,6 +2254,29 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
     now: string;
   }): Promise<void> {
     await this.inner.recordFailure(input);
+  }
+
+  async recordRetryableFailure(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<LocalConsoleMessage> {
+    return await this.inner.recordRetryableFailure(input);
+  }
+
+  async recordDeadLetter(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    failureCount: number;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordDeadLetter(input);
   }
 
   async recordInterrupted(input: {
@@ -2418,6 +2464,29 @@ class FailOnceRecordRouteAppendStore implements LocalConsoleStore {
     await this.inner.recordFailure(input);
   }
 
+  async recordRetryableFailure(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<LocalConsoleMessage> {
+    return await this.inner.recordRetryableFailure(input);
+  }
+
+  async recordDeadLetter(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    failureCount: number;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordDeadLetter(input);
+  }
+
   async recordInterrupted(input: {
     userMessageId: number;
     sessionId: string;
@@ -2515,6 +2584,8 @@ class RecoveringAppendStore implements LocalConsoleStore {
       runId: null,
       runDir: null,
       error: null,
+      failureCount: 0,
+      lastFailureReason: null,
       createdAt: input.now,
       updatedAt: input.now,
     };
@@ -2575,6 +2646,8 @@ class RecoveringAppendStore implements LocalConsoleStore {
       runId: input.runId,
       runDir: input.runDir,
       error: null,
+      failureCount: 0,
+      lastFailureReason: null,
       createdAt: input.now,
       updatedAt: input.now,
     });
@@ -2625,6 +2698,66 @@ class RecoveringAppendStore implements LocalConsoleStore {
       message.error = input.error;
       message.updatedAt = input.now;
     }
+  }
+
+  async recordRetryableFailure(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<LocalConsoleMessage> {
+    void input.sessionId;
+    const message = this.messages.find((entry) => entry.id === input.userMessageId);
+    if (message === undefined) {
+      throw new Error("message not found");
+    }
+    message.status = message.speaker === "user" ? "pending" : message.status;
+    message.runId = input.runId;
+    message.runDir = input.runDir;
+    message.error = input.error;
+    message.failureCount += 1;
+    message.lastFailureReason = input.error;
+    message.updatedAt = input.now;
+    return { ...message };
+  }
+
+  async recordDeadLetter(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    failureCount: number;
+    now: string;
+  }): Promise<void> {
+    const message = this.messages.find((entry) => entry.id === input.userMessageId);
+    if (message !== undefined) {
+      message.status = "failed";
+      message.runId = input.runId;
+      message.runDir = input.runDir;
+      message.error = input.error;
+      message.failureCount = input.failureCount;
+      message.lastFailureReason = input.error;
+      message.updatedAt = input.now;
+    }
+    this.messages.push({
+      id: this.nextId,
+      sessionId: input.sessionId,
+      speaker: "system",
+      role: null,
+      body: `Local dead-letter: source message ${String(input.userMessageId)} stopped after ${String(input.failureCount)} failed attempts.`,
+      status: "displayed",
+      runId: input.runId,
+      runDir: input.runDir,
+      error: input.error,
+      failureCount: 0,
+      lastFailureReason: null,
+      createdAt: input.now,
+      updatedAt: input.now,
+    });
+    this.nextId += 1;
   }
 
   async recordInterrupted(input: { userMessageId: number; reason: string; now: string }): Promise<void> {

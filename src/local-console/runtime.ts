@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { LOCAL_CONSOLE_FAILURE_RETRY_LIMIT } from "../config.js";
 import { parseAgentManifest } from "../agent-manifest.js";
 import { buildRolePromptPlan } from "../conversation.js";
 import {
@@ -63,6 +64,7 @@ export interface LocalConsoleRuntimeOptions {
   staleRunningGraceMs?: number;
   routeJudgment?: LocalRouteJudgment;
   routeTimeoutMs?: number;
+  failureRetryLimit?: number;
   now?: () => Date;
 }
 
@@ -87,6 +89,7 @@ export class LocalConsoleRuntime {
   private readonly codexIdleTimeoutMs?: number;
   private readonly codexMaxDurationMs?: number;
   private readonly routeTimeoutMs?: number;
+  private readonly failureRetryLimit: number;
   private readonly staleRunningGraceMs: number;
   private readonly now: () => Date;
   private readonly processingSessions = new Set<string>();
@@ -100,6 +103,7 @@ export class LocalConsoleRuntime {
     this.codexIdleTimeoutMs = options.codexIdleTimeoutMs;
     this.codexMaxDurationMs = options.codexMaxDurationMs;
     this.routeTimeoutMs = options.routeTimeoutMs;
+    this.failureRetryLimit = options.failureRetryLimit ?? LOCAL_CONSOLE_FAILURE_RETRY_LIMIT;
     this.staleRunningGraceMs = options.staleRunningGraceMs ?? 5_000;
     this.now = options.now ?? (() => new Date());
   }
@@ -324,7 +328,13 @@ export class LocalConsoleRuntime {
                 runCodex: this.options.runCodex,
               });
             } catch (error) {
-              await this.releaseForRetryBestEffort(claimedMessage, sessionId);
+              await this.recordFailureOrDeadLetterBestEffort(
+                claimedMessage,
+                sessionId,
+                nextRunId,
+                activeRunDir,
+                formatLocalError(error),
+              );
               activeMessage = null;
               activeRunId = null;
               activeRunDir = null;
@@ -332,6 +342,7 @@ export class LocalConsoleRuntime {
             }
             if (route.kind === "retry") {
               this.lastError = `local-route-retry:${route.reason}`;
+              await this.recordFailureOrDeadLetterBestEffort(claimedMessage, sessionId, nextRunId, activeRunDir, this.lastError);
               return;
             }
             continue;
@@ -339,7 +350,7 @@ export class LocalConsoleRuntime {
 
           const selectedAgent = agentFiles.find((agent) => agent.name === trigger.role);
           if (selectedAgent === undefined) {
-            await this.recordFailureBestEffort(claimedMessage, sessionId, nextRunId, null, `Agent not found: ${trigger.role}`);
+            await this.recordFailureOrDeadLetterBestEffort(claimedMessage, sessionId, nextRunId, null, `Agent not found: ${trigger.role}`);
             return;
           }
 
@@ -423,7 +434,13 @@ export class LocalConsoleRuntime {
               }),
             );
           } catch (error) {
-            await this.releaseForRetryBestEffort(claimedMessage, sessionId);
+            await this.recordFailureOrDeadLetterBestEffort(
+              claimedMessage,
+              sessionId,
+              nextRunId,
+              result.runDir,
+              formatLocalError(error),
+            );
             activeMessage = null;
             activeRunId = null;
             activeRunDir = null;
@@ -433,7 +450,7 @@ export class LocalConsoleRuntime {
         } catch (error) {
           this.lastError = formatLocalError(error);
           if (activeMessage !== null && activeRunId !== null) {
-            await this.recordFailureBestEffort(activeMessage, sessionId, activeRunId, activeRunDir, this.lastError);
+            await this.recordFailureOrDeadLetterBestEffort(activeMessage, sessionId, activeRunId, activeRunDir, this.lastError);
           }
           log({ event: "local-console-processing-failed", error: this.lastError });
           return;
@@ -526,7 +543,7 @@ export class LocalConsoleRuntime {
       await this.recordInterruptedBestEffort(message, sessionId, runId, result.runDir, result.reason);
       return;
     }
-    await this.recordFailureBestEffort(message, sessionId, runId, result.runDir, result.reason);
+    await this.recordFailureOrDeadLetterBestEffort(message, sessionId, runId, result.runDir, result.reason);
   }
 
   private async maybeProcessAcceptancePrePass(
@@ -787,7 +804,7 @@ export class LocalConsoleRuntime {
     };
   }
 
-  private async recordFailureBestEffort(
+  private async recordFailureOrDeadLetterBestEffort(
     message: LocalConsoleMessage,
     sessionId: string,
     runId: string | null,
@@ -795,8 +812,23 @@ export class LocalConsoleRuntime {
     error: string,
   ): Promise<void> {
     try {
-      await this.storeCall("local-console-store-record-failure", () =>
-        this.options.store.recordFailure({
+      const nextFailureCount = message.failureCount + 1;
+      if (nextFailureCount >= this.failureRetryLimit) {
+        await this.storeCall("local-console-store-record-dead-letter", () =>
+          this.options.store.recordDeadLetter({
+            userMessageId: message.id,
+            sessionId,
+            error,
+            runId,
+            runDir,
+            failureCount: nextFailureCount,
+            now: this.nowIso(),
+          }),
+        );
+        return;
+      }
+      await this.storeCall("local-console-store-record-retryable-failure", () =>
+        this.options.store.recordRetryableFailure({
           userMessageId: message.id,
           sessionId,
           error,
@@ -807,7 +839,8 @@ export class LocalConsoleRuntime {
       );
     } catch (recordError) {
       this.lastError = formatLocalError(recordError);
-      log({ event: "local-console-record-failure-failed", error: this.lastError, originalError: error });
+      log({ event: "local-console-record-retryable-failure-failed", error: this.lastError, originalError: error });
+      await this.releaseForRetryBestEffort(message, sessionId);
     }
   }
 

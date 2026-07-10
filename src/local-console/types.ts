@@ -22,6 +22,8 @@ export interface LocalConsoleMessage {
   runId: string | null;
   runDir: string | null;
   error: string | null;
+  failureCount: number;
+  lastFailureReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -210,6 +212,23 @@ export interface LocalConsoleStore {
     error: string;
     runId: string | null;
     runDir: string | null;
+    now: string;
+  }): Promise<void>;
+  recordRetryableFailure(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<LocalConsoleMessage>;
+  recordDeadLetter(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    failureCount: number;
     now: string;
   }): Promise<void>;
   recordInterrupted(input: {

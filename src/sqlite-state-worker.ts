@@ -45,6 +45,8 @@ interface WorkerLocalMessage {
   runId: string | null;
   runDir: string | null;
   error: string | null;
+  failureCount: number;
+  lastFailureReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -151,6 +153,10 @@ function runCommand(input: WorkerInput): unknown {
         return recordSystemAndComplete(database, input.command);
       case "local-record-failure":
         return recordFailure(database, input.command);
+      case "local-record-retryable-failure":
+        return recordRetryableFailure(database, input.command);
+      case "local-record-dead-letter-and-complete":
+        return recordDeadLetterAndComplete(database, input.command);
       case "local-record-interrupted":
         return recordInterrupted(database, input.command);
       case "local-record-stuck":
@@ -238,6 +244,8 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       run_id TEXT,
       run_dir TEXT,
       error TEXT,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      last_failure_reason TEXT,
       source_kind TEXT,
       source_id TEXT,
       created_at TEXT NOT NULL,
@@ -342,6 +350,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   `);
   migrateSessionEdgesHiddenKey(database);
   migrateLocalAcceptanceFactsHistory(database);
+  migrateLocalMessageFailureMetadata(database);
   const now = new Date().toISOString();
   ensureDefaultLocalProject(database, defaultLocalProjectFolderPath(sqlitePath), now);
   migrateSessionsProjectId(database, now);
@@ -389,6 +398,15 @@ function migrateLocalAcceptanceFactsHistory(database: SqliteDatabase): void {
   database.exec(
     "CREATE INDEX IF NOT EXISTS idx_local_acceptance_facts_latest ON local_acceptance_facts(session_id, task_id, role, created_at)",
   );
+}
+
+function migrateLocalMessageFailureMetadata(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "session_messages", "failure_count")) {
+    database.exec("ALTER TABLE session_messages ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!tableHasColumn(database, "session_messages", "last_failure_reason")) {
+    database.exec("ALTER TABLE session_messages ADD COLUMN last_failure_reason TEXT");
+  }
 }
 
 function migrateSessionsProjectId(database: SqliteDatabase, now: string): void {
@@ -1154,6 +1172,82 @@ function recordFailure(database: SqliteDatabase, input: Extract<SqliteStateComma
   });
 }
 
+function recordRetryableFailure(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-retryable-failure" }>,
+): unknown {
+  return transaction(database, () => {
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    const nextFailureCount = source.failureCount + 1;
+    const nextStatus = source.speaker === "user" ? "pending" : source.status;
+    database
+      .prepare(
+        `UPDATE session_messages
+         SET status = ?,
+             run_id = ?,
+             run_dir = ?,
+             error = ?,
+             failure_count = ?,
+             last_failure_reason = ?,
+             updated_at = ?
+         WHERE id = ? AND session_id = ?`,
+      )
+      .run(nextStatus, input.runId, input.runDir, input.error, nextFailureCount, input.error, input.now, source.id, input.sessionId);
+    clearLocalCursorActive(database, input.sessionId, input.now);
+    return requireLocalMessage(database, source.id, input.sessionId);
+  });
+}
+
+function recordDeadLetterAndComplete(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-dead-letter-and-complete" }>,
+): null {
+  return transaction(database, () => {
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    const failureCount = Math.max(source.failureCount + 1, input.failureCount);
+    const body = buildDeadLetterBody(source.id, failureCount, input.error);
+    insertSystemMessage(
+      database,
+      input.sessionId,
+      body,
+      input.runId,
+      input.runDir,
+      input.error,
+      input.now,
+      "displayed",
+    );
+    database
+      .prepare(
+        `INSERT INTO local_dead_letters
+          (session_id, source_message_id, failure_count, reason, recovered, created_at, recovered_at)
+         VALUES (?, ?, ?, ?, 0, ?, NULL)
+         ON CONFLICT(session_id, source_message_id)
+         DO UPDATE SET
+           failure_count = excluded.failure_count,
+           reason = excluded.reason,
+           recovered = 0,
+           recovered_at = NULL`,
+      )
+      .run(input.sessionId, source.id, failureCount, input.error, input.now);
+    if (source.speaker !== "user") {
+      database
+        .prepare(
+          `UPDATE session_messages
+           SET error = ?,
+               failure_count = ?,
+               last_failure_reason = ?,
+               updated_at = ?
+           WHERE id = ? AND session_id = ?`,
+        )
+        .run(input.error, failureCount, input.error, input.now, source.id, input.sessionId);
+    }
+    completeSourceMessage(database, source, "failed", input.error, input.runId, input.runDir, input.now, failureCount, input.error);
+    return null;
+  });
+}
+
 function recordInterrupted(database: SqliteDatabase, input: Extract<SqliteStateCommand, { kind: "local-record-interrupted" }>): null {
   return transaction(database, () => {
     ensureLocalCursor(database, input.sessionId, input.now);
@@ -1606,11 +1700,23 @@ function completeSourceMessage(
   runId: string | null,
   runDir: string | null,
   now: string,
+  failureCount = status === "completed" ? 0 : source.failureCount,
+  lastFailureReason: string | null = status === "completed" ? null : source.lastFailureReason,
 ): void {
   if (source.speaker === "user") {
     database
-      .prepare("UPDATE session_messages SET status = ?, run_id = ?, run_dir = ?, error = ?, updated_at = ? WHERE id = ?")
-      .run(status, runId, runDir, error, now, source.id);
+      .prepare(
+        `UPDATE session_messages
+         SET status = ?,
+             run_id = ?,
+             run_dir = ?,
+             error = ?,
+             failure_count = ?,
+             last_failure_reason = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(status, runId, runDir, error, failureCount, lastFailureReason, now, source.id);
   }
   advanceLocalCursor(database, source.sessionId, source.id, now);
 }
@@ -1811,9 +1917,24 @@ function readLocalMessageRow(row: unknown): WorkerLocalMessage {
     runId: readNullableString(row.run_id, "run_id"),
     runDir: readNullableString(row.run_dir, "run_dir"),
     error: readNullableString(row.error, "error"),
+    failureCount: "failure_count" in row ? readNumber(row.failure_count, "failure_count") : 0,
+    lastFailureReason: "last_failure_reason" in row ? readNullableString(row.last_failure_reason, "last_failure_reason") : null,
     createdAt: readString(row.created_at, "created_at"),
     updatedAt: readString(row.updated_at, "updated_at"),
   };
+}
+
+function buildDeadLetterBody(sourceMessageId: number, failureCount: number, reason: string): string {
+  const sanitizedReason = sanitizeDeadLetterReason(reason);
+  return [
+    `Local dead-letter: source message ${String(sourceMessageId)} stopped after ${String(failureCount)} failed attempts.`,
+    `Reason: ${sanitizedReason}`,
+    "Add a new local message to continue; this dead-letter record will not trigger an agent.",
+  ].join("\n");
+}
+
+function sanitizeDeadLetterReason(reason: string): string {
+  return reason.replace(/@([A-Za-z][A-Za-z0-9_-]*)/gu, "agent:$1");
 }
 
 function ensureSession(database: SqliteDatabase, sessionId: string, now: string, title?: string, projectId?: string): void {

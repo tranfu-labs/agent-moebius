@@ -106,6 +106,8 @@
   - 会启动 fake local console server 和静态桌面 renderer，生成 `artifacts/acceptance/t4-live.png`、`artifacts/acceptance/t4-interrupted.png`、`artifacts/acceptance/t4-failed.png` 与 `artifacts/acceptance/t4-evidence.json`。
 - T4.5 本地接力循环验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t45.ts`
   - 会启动 fake local console server，覆盖四角色本地接力、SQLite 位点重启续跑、`recordAgentResponse` 事务前失败、timeout stuck 释放 session、两个 session startup catch-up，并生成 `artifacts/acceptance/t45-evidence.json`。
+- T5 本地 dead-letter/recovery 验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t5.ts --case deadletter-recovery-suite`
+  - 会启动 fake local console server，覆盖连续失败 dead-letter、防重复刷同一失败、timeout/stale 重启恢复、`recordAgentResponse` 提交前连续失败、dead-letter 可见写失败后 retry、旧 SQLite failure metadata 迁移、dead-letter 不含合法 agent mention，并生成 `artifacts/acceptance/t5-evidence.json`。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。
