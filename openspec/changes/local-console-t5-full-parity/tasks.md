@@ -78,15 +78,23 @@
   - [ ] 增加 console-ui child tree、acceptance submit、dead-letter、diff 回流测试。
   - [ ] 新增 `scripts/acceptance/local-console-t5.ts`，支持 `multi-child-goal`、`route-hang-l1`、`visible-write-s1-v1`、`acceptance-integration-s1-v1`、`worktree-diff`、`diff-apply-failure-l1`、`dead-letter-recovery`、`dead-letter-write-failure-s1-v1`、`fake-gh-zero` case，并生成 `artifacts/acceptance/t5-evidence.json` 和必要截图。
 - [ ] 验收与收尾
-  - [ ] 运行 `pnpm exec tsx scripts/acceptance/local-console-t5.ts`。
-  - [ ] 使用 fake `gh` 前置 PATH 跑 T5 acceptance，确认 fake `gh` 调用次数为 0。
-  - [x] 运行 `pnpm test`。
+  - [x] 修正 `scripts/acceptance/local-console-t5.ts` 的 `must-matrix` statement，使 564 / 475 计数从当前 `openspec/specs/github-issue-runner/spec.md` 动态计算，且不再出现 552 / 463。
+  - [x] 修正 `roadmap-evidence` case，使其读取 `docs/roadmap/milestone-4-local-console.md` 并断言 T5 `[x]`、`artifacts/acceptance/t5-evidence.json`、全量 case、MUST 矩阵、`pnpm test` / `pnpm typecheck` 退出码与 T6/M3 非目标说明。
+  - [x] 修正 `pr-evidence` case，使其校验真实 PR body draft 中的 `Closes #109`、`Closes #116`、T5 evidence 路径、MUST 矩阵路径与测试/typecheck 摘要，不再检查 `Closes #...` 占位符。
+  - [x] 修正 fake `gh` 零调用 case，使其覆盖提交前全量本地 acceptance 入口，而不只覆盖 `worktree-diff`。
+  - [x] 运行 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case all`，重新生成 `artifacts/acceptance/t5-evidence.json`，且 `selectedCase` 为 `all`。
+  - [x] 使用 fake `gh` 前置 PATH 跑 T5 全量本地 acceptance，确认 fake `gh` 调用次数为 0。
+  - [x] 运行 `pnpm test`，确认 GitHub 模式相关测试无回归。
   - [x] 运行 `pnpm typecheck`。
-  - [ ] 运行 `pnpm --filter @agent-moebius/desktop build`。
-  - [ ] 运行 `pnpm --filter @agent-moebius/console-ui test`。
+  - [x] 运行 `pnpm --filter @agent-moebius/desktop build`。
+  - [x] 运行 `pnpm --filter @agent-moebius/console-ui test`。
   - [x] 运行 `git diff --check`。
-  - [ ] 更新 `docs/roadmap/milestone-4-local-console.md`，勾选 T5，记录验收证据，并明确 T6 flag 与 M3 A-K 不在 T5。
-  - [ ] commit、push、开 PR；PR body 包含 T5 证据、MUST 矩阵路径和 `Closes #...`。
+  - [x] 更新 `docs/roadmap/milestone-4-local-console.md`，勾选 T5 `[x]`，记录全量验收证据、MUST 矩阵路径、测试/typecheck 退出码，并明确 T6 flag 与 M3 A-K 不在 T5。
+  - [x] 生成 PR body draft，内容包含 `Closes #109`、`Closes #116`、T5 evidence 路径、MUST 矩阵路径和测试/typecheck 结果摘要，并用 `pr-evidence` case 校验 draft。
+  - [x] push/PR 前运行 `git fetch origin main` 与 `git merge-base --is-ancestor origin/main HEAD`；若失败，停止收尾，同步最新 main 后重跑 T5 evidence 与回归命令。
+  - [ ] git add -A 后提交；commit message/body 含 `Closes #116`。
+  - [ ] push 当前 issue 分支并创建 base `main` 的 PR；PR body 包含 `Closes #109`、`Closes #116`、T5 证据、MUST 矩阵路径和测试/typecheck 结果摘要。
+  - [ ] PR 创建后运行 `gh pr view <PR_URL> --json baseRefName,body,state`，确认 `baseRefName` 为 `main`，body 含 `Closes #109`、`Closes #116`、T5 evidence 路径、MUST 矩阵路径与测试/typecheck 结果摘要。
 
 ## MUST 矩阵索引
 说明：完整分类与处理说明见 `proposal.md` 的「MUST 矩阵」。本节保留同一组源行映射，便于直接在任务文件中核对验收。矩阵覆盖 `openspec/specs/github-issue-runner/spec.md` 中全部 564 行包含字面量 `MUST` 的源行；只统计项目符号 `- MUST` 的 475 行不是本任务验收口径。

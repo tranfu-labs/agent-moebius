@@ -66,6 +66,7 @@ const acceptanceLoopChangeDirs = [
 ];
 const artifactDir = path.join(projectRoot, "artifacts", "acceptance");
 const evidencePath = path.join(artifactDir, "t5-evidence.json");
+const prBodyDraftPath = path.join(artifactDir, "t5-pr-body.md");
 const selectedCase = readCaseArg(process.argv);
 const fixtureSqliteBusyTimeoutMs = 5_000;
 
@@ -100,7 +101,7 @@ async function main(): Promise<void> {
     "acceptance-recheck-after-repair": runAcceptanceRecheckAfterRepairCase,
     "acceptance-projection-missing": runAcceptanceProjectionMissingCase,
     "acceptance-store-timeout": runAcceptanceStoreTimeoutCase,
-    "fake-gh-zero": runFakeGhZeroCase,
+    "fake-gh-zero": () => runFakeGhZeroCase(runners),
     "roadmap-evidence": runRoadmapEvidenceCase,
     "pr-evidence": runPrEvidenceCase,
     "child-session-acceptance": runChildSessionAcceptanceCase,
@@ -110,7 +111,7 @@ async function main(): Promise<void> {
 
   const acceptance =
     selectedCase === "all"
-      ? await runCasesSequentially(Object.values(runners))
+      ? await runAllCasesWithFakeGhCoverage(runners)
       : selectedCase === "acceptance-loop-suite"
         ? await runAcceptanceLoopSuiteCase()
       : await requireCase(runners, selectedCase)();
@@ -140,6 +141,7 @@ async function runOpenSpecCase(): Promise<EvidenceItem[]> {
 async function runMustMatrixCase(): Promise<EvidenceItem[]> {
   const source = await fs.readFile(path.join(projectRoot, "openspec", "specs", "github-issue-runner", "spec.md"), "utf8");
   const mustLines = source.split(/\n/u).flatMap((line, index) => (line.includes("MUST") ? [index + 1] : []));
+  const bulletMustCount = source.split(/\n/u).filter((line) => /^\s*-\s+MUST/u.test(line)).length;
   const coverage = await Promise.all(["proposal.md", "tasks.md"].map(async (file) => {
     const text = await fs.readFile(path.join(changeDir, file), "utf8");
     const covered = new Set<number>();
@@ -155,9 +157,9 @@ async function runMustMatrixCase(): Promise<EvidenceItem[]> {
   }));
   assert(coverage.every((entry) => entry.missing.length === 0), JSON.stringify(coverage));
   return [
-    item(2, "must-matrix", "查看 `proposal.md` 与 `tasks.md` → 应看到 552 行含 `MUST` 源行均映射为三类，并说明 463 行不是验收口径。", {
+    item(2, "must-matrix", `查看 \`proposal.md\` 与 \`tasks.md\` → 应看到 ${String(mustLines.length)} 行含 \`MUST\` 源行均映射为三类，并说明 ${String(bulletMustCount)} 行项目符号 \`- MUST\` 不是本任务验收口径。`, {
       coverage,
-      bulletMustCount: source.split(/\n/u).filter((line) => /^\s*-\s+MUST/u.test(line)).length,
+      bulletMustCount,
     }),
   ];
 }
@@ -224,6 +226,40 @@ async function runCasesSequentially(runners: Array<() => Promise<EvidenceItem[]>
     acceptance.push(...await runner());
   }
   return acceptance;
+}
+
+async function runAllCasesWithFakeGhCoverage(runners: Record<string, () => Promise<EvidenceItem[]>>): Promise<EvidenceItem[]> {
+  const normalRunners = Object.entries(runners)
+    .filter(([name]) => name !== "fake-gh-zero")
+    .map(([, runner]) => runner);
+  const result = await runWithFakeGh(async () => await runCasesSequentially(normalRunners));
+  return [
+    ...result.value,
+    fakeGhZeroItem(result.fakeGhCalls, result.fakeGhLog),
+  ];
+}
+
+async function runWithFakeGh<T>(fn: () => Promise<T>): Promise<{ value: T; fakeGhCalls: number; fakeGhLog: string }> {
+  const root = await makeRoot("fake-gh");
+  const fakeBin = path.join(root, "fake-bin");
+  const fakeGhLog = path.join(root, "fake-gh.log");
+  const originalPath = process.env.PATH ?? "";
+  await installFakeCommand(fakeBin, "gh", fakeGhLog);
+  process.env.PATH = `${fakeBin}${path.delimiter}${originalPath}`;
+  try {
+    const value = await fn();
+    return { value, fakeGhCalls: await countLogLines(fakeGhLog), fakeGhLog };
+  } finally {
+    process.env.PATH = originalPath;
+  }
+}
+
+function fakeGhZeroItem(fakeGhCalls: number, fakeGhLog: string): EvidenceItem {
+  assert(fakeGhCalls === 0, `fake gh was called ${String(fakeGhCalls)} times`);
+  return item(13, "fake-gh-zero", "跑 fake `gh` 前置 PATH 的 T5 全量本地 acceptance → 应输出 fake `gh` 调用次数为 0。", {
+    fakeGhCalls,
+    fakeGhLog: relativeToProject(fakeGhLog),
+  });
 }
 
 async function runMultiChildGoalCase(): Promise<EvidenceItem[]> {
@@ -1337,46 +1373,59 @@ async function runAcceptanceStoreTimeoutCase(): Promise<EvidenceItem[]> {
   }
 }
 
-async function runFakeGhZeroCase(): Promise<EvidenceItem[]> {
-  const root = await makeRoot("fake-gh");
-  const fakeBin = path.join(root, "fake-bin");
-  const fakeGhLog = path.join(root, "fake-gh.log");
-  const originalPath = process.env.PATH ?? "";
-  await installFakeCommand(fakeBin, "gh", fakeGhLog);
-  process.env.PATH = `${fakeBin}${path.delimiter}${originalPath}`;
-  try {
-    await runWorktreeDiffCase();
-    const fakeGhCalls = await countLogLines(fakeGhLog);
-    assert(fakeGhCalls === 0, `fake gh was called ${String(fakeGhCalls)} times`);
-    return [
-      item(13, "fake-gh-zero", "跑 fake `gh` 前置 PATH 的 T5 acceptance → 应输出 fake `gh` 调用次数为 0。", {
-        fakeGhCalls,
-        fakeGhLog: relativeToProject(fakeGhLog),
-      }),
-    ];
-  } finally {
-    process.env.PATH = originalPath;
-  }
+async function runFakeGhZeroCase(runners: Record<string, () => Promise<EvidenceItem[]>>): Promise<EvidenceItem[]> {
+  const normalRunners = Object.entries(runners)
+    .filter(([name]) => name !== "fake-gh-zero")
+    .map(([, runner]) => runner);
+  const result = await runWithFakeGh(async () => {
+    await runCasesSequentially(normalRunners);
+  });
+  return [fakeGhZeroItem(result.fakeGhCalls, result.fakeGhLog)];
 }
 
 async function runRoadmapEvidenceCase(): Promise<EvidenceItem[]> {
-  const tasks = await fs.readFile(path.join(changeDir, "tasks.md"), "utf8");
-  assert(tasks.includes("docs/roadmap/milestone-4-local-console.md"), "tasks missing roadmap evidence step");
+  const roadmap = await fs.readFile(path.join(projectRoot, "docs", "roadmap", "milestone-4-local-console.md"), "utf8");
+  const t5Section = extractMarkdownSection(roadmap, "### - [x] T5 · 本地全功能对等");
+  assert(t5Section.includes("artifacts/acceptance/t5-evidence.json"), "roadmap missing T5 evidence path");
+  assert(t5Section.includes("--case all"), "roadmap missing all-case evidence");
+  assert(t5Section.includes("MUST") && t5Section.includes("564") && t5Section.includes("475"), "roadmap missing MUST matrix counts");
+  assert(t5Section.includes("pnpm test") && t5Section.includes("退出码 0"), "roadmap missing pnpm test exit code");
+  assert(t5Section.includes("pnpm typecheck") && t5Section.includes("退出码 0"), "roadmap missing pnpm typecheck exit code");
+  assert(t5Section.includes("T6") && t5Section.includes("M3") && t5Section.includes("A-K"), "roadmap missing T6/M3 non-goal note");
   return [
-    item(14, "roadmap-evidence", "查看 roadmap → 应看到 T5 勾选、验收证据、MUST 文档勾选说明，并明确 T6 flag 与 M3 A-K 不在 T5。", {
-      tasksContainRoadmapStep: true,
-      parentIssueSummaryDeferred: true,
+    item(14, "roadmap-evidence", "查看 roadmap → 应看到 T5 勾选 `[x]`、验收证据、MUST 文档勾选说明、测试/typecheck 退出码，并明确 T6 flag 与 M3 A-K 不在 T5。", {
+      t5Checked: true,
+      evidencePath: t5Section.includes("artifacts/acceptance/t5-evidence.json"),
+      allCase: t5Section.includes("--case all"),
+      mustMatrixCounts: { mustLines: 564, bulletMustCount: 475 },
+      testExitCode: t5Section.includes("pnpm test") && t5Section.includes("退出码 0"),
+      typecheckExitCode: t5Section.includes("pnpm typecheck") && t5Section.includes("退出码 0"),
+      nonGoals: { t6: t5Section.includes("T6"), m3: t5Section.includes("M3") && t5Section.includes("A-K") },
     }),
   ];
 }
 
 async function runPrEvidenceCase(): Promise<EvidenceItem[]> {
-  const tasks = await fs.readFile(path.join(changeDir, "tasks.md"), "utf8");
-  assert(tasks.includes("Closes #..."), "tasks missing PR close evidence step");
+  const body = await fs.readFile(prBodyDraftPath, "utf8");
+  for (const required of [
+    "Closes #109",
+    "Closes #116",
+    "artifacts/acceptance/t5-evidence.json",
+    "openspec/changes/local-console-t5-full-parity/proposal.md",
+    "pnpm test",
+    "pnpm typecheck",
+  ]) {
+    assert(body.includes(required), `PR body draft missing ${required}`);
+  }
+  assert(!body.includes("Closes #..."), "PR body draft still contains placeholder Closes #...");
   return [
-    item(15, "pr-evidence", "查看 T5 PR → 应看到 PR body 包含 T5 证据、测试/typecheck 退出码、MUST 矩阵路径和 `Closes ...` 收尾。", {
-      tasksContainPrStep: true,
-      finalPrWillCarryConcreteUrl: true,
+    item(15, "pr-evidence", "查看 T5 PR body draft → 应看到关闭锚点、T5 证据、测试/typecheck 退出码、MUST 矩阵路径和证据摘要。", {
+      draftPath: relativeToProject(prBodyDraftPath),
+      closesParent: body.includes("Closes #109"),
+      closesChild: body.includes("Closes #116"),
+      evidencePath: body.includes("artifacts/acceptance/t5-evidence.json"),
+      mustMatrixPath: body.includes("openspec/changes/local-console-t5-full-parity/proposal.md"),
+      testSummary: body.includes("pnpm test") && body.includes("pnpm typecheck"),
     }),
   ];
 }
@@ -1828,6 +1877,14 @@ async function writeAgent(root: string, name: string, body: string): Promise<voi
 
 function relativeToProject(targetPath: string): string {
   return path.relative(projectRoot, targetPath);
+}
+
+function extractMarkdownSection(markdown: string, heading: string): string {
+  const start = markdown.indexOf(heading);
+  assert(start !== -1, `missing heading: ${heading}`);
+  const rest = markdown.slice(start);
+  const nextHeading = rest.slice(heading.length).search(/\n### /u);
+  return nextHeading === -1 ? rest : rest.slice(0, heading.length + nextHeading);
 }
 
 function assert(condition: unknown, message: string): asserts condition {
