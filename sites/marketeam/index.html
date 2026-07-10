@@ -979,17 +979,31 @@ body {
 /* 纯 opacity 入场：入场动画不得含位移/缩放/旋转，否则飞卡终点坐标量不准 */
 @keyframes rmIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* ---- 容器变形转场（iOS 打开 App 式）：点击工牌 → 幽灵卡面转正放大淡出、
-        弹窗面板从工牌足迹放大淡入；关闭逆向缩回架上 ---- */
+/* ---- 容器变形转场（标准三层）：
+        幽灵卡=共享元素（双内容交叉淡化，飞向真工牌位，全程不淡出）；
+        变形面=容器连续（无内容空面，卡片足迹→面板矩形，层序在遮罩与面板之间）；
+        真面板=内容层（不再 transform，就位后内容淡入）。关闭逆向且更快 ---- */
 .fly-layer {
   position: fixed;
   inset: 0;
-  z-index: 240;              /* 压在弹窗之上，幽灵盖在变形路径上 */
+  z-index: 240;              /* 幽灵卡永远在最上：眼睛追踪的主体不被遮挡 */
   pointer-events: none;
-  perspective: 1400px;       /* 幽灵卡面的 rotateY 需要透视 */
+  perspective: 1500px;       /* 与 .rack 的透视值一致；origin 由脚本按 .rack 实测设置 */
 }
-.fly-layer .rack-face { position: absolute; left: 0; top: 0; }
+.morph-ghost { position: absolute; left: 0; top: 0; transform-origin: center; }
+.morph-ghost .rack-face,
+.morph-ghost .badge { position: absolute; left: 0; top: 0; margin: 0; cursor: default; }
+/* 变形面：面板同款空面（无内容 → 缩放不产生可见拉伸） */
+.morph-surface {
+  position: absolute;
+  border-radius: 22px;
+  background: rgba(14, 8, 32, 0.97);
+  border: 1px solid rgba(160, 104, 255, 0.35);
+  box-shadow: 0 40px 90px -30px #000;
+  pointer-events: none;
+}
 .rack-item.is-away { visibility: hidden; }   /* 变形期间架上原卡隐位，占位保留 */
+.rack-modal.is-morphing .badge { visibility: hidden; }   /* 真工牌待落定换装才现身 */
 .rack-modal.is-closing .rack-modal-overlay { animation: rmOut 0.3s ease both; }
 @keyframes rmOut { to { opacity: 0; } }
 
@@ -1677,10 +1691,15 @@ body {
 })();
 
 /* =========================================================================
-   3) 底部工牌架点击/Enter → 容器变形转场（iOS 打开 App 式）后显示详情弹窗：
-      幽灵卡面（克隆 .rack-face）从架上侧立位转正放大淡出，弹窗面板本体
-      FLIP 从工牌足迹放大淡入，两层同路径交叉 =「工牌慢慢变成弹窗」；
-      关闭（Esc / 遮罩 / 按钮）逆向缩回架上原位。转场期间防重入；
+   3) 底部工牌架点击/Enter → 标准三层容器变形后显示详情弹窗：
+      ① 幽灵卡（共享元素，两拍编排）：第一拍「拿起」——原地上抬、前移、
+         44°→0° 转正、微放大提亮（黑胶唱片架的拿起动作）；第二拍「入窗」——
+         从举起姿态连续飞抵弹窗内真工牌位，途中双内容交叉淡化，
+         落定像素级换装，全程不淡出；
+      ② 变形面（容器连续）：无内容空面从卡片足迹插值到面板矩形，
+         层序在遮罩之上、面板之下；
+      ③ 真面板（内容层）：不做 transform，内容在容器就位后淡入。
+      关闭（Esc / 遮罩 / 按钮）逆向且更快（420ms vs 620ms）。转场期间防重入；
       prefers-reduced-motion 或无 WAAPI 时降级为直接开合（仅淡入淡出）。
    ========================================================================= */
 (function () {
@@ -1700,8 +1719,12 @@ body {
   var animating = false;
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var canFly = !reduce && typeof sheet.animate === 'function';
-  var MORPH_MS = 560;
-  var MORPH_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
+  var OPEN_MS = 760;                                   // 两拍：拿起(0–38%) + 入窗(38–100%)
+  var CLOSE_MS = 480;                                  // 两拍：离窗(0–55%) + 放回(55–100%)，快于打开
+  var EASE_OUT = 'cubic-bezier(0.2, 0, 0, 1)';        // 入窗：轻加速起步→高速中段→缓收
+  var EASE_IN = 'cubic-bezier(0.3, 0, 0.8, 0.15)';    // 离窗：加速离场
+  var EASE_SETTLE = 'cubic-bezier(0.22, 1, 0.36, 1)'; // 拿起/放回：黑胶架 demo 同款减速
+  var LIFT = 28;                                       // 拿起时的上抬量（px）
   var RACK_DEG = 44;   // 与 .rack-item 的侧立角保持一致
 
   /* 架上卡姿态：rotateY 投影不移动中心点 → 定位用投影 rect 中心；
@@ -1721,75 +1744,173 @@ body {
     };
   }
 
-  function makeGhost(item) {
+  /* 幽灵卡：容器=真工牌矩形尺寸，内叠 B（完整工牌克隆，铺满）与 A（架上简化
+     卡面克隆，按宽度对齐缩放后垂直居中——数学上保证起飞帧与原卡像素一致）。
+     fly-layer 的透视原点按 .rack 实测设置，让 44° 投影与架上渲染一致 */
+  function makeGhost(item, badgeRect) {
     var face = item.querySelector('.rack-face');
     var layer = document.createElement('div');
     layer.className = 'fly-layer';
-    var ghost = face.cloneNode(true);
-    ghost.style.width = face.offsetWidth + 'px';
-    ghost.style.height = face.offsetHeight + 'px';
+    var rackBox = document.querySelector('.rack').getBoundingClientRect();
+    layer.style.perspectiveOrigin =
+      (rackBox.left + rackBox.width / 2) + 'px ' + (rackBox.top + rackBox.height / 2) + 'px';
+
+    var ghost = document.createElement('div');
+    ghost.className = 'morph-ghost';
+    ghost.style.width = badgeRect.width + 'px';
+    ghost.style.height = badgeRect.height + 'px';
+
+    var b = mBadge.cloneNode(true);
+    b.removeAttribute('id');
+    var ids = b.querySelectorAll('[id]');
+    for (var i = 0; i < ids.length; i++) ids[i].removeAttribute('id');
+    b.style.width = badgeRect.width + 'px';
+
+    var a = face.cloneNode(true);
+    var k = badgeRect.width / (face.offsetWidth || 1);
+    a.style.width = face.offsetWidth + 'px';
+    a.style.height = face.offsetHeight + 'px';
+    a.style.transform = 'scale(' + k + ')';
+    a.style.transformOrigin = 'top left';
+    a.style.top = ((badgeRect.height - face.offsetHeight * k) / 2) + 'px';
     var glow = item.style.getPropertyValue('--glow');
-    if (glow) ghost.style.setProperty('--glow', glow.trim());
+    if (glow) a.style.setProperty('--glow', glow.trim());
+
+    ghost.appendChild(b);   // B 在下
+    ghost.appendChild(a);   // A 在上（起飞帧可见的是架上卡面）
     layer.appendChild(ghost);
     document.body.appendChild(layer);
-    return { layer: layer, ghost: ghost };
-  }
 
-  function pose(x, y, deg, s) {
-    return 'translate(' + x + 'px,' + y + 'px) translate(-50%,-50%) rotateY(' + deg + 'deg) scale(' + s + ')';
-  }
-
-  /* 关键帧逆序：offset 取 1-x 后反转数组 */
-  function flip(frames) {
-    var out = [];
-    for (var i = frames.length - 1; i >= 0; i--) {
-      var f = {};
-      for (var k in frames[i]) f[k] = frames[i][k];
-      if ('offset' in f) f.offset = 1 - f.offset;
-      out.push(f);
+    // A/B 头像中心的纵向差：交叉淡化时让 A 滑向 B 的头像位，避免最亮元素双重曝光
+    var dAva = 0;
+    var avaA = a.querySelector('.rack-ava');
+    var avaB = b.querySelector('.badge-ava');
+    if (avaA && avaB) {
+      var ra = avaA.getBoundingClientRect();
+      var rb = avaB.getBoundingClientRect();
+      dAva = (rb.top + rb.height / 2) - (ra.top + ra.height / 2);
     }
-    return out;
+    return { layer: layer, ghost: ghost, a: a, b: b, k: k, dAva: dAva };
   }
 
-  /* 容器变形：backwards=false 工牌→弹窗，true 弹窗→工牌。
-     transform 与 opacity 拆成两条动画：淡化要线性节奏、运动要弹性缓动，
-     混写稀疏关键帧（中间帧只有 opacity）在部分渲染环境还会被错误解析 */
-  function morph(item, backwards, done) {
-    var dst = sheet.getBoundingClientRect();   // 面板最终矩形（此刻无 transform）
-    var p = rackPose(item);
-    var dstX = dst.left + dst.width / 2;
-    var dstY = dst.top + dst.height / 2;
+  /* 姿态统一为同构 transform 列表——关键帧结构一致才走逐函数插值，
+     避免混构列表触发矩阵分解插值产生怪扭 */
+  function pose(x, y, z, rx, ry, s) {
+    return 'translate(' + x + 'px,' + y + 'px) translate(-50%,-50%) translateZ(' + z +
+      'px) rotateX(' + rx + 'deg) rotateY(' + ry + 'deg) scale(' + s + ')';
+  }
 
-    var g = makeGhost(item);
-    var s0 = p.w / (g.ghost.offsetWidth || p.w);
-    var sEnd = dst.height / (g.ghost.offsetHeight || 1);   // 后半程已淡出，贴合面板高即可
-    var ghostMove = [
-      { transform: pose(p.x, p.y, RACK_DEG, s0) },
-      { transform: pose(dstX, dstY, 0, sEnd) }
-    ];
-    var ghostFade = [
-      { opacity: 1, offset: 0 }, { opacity: 1, offset: 0.3 },
-      { opacity: 0, offset: 0.75 }, { opacity: 0, offset: 1 }
-    ];
-    var sheetMove = [
-      { transform: 'translate(' + (p.x - dstX) + 'px,' + (p.y - dstY) + 'px) scale(' +
-          (p.projW / dst.width) + ',' + (p.projH / dst.height) + ')' },
-      { transform: 'none' }
-    ];
-    var sheetFade = [
-      { opacity: 0, offset: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1, offset: 1 }
-    ];
-    var move = { duration: MORPH_MS, easing: MORPH_EASE, fill: 'both' };
-    var fade = { duration: MORPH_MS, easing: 'linear', fill: 'both' };
-    var anims = [
-      g.ghost.animate(backwards ? flip(ghostMove) : ghostMove, move),
-      g.ghost.animate(backwards ? flip(ghostFade) : ghostFade, fade),
-      sheet.animate(backwards ? flip(sheetMove) : sheetMove, move),
-      sheet.animate(backwards ? flip(sheetFade) : sheetFade, fade)
-    ];
-    anims[2].onfinish = function () {
-      done();   // 先落定状态（拆层/隐藏在 done 内完成后再释放填充，避免闪帧）
+  /* .rack 两端 7% 渐隐 mask 下，横坐标 x 处的近似透明度（对齐边缘卡起飞帧） */
+  function maskAlpha(x) {
+    var r = document.querySelector('.rack').getBoundingClientRect();
+    var t = (x - r.left) / (r.width || 1);
+    return Math.max(0, Math.min(1, Math.min(t / 0.07, (1 - t) / 0.07)));
+  }
+
+  /* 三层容器变形：backwards=false 打开（工牌→弹窗），true 关闭（弹窗→工牌）。
+     开/关节奏不对称（关闭更快、缓动相反），关键帧各写各的，不做数组反转。
+     transform 与 opacity 保持拆分动画（缓动诉求不同；混写稀疏关键帧在部分
+     渲染环境会被错误解析成全程插值） */
+  function morph(item, backwards, done) {
+    var badgeRect = mBadge.getBoundingClientRect();   // 真工牌矩形 = 幽灵落点
+    var sheetRect = sheet.getBoundingClientRect();    // 面板矩形 = 变形面终点
+    var p = rackPose(item);
+    var bX = badgeRect.left + badgeRect.width / 2;
+    var bY = badgeRect.top + badgeRect.height / 2;
+    var shX = sheetRect.left + sheetRect.width / 2;
+    var shY = sheetRect.top + sheetRect.height / 2;
+    var s0 = p.w / (badgeRect.width || 1);
+    var alpha = maskAlpha(p.x);
+    var hovered = !backwards && item.matches && item.matches(':hover');
+
+    // 变形面：DOM 上插在遮罩与面板之间（层序：遮罩 < 面 < 面板）
+    var surface = document.createElement('div');
+    surface.className = 'morph-surface';
+    surface.style.left = sheetRect.left + 'px';
+    surface.style.top = sheetRect.top + 'px';
+    surface.style.width = sheetRect.width + 'px';
+    surface.style.height = sheetRect.height + 'px';
+    modal.insertBefore(surface, sheet);
+
+    var g = makeGhost(item, badgeRect);
+
+    var ghostFrom = pose(p.x, p.y, 0, 0, RACK_DEG, s0);
+    var ghostLift = pose(p.x, p.y - LIFT, 110, 4, 0, s0 * 1.05);  // 拿起：上抬、前移、转正、微放大
+    var ghostTo = pose(bX, bY, 0, 0, 0, 1);
+    var surFrom = 'translate(' + (p.x - shX) + 'px,' + (p.y - LIFT - shY) + 'px) scale(' +
+        (p.projW / sheetRect.width) + ',' + (p.projH / sheetRect.height) + ')';
+
+    var dur = backwards ? CLOSE_MS : OPEN_MS;
+    var move = { duration: dur, fill: 'both' };   // 分段缓动写在关键帧上
+    var fade = { duration: dur, easing: 'linear', fill: 'both' };
+    var anims = [];
+    function run(el, frames, opts) { anims.push(el.animate(frames, opts)); }
+
+    if (!backwards) {
+      run(g.ghost, [
+        { transform: ghostFrom, easing: EASE_SETTLE, offset: 0 },    // 第一拍：拿起
+        { transform: ghostLift, easing: EASE_OUT, offset: 0.38 },    // 第二拍：入窗
+        { transform: ghostTo, offset: 1 }
+      ], move);
+      run(g.a, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.42 },
+                { opacity: 0, offset: 0.7 }, { opacity: 0, offset: 1 }], fade);
+      run(g.b, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.42 },
+                { opacity: 1, offset: 0.7 }, { opacity: 1, offset: 1 }], fade);
+      run(g.a, [{ transform: 'translateY(0px) scale(' + g.k + ')', offset: 0 },
+                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 0.42 },
+                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0.7 },
+                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 1 }], fade);
+      run(surface, [
+        { transform: surFrom, offset: 0 },
+        { transform: surFrom, easing: EASE_OUT, offset: 0.38 },      // 拿起拍按兵不动
+        { transform: 'none', offset: 1 }
+      ], move);
+      run(surface, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.38 },
+                    { opacity: 1, offset: 0.55 }, { opacity: 1, offset: 1 }], fade);
+      run(sheet, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.6 },
+                  { opacity: 1, offset: 0.92 }, { opacity: 1, offset: 1 }], fade);
+      run(g.ghost, [{ filter: 'brightness(' + (hovered ? 1.08 : 1) + ')', offset: 0 },
+                    { filter: 'brightness(1.08)', offset: 0.38 },    // 拿起时提亮（demo hover 同款）
+                    { filter: 'brightness(1)', offset: 0.75 },
+                    { filter: 'brightness(1)', offset: 1 }], fade);
+      if (alpha < 1)
+        run(g.ghost, [{ opacity: alpha, offset: 0 }, { opacity: 1, offset: 0.15 },
+                      { opacity: 1, offset: 1 }], fade);
+    } else {
+      run(g.ghost, [
+        { transform: ghostTo, easing: EASE_IN, offset: 0 },          // 第一拍：离窗缩回
+        { transform: ghostLift, easing: EASE_SETTLE, offset: 0.55 }, // 第二拍：放回插槽
+        { transform: ghostFrom, offset: 1 }
+      ], move);
+      run(g.b, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.3 },
+                { opacity: 0, offset: 0.58 }, { opacity: 0, offset: 1 }], fade);
+      run(g.a, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.3 },
+                { opacity: 1, offset: 0.58 }, { opacity: 1, offset: 1 }], fade);
+      run(g.a, [{ transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0 },
+                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0.3 },
+                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 0.58 },
+                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 1 }], fade);
+      run(surface, [
+        { transform: 'none', easing: EASE_IN, offset: 0 },
+        { transform: surFrom, offset: 0.55 },
+        { transform: surFrom, offset: 1 }
+      ], move);
+      run(surface, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.35 },
+                    { opacity: 0, offset: 0.55 }, { opacity: 0, offset: 1 }], fade);
+      run(sheet, [{ opacity: 1, offset: 0 }, { opacity: 0, offset: 0.2 },
+                  { opacity: 0, offset: 1 }], fade);
+      run(g.ghost, [{ filter: 'brightness(1)', offset: 0 },
+                    { filter: 'brightness(1.08)', offset: 0.55 },    // 放回途中过手提亮
+                    { filter: 'brightness(1)', offset: 1 }], fade);
+      if (alpha < 1)
+        run(g.ghost, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.85 },
+                      { opacity: alpha, offset: 1 }], fade);
+    }
+
+    anims[0].onfinish = function () {
+      done();   // 先落定状态（换装/隐藏），再拆层释放填充，避免闪帧
       g.layer.parentNode && g.layer.parentNode.removeChild(g.layer);
+      surface.parentNode && surface.parentNode.removeChild(surface);
       for (var i = 0; i < anims.length; i++) anims[i].cancel();
     };
   }
@@ -1820,9 +1941,11 @@ body {
       return;
     }
     animating = true;
+    modal.classList.add('is-morphing'); // 真工牌隐位，等幽灵落定换装
     modal.hidden = false;               // 布局此刻定型，变形终点可测
     item.classList.add('is-away');
     morph(item, false, function () {
+      modal.classList.remove('is-morphing');   // 与拆幽灵同帧 → 像素级换装
       animating = false;
       closeBtn.focus();
       document.addEventListener('keydown', onKey);
@@ -1834,6 +1957,7 @@ body {
     document.removeEventListener('keydown', onKey);
     if (!canFly || !lastTrigger) { finishClose(); return; }
     animating = true;
+    modal.classList.add('is-morphing'); // 真工牌隐位，与同帧出现的幽灵像素级换装
     modal.classList.add('is-closing');  // 遮罩淡出
     morph(lastTrigger, true, function () {
       animating = false;
@@ -1843,6 +1967,7 @@ body {
 
   function finishClose() {
     modal.hidden = true;
+    modal.classList.remove('is-morphing');
     modal.classList.remove('is-closing');
     if (lastTrigger) {
       lastTrigger.classList.remove('is-away');
