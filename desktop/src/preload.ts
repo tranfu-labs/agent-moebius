@@ -8,6 +8,7 @@ export interface AgentMoebiusDesktopApi {
   openStatusPage(): Promise<void>;
   openDataRoot(): Promise<void>;
   checkUpdates(): Promise<void>;
+  selectProjectFolder(): Promise<string | null>;
 }
 
 const api: AgentMoebiusDesktopApi = {
@@ -34,6 +35,9 @@ const api: AgentMoebiusDesktopApi = {
   },
   checkUpdates() {
     return ipcRenderer.invoke("action:check-updates") as Promise<void>;
+  },
+  selectProjectFolder() {
+    return ipcRenderer.invoke("project:select-folder") as Promise<string | null>;
   },
 };
 

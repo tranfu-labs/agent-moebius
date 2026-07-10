@@ -5,7 +5,13 @@ import { fileURLToPath } from "node:url";
 import type { CodexRunOptions, CodexRunResult } from "../../src/codex.js";
 import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../../src/local-console/server.js";
 import { createSqliteLocalConsoleStore } from "../../src/local-console/store.js";
-import type { LocalConsoleMessage, LocalConsoleSessionSummary, LocalConsoleStore } from "../../src/local-console/types.js";
+import type {
+  LocalConsoleMessage,
+  LocalConsoleProjectSummary,
+  LocalConsoleSessionSummary,
+  LocalConsoleSessionWorkspaceSource,
+  LocalConsoleStore,
+} from "../../src/local-console/types.js";
 
 interface LocalStateResponse {
   selectedSessionId: string;
@@ -440,7 +446,34 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
     await this.inner.close();
   }
 
-  async createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+  async createProject(input: { folderPath: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    return await this.inner.createProject(input);
+  }
+
+  async updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    return await this.inner.updateProject(input);
+  }
+
+  async listProjects(): Promise<LocalConsoleProjectSummary[]> {
+    return await this.inner.listProjects();
+  }
+
+  async getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource> {
+    return await this.inner.getSessionWorkspace(sessionId);
+  }
+
+  async recordProjectWorkspaceStatus(input: {
+    projectId: string;
+    cwd: string;
+    mode: "direct" | "worktree";
+    worktreePath: string | null;
+    worktreeUnavailableReason: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordProjectWorkspaceStatus(input);
+  }
+
+  async createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
     return await this.inner.createSession(input);
   }
 

@@ -10,13 +10,17 @@ import { startLocalConsoleServer } from "../src/local-console/server.js";
 import { readLocalConsoleOutputTail } from "../src/local-console/output-tail.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+  LOCAL_CONSOLE_PROJECT_ID,
   type LocalConsoleMessage,
+  type LocalConsoleProjectSummary,
   type LocalConsoleSessionSummary,
+  type LocalConsoleSessionWorkspaceSource,
   type LocalConsoleStore,
 } from "../src/local-console/types.js";
 import type { CodexRunOptions, CodexRunResult } from "../src/codex.js";
 
 const originalPath = process.env.PATH;
+const STANDARD_STORE_TIMEOUT_MS = 2_000;
 
 afterEach(() => {
   process.env.PATH = originalPath;
@@ -103,6 +107,62 @@ describe("local console", () => {
     }
   });
 
+  it("persists local projects and rejects orphan local sessions atomically", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const folderPath = path.join(root, "workspace-a");
+    await fs.mkdir(folderPath, { recursive: true });
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    try {
+      const project = await store.createProject({
+        folderPath,
+        worktreeMode: true,
+        now: "2026-07-09T00:00:00.000Z",
+      });
+      const session = await store.createSession({
+        sessionId: "local:project-session",
+        projectId: project.projectId,
+        title: "project session",
+        now: "2026-07-09T00:00:01.000Z",
+      });
+      await store.appendUserMessage({
+        sessionId: session.sessionId,
+        body: "@dev project message",
+        now: "2026-07-09T00:00:02.000Z",
+      });
+
+      expect((await store.listProjects()).find((entry) => entry.projectId === project.projectId)).toMatchObject({
+        title: "workspace-a",
+        folderPath,
+        worktreeMode: true,
+        sessions: [expect.objectContaining({ sessionId: session.sessionId, projectId: project.projectId })],
+      });
+      await expect(
+        store.createSession({
+          sessionId: "local:missing-project",
+          projectId: "missing-project",
+          title: "bad",
+          now: "2026-07-09T00:00:03.000Z",
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await store.close();
+    }
+
+    const database = new DatabaseSync(sqlitePath, { readOnly: true });
+    try {
+      const good = database.prepare("SELECT session_id, project_id FROM sessions WHERE session_id = 'local:project-session'").get();
+      expect(good).toMatchObject({ session_id: "local:project-session" });
+      const orphan = database.prepare("SELECT session_id FROM sessions WHERE session_id = 'local:missing-project'").get();
+      expect(orphan).toBeUndefined();
+      const message = database.prepare("SELECT body FROM session_messages WHERE session_id = 'local:project-session'").get();
+      expect(message).toMatchObject({ body: "@dev project message" });
+    } finally {
+      database.close();
+    }
+  });
+
   it("builds local timelines that reuse mention parsing rules", () => {
     const agents = ["dev"];
     const runTimeline = buildLocalConsoleTimeline([message({ id: 1, body: "@dev hello" })], agents);
@@ -142,7 +202,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const post = await fetch(new URL("/api/local-console/messages", started.url), {
@@ -161,6 +221,50 @@ describe("local console", () => {
       ]);
       expect(runCodex).toHaveBeenCalledTimes(1);
       await expect(fs.stat(ghLog)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("runs a non-git project in place and records worktree unavailable reason", async () => {
+    const root = await makeFixtureRoot();
+    const folderPath = path.join(root, "plain-folder");
+    await fs.mkdir(folderPath, { recursive: true });
+    await writeAgent(root, "dev", "# Dev\n\nROLE:dev");
+    const cwdCalls: string[] = [];
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      if (options.cwd === undefined) {
+        throw new Error("codex cwd is required");
+      }
+      const cwd = options.cwd;
+      cwdCalls.push(cwd);
+      await fs.writeFile(path.join(cwd, "local-output.txt"), "changed", "utf8");
+      return codexOk(options, "done in non git");
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      workdirRoot: path.join(root, "workdir"),
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `non-git-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const project = await createProject(started.url, folderPath, true);
+      const session = await createProjectSession(started.url, "plain", project.projectId);
+      await postSessionMessage(started.url, session.sessionId, "@dev write in cwd");
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body === "done in non git"),
+      );
+      expect(cwdCalls).toEqual([folderPath]);
+      expect(state.project).toMatchObject({
+        projectId: project.projectId,
+        folderPath,
+        worktreeMode: true,
+        worktreeUnavailableReason: "not-git-repository",
+      });
+      await expect(fs.readFile(path.join(folderPath, "local-output.txt"), "utf8")).resolves.toBe("changed");
+      await expect(fs.stat(path.join(folderPath, ".git"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await started.close();
     }
@@ -188,7 +292,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const session = await createSession(started.url, "handoff");
@@ -220,7 +324,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const session = await createSession(started.url, "no trigger agent");
@@ -277,7 +381,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `restart-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const state = await waitForState(started.url, session.sessionId, (data) =>
@@ -304,7 +408,7 @@ describe("local console", () => {
       store,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const session = await createSession(started.url, "record failure");
@@ -352,7 +456,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
       codexMaxDurationMs: 20,
     });
     try {
@@ -418,7 +522,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `startup-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const fastState = await waitForState(started.url, sessionB.sessionId, (data) =>
@@ -455,7 +559,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const session = await createSession(started.url, "T4 验收会话");
@@ -487,7 +591,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const session = await createSession(started.url, "empty output");
@@ -538,7 +642,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const sessionA = await createSession(started.url, "A");
@@ -593,7 +697,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     const session = await createSession(started.url, "failure");
     try {
@@ -611,7 +715,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `restart-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       const state = await getState(restarted.url, session.sessionId);
@@ -760,7 +864,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
       codexIdleTimeoutMs: 10,
       codexMaxDurationMs: 20,
     });
@@ -810,7 +914,7 @@ describe("local console", () => {
       port: 0,
       runCodex,
       makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
-      storeTimeoutMs: 1_000,
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
       await postMessage(started.url, "@dev slow");
@@ -897,6 +1001,28 @@ async function createSession(url: string, title: string): Promise<LocalConsoleSe
   return body.session;
 }
 
+async function createProjectSession(url: string, title: string, projectId: string): Promise<LocalConsoleSessionSummary> {
+  const response = await fetch(new URL("/api/local-console/sessions", url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title, projectId }),
+  });
+  expect(response.status).toBe(201);
+  const body = (await response.json()) as { session: LocalConsoleSessionSummary };
+  return body.session;
+}
+
+async function createProject(url: string, folderPath: string, worktreeMode: boolean): Promise<LocalConsoleProjectSummary> {
+  const response = await fetch(new URL("/api/local-console/projects", url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ folderPath, worktreeMode }),
+  });
+  expect(response.status).toBe(201);
+  const body = (await response.json()) as { project: LocalConsoleProjectSummary };
+  return body.project;
+}
+
 async function postSessionMessage(url: string, sessionId: string, body: string): Promise<Response> {
   return await fetch(new URL(`/api/local-console/sessions/${encodeURIComponent(sessionId)}/messages`, url), {
     method: "POST",
@@ -970,9 +1096,23 @@ interface LocalSnapshotResponse {
 }
 
 interface LocalStateResponse {
+  projects: Array<{
+    projectId: string;
+    title: string;
+    folderPath: string;
+    worktreeMode: boolean;
+    worktreeUnavailableReason: string | null;
+    sessions: LocalConsoleSessionSummary[];
+  }>;
   project: {
+    projectId: string;
+    title: string;
+    folderPath: string;
+    worktreeMode: boolean;
+    worktreeUnavailableReason: string | null;
     sessions: LocalConsoleSessionSummary[];
   };
+  selectedProjectId: string;
   selectedSessionId: string;
   selectedSession: LocalConsoleSessionSummary | null;
   messages: Array<{ speaker: string; role: string | null; body: string; status: string; error: string | null; runDir: string | null }>;
@@ -985,6 +1125,9 @@ interface LocalRunSnapshotResponse {
   status: "running";
   elapsedMs: number;
   runDir: string | null;
+  cwd: string | null;
+  workspaceMode: "direct" | "worktree" | null;
+  worktreeUnavailableReason: string | null;
   lastOutputSummary: string;
   interruptible: boolean;
 }
@@ -1042,6 +1185,7 @@ function buildSessionSummary(sessionId: string, title = "默认会话", messages
   const interruptedCount = messages.filter((message) => message.sessionId === sessionId && message.status === "interrupted").length;
   return {
     sessionId,
+    projectId: LOCAL_CONSOLE_PROJECT_ID,
     title,
     status: runningCount > 0
       ? "running"
@@ -1062,6 +1206,38 @@ function buildSessionSummary(sessionId: string, title = "默认会话", messages
   };
 }
 
+function buildProjectSummary(
+  sessions: LocalConsoleSessionSummary[] = [buildSessionSummary(LOCAL_CONSOLE_DEFAULT_SESSION_ID)],
+  input: { worktreeMode?: boolean; folderPath?: string } = {},
+): LocalConsoleProjectSummary {
+  return {
+    projectId: LOCAL_CONSOLE_PROJECT_ID,
+    sourceType: "local-folder",
+    title: "agent-moebius",
+    folderPath: input.folderPath ?? process.cwd(),
+    worktreeMode: input.worktreeMode ?? false,
+    workspaceCwd: input.folderPath ?? process.cwd(),
+    workspaceMode: "direct",
+    worktreePath: null,
+    worktreeUnavailableReason: null,
+    workspaceUpdatedAt: "2026-07-09T00:00:00.000Z",
+    sessions,
+    runningCount: sessions.reduce((sum, session) => sum + session.runningCount, 0),
+    waitingCount: sessions.reduce((sum, session) => sum + session.waitingCount, 0),
+    stuckCount: sessions.reduce((sum, session) => sum + session.stuckCount, 0),
+    errorCount: sessions.reduce((sum, session) => sum + session.errorCount, 0),
+  };
+}
+
+function buildWorkspaceSource(worktreeMode = false): LocalConsoleSessionWorkspaceSource {
+  return {
+    projectId: LOCAL_CONSOLE_PROJECT_ID,
+    title: "agent-moebius",
+    folderPath: process.cwd(),
+    worktreeMode,
+  };
+}
+
 class FastFailAppendStore implements LocalConsoleStore {
   readonly sqlitePath = "/tmp/fast-fail-local-console.sqlite";
 
@@ -1069,7 +1245,32 @@ class FastFailAppendStore implements LocalConsoleStore {
 
   async close(): Promise<void> {}
 
-  async createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+  async createProject(input: { folderPath: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    void input.now;
+    return buildProjectSummary([buildSessionSummary(LOCAL_CONSOLE_DEFAULT_SESSION_ID)], {
+      folderPath: input.folderPath,
+      worktreeMode: input.worktreeMode,
+    });
+  }
+
+  async updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    void input.projectId;
+    void input.now;
+    return buildProjectSummary([buildSessionSummary(LOCAL_CONSOLE_DEFAULT_SESSION_ID)], { worktreeMode: input.worktreeMode });
+  }
+
+  async listProjects(): Promise<LocalConsoleProjectSummary[]> {
+    return [buildProjectSummary(await this.listSessions())];
+  }
+
+  async getSessionWorkspace(): Promise<LocalConsoleSessionWorkspaceSource> {
+    return buildWorkspaceSource();
+  }
+
+  async recordProjectWorkspaceStatus(): Promise<void> {}
+
+  async createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    void input.projectId;
     void input.now;
     return buildSessionSummary(input.sessionId, input.title);
   }
@@ -1131,7 +1332,34 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
     await this.inner.close();
   }
 
-  async createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+  async createProject(input: { folderPath: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    return await this.inner.createProject(input);
+  }
+
+  async updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    return await this.inner.updateProject(input);
+  }
+
+  async listProjects(): Promise<LocalConsoleProjectSummary[]> {
+    return await this.inner.listProjects();
+  }
+
+  async getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource> {
+    return await this.inner.getSessionWorkspace(sessionId);
+  }
+
+  async recordProjectWorkspaceStatus(input: {
+    projectId: string;
+    cwd: string;
+    mode: "direct" | "worktree";
+    worktreePath: string | null;
+    worktreeUnavailableReason: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordProjectWorkspaceStatus(input);
+  }
+
+  async createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
     return await this.inner.createSession(input);
   }
 
@@ -1255,7 +1483,32 @@ class RecoveringAppendStore implements LocalConsoleStore {
 
   async close(): Promise<void> {}
 
-  async createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+  async createProject(input: { folderPath: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    void input.now;
+    return buildProjectSummary(await this.listSessions(), {
+      folderPath: input.folderPath,
+      worktreeMode: input.worktreeMode,
+    });
+  }
+
+  async updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    void input.projectId;
+    void input.now;
+    return buildProjectSummary(await this.listSessions(), { worktreeMode: input.worktreeMode });
+  }
+
+  async listProjects(): Promise<LocalConsoleProjectSummary[]> {
+    return [buildProjectSummary(await this.listSessions())];
+  }
+
+  async getSessionWorkspace(): Promise<LocalConsoleSessionWorkspaceSource> {
+    return buildWorkspaceSource();
+  }
+
+  async recordProjectWorkspaceStatus(): Promise<void> {}
+
+  async createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    void input.projectId;
     void input.now;
     this.sessions.set(input.sessionId, input.title);
     return buildSessionSummary(input.sessionId, input.title, this.messages);

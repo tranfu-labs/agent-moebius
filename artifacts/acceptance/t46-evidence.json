@@ -1,0 +1,173 @@
+{
+  "acceptance": [
+    {
+      "id": 1,
+      "statement": "打开一个 git 目录且开启 worktree 开关 → 发送会让 dev 写文件的本地消息 → 应看到 Codex cwd 为临时 worktree、临时 worktree 有改动、原目录 `git status --short` 为空。",
+      "evidence": {
+        "projectId": "local-project:36c64c23abd40334",
+        "codexCwd": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-main-QagCce/workdir/local-worktrees/local-project_36c64c23abd40334/local_2026-07-10T03_12_57.526Z-41uyla",
+        "originalFolder": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-main-QagCce/git-project",
+        "cwdIsWorktree": true,
+        "worktreeFile": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-main-QagCce/workdir/local-worktrees/local-project_36c64c23abd40334/local_2026-07-10T03_12_57.526Z-41uyla/codex-1.txt",
+        "worktreeFileExists": true,
+        "originalGitStatusShort": "",
+        "stateReason": null
+      }
+    },
+    {
+      "id": 2,
+      "statement": "打开同一个 git 目录且关闭 worktree 开关 → 发送会让 dev 写文件的本地消息 → 应看到 Codex cwd 为原目录、原目录 `git status --short` 显示该改动。",
+      "evidence": {
+        "projectId": "local-project:36c64c23abd40334",
+        "codexCwd": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-main-QagCce/git-project",
+        "originalFolder": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-main-QagCce/git-project",
+        "originalGitStatusShort": "?? codex-2.txt"
+      }
+    },
+    {
+      "id": 3,
+      "statement": "打开非 git 目录且开启 worktree 开关 → 发送会让 dev 写文件的本地消息 → 应看到不初始化 git、不拒收、不调用 `gh`、Codex cwd 为原目录，并可观察到 `worktreeUnavailableReason=not-git-repository`。",
+      "evidence": {
+        "projectId": "local-project:85df8890838ba97d",
+        "codexCwd": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-main-QagCce/plain-project",
+        "folderPath": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-main-QagCce/plain-project",
+        "gitDirCreated": false,
+        "worktreeUnavailableReason": "not-git-repository",
+        "fakeGhCalls": 0
+      }
+    },
+    {
+      "id": 4,
+      "statement": "重启桌面壳或 local console server → 打开操作台 project 列表 → 应看到 project 列表与重启前一致，且 `OperatorProject.title` 等于真实目录名。",
+      "evidence": {
+        "beforeProjectIds": [
+          "local",
+          "local-project:36c64c23abd40334",
+          "local-project:85df8890838ba97d"
+        ],
+        "afterProjectIds": [
+          "local",
+          "local-project:36c64c23abd40334",
+          "local-project:85df8890838ba97d"
+        ],
+        "restoredTitle": "plain-project",
+        "expectedTitle": "plain-project"
+      }
+    },
+    {
+      "id": 5,
+      "statement": "跑 `pnpm exec tsx scripts/acceptance/local-console-t46.ts` → 应输出/记录 fake `gh` 调用次数为 0。",
+      "evidence": {
+        "scope": "local-console project/workspace API and runtime flows; desktop env doctor is excluded",
+        "fakeGhCalls": 0,
+        "fakeGhLog": "../../../../../../var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-main-QagCce/fake-gh.log"
+      }
+    },
+    {
+      "id": 6,
+      "statement": "用 fake `git` 让 `rev-parse` 或 `worktree add` 永久挂起 → 系统应在配置超时内记录可见 failed/stuck，active run 清空，同一 session 再发一条消息应能继续处理。",
+      "evidence": {
+        "firstFailure": {
+          "id": 1,
+          "sessionId": "local:2026-07-10T03:13:01.017Z-dx1x9z",
+          "speaker": "user",
+          "role": null,
+          "body": "@dev timeout once",
+          "status": "failed",
+          "runId": "local-2026-07-10T03:13:01.307Z-swcqlcnm",
+          "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-git-timeout-oXaY6V/runs/run-1",
+          "error": "workspace-git-timeout:rev-parse:100ms",
+          "createdAt": "2026-07-10T03:13:01.137Z",
+          "updatedAt": "2026-07-10T03:13:01.618Z"
+        },
+        "activeRunAfterFailure": null,
+        "recoveredAgentMessage": {
+          "id": 4,
+          "sessionId": "local:2026-07-10T03:13:01.017Z-dx1x9z",
+          "speaker": "agent",
+          "role": "dev",
+          "body": "fake codex done",
+          "status": "displayed",
+          "runId": "local-2026-07-10T03:13:02.007Z-zwad63e4",
+          "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-git-timeout-oXaY6V/runs/run-3",
+          "error": null,
+          "createdAt": "2026-07-10T03:13:02.315Z",
+          "updatedAt": "2026-07-10T03:13:02.315Z"
+        },
+        "recoveryMode": "worktree disabled after bounded git failure",
+        "codexCallsAfterRecovery": 1,
+        "fakeGitCalls": 0
+      }
+    },
+    {
+      "id": 7,
+      "statement": "用旧版 SQLite fixture 含 local sessions、messages、cursor、runDir、错误状态 → 启动迁移后应看到每个 local session 的 `project_id` 引用已存在 project，消息、cursor、status、runDir 不变；用不存在 projectId 创建 session 应失败且不写半条消息。",
+      "evidence": {
+        "migratedSession": {
+          "session_id": "local:legacy",
+          "project_id": "local",
+          "title": "legacy session"
+        },
+        "migratedMessage": {
+          "status": "failed",
+          "run_dir": "/tmp/run-old",
+          "error": "old-error"
+        },
+        "migratedCursor": {
+          "processed_through_message_id": 1
+        },
+        "invalidProjectCreateFailed": true,
+        "invalidSessionRow": null
+      }
+    },
+    {
+      "id": 8,
+      "statement": "创建 project 后删除或改名 folderPath 再发消息 → 系统应在超时内给出可见本地错误，不删除 project row，不丢原 session timeline，其他 project/session 仍可运行。",
+      "evidence": {
+        "deletedProjectStillPresent": true,
+        "failedTimelineLength": 2,
+        "failure": {
+          "id": 1,
+          "sessionId": "local:2026-07-10T03:13:02.883Z-47ks4s",
+          "speaker": "user",
+          "role": null,
+          "body": "@dev should fail visibly",
+          "status": "failed",
+          "runId": "local-2026-07-10T03:13:03.201Z-jj18ypxa",
+          "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-deleted-folder-OQMtdF/runs/run-1",
+          "error": "ENOENT: no such file or directory, access '/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-deleted-folder-OQMtdF/deleted-project'",
+          "createdAt": "2026-07-10T03:13:03.003Z",
+          "updatedAt": "2026-07-10T03:13:03.424Z"
+        },
+        "recoveredProjectId": "local-project:eab08f762a0157f1",
+        "recoveredAgentMessage": {
+          "id": 4,
+          "sessionId": "local:2026-07-10T03:13:03.667Z-okcdp6",
+          "speaker": "agent",
+          "role": "dev",
+          "body": "fake codex done",
+          "status": "displayed",
+          "runId": "local-2026-07-10T03:13:03.937Z-nucqe2lr",
+          "runDir": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t46-deleted-folder-OQMtdF/runs/run-1",
+          "error": null,
+          "createdAt": "2026-07-10T03:13:04.218Z",
+          "updatedAt": "2026-07-10T03:13:04.218Z"
+        },
+        "codexCalls": 1
+      }
+    },
+    {
+      "id": 9,
+      "statement": "在 fake `gh` 置于 PATH 的环境跑打开文件夹、project create、worktree on/off、非 git 降级流程 → 应看到 project/workspace 路径没有任何 `gh` 调用；若排除桌面 env doctor，证据必须显式说明排除范围，并单独验证 folder picker IPC 不调用 `gh`。",
+      "evidence": {
+        "scope": "acceptance scenarios 1-5 ran project/workspace API and runtime with fake gh in PATH; desktop env doctor intentionally excluded",
+        "folderPickerHandlerUsesDialog": true,
+        "folderPickerHandlerMentionsGh": false,
+        "preloadExposesSelectProjectFolder": true
+      }
+    }
+  ],
+  "artifacts": {
+    "evidence": "artifacts/acceptance/t46-evidence.json"
+  }
+}

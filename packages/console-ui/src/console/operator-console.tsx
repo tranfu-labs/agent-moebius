@@ -2,6 +2,8 @@ import {
   AlertCircle,
   Clock3,
   Folder,
+  FolderOpen,
+  GitBranch,
   Loader2,
   MessageSquareText,
   Plus,
@@ -27,6 +29,7 @@ export type OperatorRunnerStatus = "starting" | "running" | "stopped" | "crashed
 
 export interface OperatorSession {
   sessionId: string;
+  projectId: string;
   title: string;
   status: OperatorSessionStatus;
   runningCount: number;
@@ -40,7 +43,15 @@ export interface OperatorSession {
 
 export interface OperatorProject {
   projectId: string;
+  sourceType: "local-folder";
   title: string;
+  folderPath: string;
+  worktreeMode: boolean;
+  workspaceCwd: string | null;
+  workspaceMode: "direct" | "worktree" | null;
+  worktreePath: string | null;
+  worktreeUnavailableReason: string | null;
+  workspaceUpdatedAt: string | null;
   sessions: OperatorSession[];
   runningCount: number;
   waitingCount: number;
@@ -70,6 +81,9 @@ export interface OperatorRunSnapshot {
   startedAt: string;
   elapsedMs: number;
   runDir: string | null;
+  cwd: string | null;
+  workspaceMode: "direct" | "worktree" | null;
+  worktreeUnavailableReason: string | null;
   stdoutTail: string | null;
   stderrTail: string | null;
   lastOutputSummary: string;
@@ -79,6 +93,8 @@ export interface OperatorRunSnapshot {
 
 export interface OperatorConsoleProps {
   project: OperatorProject;
+  projects?: OperatorProject[];
+  selectedProjectId?: string;
   selectedSessionId: string;
   selectedSession: OperatorSession | null;
   messages: OperatorMessage[];
@@ -90,6 +106,9 @@ export interface OperatorConsoleProps {
   onComposerChange(value: string): void;
   onSend(): void;
   onCreateSession(): void;
+  onOpenProject?: () => void;
+  onSelectProject?: (projectId: string) => void;
+  onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
   onSelectSession(sessionId: string): void;
   onInterrupt(sessionId: string, runId: string): void;
   onOpenDiagnostics?: () => void;
@@ -99,6 +118,8 @@ export interface OperatorConsoleProps {
 
 export function OperatorConsole({
   project,
+  projects,
+  selectedProjectId,
   selectedSessionId,
   selectedSession,
   messages,
@@ -110,6 +131,9 @@ export function OperatorConsole({
   onComposerChange,
   onSend,
   onCreateSession,
+  onOpenProject,
+  onSelectProject,
+  onToggleProjectWorktree,
   onSelectSession,
   onInterrupt,
   onOpenDiagnostics,
@@ -117,6 +141,8 @@ export function OperatorConsole({
   className,
 }: OperatorConsoleProps): JSX.Element {
   const canSend = composerValue.trim() !== "" && activeRun === null && !isSending;
+  const visibleProjects = projects ?? [project];
+  const activeProjectId = selectedProjectId ?? project.projectId;
   return (
     <div className={cn("flex h-screen min-h-[560px] bg-canvas text-ink", className)}>
       <aside className="flex w-[268px] shrink-0 flex-col border-r border-line bg-rail">
@@ -125,40 +151,87 @@ export function OperatorConsole({
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <Folder className="h-4 w-4 text-sub" aria-hidden="true" />
-                <span className="truncate">{project.title}</span>
+                <span className="truncate">Projects</span>
               </div>
               <div className="mt-1 flex items-center gap-2 text-xs text-sub">
                 <StatusDot status={runnerStatus === "running" ? "running" : "idle"} />
                 <span className="truncate">runner {runnerStatusLabel(runnerStatus)}</span>
               </div>
             </div>
-            <Button type="button" size="icon" variant="ghost" aria-label="新建会话" onClick={onCreateSession}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-            </Button>
+            <div className="flex shrink-0 items-center gap-1">
+              {onOpenProject ? (
+                <Button type="button" size="icon" variant="ghost" aria-label="打开文件夹" onClick={onOpenProject}>
+                  <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              ) : null}
+              <Button type="button" size="icon" variant="ghost" aria-label="新建会话" onClick={onCreateSession}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </div>
           </div>
         </div>
 
-        <nav className="scroll-thin min-h-0 flex-1 overflow-auto p-2" aria-label="会话">
-          {project.sessions.map((session) => (
-            <button
-              key={session.sessionId}
-              type="button"
-              className={cn(
-                "mb-1 grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-hover",
-                session.sessionId === selectedSessionId ? "bg-sel" : "bg-transparent",
-              )}
-              onClick={() => onSelectSession(session.sessionId)}
-            >
-              <span className="min-w-0">
-                <span className="block truncate font-medium">{session.title}</span>
-                <span className="mt-0.5 block truncate text-xs text-sub">
-                  {statusLabel(session.status)}
-                  {session.errorCount > 0 ? ` · 错误 ${session.errorCount}` : ""}
-                  {session.stuckCount > 0 ? ` · 卡住 ${session.stuckCount}` : ""}
-                </span>
-              </span>
-              <StatusDot status={session.status} />
-            </button>
+        <nav className="scroll-thin min-h-0 flex-1 overflow-auto p-2" aria-label="项目和会话">
+          {visibleProjects.map((item) => (
+            <div key={item.projectId} className="mb-2">
+              <div
+                className={cn(
+                  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md px-2 py-2",
+                  item.projectId === activeProjectId ? "bg-sel" : "bg-transparent",
+                )}
+              >
+                <button
+                  type="button"
+                  className="min-w-0 text-left"
+                  onClick={() => onSelectProject?.(item.projectId)}
+                >
+                  <span className="block truncate text-sm font-semibold">{item.title}</span>
+                  <span className="mt-0.5 block truncate text-xs text-sub">{item.folderPath}</span>
+                  <span className="mt-1 block truncate text-xs text-sub">
+                    {item.worktreeMode ? "worktree" : "direct"}
+                    {item.worktreeUnavailableReason ? ` · ${item.worktreeUnavailableReason}` : ""}
+                  </span>
+                </button>
+                {onToggleProjectWorktree ? (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant={item.worktreeMode ? "outline" : "ghost"}
+                    aria-label={item.worktreeMode ? "关闭 worktree" : "开启 worktree"}
+                    aria-pressed={item.worktreeMode}
+                    onClick={() => onToggleProjectWorktree(item.projectId, !item.worktreeMode)}
+                  >
+                    <GitBranch className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                ) : null}
+              </div>
+              <div className="mt-1 space-y-1 pl-2">
+                {item.sessions.map((session) => (
+                  <button
+                    key={session.sessionId}
+                    type="button"
+                    className={cn(
+                      "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-hover",
+                      session.sessionId === selectedSessionId ? "bg-sel" : "bg-transparent",
+                    )}
+                    onClick={() => {
+                      onSelectProject?.(item.projectId);
+                      onSelectSession(session.sessionId);
+                    }}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{session.title}</span>
+                      <span className="mt-0.5 block truncate text-xs text-sub">
+                        {statusLabel(session.status)}
+                        {session.errorCount > 0 ? ` · 错误 ${session.errorCount}` : ""}
+                        {session.stuckCount > 0 ? ` · 卡住 ${session.stuckCount}` : ""}
+                      </span>
+                    </span>
+                    <StatusDot status={session.status} />
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
       </aside>
@@ -175,7 +248,7 @@ export function OperatorConsole({
               {activeRun ? (
                 <span className="inline-flex min-w-0 items-center gap-1">
                   <TerminalSquare className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="truncate">{activeRun.runDir ?? "runDir 未记录"}</span>
+                  <span className="truncate">{activeRun.cwd ?? activeRun.runDir ?? "cwd 未记录"}</span>
                 </span>
               ) : sqlitePath ? (
                 <span className="truncate">{sqlitePath}</span>
@@ -255,6 +328,11 @@ function RunLiveBlock({
             <span className="text-xs font-normal text-sub tnum">{formatElapsed(activeRun.elapsedMs)}</span>
           </div>
           <div className="mt-1 truncate text-xs text-sub">{activeRun.runDir ?? "runDir 未记录"}</div>
+          <div className="mt-1 truncate text-xs text-sub">
+            {activeRun.cwd ?? "cwd 未记录"}
+            {activeRun.workspaceMode ? ` · ${workspaceModeLabel(activeRun.workspaceMode)}` : ""}
+            {activeRun.worktreeUnavailableReason ? ` · ${activeRun.worktreeUnavailableReason}` : ""}
+          </div>
         </div>
         <Button
           type="button"
@@ -382,6 +460,10 @@ function runnerStatusLabel(status: OperatorRunnerStatus): string {
     case "error":
       return "错误";
   }
+}
+
+function workspaceModeLabel(mode: "direct" | "worktree"): string {
+  return mode === "worktree" ? "worktree" : "direct";
 }
 
 function speakerLabel(speaker: OperatorMessageSpeaker): string {

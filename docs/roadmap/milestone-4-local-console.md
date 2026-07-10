@@ -73,13 +73,15 @@
 
 验收证据（2026-07-09）：T4.5 已按 `openspec/changes/local-console-t45-handoff-loop/` 实现 local session drain、SQLite `local_message_cursors` 位点、agent 回复作为下一轮触发源、启动 catch-up 与无 1s 周期 poll。正式 7 条验收摘要见 `artifacts/acceptance/t45-evidence.json`：四角色链路落库顺序与 run 顺序均为 `ceo -> dev-manager -> dev -> qa`，相邻 handoff gap 为 298ms / 289ms / 293ms，重启续跑只运行剩余 `dev` 一棒且 agent roles 为 `ceo, dev`，`recordAgentResponse` 事务前失败后无半条 agent 回复且 retry 后成功，timeout 产生 visible `stuck` 记录并允许后续 `qa` 消息继续，两个 session startup catch-up 中 fast session 不被 slow session 阻塞。自动化回归：`pnpm exec tsx scripts/acceptance/local-console-t45.ts`、`pnpm vitest run tests/local-console.test.ts`、`pnpm test`、`pnpm typecheck`、`git diff --check` 均退出码 0。
 
-### - [ ] T4.6 · 本地 project 层 + workspace source（`数据正确级`）
+### - [x] T4.6 · 本地 project 层 + workspace source（`数据正确级`）
 
 T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packages/console-ui/src/console/operator-console.tsx`），但物理层 project 概念仍不存在：codex 的 cwd 写死为单一 `runtime.options.projectRoot`（`src/local-console/runtime.ts:199`），`sessions` 表没有 project 外键，桌面壳没有「选文件夹」入口，也没有 worktree 开关。T5 终点线的「隔离/回滚语义与 GitHub 对等」直接依赖本任务。
 
 范围：桌面壳新增「打开文件夹」作为 project 的物理载体，project 落 SQLite（新 `projects` 表 + `sessions.project_id` 外键），`OperatorProject` 从占位升级为真实数据；新增第三个 adapter `workspace source`——GitHub=`cloneUrl`，本地=`{folderPath, worktreeMode}`，codex 的 cwd 由此 adapter 解析：git 目录 + worktree 开启 → 临时 worktree（基于本地 HEAD，尽量复用 `src/agent-prescripts/issue-worktree.ts` 主体路径）；git 目录 + 关闭 → 原目录；非 git 目录处理策略在细化阶段拍板（候选：引导 `git init` / 原地跑 / 拒收）。会话树 `parent_session_id` 写入不在本任务范围（归 T5）。
 
 验收场景（细化时保留）：(a) 打开一个 git 目录、worktree 开关开 → dev 在临时 worktree 改、原目录 `git status` 无脏改；(b) 同一目录关掉开关 → dev 直接在原目录改；(c) 打开非 git 目录 → 走细化时拍板的处理路径；(d) 重启桌面壳 → 应看到 project 列表和上次一致，`OperatorProject.title` 反映真实目录名；(e) 全程 fake `gh` 零调用。
+
+验收证据（2026-07-10）：T4.6 已按 `openspec/changes/local-console-t46-project-workspace-source/` 实现本地 project 持久化、workspace source resolver、桌面打开文件夹入口、worktreeMode 开关和 UI 真实 project 列表。正式 9 条验收摘要见 `artifacts/acceptance/t46-evidence.json`：git 目录 worktree 开启时 Codex cwd 为 `workdir/local-worktrees/...` 且原目录 `git status --short` 为空；同目录关闭 worktree 后 Codex cwd 回到原目录且原目录出现 `?? codex-2.txt`；非 git 目录原地运行且 `worktreeUnavailableReason=not-git-repository`、未创建 `.git`、fake `gh` 调用为 0；重启后 project id 列表一致且 title 为真实目录名；fake git timeout 记录可见 `workspace-git-timeout:rev-parse:100ms`、`activeRunAfterFailure` 为 `null`，同 session 后续消息可继续；旧 SQLite fixture 迁移保留 message/cursor/runDir/error 且非法 projectId 不写半条 session；folderPath 删除后 project row 与 timeline 保留，其他 project/session 仍可运行；folder picker IPC 使用 `dialog.showOpenDialog` 且 handler 不包含 `gh`。自动化回归：`pnpm exec tsx scripts/acceptance/local-console-t46.ts`、`pnpm vitest run tests/local-console.test.ts`、`pnpm test`、`pnpm typecheck`、`pnpm --filter @agent-moebius/desktop build`、`pnpm --filter @agent-moebius/console-ui test` 均退出码 0。
 
 ### - [ ] T5 · 本地全功能对等（终点线，`成品级`）
 

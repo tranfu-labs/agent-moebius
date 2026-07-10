@@ -21,7 +21,20 @@ export type SqliteStateCommand =
   | { kind: "load-goal-ledger" }
   | { kind: "save-goal-ledger"; state: unknown }
   | { kind: "local-init" }
-  | { kind: "local-create-session"; sessionId: string; title: string; now: string }
+  | { kind: "local-create-project"; folderPath: string; worktreeMode: boolean; now: string }
+  | { kind: "local-update-project"; projectId: string; worktreeMode: boolean; now: string }
+  | { kind: "local-list-projects" }
+  | { kind: "local-get-session-workspace"; sessionId: string }
+  | {
+      kind: "local-record-project-workspace-status";
+      projectId: string;
+      cwd: string;
+      mode: "direct" | "worktree";
+      worktreePath: string | null;
+      worktreeUnavailableReason: string | null;
+      now: string;
+    }
+  | { kind: "local-create-session"; sessionId: string; projectId: string; title: string; now: string }
   | { kind: "local-list-sessions" }
   | { kind: "local-append-user"; sessionId: string; body: string; now: string }
   | { kind: "local-list"; sessionId: string }

@@ -1,5 +1,6 @@
 export const LOCAL_CONSOLE_DEFAULT_SESSION_ID = "default";
 export const LOCAL_CONSOLE_PROJECT_ID = "local";
+export const LOCAL_CONSOLE_PROJECT_SOURCE_TYPE = "local-folder";
 
 export type LocalConsoleSpeaker = "user" | "agent" | "system";
 export type LocalConsoleMessageStatus =
@@ -26,9 +27,19 @@ export interface LocalConsoleMessage {
 }
 
 export type LocalConsoleSessionStatus = "idle" | "running" | "waiting" | "stuck" | "failed" | "interrupted";
+export type LocalConsoleProjectSourceType = typeof LOCAL_CONSOLE_PROJECT_SOURCE_TYPE;
+export type LocalConsoleWorkspaceMode = "direct" | "worktree";
+
+export interface LocalConsoleSessionWorkspaceSource {
+  projectId: string;
+  title: string;
+  folderPath: string;
+  worktreeMode: boolean;
+}
 
 export interface LocalConsoleSessionSummary {
   sessionId: string;
+  projectId: string;
   title: string;
   status: LocalConsoleSessionStatus;
   runningCount: number;
@@ -42,7 +53,15 @@ export interface LocalConsoleSessionSummary {
 
 export interface LocalConsoleProjectSummary {
   projectId: string;
+  sourceType: LocalConsoleProjectSourceType;
   title: string;
+  folderPath: string;
+  worktreeMode: boolean;
+  workspaceCwd: string | null;
+  workspaceMode: LocalConsoleWorkspaceMode | null;
+  worktreePath: string | null;
+  worktreeUnavailableReason: string | null;
+  workspaceUpdatedAt: string | null;
   sessions: LocalConsoleSessionSummary[];
   runningCount: number;
   waitingCount: number;
@@ -58,6 +77,9 @@ export interface LocalConsoleRunSnapshot {
   startedAt: string;
   elapsedMs: number;
   runDir: string | null;
+  cwd: string | null;
+  workspaceMode: LocalConsoleWorkspaceMode | null;
+  worktreeUnavailableReason: string | null;
   stdoutTail: string | null;
   stderrTail: string | null;
   lastOutputSummary: string;
@@ -75,7 +97,9 @@ export interface LocalConsoleSnapshot {
 }
 
 export interface LocalConsoleStateSnapshot {
+  projects: LocalConsoleProjectSummary[];
   project: LocalConsoleProjectSummary;
+  selectedProjectId: string;
   selectedSessionId: string;
   selectedSession: LocalConsoleSessionSummary | null;
   messages: LocalConsoleMessage[];
@@ -88,7 +112,19 @@ export interface LocalConsoleStore {
   readonly sqlitePath: string;
   init(): Promise<void>;
   close(): Promise<void>;
-  createSession(input: { sessionId: string; title: string; now: string }): Promise<LocalConsoleSessionSummary>;
+  createProject(input: { folderPath: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary>;
+  updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary>;
+  listProjects(): Promise<LocalConsoleProjectSummary[]>;
+  getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource>;
+  recordProjectWorkspaceStatus(input: {
+    projectId: string;
+    cwd: string;
+    mode: LocalConsoleWorkspaceMode;
+    worktreePath: string | null;
+    worktreeUnavailableReason: string | null;
+    now: string;
+  }): Promise<void>;
+  createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary>;
   listSessions(): Promise<LocalConsoleSessionSummary[]>;
   appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage>;
   listMessages(sessionId: string): Promise<LocalConsoleMessage[]>;

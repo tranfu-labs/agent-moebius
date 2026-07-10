@@ -1,0 +1,47 @@
+# 任务：local-console-t46-project-workspace-source
+
+- [x] 建立 project 持久化模型
+  - [x] 在 SQLite schema 中新增 `projects` 表。
+  - [x] 通过表重建为 `sessions.project_id` 增加 project FK，并用 `CHECK (source_type <> 'local' OR project_id IS NOT NULL)` 约束 local session。
+  - [x] SQLite worker 打开数据库后启用 `PRAGMA foreign_keys = ON`。
+  - [x] 初始化默认 project，并把历史 local sessions 回填到默认 project，保持消息、cursor、runDir、错误状态不变。
+  - [x] 扩展 store / state command / 类型，支持 project create/list/update 和 session project 归属。
+- [x] 建立 workspace source resolver
+  - [x] 定义 local workspace source `{ folderPath, worktreeMode }` 和 resolved workspace 状态。
+  - [x] 实现 git repo 检测、worktree on/off cwd 解析、非 git 原地跑降级。
+  - [x] 复用或抽取 `issue-worktree.ts` 中的安全路径段、有界 git 调用、stderr 摘要和路径校验工具。
+  - [x] 覆盖 fake git timeout / worktree add failure / folderPath 缺失路径，确保可见失败、active run 清空、session 可继续。
+  - [x] 把 resolved cwd 接入 `LocalConsoleRuntime.runCodex`，替代固定 `projectRoot`。
+  - [x] 将 `worktreeUnavailableReason` 暴露到 project state / active run snapshot。
+- [x] 扩展 local console HTTP API
+  - [x] 新增 project 创建 / 更新接口。
+  - [x] 扩展 state API 返回 project 列表、selected project、真实 title、folderPath、worktreeMode、不可用原因。
+  - [x] 扩展 create session API 支持 projectId，并保持旧默认 session/message 端点兼容。
+- [x] 扩展桌面壳与操作台
+  - [x] 在 Electron preload 增加选择文件夹窄 IPC。
+  - [x] 在 main 进程实现 `dialog.showOpenDialog` 文件夹选择。
+  - [x] 在 renderer 增加打开文件夹、选择 project、切换 worktreeMode、按 project 创建 session 的数据流。
+  - [x] 更新 `OperatorConsole` props 和布局，渲染真实 project 列表、目录名、worktree 开关和不可用原因。
+  - [x] 按 `wireframes.md` 保持页面紧凑、可扫描、无嵌套卡片。
+- [x] 补齐测试
+  - [x] 增加 SQLite project migration / 重启一致性测试，断言 local sessions 的 project_id 引用存在 project 且消息、cursor、runDir、错误状态不变。
+  - [x] 增加不存在 projectId 创建 session 失败且不写半条 session/message 的测试。
+  - [x] 增加 project API 创建、复用、更新 worktreeMode 测试。
+  - [x] 增加 workspace resolver 的 git worktree on、git worktree off、non-git 降级、fake git timeout、worktree add failure、folderPath 删除测试。
+  - [x] 增加 runtime `runCodex.cwd` 按 project 解析的测试。
+  - [x] 增加 desktop IPC / renderer / console-ui project 展示测试。
+  - [x] 增加 fake `gh` PATH 下 project/workspace 流程零调用测试，并明确不把 desktop env doctor 纳入该证据。
+  - [x] 保持 GitHub runner 相关测试全绿。
+- [x] 验收与文档收尾
+  - [x] 新增 `scripts/acceptance/local-console-t46.ts`，生成 `artifacts/acceptance/t46-evidence.json`。
+  - [x] 运行 `pnpm exec tsx scripts/acceptance/local-console-t46.ts`。
+  - [x] 运行 `pnpm test`。
+  - [x] 运行 `pnpm typecheck`。
+  - [x] 运行 `pnpm --filter @agent-moebius/desktop build`。
+  - [x] 运行 `pnpm --filter @agent-moebius/console-ui test`。
+  - [x] 运行 `git diff --check`。
+  - [x] 将 T4.6 验收证据追记到 `docs/roadmap/milestone-4-local-console.md` 并勾选。
+- [ ] 发布收尾
+  - [ ] `git add -A && git commit`，commit message/body 含 `Closes #107`。
+  - [ ] `git push -u origin` 当前分支。
+  - [ ] `gh pr create --base main`，PR body 含 `Closes #107` 与验收证据摘要。

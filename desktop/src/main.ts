@@ -1,7 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, ipcMain, shell, utilityProcess, type UtilityProcess } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  shell,
+  utilityProcess,
+  type OpenDialogOptions,
+  type UtilityProcess,
+} from "electron";
 import electronUpdater from "electron-updater";
 import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../../src/local-console/server.js";
 import { startObserverServer, type StartedObserverServer } from "../../src/observer/server.js";
@@ -141,6 +150,7 @@ async function startLocalConsole(): Promise<void> {
       host: "127.0.0.1",
       port: 0,
       projectRoot: status.dataRoot,
+      workdirRoot: path.join(status.dataRoot, "workdir"),
     });
     status.localConsole = {
       status: "running",
@@ -230,6 +240,19 @@ ipcMain.handle("action:open-status-page", async () => {
 });
 
 ipcMain.handle("local-console:get-url", async () => status.localConsole.url ?? null);
+
+ipcMain.handle("project:select-folder", async () => {
+  const options: OpenDialogOptions = {
+    properties: ["openDirectory", "createDirectory"],
+    title: "打开本地项目文件夹",
+  };
+  const result =
+    mainWindow === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(mainWindow, options);
+  if (result.canceled || result.filePaths[0] === undefined) {
+    return null;
+  }
+  return result.filePaths[0];
+});
 
 ipcMain.handle("action:open-data-root", async () => {
   await shell.openPath(status.dataRoot);

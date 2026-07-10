@@ -1,9 +1,14 @@
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parentPort, workerData } from "node:worker_threads";
 import { issueKeyToSessionId, parseIssueKey, sessionIdToIssueKey } from "./session-key.js";
-import { LOCAL_CONSOLE_DEFAULT_SESSION_ID } from "./local-console/types.js";
+import {
+  LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+  LOCAL_CONSOLE_PROJECT_ID,
+  LOCAL_CONSOLE_PROJECT_SOURCE_TYPE,
+} from "./local-console/types.js";
 import type { SqliteStateCommand, SqliteStateSource } from "./sqlite-state.js";
 
 interface SqliteRunResult {
@@ -65,8 +70,9 @@ function runCommand(input: WorkerInput): unknown {
   const database = new DatabaseSync(input.sqlitePath, { readOnly: input.readOnly });
   try {
     database.exec(`PRAGMA busy_timeout = ${String(input.busyTimeoutMs)}`);
+    database.exec("PRAGMA foreign_keys = ON");
     if (!input.readOnly) {
-      ensureSchema(database);
+      ensureSchema(database, input.sqlitePath);
       migrateLocalMessages(database);
     }
 
@@ -103,6 +109,16 @@ function runCommand(input: WorkerInput): unknown {
         return saveGoalLedger(database, input.command.state, true);
       case "local-init":
         return initLocalConsole(database);
+      case "local-create-project":
+        return createLocalProject(database, input.command);
+      case "local-update-project":
+        return updateLocalProject(database, input.command);
+      case "local-list-projects":
+        return listLocalProjects(database);
+      case "local-get-session-workspace":
+        return getLocalSessionWorkspace(database, input.command.sessionId);
+      case "local-record-project-workspace-status":
+        return recordLocalProjectWorkspaceStatus(database, input.command);
       case "local-create-session":
         return createLocalSession(database, input.command);
       case "local-list-sessions":
@@ -141,7 +157,7 @@ function runCommand(input: WorkerInput): unknown {
   }
 }
 
-function ensureSchema(database: SqliteDatabase): void {
+function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY,
@@ -154,8 +170,23 @@ function ensureSchema(database: SqliteDatabase): void {
       imported_at TEXT,
       error TEXT
     );
+    CREATE TABLE IF NOT EXISTS projects (
+      project_id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      folder_path TEXT NOT NULL UNIQUE,
+      worktree_mode INTEGER NOT NULL DEFAULT 0,
+      workspace_cwd TEXT,
+      workspace_mode TEXT CHECK (workspace_mode IS NULL OR workspace_mode IN ('direct', 'worktree')),
+      worktree_path TEXT,
+      worktree_unavailable_reason TEXT,
+      workspace_updated_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS sessions (
       session_id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(project_id) ON UPDATE CASCADE ON DELETE RESTRICT,
       source_type TEXT NOT NULL,
       source_owner TEXT,
       source_repo TEXT,
@@ -164,7 +195,8 @@ function ensureSchema(database: SqliteDatabase): void {
       title TEXT,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      CHECK (source_type <> 'local' OR project_id IS NOT NULL)
     );
     CREATE TABLE IF NOT EXISTS session_edges (
       parent_session_id TEXT NOT NULL,
@@ -229,7 +261,79 @@ function ensureSchema(database: SqliteDatabase): void {
       updated_at TEXT NOT NULL
     );
   `);
+  const now = new Date().toISOString();
+  ensureDefaultLocalProject(database, defaultLocalProjectFolderPath(sqlitePath), now);
+  migrateSessionsProjectId(database, now);
   markSchemaMigration(database, "t3-unified-sqlite-state");
+  markSchemaMigration(database, "t46-local-project-workspace-source");
+}
+
+function migrateSessionsProjectId(database: SqliteDatabase, now: string): void {
+  if (tableHasColumn(database, "sessions", "project_id")) {
+    return;
+  }
+  transaction(database, () => {
+    database.exec("ALTER TABLE sessions RENAME TO sessions_legacy_project_migration");
+    database.exec(`
+      CREATE TABLE sessions (
+        session_id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES projects(project_id) ON UPDATE CASCADE ON DELETE RESTRICT,
+        source_type TEXT NOT NULL,
+        source_owner TEXT,
+        source_repo TEXT,
+        source_issue_number INTEGER,
+        parent_session_id TEXT,
+        title TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (source_type <> 'local' OR project_id IS NOT NULL)
+      );
+      INSERT INTO sessions
+        (session_id, project_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, title, status, created_at, updated_at)
+      SELECT
+        session_id,
+        CASE WHEN source_type = 'local' THEN '${LOCAL_CONSOLE_PROJECT_ID}' ELSE NULL END,
+        source_type,
+        source_owner,
+        source_repo,
+        source_issue_number,
+        parent_session_id,
+        title,
+        status,
+        created_at,
+        updated_at
+      FROM sessions_legacy_project_migration;
+      DROP TABLE sessions_legacy_project_migration;
+    `);
+    markSchemaMigration(database, "t46-sessions-project-id");
+    database
+      .prepare("UPDATE projects SET updated_at = ? WHERE project_id = ?")
+      .run(now, LOCAL_CONSOLE_PROJECT_ID);
+    return null;
+  });
+}
+
+function tableHasColumn(database: SqliteDatabase, tableName: string, columnName: string): boolean {
+  const rows = database.prepare(`PRAGMA table_info(${tableName})`).all();
+  return rows.some((row) => isRecord(row) && row.name === columnName);
+}
+
+function defaultLocalProjectFolderPath(sqlitePath: string): string {
+  const stateDir = path.dirname(sqlitePath);
+  return path.basename(stateDir) === ".state" ? path.dirname(stateDir) : stateDir;
+}
+
+function ensureDefaultLocalProject(database: SqliteDatabase, folderPath: string, now: string): void {
+  const normalizedFolderPath = path.resolve(folderPath);
+  const title = projectTitleFromFolder(normalizedFolderPath);
+  database
+    .prepare(
+      `INSERT OR IGNORE INTO projects
+        (project_id, source_type, title, folder_path, worktree_mode, workspace_cwd, workspace_mode, worktree_path, worktree_unavailable_reason, workspace_updated_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, ?, 'direct', NULL, NULL, ?, ?, ?)`,
+    )
+    .run(LOCAL_CONSOLE_PROJECT_ID, LOCAL_CONSOLE_PROJECT_SOURCE_TYPE, title, normalizedFolderPath, normalizedFolderPath, now, now, now);
 }
 
 function migrateLocalMessages(database: SqliteDatabase): void {
@@ -241,7 +345,7 @@ function migrateLocalMessages(database: SqliteDatabase): void {
   }
   transaction(database, () => {
     const now = new Date().toISOString();
-    ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, now);
+    ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, now, "默认会话", LOCAL_CONSOLE_PROJECT_ID);
     database.exec(`
       INSERT OR IGNORE INTO session_messages
         (id, session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
@@ -505,8 +609,106 @@ function saveGoalLedgerRaw(database: SqliteDatabase, state: unknown, markImporte
 
 function initLocalConsole(database: SqliteDatabase): null {
   const now = new Date().toISOString();
-  ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, now, "默认会话");
+  ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, now, "默认会话", LOCAL_CONSOLE_PROJECT_ID);
   ensureLocalCursor(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, now);
+  return null;
+}
+
+function createLocalProject(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-create-project" }>,
+): unknown {
+  return transaction(database, () => {
+    const folderPath = path.resolve(input.folderPath);
+    const projectId = projectIdForFolder(folderPath);
+    database
+      .prepare(
+        `INSERT INTO projects
+          (project_id, source_type, title, folder_path, worktree_mode, workspace_cwd, workspace_mode, worktree_path, worktree_unavailable_reason, workspace_updated_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)
+         ON CONFLICT(folder_path)
+         DO UPDATE SET
+           title = excluded.title,
+           worktree_mode = excluded.worktree_mode,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        projectId,
+        LOCAL_CONSOLE_PROJECT_SOURCE_TYPE,
+        projectTitleFromFolder(folderPath),
+        folderPath,
+        input.worktreeMode ? 1 : 0,
+        input.now,
+        input.now,
+      );
+    return requireLocalProjectByFolderPath(database, folderPath);
+  });
+}
+
+function updateLocalProject(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-update-project" }>,
+): unknown {
+  return transaction(database, () => {
+    const result = database
+      .prepare("UPDATE projects SET worktree_mode = ?, updated_at = ? WHERE project_id = ?")
+      .run(input.worktreeMode ? 1 : 0, input.now, input.projectId);
+    if (Number(result.changes ?? 0) !== 1) {
+      throw new Error(`local console project not found: ${input.projectId}`);
+    }
+    return requireLocalProject(database, input.projectId);
+  });
+}
+
+function listLocalProjects(database: SqliteDatabase): unknown[] {
+  const rows = database.prepare("SELECT * FROM projects ORDER BY updated_at DESC, created_at DESC").all();
+  if (rows.length === 0) {
+    const now = new Date().toISOString();
+    ensureDefaultLocalProject(database, process.cwd(), now);
+    return [requireLocalProject(database, LOCAL_CONSOLE_PROJECT_ID)];
+  }
+  return rows.map((row) => readLocalProjectRow(database, row));
+}
+
+function getLocalSessionWorkspace(database: SqliteDatabase, sessionId: string): unknown {
+  const row = database
+    .prepare(
+      `SELECT p.project_id, p.title, p.folder_path, p.worktree_mode
+       FROM sessions s
+       JOIN projects p ON p.project_id = s.project_id
+       WHERE s.session_id = ? AND s.source_type = 'local'`,
+    )
+    .get(sessionId);
+  if (!isRecord(row)) {
+    throw new Error(`local console session workspace not found: ${sessionId}`);
+  }
+  return {
+    projectId: readString(row.project_id, "project_id"),
+    title: readString(row.title, "title"),
+    folderPath: readString(row.folder_path, "folder_path"),
+    worktreeMode: readBooleanNumber(row.worktree_mode, "worktree_mode"),
+  };
+}
+
+function recordLocalProjectWorkspaceStatus(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-project-workspace-status" }>,
+): null {
+  const result = database
+    .prepare(
+      `UPDATE projects
+       SET workspace_cwd = ?,
+           workspace_mode = ?,
+           worktree_path = ?,
+           worktree_unavailable_reason = ?,
+           workspace_updated_at = ?,
+           updated_at = ?
+       WHERE project_id = ?`,
+    )
+    .run(input.cwd, input.mode, input.worktreePath, input.worktreeUnavailableReason, input.now, input.now, input.projectId);
+  if (Number(result.changes ?? 0) !== 1) {
+    throw new Error(`local console project not found: ${input.projectId}`);
+  }
   return null;
 }
 
@@ -515,7 +717,7 @@ function createLocalSession(
   input: Extract<SqliteStateCommand, { kind: "local-create-session" }>,
 ): unknown {
   return transaction(database, () => {
-    ensureSession(database, input.sessionId, input.now, input.title);
+    ensureSession(database, input.sessionId, input.now, input.title, input.projectId);
     ensureLocalCursor(database, input.sessionId, input.now);
     return requireLocalSession(database, input.sessionId);
   });
@@ -526,7 +728,7 @@ function listLocalSessions(database: SqliteDatabase): unknown[] {
     .prepare("SELECT * FROM sessions WHERE source_type = 'local' ORDER BY updated_at DESC, created_at DESC")
     .all();
   if (rows.length === 0) {
-    ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, new Date().toISOString(), "默认会话");
+    ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, new Date().toISOString(), "默认会话", LOCAL_CONSOLE_PROJECT_ID);
     return [requireLocalSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID)];
   }
   return rows.map((row) => readLocalSessionRow(database, row));
@@ -537,7 +739,7 @@ function appendUserMessage(
   input: Extract<SqliteStateCommand, { kind: "local-append-user" }>,
 ): unknown {
   return transaction(database, () => {
-    ensureSession(database, input.sessionId, input.now, titleFromMessage(input.body));
+    ensureSession(database, input.sessionId, input.now, titleFromMessage(input.body), LOCAL_CONSOLE_PROJECT_ID);
     ensureLocalCursor(database, input.sessionId, input.now);
     const result = database
       .prepare(
@@ -629,7 +831,7 @@ function recordAgentResponse(
   input: Extract<SqliteStateCommand, { kind: "local-record-agent-response" }>,
 ): null {
   return transaction(database, () => {
-    ensureSession(database, input.sessionId, input.now);
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
     ensureLocalCursor(database, input.sessionId, input.now);
     const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
     database
@@ -933,7 +1135,7 @@ function insertSystemMessage(
   now: string,
   status = "displayed",
 ): void {
-  ensureSession(database, sessionId, now);
+  ensureSession(database, sessionId, now, undefined, LOCAL_CONSOLE_PROJECT_ID);
   database
     .prepare(
       `INSERT INTO session_messages
@@ -959,6 +1161,60 @@ function requireLocalSession(database: SqliteDatabase, sessionId: string): unkno
   return readLocalSessionRow(database, row);
 }
 
+function requireLocalProject(database: SqliteDatabase, projectId: string): unknown {
+  const row = database.prepare("SELECT * FROM projects WHERE project_id = ?").get(projectId);
+  if (row === undefined) {
+    throw new Error(`local console project not found: ${projectId}`);
+  }
+  return readLocalProjectRow(database, row);
+}
+
+function requireLocalProjectByFolderPath(database: SqliteDatabase, folderPath: string): unknown {
+  const row = database.prepare("SELECT * FROM projects WHERE folder_path = ?").get(folderPath);
+  if (row === undefined) {
+    throw new Error(`local console project not found for folder: ${folderPath}`);
+  }
+  return readLocalProjectRow(database, row);
+}
+
+function readLocalProjectRow(database: SqliteDatabase, row: unknown): unknown {
+  if (!isRecord(row)) {
+    throw new Error("Invalid local console project row");
+  }
+  const projectId = readString(row.project_id, "project_id");
+  const sessions = database
+    .prepare("SELECT * FROM sessions WHERE source_type = 'local' AND project_id = ? ORDER BY updated_at DESC, created_at DESC")
+    .all(projectId)
+    .map((sessionRow) => readLocalSessionRow(database, sessionRow));
+  const counts = { running: 0, waiting: 0, stuck: 0, failed: 0 };
+  for (const session of sessions) {
+    if (!isRecord(session)) {
+      continue;
+    }
+    counts.running += readNumber(session.runningCount, "runningCount");
+    counts.waiting += readNumber(session.waitingCount, "waitingCount");
+    counts.stuck += readNumber(session.stuckCount, "stuckCount");
+    counts.failed += readNumber(session.errorCount, "errorCount");
+  }
+  return {
+    projectId,
+    sourceType: readString(row.source_type, "source_type"),
+    title: readString(row.title, "title"),
+    folderPath: readString(row.folder_path, "folder_path"),
+    worktreeMode: readBooleanNumber(row.worktree_mode, "worktree_mode"),
+    workspaceCwd: readNullableString(row.workspace_cwd, "workspace_cwd"),
+    workspaceMode: readNullableString(row.workspace_mode, "workspace_mode"),
+    worktreePath: readNullableString(row.worktree_path, "worktree_path"),
+    worktreeUnavailableReason: readNullableString(row.worktree_unavailable_reason, "worktree_unavailable_reason"),
+    workspaceUpdatedAt: readNullableString(row.workspace_updated_at, "workspace_updated_at"),
+    sessions,
+    runningCount: counts.running,
+    waitingCount: counts.waiting,
+    stuckCount: counts.stuck,
+    errorCount: counts.failed,
+  };
+}
+
 function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
   if (!isRecord(row)) {
     throw new Error("Invalid local console session row");
@@ -967,6 +1223,7 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
   const counts = readSessionCounts(database, sessionId);
   return {
     sessionId,
+    projectId: readString(row.project_id, "project_id"),
     title: readNullableString(row.title, "title") ?? fallbackSessionTitle(sessionId),
     status: sessionStatusFromCounts(counts),
     runningCount: counts.running,
@@ -1064,20 +1321,27 @@ function readLocalMessageRow(row: unknown): WorkerLocalMessage {
   };
 }
 
-function ensureSession(database: SqliteDatabase, sessionId: string, now: string, title?: string): void {
+function ensureSession(database: SqliteDatabase, sessionId: string, now: string, title?: string, projectId?: string): void {
   const parsed = sessionId.startsWith("github:") ? parseIssueKey(sessionId.slice("github:".length)) : null;
+  const sourceType = parsed === null ? "local" : "github";
+  const resolvedProjectId = sourceType === "local" ? (projectId ?? LOCAL_CONSOLE_PROJECT_ID) : null;
   database
     .prepare(
       `INSERT INTO sessions
-        (session_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, title, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, NULL, ?, 'active', ?, ?)
+        (session_id, project_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, title, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'active', ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         title = COALESCE(sessions.title, excluded.title),
+        project_id = CASE
+          WHEN sessions.source_type = 'local' THEN COALESCE(sessions.project_id, excluded.project_id)
+          ELSE sessions.project_id
+        END,
         updated_at = excluded.updated_at`,
     )
     .run(
       sessionId,
-      parsed === null ? "local" : "github",
+      resolvedProjectId,
+      sourceType,
       parsed?.owner ?? null,
       parsed?.repo ?? null,
       parsed?.issueNumber ?? null,
@@ -1093,6 +1357,14 @@ function titleFromMessage(body: string): string {
     return "新会话";
   }
   return collapsed.length > 32 ? `${collapsed.slice(0, 32)}...` : collapsed;
+}
+
+function projectIdForFolder(folderPath: string): string {
+  return `local-project:${createHash("sha1").update(path.resolve(folderPath)).digest("hex").slice(0, 16)}`;
+}
+
+function projectTitleFromFolder(folderPath: string): string {
+  return path.basename(path.resolve(folderPath)) || path.resolve(folderPath);
 }
 
 function fallbackSessionTitle(sessionId: string): string {
@@ -1178,6 +1450,20 @@ function readNumber(value: unknown, field: string): number {
     throw new Error(`Invalid SQLite row ${field}`);
   }
   return value;
+}
+
+function readBooleanNumber(value: unknown, field: string): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  const numberValue = readNumber(value, field);
+  if (numberValue === 0) {
+    return false;
+  }
+  if (numberValue === 1) {
+    return true;
+  }
+  throw new Error(`Invalid SQLite boolean ${field}`);
 }
 
 function toNumberId(value: number | bigint | undefined): number {
