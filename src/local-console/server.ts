@@ -36,6 +36,7 @@ export interface LocalConsoleServerOptions {
   workspaceGitTimeoutMs?: number;
   routeJudgment?: LocalRouteJudgment;
   routeTimeoutMs?: number;
+  failureRetryLimit?: number;
 }
 
 export interface StartedLocalConsoleServer {
@@ -72,6 +73,7 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
     workspaceGitTimeoutMs: options.workspaceGitTimeoutMs,
     routeJudgment: options.routeJudgment,
     routeTimeoutMs: options.routeTimeoutMs,
+    failureRetryLimit: options.failureRetryLimit,
   });
   await runtime.init();
 

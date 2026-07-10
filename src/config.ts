@@ -79,6 +79,7 @@ export const LOCAL_CONSOLE_PORT = parseOptionalPort(process.env.LOCAL_CONSOLE_PO
 export const LOCAL_CONSOLE_SQLITE_PATH = path.join(DATA_ROOT, ".state", "local-console.sqlite");
 export const LOCAL_CONSOLE_STORE_TIMEOUT_MS = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_STORE_TIMEOUT_MS) ?? 2_000;
 export const LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS) ?? 2_000;
+export const LOCAL_CONSOLE_FAILURE_RETRY_LIMIT = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_FAILURE_RETRY_LIMIT) ?? FAILURE_RETRY_LIMIT;
 export const AGENTS_DIR = RUNTIME_PATHS.agentsDir;
 export const TMP_ROOT = "/tmp";
 export const ROLE_THREADS_STATE_PATH = ".state/role-threads.json";
@@ -189,6 +190,7 @@ export const CONFIG_LOG_FIELDS = {
   localConsoleSqlitePath: LOCAL_CONSOLE_SQLITE_PATH,
   localConsoleStoreTimeoutMs: LOCAL_CONSOLE_STORE_TIMEOUT_MS,
   localConsoleSqliteBusyTimeoutMs: LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS,
+  localConsoleFailureRetryLimit: LOCAL_CONSOLE_FAILURE_RETRY_LIMIT,
   agentsDir: AGENTS_DIR,
   tmpRoot: TMP_ROOT,
   roleThreadsStatePath: ROLE_THREADS_STATE_PATH,

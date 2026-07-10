@@ -182,6 +182,29 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     await this.run({ kind: "local-record-failure", ...input });
   }
 
+  async recordRetryableFailure(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<LocalConsoleMessage> {
+    return this.run({ kind: "local-record-retryable-failure", ...input });
+  }
+
+  async recordDeadLetter(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    failureCount: number;
+    now: string;
+  }): Promise<void> {
+    await this.run({ kind: "local-record-dead-letter-and-complete", ...input });
+  }
+
   async recordInterrupted(input: {
     userMessageId: number;
     sessionId: string;
@@ -335,6 +358,8 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
       runId: readNullableString(value.runId, "runId"),
       runDir: readNullableString(value.runDir, "runDir"),
       error: readNullableString(value.error, "error"),
+      failureCount: "failureCount" in value ? readNumber(value.failureCount, "failureCount") : 0,
+      lastFailureReason: "lastFailureReason" in value ? readNullableString(value.lastFailureReason, "lastFailureReason") : null,
       createdAt: readString(value.createdAt, "createdAt"),
       updatedAt: readString(value.updatedAt, "updatedAt"),
     } satisfies LocalConsoleMessage;

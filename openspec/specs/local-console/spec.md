@@ -4,7 +4,7 @@
 
 `local-console` 是默认本地对话操作台的数据通道。它复用 GitHub issue runner 已有的 conversation、mention trigger、agent persona 与 Codex driver 能力，但输入输出落在本机 HTTP API 与 `.state/local-console.sqlite`，供 Electron 操作台或本地浏览器客户端使用。
 
-本域只规定一个本地项目下多会话、运行直播、中断、卡住状态、本地错误记录，以及 T5 本地验收走查/验收回流切片；不承载 T5 的完整 CEO 兜底、完整子会话编排、dead-letter 全量 parity、artifact publishing parity，也不承载 T6 的 GitHub/local 互斥启动 flag。
+本域规定一个本地项目下多会话、运行直播、中断、卡住状态、本地错误记录、agent 接力位点、本地 no-mention 交棒总线、workspace diff 事实、T5 本地验收走查/验收回流切片，以及 dead-letter / recovery 可见收敛；不承载 T5 的完整 CEO 兜底、完整子会话编排、artifact publishing parity，也不承载 T6 的 GitHub/local 互斥启动 flag。
 
 ## 业务规则
 
@@ -44,11 +44,29 @@
 - MUST preserve interrupted, failed, and stuck records across renderer refresh and desktop window restart.
 - MUST NOT leave a session permanently running after timeout or stale running repair.
 
+### Dead-letter 与重启恢复
+- MUST keep a failure count and last failure reason for each local source message processing failure.
+- MUST count failures by source session id and source message id, not by run id.
+- MUST keep a failed source message retryable until the configured local failure retry limit is exhausted.
+- MUST write exactly one visible local dead-letter system record when a source message exhausts the retry budget.
+- MUST persist a matching `local_dead_letters` fact for the dead-lettered source message.
+- MUST complete or otherwise terminally mark the dead-lettered source message so later polling does not replay the same source message.
+- MUST NOT save a successful dead-letter outcome when the visible dead-letter system record cannot be written.
+- MUST NOT advance the local processing cursor when the visible dead-letter system record cannot be written.
+- MUST ensure visible dead-letter system records contain no legal agent mention and do not trigger another local agent run.
+- MUST allow a later local message in the same session to continue processing after an earlier message has been dead-lettered.
+- MUST apply the same retry budget to `recordAgentResponse` failures that happen before the agent response is durably committed.
+- MUST NOT duplicate an agent response when `recordAgentResponse` fails before commit and the source message is retried until dead-letter.
+- MUST migrate old SQLite databases or missing failure metadata to default failure metadata without losing pending or running message positions.
+- MUST release or recover the session cursor after stuck recording so the session is not permanently running.
+- MUST NOT duplicate an agent response that was already persisted before process restart.
+- MUST continue startup catch-up from the next unprocessed local trigger after restart.
+
 ### 边界
 - MUST keep GitHub runner semantics untouched while allowing the local acceptance-loop slice in this domain.
 - MUST allow local acceptance-role walkthrough parsing, local acceptance fact recording, parent integration progress, repair routing, and visible format diagnostics in `.state/local-console.sqlite`.
 - MUST NOT modify `conversation`, `triggers`, agent mention parsing, stage parsing, CEO guardrail, goal-ledger business rules, GitHub issue timeline normalization, GitHub issue intake scheduling, GitHub comment publication, reaction targets, release artifact publication, issue media handling, issue worktree behavior, observer behavior, GitHub driver pool semantics, or other GitHub issue runner semantics to satisfy local-console behavior.
-- MUST NOT use the local acceptance-loop slice to implement unrelated T5 local equivalents such as full CEO no-mention fallback, full child session orchestration, dead-letter parity, artifact publishing parity, or worktree diff return.
+- MUST NOT use the local acceptance-loop or dead-letter/recovery slices to implement unrelated T5 local equivalents such as full CEO no-mention fallback, full child session orchestration, artifact publishing parity, or unconfirmed cross-mode behavior.
 - MUST NOT implement T6 GitHub/local mutually exclusive startup flag or cross-mode data migration in this domain.
 
 ### 本地验收走查解析
@@ -198,3 +216,47 @@ When the configured local store timeout is reached
 Then the session drain is released
 And the triggering message remains retryable or visibly diagnosed
 And no successful acceptance fact is saved for that attempt.
+
+### 场景 LC.T5.DL1：连续失败只 dead-letter 一次
+Given a local source message repeatedly fails with the same non-timeout processing error
+When the failure count reaches the local retry limit
+Then the local timeline contains one visible dead-letter system record for that source message
+And `local_dead_letters` contains one matching fact
+And later polling does not write another dead-letter for the same source message
+And the session can process a later local message.
+
+### 场景 LC.T5.DL2：agent response 提交前失败不会重复回复
+Given `recordAgentResponse` fails before commit for the same local source message until the retry budget is exhausted
+When local processing settles
+Then the local timeline contains one visible dead-letter system record for that source message
+And `local_dead_letters` contains one matching fact
+And no agent response is duplicated
+And the session can process a later local message.
+
+### 场景 LC.T5.DL3：dead-letter 可见写失败保持可重试
+Given a local source message has exhausted the local retry budget
+And writing the visible dead-letter system record fails
+When local processing settles
+Then the local processing cursor is not advanced
+And no successful `local_dead_letters` fact is saved
+And a later retry can attempt the visible dead-letter write again.
+
+### 场景 LC.T5.DL4：dead-letter reason 不会自触发
+Given a local source message dead-letters with a reason that contains handoff-like text
+When the visible dead-letter system record is written
+Then the visible dead-letter system record contains no legal agent mention
+And later local drain does not trigger an agent from the dead-letter system record.
+
+### 场景 LC.T5.R1：重启 catch-up 不重复已完成 response
+Given a local session already contains a persisted agent response
+And the process restarts before the next local trigger is claimed
+When the local console server starts and runs catch-up
+Then the persisted agent response is not written a second time
+And the next unprocessed trigger can still be processed.
+
+### 场景 LC.T5.R2：stale running 重启后释放 session
+Given a local source message is left running across process restart
+When local startup stale repair marks the run stuck
+Then the local timeline shows a visible stuck record with reason and runDir when available
+And the session no longer reports a running source message
+And a later local message can be accepted and processed.

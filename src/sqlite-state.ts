@@ -107,6 +107,25 @@ export type SqliteStateCommand =
       now: string;
     }
   | {
+      kind: "local-record-retryable-failure";
+      userMessageId: number;
+      sessionId: string;
+      error: string;
+      runId: string | null;
+      runDir: string | null;
+      now: string;
+    }
+  | {
+      kind: "local-record-dead-letter-and-complete";
+      userMessageId: number;
+      sessionId: string;
+      error: string;
+      runId: string | null;
+      runDir: string | null;
+      failureCount: number;
+      now: string;
+    }
+  | {
       kind: "local-record-interrupted";
       userMessageId: number;
       sessionId: string;
