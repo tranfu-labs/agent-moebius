@@ -116,6 +116,18 @@ export interface LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<void>;
+  recordMessageProcessed(input: {
+    userMessageId: number;
+    sessionId: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void>;
+  releaseMessageForRetry(input: {
+    userMessageId: number;
+    sessionId: string;
+    now: string;
+  }): Promise<void>;
   recordFailure(input: {
     userMessageId: number;
     sessionId: string;

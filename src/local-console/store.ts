@@ -96,6 +96,20 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     await this.run({ kind: "local-record-system-and-complete", ...input });
   }
 
+  async recordMessageProcessed(input: {
+    userMessageId: number;
+    sessionId: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.run({ kind: "local-record-message-processed", ...input });
+  }
+
+  async releaseMessageForRetry(input: { userMessageId: number; sessionId: string; now: string }): Promise<void> {
+    await this.run({ kind: "local-release-message-for-retry", ...input });
+  }
+
   async recordFailure(input: {
     userMessageId: number;
     sessionId: string;

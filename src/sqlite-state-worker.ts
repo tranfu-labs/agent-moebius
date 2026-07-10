@@ -117,6 +117,10 @@ function runCommand(input: WorkerInput): unknown {
         return claimNextPendingMessage(database, input.command);
       case "local-set-run-dir":
         return setRunDir(database, input.command);
+      case "local-record-message-processed":
+        return recordMessageProcessed(database, input.command);
+      case "local-release-message-for-retry":
+        return releaseMessageForRetry(database, input.command);
       case "local-record-agent-response":
         return recordAgentResponse(database, input.command);
       case "local-record-system-and-complete":
@@ -186,6 +190,13 @@ function ensureSchema(database: SqliteDatabase): void {
     );
     CREATE INDEX IF NOT EXISTS idx_session_messages_session_id_id ON session_messages(session_id, id);
     CREATE INDEX IF NOT EXISTS idx_session_messages_session_status_id ON session_messages(session_id, status, id);
+    CREATE TABLE IF NOT EXISTS local_message_cursors (
+      session_id TEXT PRIMARY KEY,
+      processed_through_message_id INTEGER NOT NULL DEFAULT 0,
+      active_message_id INTEGER,
+      active_run_id TEXT,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS session_role_threads (
       session_id TEXT NOT NULL,
       role TEXT NOT NULL,
@@ -493,7 +504,9 @@ function saveGoalLedgerRaw(database: SqliteDatabase, state: unknown, markImporte
 }
 
 function initLocalConsole(database: SqliteDatabase): null {
-  ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, new Date().toISOString(), "默认会话");
+  const now = new Date().toISOString();
+  ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, now, "默认会话");
+  ensureLocalCursor(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, now);
   return null;
 }
 
@@ -503,6 +516,7 @@ function createLocalSession(
 ): unknown {
   return transaction(database, () => {
     ensureSession(database, input.sessionId, input.now, input.title);
+    ensureLocalCursor(database, input.sessionId, input.now);
     return requireLocalSession(database, input.sessionId);
   });
 }
@@ -524,6 +538,7 @@ function appendUserMessage(
 ): unknown {
   return transaction(database, () => {
     ensureSession(database, input.sessionId, input.now, titleFromMessage(input.body));
+    ensureLocalCursor(database, input.sessionId, input.now);
     const result = database
       .prepare(
         `INSERT INTO session_messages
@@ -555,19 +570,49 @@ function claimNextPendingMessage(
   input: Extract<SqliteStateCommand, { kind: "local-claim-next" }>,
 ): unknown | null {
   return transaction(database, () => {
-    const row = database
-      .prepare("SELECT * FROM session_messages WHERE session_id = ? AND status = 'pending' ORDER BY id ASC LIMIT 1")
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const active = database
+      .prepare("SELECT active_message_id FROM local_message_cursors WHERE session_id = ? AND active_message_id IS NOT NULL")
       .get(input.sessionId);
+    if (active !== undefined) {
+      return null;
+    }
+    skipUnprocessableLocalMessages(database, input.sessionId, input.now);
+    const cursor = requireLocalCursor(database, input.sessionId);
+    const row = database
+      .prepare(
+        `SELECT * FROM session_messages
+         WHERE session_id = ?
+           AND id > ?
+           AND speaker IN ('user', 'agent')
+         ORDER BY id ASC
+         LIMIT 1`,
+      )
+      .get(input.sessionId, cursor.processedThroughMessageId);
     if (row === undefined) {
       return null;
     }
     const message = readLocalMessageRow(row);
-    const result = database
-      .prepare("UPDATE session_messages SET status = 'running', run_id = ?, error = NULL, updated_at = ? WHERE id = ? AND status = 'pending'")
-      .run(input.runId, input.now, message.id);
-    if (Number(result.changes ?? 0) !== 1) {
+    if (message.speaker === "user" && message.status === "running") {
       return null;
     }
+    if (message.speaker === "user" && message.status !== "pending") {
+      advanceLocalCursor(database, input.sessionId, message.id, input.now);
+      return null;
+    }
+    if (message.speaker === "agent" && message.status !== "displayed") {
+      advanceLocalCursor(database, input.sessionId, message.id, input.now);
+      return null;
+    }
+    if (message.speaker === "user") {
+      const result = database
+        .prepare("UPDATE session_messages SET status = 'running', run_id = ?, error = NULL, updated_at = ? WHERE id = ? AND status = 'pending'")
+        .run(input.runId, input.now, message.id);
+      if (Number(result.changes ?? 0) !== 1) {
+        return null;
+      }
+    }
+    setLocalCursorActive(database, input.sessionId, message.id, input.runId, input.now);
     return requireLocalMessage(database, message.id, input.sessionId);
   });
 }
@@ -585,6 +630,8 @@ function recordAgentResponse(
 ): null {
   return transaction(database, () => {
     ensureSession(database, input.sessionId, input.now);
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
     database
       .prepare(
         `INSERT INTO session_messages
@@ -592,9 +639,36 @@ function recordAgentResponse(
         VALUES (?, 'agent', ?, ?, 'displayed', ?, ?, NULL, 'local-message', NULL, ?, ?)`,
       )
       .run(input.sessionId, input.role, input.body, input.runId, input.runDir, input.now, input.now);
-    database
-      .prepare("UPDATE session_messages SET status = 'completed', run_id = ?, run_dir = ?, error = NULL, updated_at = ? WHERE id = ?")
-      .run(input.runId, input.runDir, input.now, input.userMessageId);
+    completeSourceMessage(database, source, "completed", null, input.runId, input.runDir, input.now);
+    return null;
+  });
+}
+
+function recordMessageProcessed(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-message-processed" }>,
+): null {
+  return transaction(database, () => {
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    completeSourceMessage(database, source, "completed", null, input.runId, input.runDir, input.now);
+    return null;
+  });
+}
+
+function releaseMessageForRetry(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-release-message-for-retry" }>,
+): null {
+  return transaction(database, () => {
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    if (source.speaker === "user" && source.status === "running") {
+      database
+        .prepare("UPDATE session_messages SET status = 'pending', run_id = NULL, error = NULL, updated_at = ? WHERE id = ?")
+        .run(input.now, source.id);
+    }
+    clearLocalCursorActive(database, input.sessionId, input.now);
     return null;
   });
 }
@@ -604,40 +678,67 @@ function recordSystemAndComplete(
   input: Extract<SqliteStateCommand, { kind: "local-record-system-and-complete" }>,
 ): null {
   return transaction(database, () => {
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
     insertSystemMessage(database, input.sessionId, input.body, input.runId, input.runDir, null, input.now);
-    database
-      .prepare("UPDATE session_messages SET status = 'completed', run_id = ?, run_dir = ?, error = NULL, updated_at = ? WHERE id = ?")
-      .run(input.runId, input.runDir, input.now, input.userMessageId);
+    completeSourceMessage(database, source, "completed", null, input.runId, input.runDir, input.now);
     return null;
   });
 }
 
 function recordFailure(database: SqliteDatabase, input: Extract<SqliteStateCommand, { kind: "local-record-failure" }>): null {
   return transaction(database, () => {
-    insertSystemMessage(database, input.sessionId, `Codex failed: ${input.error}`, input.runId, input.runDir, input.error, input.now);
-    database
-      .prepare("UPDATE session_messages SET status = 'failed', run_id = ?, run_dir = ?, error = ?, updated_at = ? WHERE id = ?")
-      .run(input.runId, input.runDir, input.error, input.now, input.userMessageId);
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    insertSystemMessage(
+      database,
+      input.sessionId,
+      `Codex failed: ${input.error}`,
+      input.runId,
+      input.runDir,
+      input.error,
+      input.now,
+      source.speaker === "agent" ? "failed" : "displayed",
+    );
+    completeSourceMessage(database, source, "failed", input.error, input.runId, input.runDir, input.now);
     return null;
   });
 }
 
 function recordInterrupted(database: SqliteDatabase, input: Extract<SqliteStateCommand, { kind: "local-record-interrupted" }>): null {
   return transaction(database, () => {
-    insertSystemMessage(database, input.sessionId, `Codex interrupted: ${input.reason}`, input.runId, input.runDir, input.reason, input.now);
-    database
-      .prepare("UPDATE session_messages SET status = 'interrupted', run_id = ?, run_dir = ?, error = ?, updated_at = ? WHERE id = ?")
-      .run(input.runId, input.runDir, input.reason, input.now, input.userMessageId);
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    insertSystemMessage(
+      database,
+      input.sessionId,
+      `Codex interrupted: ${input.reason}`,
+      input.runId,
+      input.runDir,
+      input.reason,
+      input.now,
+      source.speaker === "agent" ? "interrupted" : "displayed",
+    );
+    completeSourceMessage(database, source, "interrupted", input.reason, input.runId, input.runDir, input.now);
     return null;
   });
 }
 
 function recordStuck(database: SqliteDatabase, input: Extract<SqliteStateCommand, { kind: "local-record-stuck" }>): null {
   return transaction(database, () => {
-    insertSystemMessage(database, input.sessionId, `Codex stuck: ${input.reason}`, input.runId, input.runDir, input.reason, input.now);
-    database
-      .prepare("UPDATE session_messages SET status = 'stuck', run_id = ?, run_dir = ?, error = ?, updated_at = ? WHERE id = ?")
-      .run(input.runId, input.runDir, input.reason, input.now, input.userMessageId);
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    insertSystemMessage(
+      database,
+      input.sessionId,
+      `Codex stuck: ${input.reason}`,
+      input.runId,
+      input.runDir,
+      input.reason,
+      input.now,
+      source.speaker === "agent" ? "stuck" : "displayed",
+    );
+    completeSourceMessage(database, source, "stuck", input.reason, input.runId, input.runDir, input.now);
     return null;
   });
 }
@@ -646,19 +747,180 @@ function markStaleRunning(
   database: SqliteDatabase,
   input: Extract<SqliteStateCommand, { kind: "local-mark-stale-running" }>,
 ): number {
-  const rows = database
-    .prepare("SELECT * FROM session_messages WHERE session_id = ? AND status = 'running' AND updated_at < ? ORDER BY id ASC")
-    .all(input.sessionId, input.cutoffIso)
-    .map(readLocalMessageRow);
+  return transaction(database, () => {
+    ensureLocalCursor(database, input.sessionId, input.now);
+    let count = 0;
+    const rows = database
+      .prepare("SELECT * FROM session_messages WHERE session_id = ? AND status = 'running' AND updated_at < ? ORDER BY id ASC")
+      .all(input.sessionId, input.cutoffIso)
+      .map(readLocalMessageRow);
 
-  for (const row of rows) {
-    database
-      .prepare("UPDATE session_messages SET status = 'stuck', error = ?, updated_at = ? WHERE id = ?")
-      .run(input.reason, input.now, row.id);
-    insertSystemMessage(database, input.sessionId, `Recovered stale local run as stuck: ${input.reason}`, row.runId, row.runDir, input.reason, input.now);
+    for (const row of rows) {
+      insertSystemMessage(database, input.sessionId, `Recovered stale local run as stuck: ${input.reason}`, row.runId, row.runDir, input.reason, input.now);
+      completeSourceMessage(database, row, "stuck", input.reason, row.runId, row.runDir, input.now);
+      count += 1;
+    }
+
+    const activeRows = database
+      .prepare(
+        `SELECT * FROM local_message_cursors
+         WHERE session_id = ?
+           AND active_message_id IS NOT NULL
+           AND updated_at < ?`,
+      )
+      .all(input.sessionId, input.cutoffIso);
+    for (const activeRow of activeRows) {
+      if (!isRecord(activeRow)) {
+        continue;
+      }
+      const activeMessageId = readNumber(activeRow.active_message_id, "active_message_id");
+      const activeRunId = readNullableString(activeRow.active_run_id, "active_run_id");
+      const sourceRow = database.prepare("SELECT * FROM session_messages WHERE id = ? AND session_id = ?").get(activeMessageId, input.sessionId);
+      if (sourceRow === undefined) {
+        clearLocalCursorActive(database, input.sessionId, input.now);
+        count += 1;
+        continue;
+      }
+      const source = readLocalMessageRow(sourceRow);
+      if (source.status === "running") {
+        continue;
+      }
+      insertSystemMessage(
+        database,
+        input.sessionId,
+        `Recovered stale local handoff as stuck: ${input.reason}`,
+        activeRunId,
+        source.runDir,
+        input.reason,
+        input.now,
+        "stuck",
+      );
+      completeSourceMessage(database, source, "stuck", input.reason, activeRunId, source.runDir, input.now);
+      count += 1;
+    }
+
+    return count;
+  });
+}
+
+function ensureLocalCursor(database: SqliteDatabase, sessionId: string, now: string): void {
+  const existing = database.prepare("SELECT session_id FROM local_message_cursors WHERE session_id = ?").get(sessionId);
+  if (existing !== undefined) {
+    return;
   }
+  const processedThrough = computeInitialProcessedThrough(database, sessionId);
+  database
+    .prepare(
+      `INSERT INTO local_message_cursors
+        (session_id, processed_through_message_id, active_message_id, active_run_id, updated_at)
+       VALUES (?, ?, NULL, NULL, ?)`,
+    )
+    .run(sessionId, processedThrough, now);
+}
 
-  return rows.length;
+function computeInitialProcessedThrough(database: SqliteDatabase, sessionId: string): number {
+  const rows = database
+    .prepare("SELECT * FROM session_messages WHERE session_id = ? ORDER BY id ASC")
+    .all(sessionId)
+    .map(readLocalMessageRow);
+  let processedThrough = 0;
+  for (const row of rows) {
+    if (row.speaker === "user" && (row.status === "pending" || row.status === "running")) {
+      break;
+    }
+    processedThrough = row.id;
+  }
+  return processedThrough;
+}
+
+function requireLocalCursor(database: SqliteDatabase, sessionId: string): { processedThroughMessageId: number } {
+  const row = database.prepare("SELECT * FROM local_message_cursors WHERE session_id = ?").get(sessionId);
+  if (!isRecord(row)) {
+    throw new Error(`local console cursor not found: ${sessionId}`);
+  }
+  return {
+    processedThroughMessageId: readNumber(row.processed_through_message_id, "processed_through_message_id"),
+  };
+}
+
+function skipUnprocessableLocalMessages(database: SqliteDatabase, sessionId: string, now: string): void {
+  while (true) {
+    const cursor = requireLocalCursor(database, sessionId);
+    const row = database
+      .prepare(
+        `SELECT * FROM session_messages
+         WHERE session_id = ?
+           AND id > ?
+         ORDER BY id ASC
+         LIMIT 1`,
+      )
+      .get(sessionId, cursor.processedThroughMessageId);
+    if (row === undefined) {
+      return;
+    }
+    const message = readLocalMessageRow(row);
+    if (message.speaker === "user" && (message.status === "pending" || message.status === "running")) {
+      return;
+    }
+    if (message.speaker === "agent" && message.status === "displayed") {
+      return;
+    }
+    advanceLocalCursor(database, sessionId, message.id, now);
+  }
+}
+
+function setLocalCursorActive(database: SqliteDatabase, sessionId: string, messageId: number, runId: string, now: string): void {
+  database
+    .prepare(
+      `UPDATE local_message_cursors
+       SET active_message_id = ?, active_run_id = ?, updated_at = ?
+       WHERE session_id = ?`,
+    )
+    .run(messageId, runId, now, sessionId);
+}
+
+function advanceLocalCursor(database: SqliteDatabase, sessionId: string, messageId: number, now: string): void {
+  database
+    .prepare(
+      `UPDATE local_message_cursors
+       SET processed_through_message_id =
+             CASE
+               WHEN processed_through_message_id > ? THEN processed_through_message_id
+               ELSE ?
+             END,
+           active_message_id = NULL,
+           active_run_id = NULL,
+           updated_at = ?
+       WHERE session_id = ?`,
+    )
+    .run(messageId, messageId, now, sessionId);
+}
+
+function clearLocalCursorActive(database: SqliteDatabase, sessionId: string, now: string): void {
+  database
+    .prepare(
+      `UPDATE local_message_cursors
+       SET active_message_id = NULL, active_run_id = NULL, updated_at = ?
+       WHERE session_id = ?`,
+    )
+    .run(now, sessionId);
+}
+
+function completeSourceMessage(
+  database: SqliteDatabase,
+  source: WorkerLocalMessage,
+  status: "completed" | "failed" | "interrupted" | "stuck",
+  error: string | null,
+  runId: string | null,
+  runDir: string | null,
+  now: string,
+): void {
+  if (source.speaker === "user") {
+    database
+      .prepare("UPDATE session_messages SET status = ?, run_id = ?, run_dir = ?, error = ?, updated_at = ? WHERE id = ?")
+      .run(status, runId, runDir, error, now, source.id);
+  }
+  advanceLocalCursor(database, source.sessionId, source.id, now);
 }
 
 function insertSystemMessage(
@@ -669,18 +931,19 @@ function insertSystemMessage(
   runDir: string | null,
   error: string | null,
   now: string,
+  status = "displayed",
 ): void {
   ensureSession(database, sessionId, now);
   database
     .prepare(
       `INSERT INTO session_messages
         (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
-      VALUES (?, 'system', NULL, ?, 'displayed', ?, ?, ?, 'local-message', NULL, ?, ?)`,
+      VALUES (?, 'system', NULL, ?, ?, ?, ?, ?, 'local-message', NULL, ?, ?)`,
     )
-    .run(sessionId, body, runId, runDir, error, now, now);
+    .run(sessionId, body, status, runId, runDir, error, now, now);
 }
 
-function requireLocalMessage(database: SqliteDatabase, id: number, sessionId: string): unknown {
+function requireLocalMessage(database: SqliteDatabase, id: number, sessionId: string): WorkerLocalMessage {
   const row = database.prepare("SELECT * FROM session_messages WHERE id = ? AND session_id = ?").get(id, sessionId);
   if (row === undefined) {
     throw new Error(`local console message not found: ${String(id)}`);

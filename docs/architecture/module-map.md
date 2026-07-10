@@ -26,7 +26,7 @@
 - 禁止依赖：MUST NOT 反向 import `src/runner*`、`src/observer*`、`src/local-console*`、`src/goal-ledger*` 或任何 `.state` adapter；MUST NOT 调用 `gh` / `codex` / shell；MUST NOT 把业务事实复制进组件层。真实 renderer app、IPC 与 local console API 对接属于 desktop-shell。
 
 ### local-console
-- 职责边界：本地对话操作台数据通道。它在本机 loopback HTTP server 与 `.state/local-console.sqlite` 上提供一个本地项目、多会话、session-scoped message submit、active run snapshot、有界 stdout/stderr tail、中断、失败和卡住状态记录。它复用既有 conversation、mention trigger、agent persona 和 Codex driver，但不改变 GitHub issue runner 语义。
+- 职责边界：本地对话操作台数据通道。它在本机 loopback HTTP server 与 `.state/local-console.sqlite` 上提供一个本地项目、多会话、session-scoped message submit、agent 回复接力 drain、SQLite 消息处理位点、active run snapshot、有界 stdout/stderr tail、中断、失败和卡住状态记录。它复用既有 conversation、mention trigger、agent persona 和 Codex driver；agent 回复落库后可立即作为同一 session 的下一轮可 claim 触发源继续处理，server 启动只做一次 catch-up，不依赖固定 1s 周期 poll，但不改变 GitHub issue runner 语义。
 - 入口：`src/local-console/server.ts`、`src/local-console/runtime.ts`、`src/local-console/store.ts`、`src/local-console/output-tail.ts`。
 - 上游：Electron main process、兼容的本地浏览器调试页、local-console 测试。
 - 下游：`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、SQLite state worker、agent Markdown 素材目录、Codex runDir stdout/stderr artifacts。

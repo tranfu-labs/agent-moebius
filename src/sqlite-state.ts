@@ -28,6 +28,8 @@ export type SqliteStateCommand =
   | { kind: "local-has-running"; sessionId: string }
   | { kind: "local-claim-next"; sessionId: string; runId: string; now: string }
   | { kind: "local-set-run-dir"; id: number; runDir: string; now: string }
+  | { kind: "local-record-message-processed"; userMessageId: number; sessionId: string; runId: string; runDir: string | null; now: string }
+  | { kind: "local-release-message-for-retry"; userMessageId: number; sessionId: string; now: string }
   | {
       kind: "local-record-agent-response";
       userMessageId: number;
