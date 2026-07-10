@@ -1,6 +1,6 @@
 # 里程碑 4：默认本地对话操作台
 
-> **状态：已裁决放行，进行中（2026-07-09）。** 各任务验收语句以本文档各任务「验收场景」为基线，由 dev 方案 + qa 审查按 `docs/roadmap/milestone-standards.md` 逐条细化增补。依赖序：T1 独立、可与 T2 并行；T2 为风险优先 spike，gate 住 T3+；T5 为终点线，T6 收尾。
+> **状态：已裁决放行，进行中（2026-07-09）。** 各任务验收语句以本文档各任务「验收场景」为基线，由 dev 方案 + qa 审查按 `docs/roadmap/milestone-standards.md` 逐条细化增补。依赖序：T1 独立、可与 T2 并行；T2 为风险优先 spike，gate 住 T3+；T4.5 gate 住所有多角色接力场景（含 T5 的交棒总线 / 走查 / 开子会话）；T4.6 gate 住 T5 的 workspace 隔离对等；T5 为终点线，T6 收尾。
 > **与 M3 遗留卡点的关系：** M3 T9/T10 回流的卡点 A–K 是 runner 稳定性 / 编排维度，与本里程碑（对话介质本地化）正交，不在本里程碑范围，另行承接。
 
 ## 背景
@@ -73,11 +73,19 @@
 
 验收证据（2026-07-09）：T4.5 已按 `openspec/changes/local-console-t45-handoff-loop/` 实现 local session drain、SQLite `local_message_cursors` 位点、agent 回复作为下一轮触发源、启动 catch-up 与无 1s 周期 poll。正式 7 条验收摘要见 `artifacts/acceptance/t45-evidence.json`：四角色链路落库顺序与 run 顺序均为 `ceo -> dev-manager -> dev -> qa`，相邻 handoff gap 为 298ms / 289ms / 293ms，重启续跑只运行剩余 `dev` 一棒且 agent roles 为 `ceo, dev`，`recordAgentResponse` 事务前失败后无半条 agent 回复且 retry 后成功，timeout 产生 visible `stuck` 记录并允许后续 `qa` 消息继续，两个 session startup catch-up 中 fast session 不被 slow session 阻塞。自动化回归：`pnpm exec tsx scripts/acceptance/local-console-t45.ts`、`pnpm vitest run tests/local-console.test.ts`、`pnpm test`、`pnpm typecheck`、`git diff --check` 均退出码 0。
 
+### - [ ] T4.6 · 本地 project 层 + workspace source（`数据正确级`）
+
+T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packages/console-ui/src/console/operator-console.tsx`），但物理层 project 概念仍不存在：codex 的 cwd 写死为单一 `runtime.options.projectRoot`（`src/local-console/runtime.ts:199`），`sessions` 表没有 project 外键，桌面壳没有「选文件夹」入口，也没有 worktree 开关。T5 终点线的「隔离/回滚语义与 GitHub 对等」直接依赖本任务。
+
+范围：桌面壳新增「打开文件夹」作为 project 的物理载体，project 落 SQLite（新 `projects` 表 + `sessions.project_id` 外键），`OperatorProject` 从占位升级为真实数据；新增第三个 adapter `workspace source`——GitHub=`cloneUrl`，本地=`{folderPath, worktreeMode}`，codex 的 cwd 由此 adapter 解析：git 目录 + worktree 开启 → 临时 worktree（基于本地 HEAD，尽量复用 `src/agent-prescripts/issue-worktree.ts` 主体路径）；git 目录 + 关闭 → 原目录；非 git 目录处理策略在细化阶段拍板（候选：引导 `git init` / 原地跑 / 拒收）。会话树 `parent_session_id` 写入不在本任务范围（归 T5）。
+
+验收场景（细化时保留）：(a) 打开一个 git 目录、worktree 开关开 → dev 在临时 worktree 改、原目录 `git status` 无脏改；(b) 同一目录关掉开关 → dev 直接在原目录改；(c) 打开非 git 目录 → 走细化时拍板的处理路径；(d) 重启桌面壳 → 应看到 project 列表和上次一致，`OperatorProject.title` 反映真实目录名；(e) 全程 fake `gh` 零调用。
+
 ### - [ ] T5 · 本地全功能对等（终点线，`成品级`）
 
-拿 `github-issue-runner` spec 的 MUST 清单逐条核，把 GitHub 模式全部能力在本地补齐原生形态：交棒总线、CEO 无 mention 兜底路由、验收走查、开子会话编排（CEO「开子 issue」→「开子会话」）、dead-letter 降级。漏一条即未达终点。
+拿 `github-issue-runner` spec 的 MUST 清单逐条核，把 GitHub 模式全部能力在本地补齐原生形态：交棒总线、CEO 无 mention 兜底路由、验收走查、开子会话编排（CEO「开子 issue」→「开子会话」，含 `sessions.parent_session_id` 写入判定与写入路径）、dead-letter 降级、**workspace 隔离/回滚语义（T4.6 worktree 开启态）与 GitHub `issue-worktree` 路径对等——开分支、diff 回流、不污染原目录三点全等**。漏一条即未达终点。
 
-验收场景（细化时保留）：在纯本地发起一个多子任务目标 → 应看到 CEO 兜底路由、按会话拆子会话、qa 走查、验收回流全部在本地跑通，与 GitHub 模式行为对齐；逐条比对 spec MUST 清单无遗漏。
+验收场景（细化时保留）：在纯本地发起一个多子任务目标 → 应看到 CEO 兜底路由、按会话拆子会话（`parent_session_id` 落库并在桌面台侧栏正确渲染树形层级）、qa 走查、验收回流全部在本地跑通，与 GitHub 模式行为对齐；worktree 开启态下走一遍 dev 修改回流 → 与 `issue-worktree` 在开分支 / 回流 / 原目录洁净三点上行为全等；逐条比对 spec MUST 清单无遗漏。
 
 ### - [ ] T6 · GitHub 降为互斥 flag 模式 + 收尾（`成品级`）
 
