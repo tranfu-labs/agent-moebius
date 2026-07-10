@@ -11,6 +11,11 @@ import {
   isInterruptedCodexRunResult,
   run,
 } from "../src/codex.js";
+import {
+  CODEX_EXEC_OPTIONS_BASE,
+  buildCodexExecOptions,
+  resolveCodexProviderConfig,
+} from "../src/config.js";
 
 describe("extractFinalAssistant", () => {
   it("returns the final assistant text across supported event shapes", () => {
@@ -214,6 +219,72 @@ setInterval(() => {}, 1000);
     } finally {
       process.env.PATH = previousPath;
     }
+  });
+});
+
+describe("codex provider override", () => {
+  it("subscription baseline: null provider returns byte-for-byte equal to base flags", () => {
+    const baseline = [
+      "--yolo",
+      "--json",
+      "-m",
+      "gpt-5.5",
+      "-c",
+      'service_tier="fast"',
+      "-c",
+      "features.fast_mode=true",
+      "-c",
+      'model_reasoning_effort="xhigh"',
+    ];
+    expect([...CODEX_EXEC_OPTIONS_BASE]).toEqual(baseline);
+    expect(buildCodexExecOptions(null)).toEqual(baseline);
+    expect(resolveCodexProviderConfig({}, {})).toBeNull();
+    expect(resolveCodexProviderConfig({ codex: {} }, {})).toBeNull();
+    expect(resolveCodexProviderConfig({ codex: { provider: "" } }, {})).toBeNull();
+    expect(resolveCodexProviderConfig({ codex: { provider: "   " } }, {})).toBeNull();
+  });
+
+  it("api mode appends exactly five provider overrides in order with literal base_url", () => {
+    const cfg = resolveCodexProviderConfig(
+      { codex: { provider: "tranfu" } },
+      { TRANFU_API_KEY: "sk-xxx", TRANFU_BASE_URL: "https://api.tranfu.com/v1" },
+    );
+    expect(cfg).toEqual({ provider: "tranfu", baseUrl: "https://api.tranfu.com/v1" });
+
+    const options = buildCodexExecOptions(cfg);
+    expect(options.slice(0, CODEX_EXEC_OPTIONS_BASE.length)).toEqual([...CODEX_EXEC_OPTIONS_BASE]);
+    expect(options.slice(CODEX_EXEC_OPTIONS_BASE.length)).toEqual([
+      "-c",
+      "model_provider=tranfu",
+      "-c",
+      "model_providers.tranfu.name=tranfu",
+      "-c",
+      "model_providers.tranfu.base_url=https://api.tranfu.com/v1",
+      "-c",
+      "model_providers.tranfu.env_key=TRANFU_API_KEY",
+      "-c",
+      "model_providers.tranfu.wire_api=responses",
+    ]);
+    // NEVER 允许把 key 值本身写进任何 argv 项。
+    expect(options.every((entry) => !entry.includes("sk-xxx"))).toBe(true);
+    // base_url MUST 是字面 URL，不能是 shell 变量占位符。
+    expect(options.some((entry) => entry.includes("${TRANFU_BASE_URL}"))).toBe(false);
+  });
+
+  it("throws a visible error naming missing env variables and never returns", () => {
+    expect(() =>
+      resolveCodexProviderConfig({ codex: { provider: "tranfu" } }, { TRANFU_API_KEY: "sk-xxx" }),
+    ).toThrow(/TRANFU_BASE_URL/);
+    expect(() =>
+      resolveCodexProviderConfig({ codex: { provider: "tranfu" } }, { TRANFU_BASE_URL: "https://api.tranfu.com/v1" }),
+    ).toThrow(/TRANFU_API_KEY/);
+    expect(() => resolveCodexProviderConfig({ codex: { provider: "tranfu" } }, {})).toThrow(
+      /TRANFU_API_KEY.*TRANFU_BASE_URL/,
+    );
+    // 命名约定：provider name uppercase 得到 env 变量前缀。
+    expect(() => resolveCodexProviderConfig({ codex: { provider: "derouter" } }, {})).toThrow(
+      /DEROUTER_API_KEY.*DEROUTER_BASE_URL/,
+    );
   });
 });
 

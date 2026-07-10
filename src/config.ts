@@ -2,6 +2,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadMergedLocalConfig } from "./local-config.js";
 
+// 尽早把项目根 .env 加载到 process.env，供 CODEX_PROVIDER_CONFIG 与任何
+// LOCAL_CONSOLE_* 环境读取使用。process.loadEnvFile 不覆盖已有变量，且文件不
+// 存在时抛错——一律吞掉，让缺省 .env 场景静默通过。
+try {
+  const projectRootForEnv = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  process.loadEnvFile(path.join(projectRootForEnv, ".env"));
+} catch {
+  // ignore：.env 不存在或 Node 版本过老（无 loadEnvFile）时保持原有 process.env
+}
+
 export const AGENT_MOEBIUS_DATA_ROOT_ENV = "AGENT_MOEBIUS_DATA_ROOT";
 
 export interface RuntimePathResolutionInput {
@@ -79,7 +89,7 @@ export const WORKDIR_ROOT = path.resolve(
   process.env.AGENT_MOEBIUS_WORKDIR_ROOT ?? path.join(PROJECT_ROOT, "..", "agent-moebius-workdir"),
 );
 
-export const CODEX_EXEC_OPTIONS = [
+export const CODEX_EXEC_OPTIONS_BASE = [
   "--yolo",
   "--json",
   "-m",
@@ -91,6 +101,64 @@ export const CODEX_EXEC_OPTIONS = [
   "-c",
   'model_reasoning_effort="xhigh"',
 ] as const;
+
+export interface CodexProviderConfig {
+  provider: string;
+  baseUrl: string;
+}
+
+export function resolveCodexProviderConfig(
+  local: { codex?: { provider?: string } },
+  env: NodeJS.ProcessEnv = process.env,
+): CodexProviderConfig | null {
+  const rawProvider = local.codex?.provider;
+  const provider = typeof rawProvider === "string" ? rawProvider.trim() : "";
+  if (provider.length === 0) {
+    return null;
+  }
+
+  const upper = provider.toUpperCase();
+  const apiKeyName = `${upper}_API_KEY`;
+  const baseUrlName = `${upper}_BASE_URL`;
+  const apiKey = env[apiKeyName]?.trim();
+  const baseUrl = env[baseUrlName]?.trim();
+  const missing: string[] = [];
+  if (!apiKey) missing.push(apiKeyName);
+  if (!baseUrl) missing.push(baseUrlName);
+  if (missing.length > 0) {
+    throw new Error(
+      `[codex] provider="${provider}" requires environment variables ${missing.join(", ")}; ` +
+        "set them in the project root .env or export them before starting.",
+    );
+  }
+
+  return { provider, baseUrl: baseUrl! };
+}
+
+export function buildCodexExecOptions(cfg: CodexProviderConfig | null): string[] {
+  const base = [...CODEX_EXEC_OPTIONS_BASE];
+  if (cfg === null) {
+    return base;
+  }
+  const { provider, baseUrl } = cfg;
+  const upper = provider.toUpperCase();
+  return [
+    ...base,
+    "-c",
+    `model_provider=${provider}`,
+    "-c",
+    `model_providers.${provider}.name=${provider}`,
+    "-c",
+    `model_providers.${provider}.base_url=${baseUrl}`,
+    "-c",
+    `model_providers.${provider}.env_key=${upper}_API_KEY`,
+    "-c",
+    `model_providers.${provider}.wire_api=responses`,
+  ];
+}
+
+export const CODEX_PROVIDER_CONFIG = resolveCodexProviderConfig(LOCAL_CONFIG);
+export const CODEX_EXEC_OPTIONS = buildCodexExecOptions(CODEX_PROVIDER_CONFIG);
 
 export const CONFIG_LOG_FIELDS = {
   configPath: CONFIG_PATH,

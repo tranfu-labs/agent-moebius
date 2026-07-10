@@ -122,6 +122,7 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   const child = spawn("codex", buildCodexArgs(prompt, mode, imagePaths), {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
+    env: process.env,
   });
   let abortReason: string | null = null;
   let timeoutReason: string | null = null;

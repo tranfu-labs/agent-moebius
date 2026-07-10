@@ -14,3 +14,12 @@
 # [[watchRepositories]]
 # owner = "tranfu-labs"
 # repo = "agent-moebius"
+
+# Codex 执行 provider 覆盖（默认走本机订阅登录；下面二选一切到 API 网关）：
+#
+# [codex]
+# provider = "tranfu"   # 读 TRANFU_API_KEY / TRANFU_BASE_URL（.env 或 export）
+# provider = "derouter" # 读 DEROUTER_API_KEY / DEROUTER_BASE_URL
+#
+# 命名约定：provider = "xxx" 会去 process.env 找 XXX_API_KEY 与 XXX_BASE_URL；
+# 二者任一缺失则启动时抛错，NEVER spawn codex。
