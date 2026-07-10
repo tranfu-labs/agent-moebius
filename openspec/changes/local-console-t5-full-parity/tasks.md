@@ -17,6 +17,12 @@
   - [ ] 将 CEO append 写为 local CEO message，并交给下一轮 session drain 触发目标 agent。
   - [ ] 为 user no-mention 和 child agent no-mention 建立 CEO route judgment、去重和 fail-open 记录。
   - [ ] 覆盖 append 发布失败不推进 cursor、不保存成功 route decision。
+  - [x] Issue #111：新增 runtime-local route bus，claim 后先复用 mention trigger；只有 no-trigger source 进入 local no-mention route。
+  - [x] Issue #111：为 local user message 建立 `local-message:<id>` route key，并把 route decision 写入 `.state/local-console.sqlite` 的 `local_route_decisions`，不写 GitHub intake state。
+  - [x] Issue #111：CEO route append 必须校验代码区域外恰好一个合法 agent mention；明确交棒消息遇到非法 append 时保持 retryable，或写不含合法 agent mention 的 visible local failure/dead-letter 后才完成。
+  - [x] Issue #111：append 成功时在同一 SQLite transaction 内写 visible local CEO handoff、保存 append decision、完成源 message；下一轮 drain 再由 mention trigger 唤醒目标角色。
+  - [x] Issue #111：append visible write 或 transaction 失败时释放源 message 供 retry，不推进 cursor、不保存成功 append decision。
+  - [x] Issue #111：非法 append validation failure 不保存 successful append decision、不直接运行任何目标角色，并记录可诊断 reason。
 - [ ] 实现子会话编排
   - [ ] 将 CEO spawn child issue executor 抽象为 issue/session 两套 sink，共享校验和 orchestration key。
   - [ ] `goal_intake.confirm` 在本地创建或找回 phase-one child sessions。
@@ -47,6 +53,12 @@
 - [ ] 补齐测试与验收脚本
   - [ ] 增加 local store migration / transaction / idempotency 单元测试。
   - [ ] 增加 local guardrail、no-mention route、agent-authored route 测试。
+  - [x] Issue #111：增加“本地无 mention 明确交棒 → CEO append 单 mention → 下一轮唤醒目标角色”的单元 / runtime 测试。
+  - [x] Issue #111：增加“重复处理同一无 mention message → 不重复 CEO judgment / 不重复 append / 不重复唤醒”的防重测试。
+  - [x] Issue #111：增加“local route append 可见写失败 → cursor 不推进、append decision 不保存、retry 可重入”的 S1/V1 测试。
+  - [x] Issue #111：增加“CEO route judgment 返回多 mention append body → 拒绝 append、不直接运行 agent、不保存 successful append decision、源消息 retry 或可见失败后完成”的 S1/V1 测试。
+  - [x] Issue #111：增加“CEO route judgment 返回无合法 mention append body → 不静默完成明确交棒消息，且 GitHub intake fallback route ledger 不出现 local route decision”的 S1/V1 测试。
+  - [x] Issue #111：复跑 `tests/github-response-intake.test.ts`，证明本地 route bus 不污染 GitHub intake fallback route ledger。
   - [ ] 增加 local CEO route judgment 永久挂起的 L1 故障注入，验证超时释放 session drain 且不保存成功 route decision。
   - [ ] 增加 child session orchestration、goal-intake confirm、repair child 测试。
   - [ ] 增加 acceptance pre-pass、integration request、format reminder、blocked report 测试。

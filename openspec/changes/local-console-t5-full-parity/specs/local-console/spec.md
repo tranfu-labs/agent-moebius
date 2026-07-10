@@ -47,9 +47,21 @@ The local console MUST write CEO append output as a visible local CEO message an
 
 The local console MUST support local no-mention fallback routing for user messages with goal shape.
 
+The local console MUST support local no-mention fallback routing for user messages that clearly hand off control without writing a legal agent mention.
+
 The local console MUST support local agent-authored no-mention fallback routing when the latest agent message belongs to an unclosed local ledger child task.
 
 The local console MUST dedupe local fallback route decisions by bounded message keys and MUST NOT store full message bodies in the route decision ledger.
+
+The local console MUST validate local fallback route append bodies with the same code-region-aware single legal mention constraint used by the GitHub route guard.
+
+The local console MUST NOT silently complete a clear local handoff message when fallback route judgment returns an invalid append body.
+
+The local console MUST keep a clear local handoff message retryable, or write a visible local failure/dead-letter record before completing it, when fallback route append validation fails.
+
+The local console MUST NOT save a successful append route decision or directly run any target agent when fallback route append validation fails.
+
+The local console MUST persist local fallback route decisions only in `.state/local-console.sqlite` and MUST NOT update GitHub response intake fallback route state.
 
 #### Scenario: Local no-mention route appends before triggering
 Given a local user message has goal shape and no legal mention
@@ -57,6 +69,27 @@ When local fallback route judgment returns append
 Then a visible local CEO message is written
 And the target agent is triggered by the next local drain step
 And the route judgment call itself does not directly run the target agent.
+
+#### Scenario: Local handoff text without mention routes once
+Given a local user message says to hand control to a known role without using a legal agent mention
+When local fallback route judgment returns an append handoff for that role
+Then exactly one visible local CEO handoff message is written
+And that handoff message contains exactly one legal agent mention outside code regions
+And the mentioned agent is triggered by the next local drain step
+And reprocessing the same source message does not write a second handoff message.
+
+#### Scenario: Local route state does not pollute GitHub intake
+Given a local no-mention route decision is recorded for a local session message
+When GitHub response intake state is loaded or folded
+Then the local route decision is not present in any GitHub intake issue fallback route ledger.
+
+#### Scenario: Invalid local route append remains visible or retryable
+Given a local user message clearly hands off control without using a legal agent mention
+When local fallback route judgment returns an append body with no legal mention or more than one legal mention
+Then the invalid append body is rejected
+And no target agent is run directly
+And no successful append route decision is saved
+And the source message remains retryable or is completed only after a visible local failure or dead-letter record is written.
 
 #### Scenario: Local CEO route hang is bounded
 Given local CEO route judgment never settles

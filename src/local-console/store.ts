@@ -7,6 +7,7 @@ import {
   type LocalConsoleMessage,
   type LocalConsoleMessageStatus,
   type LocalConsoleProjectSummary,
+  type LocalRouteDecisionRecord,
   type LocalConsoleSessionStatus,
   type LocalConsoleSessionSummary,
   type LocalConsoleSessionWorkspaceSource,
@@ -136,6 +137,36 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     await this.run({ kind: "local-record-message-processed", ...input });
   }
 
+  async findRouteDecision(input: { sessionId: string; routeKey: string }): Promise<LocalRouteDecisionRecord | null> {
+    return this.run({ kind: "local-find-route-decision", ...input });
+  }
+
+  async recordRouteAppend(input: {
+    userMessageId: number;
+    sessionId: string;
+    routeKey: string;
+    body: string;
+    targetRole: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.run({ kind: "local-record-route-append", ...input });
+  }
+
+  async recordRouteNoAction(input: {
+    userMessageId: number;
+    sessionId: string;
+    routeKey: string;
+    outcome: "no_action" | "fail_open" | "dead_letter";
+    reason: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.run({ kind: "local-record-route-no-action", ...input });
+  }
+
   async releaseMessageForRetry(input: { userMessageId: number; sessionId: string; now: string }): Promise<void> {
     await this.run({ kind: "local-release-message-for-retry", ...input });
   }
@@ -254,6 +285,31 @@ function readSessionStatus(value: unknown): LocalConsoleSessionStatus {
   throw new Error(`Invalid local console session status: ${String(value)}`);
 }
 
+function normalizeRouteDecision(value: unknown): LocalRouteDecisionRecord | null {
+  if (value === null) {
+    return null;
+  }
+  if (!isRecord(value)) {
+    throw new Error("Invalid local route decision");
+  }
+  return {
+    sessionId: readString(value.sessionId, "sessionId"),
+    messageId: readNumber(value.messageId, "messageId"),
+    routeKey: readString(value.routeKey, "routeKey"),
+    outcome: readRouteDecisionOutcome(value.outcome),
+    targetRole: readNullableString(value.targetRole, "targetRole"),
+    reason: readString(value.reason, "reason"),
+    createdAt: readString(value.createdAt, "createdAt"),
+  };
+}
+
+function readRouteDecisionOutcome(value: unknown): LocalRouteDecisionRecord["outcome"] {
+  if (value === "append" || value === "no_action" || value === "fail_open" || value === "dead_letter") {
+    return value;
+  }
+  throw new Error(`Invalid local route decision outcome: ${String(value)}`);
+}
+
 function normalizeResult(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(normalizeStoreRecordIfNeeded);
@@ -262,6 +318,9 @@ function normalizeResult(value: unknown): unknown {
 }
 
 function normalizeStoreRecordIfNeeded(value: unknown): unknown {
+  if (isRecord(value) && "routeKey" in value && "outcome" in value) {
+    return normalizeRouteDecision(value);
+  }
   if (!isRecord(value) || !("sessionId" in value)) {
     return value;
   }

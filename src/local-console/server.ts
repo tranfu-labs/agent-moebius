@@ -15,6 +15,7 @@ import { run as runCodex } from "../codex.js";
 import { log } from "../log.js";
 import { createSqliteLocalConsoleStore } from "./store.js";
 import { createLocalChildSession, listLocalT5Facts } from "./t5-store.js";
+import type { LocalRouteJudgment } from "./route-bus.js";
 import { LocalConsoleBusyError, type LocalConsoleStore } from "./types.js";
 import { formatLocalError, LocalConsoleRuntime, type LocalConsoleAgentFile } from "./runtime.js";
 
@@ -33,6 +34,8 @@ export interface LocalConsoleServerOptions {
   codexIdleTimeoutMs?: number;
   codexMaxDurationMs?: number;
   workspaceGitTimeoutMs?: number;
+  routeJudgment?: LocalRouteJudgment;
+  routeTimeoutMs?: number;
 }
 
 export interface StartedLocalConsoleServer {
@@ -67,6 +70,8 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
     codexIdleTimeoutMs: options.codexIdleTimeoutMs ?? CODEX_RUN_IDLE_TIMEOUT_MS,
     codexMaxDurationMs: options.codexMaxDurationMs ?? CODEX_RUN_MAX_DURATION_MS,
     workspaceGitTimeoutMs: options.workspaceGitTimeoutMs,
+    routeJudgment: options.routeJudgment,
+    routeTimeoutMs: options.routeTimeoutMs,
   });
   await runtime.init();
 

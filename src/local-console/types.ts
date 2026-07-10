@@ -26,6 +26,18 @@ export interface LocalConsoleMessage {
   updatedAt: string;
 }
 
+export type LocalRouteDecisionOutcome = "append" | "no_action" | "fail_open" | "dead_letter";
+
+export interface LocalRouteDecisionRecord {
+  sessionId: string;
+  messageId: number;
+  routeKey: string;
+  outcome: LocalRouteDecisionOutcome;
+  targetRole: string | null;
+  reason: string;
+  createdAt: string;
+}
+
 export type LocalConsoleSessionStatus = "idle" | "running" | "waiting" | "stuck" | "failed" | "interrupted";
 export type LocalConsoleProjectSourceType = typeof LOCAL_CONSOLE_PROJECT_SOURCE_TYPE;
 export type LocalConsoleWorkspaceMode = "direct" | "worktree";
@@ -159,6 +171,30 @@ export interface LocalConsoleStore {
   recordMessageProcessed(input: {
     userMessageId: number;
     sessionId: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void>;
+  findRouteDecision(input: {
+    sessionId: string;
+    routeKey: string;
+  }): Promise<LocalRouteDecisionRecord | null>;
+  recordRouteAppend(input: {
+    userMessageId: number;
+    sessionId: string;
+    routeKey: string;
+    body: string;
+    targetRole: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void>;
+  recordRouteNoAction(input: {
+    userMessageId: number;
+    sessionId: string;
+    routeKey: string;
+    outcome: Exclude<LocalRouteDecisionOutcome, "append">;
+    reason: string;
     runId: string;
     runDir: string | null;
     now: string;
