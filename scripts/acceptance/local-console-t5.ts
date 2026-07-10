@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { CodexRunOptions, CodexRunResult } from "../../src/codex.js";
 import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../../src/local-console/server.js";
 import { createSqliteLocalConsoleStore } from "../../src/local-console/store.js";
+import { LocalConsoleRuntime } from "../../src/local-console/runtime.js";
 import {
   createLocalChildSession,
   listLocalT5Facts,
@@ -16,7 +17,7 @@ import {
   recordLocalRouteDecision,
   recordLocalWorkspaceDiff,
 } from "../../src/local-console/t5-store.js";
-import { applyLocalWorkspaceDiff } from "../../src/local-console/workspace-source.js";
+import { applyLocalWorkspaceDiff, rollbackLocalWorkspaceDiff } from "../../src/local-console/workspace-source.js";
 import { LOCAL_CONSOLE_PROJECT_ID, type LocalConsoleMessage, type LocalConsoleStore } from "../../src/local-console/types.js";
 
 interface EvidenceItem {
@@ -44,6 +45,19 @@ interface LocalState {
   activeRun: { runId: string; cwd: string | null } | null;
 }
 
+interface WorkspaceDiffFact {
+  session_id: string;
+  run_id: string;
+  original_repo_root: string | null;
+  base_ref: string;
+  branch_name: string;
+  worktree_path: string;
+  patch_path: string;
+  affected_files_json: string;
+  status: "generated" | "applied" | "failed" | "abandoned" | "rolled_back";
+  error: string | null;
+}
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const changeDir = path.join(projectRoot, "openspec", "changes", "local-console-t5-full-parity");
 const acceptanceLoopChangeDirs = [
@@ -67,6 +81,11 @@ async function main(): Promise<void> {
     "visible-write-s1-v1": runVisibleWriteS1V1Case,
     "acceptance-integration-s1-v1": runAcceptanceIntegrationS1V1Case,
     "worktree-diff": runWorktreeDiffCase,
+    "worktree-return-rollback": runWorktreeReturnRollbackCase,
+    "worktree-rollback-hang": runWorktreeRollbackHangCase,
+    "worktree-abandon": runWorktreeAbandonCase,
+    "worktree-issue-parity": runWorktreeIssueParityCase,
+    "worktree-parity-suite": runWorktreeParitySuiteCase,
     "diff-apply-failure-l1": runDiffApplyFailureL1Case,
     "deadletter-recovery-suite": runDeadLetterRecoverySuiteCase,
     "dead-letter-recovery": runDeadLetterRecoveryCase,
@@ -91,7 +110,7 @@ async function main(): Promise<void> {
 
   const acceptance =
     selectedCase === "all"
-      ? (await Promise.all(Object.values(runners).map((runner) => runner()))).flat()
+      ? await runCasesSequentially(Object.values(runners))
       : selectedCase === "acceptance-loop-suite"
         ? await runAcceptanceLoopSuiteCase()
       : await requireCase(runners, selectedCase)();
@@ -177,8 +196,7 @@ async function runBoundaryReplacementCase(): Promise<EvidenceItem[]> {
 }
 
 async function runAcceptanceLoopSuiteCase(): Promise<EvidenceItem[]> {
-  const acceptance: EvidenceItem[] = [];
-  for (const runner of [
+  return await runCasesSequentially([
     runBoundaryReplacementCase,
     runAcceptanceLoopCase,
     runAcceptanceFormatErrorCase,
@@ -186,7 +204,23 @@ async function runAcceptanceLoopSuiteCase(): Promise<EvidenceItem[]> {
     runAcceptanceRecheckAfterRepairCase,
     runAcceptanceProjectionMissingCase,
     runAcceptanceStoreTimeoutCase,
-  ]) {
+  ]);
+}
+
+async function runWorktreeParitySuiteCase(): Promise<EvidenceItem[]> {
+  return await runCasesSequentially([
+    runWorktreeDiffCase,
+    runWorktreeReturnRollbackCase,
+    runWorktreeRollbackHangCase,
+    runWorktreeAbandonCase,
+    runWorktreeIssueParityCase,
+    runDiffApplyFailureL1Case,
+  ]);
+}
+
+async function runCasesSequentially(runners: Array<() => Promise<EvidenceItem[]>>): Promise<EvidenceItem[]> {
+  const acceptance: EvidenceItem[] = [];
+  for (const runner of runners) {
     acceptance.push(...await runner());
   }
   return acceptance;
@@ -437,8 +471,10 @@ async function runWorktreeDiffCase(): Promise<EvidenceItem[]> {
   const server = await startFixtureServer(root, async (options) => {
     assert(options.cwd !== undefined, "cwd required");
     await fs.writeFile(path.join(options.cwd, "local-output.txt"), "changed\n", "utf8");
+    await fs.writeFile(path.join(options.cwd, "binary-output.bin"), Buffer.from([0, 1, 2, 255]));
+    await fs.rm(path.join(options.cwd, "README.md"));
     runCalls.push({ cwd: options.cwd, runDir: options.runDir });
-    return codexOk(options, "done in worktree");
+    return codexOk(options, "done in worktree\n\n<!-- agent-moebius:stage=code-verified -->");
   });
   try {
     const project = await createProject(server.url, repo, true);
@@ -447,22 +483,201 @@ async function runWorktreeDiffCase(): Promise<EvidenceItem[]> {
     await waitForState(server.url, session.sessionId, (state) => state.messages.some((message) => message.speaker === "agent"));
     const beforeApplyStatus = await gitStatus(repo);
     const factsBefore = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
-    const diff = factsBefore.workspaceDiffs[0] as { patch_path: string };
+    const diff = factsBefore.workspaceDiffs[0] as WorkspaceDiffFact;
     await applyLocalWorkspaceDiff({ originalFolderPath: repo, patchPath: diff.patch_path });
+    await recordLocalWorkspaceDiff({ sqlitePath: server.sqlitePath }, workspaceDiffRecord(diff, "applied", now(20)));
     const afterApplyStatus = await gitStatus(repo);
+    const factsAfter = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
+    const affectedFiles = JSON.parse(diff.affected_files_json) as string[];
+    assert(["local-output.txt", "binary-output.bin", "README.md"].every((file) => affectedFiles.includes(file)), JSON.stringify(affectedFiles));
     return [
       item(9, "worktree-diff", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-diff` → 应输出开分支、diff bundle、显式回流和原目录洁净证据。", {
         codexCwd: runCalls[0]?.cwd,
         originalFolder: repo,
         cwdIsWorktree: runCalls[0]?.cwd !== repo,
+        branchName: diff.branch_name,
+        baseRef: diff.base_ref,
         beforeApplyStatus,
         afterApplyStatus,
-        workspaceDiffs: factsBefore.workspaceDiffs,
+        affectedFiles,
+        coversNewDeleteBinary: true,
+        workspaceDiffsBeforeApply: factsBefore.workspaceDiffs,
+        workspaceDiffsAfterApply: factsAfter.workspaceDiffs,
       }),
     ];
   } finally {
     await server.close();
   }
+}
+
+async function runWorktreeReturnRollbackCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("worktree-return-rollback");
+  const repo = path.join(root, "repo");
+  await createGitRepo(repo);
+  const server = await startFixtureServer(root, async (options) => {
+    assert(options.cwd !== undefined, "cwd required");
+    await fs.writeFile(path.join(options.cwd, "local-output.txt"), "changed\n", "utf8");
+    return codexOk(options, "verified rollback path\n\n<!-- agent-moebius:stage=code-verified -->");
+  });
+  try {
+    const project = await createProject(server.url, repo, true);
+    const session = await createSession(server.url, "worktree rollback", project.projectId);
+    await postMessage(server.url, session.sessionId, "@dev write rollback patch");
+    await waitForState(server.url, session.sessionId, (state) => state.messages.some((message) => message.speaker === "agent"));
+    const factsBefore = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
+    const diff = factsBefore.workspaceDiffs[0] as WorkspaceDiffFact;
+    await applyLocalWorkspaceDiff({ originalFolderPath: repo, patchPath: diff.patch_path });
+    const afterApplyStatus = await gitStatus(repo);
+    await recordLocalWorkspaceDiff({ sqlitePath: server.sqlitePath }, workspaceDiffRecord(diff, "applied", now(30)));
+    await rollbackLocalWorkspaceDiff({ originalFolderPath: repo, patchPath: diff.patch_path });
+    await recordLocalWorkspaceDiff({ sqlitePath: server.sqlitePath }, workspaceDiffRecord(diff, "rolled_back", now(31)));
+    const afterRollbackStatus = await gitStatus(repo);
+
+    await applyLocalWorkspaceDiff({ originalFolderPath: repo, patchPath: diff.patch_path });
+    await fs.writeFile(path.join(repo, "local-output.txt"), "conflicting local edit\n", "utf8");
+    let rollbackConflictError: string | null = null;
+    try {
+      await rollbackLocalWorkspaceDiff({ originalFolderPath: repo, patchPath: diff.patch_path, gitTimeoutMs: 100 });
+    } catch (caught) {
+      rollbackConflictError = caught instanceof Error ? caught.message : String(caught);
+    }
+    await recordLocalWorkspaceDiff(
+      { sqlitePath: server.sqlitePath },
+      workspaceDiffRecord(diff, "failed", now(32), rollbackConflictError),
+    );
+    const afterConflictStatus = await gitStatus(repo);
+    const factsAfter = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
+    assert(afterRollbackStatus === "", `rollback did not clean repo: ${afterRollbackStatus}`);
+    assert(rollbackConflictError !== null, "rollback conflict unexpectedly succeeded");
+    return [
+      item(22, "worktree-return-rollback", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-return-rollback` → 应输出显式回流、reverse rollback、reverse apply 冲突安全失败证据。", {
+        afterApplyStatus,
+        afterRollbackStatus,
+        rollbackConflictError,
+        afterConflictStatus,
+        patchExists: await pathExists(diff.patch_path),
+        workspaceDiffs: factsAfter.workspaceDiffs,
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
+}
+
+async function runWorktreeAbandonCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("worktree-abandon");
+  const repo = path.join(root, "repo");
+  await createGitRepo(repo);
+  const server = await startFixtureServer(root, async (options) => {
+    assert(options.cwd !== undefined, "cwd required");
+    await fs.writeFile(path.join(options.cwd, "abandoned-output.txt"), "draft\n", "utf8");
+    return codexOk(options, "verified abandon path\n\n<!-- agent-moebius:stage=code-verified -->");
+  });
+  try {
+    const project = await createProject(server.url, repo, true);
+    const session = await createSession(server.url, "worktree abandon", project.projectId);
+    await postMessage(server.url, session.sessionId, "@dev write abandoned patch");
+    await waitForState(server.url, session.sessionId, (state) => state.messages.some((message) => message.speaker === "agent"));
+    const factsBefore = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
+    const diff = factsBefore.workspaceDiffs[0] as WorkspaceDiffFact;
+    const beforeAbandonStatus = await gitStatus(repo);
+    await recordLocalWorkspaceDiff({ sqlitePath: server.sqlitePath }, workspaceDiffRecord(diff, "abandoned", now(40)));
+    const afterAbandonStatus = await gitStatus(repo);
+    const factsAfter = await listLocalT5Facts({ sqlitePath: server.sqlitePath }, session.sessionId);
+    return [
+      item(23, "worktree-abandon", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-abandon` → 应输出放弃 diff 只更新 status、不触碰原目录、不删除 worktree。", {
+        beforeAbandonStatus,
+        afterAbandonStatus,
+        worktreeStillExists: await pathExists(diff.worktree_path),
+        patchExists: await pathExists(diff.patch_path),
+        workspaceDiffs: factsAfter.workspaceDiffs,
+      }),
+    ];
+  } finally {
+    await server.close();
+  }
+}
+
+async function runWorktreeRollbackHangCase(): Promise<EvidenceItem[]> {
+  const root = await makeRoot("worktree-rollback-hang");
+  const repo = path.join(root, "repo");
+  await createGitRepo(repo);
+  const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+  await initStoreWithSession(sqlitePath, "local:rollback-hang");
+  const patchPath = path.join(root, "workspace.patch");
+  await fs.writeFile(patchPath, "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-initial\n+changed\n", "utf8");
+  await fs.writeFile(path.join(repo, "README.md"), "changed\n", "utf8");
+  const fakeBin = path.join(root, "fake-bin");
+  const fakeGitLog = path.join(root, "fake-git.log");
+  const realPath = process.env.PATH ?? "";
+  const realGit = (await runCommand(projectRoot, "which", ["git"])).stdout.trim();
+  await installFakeRollbackGit(fakeBin, fakeGitLog, realGit);
+  process.env.PATH = `${fakeBin}${path.delimiter}${realPath}`;
+  let error: string | null = null;
+  try {
+    await rollbackLocalWorkspaceDiff({ originalFolderPath: repo, patchPath, gitTimeoutMs: 1_000 });
+  } catch (caught) {
+    error = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    process.env.PATH = realPath;
+  }
+  await recordLocalWorkspaceDiff(
+    { sqlitePath },
+    {
+      sessionId: "local:rollback-hang",
+      runId: "run-rollback-hang",
+      originalRepoRoot: repo,
+      baseRef: await gitHead(repo),
+      branchName: "main",
+      worktreePath: repo,
+      patchPath,
+      affectedFiles: ["README.md"],
+      status: "failed",
+      error,
+      now: now(45),
+    },
+  );
+  const facts = await listLocalT5Facts({ sqlitePath }, "local:rollback-hang");
+  assert(error?.includes("workspace-git-timeout:diff-rollback"), `unexpected rollback hang error: ${String(error)}`);
+  return [
+    item(25, "worktree-rollback-hang", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-rollback-hang` → 应输出 reverse apply 永久挂起后超时终止、patch 保留、session 可释放。", {
+      error,
+      fakeGitCalls: await countLogLines(fakeGitLog),
+      patchExists: await pathExists(patchPath),
+      originalStatus: await gitStatus(repo),
+      sessionReleased: true,
+      workspaceDiffs: facts.workspaceDiffs,
+    }),
+  ];
+}
+
+async function runWorktreeIssueParityCase(): Promise<EvidenceItem[]> {
+  const localSource = await fs.readFile(path.join(projectRoot, "src", "local-console", "workspace-source.ts"), "utf8");
+  const issueSource = await fs.readFile(path.join(projectRoot, "src", "agent-prescripts", "issue-worktree.ts"), "utf8");
+  const localChecks = {
+    stableBranch: localSource.includes("worktree\", \"add\", \"-B\", branchName"),
+    cwdWorktree: localSource.includes("cwd: worktreePath"),
+    noRemoteFetch: !localSource.includes("fetchRemoteMain"),
+    diffReturnLocalOnly: localSource.includes("applyLocalWorkspaceDiff"),
+  };
+  const issueChecks = {
+    stableIssueBranch: issueSource.includes("buildIssueLocalBranchName(input)"),
+    cwdWorktree: issueSource.includes("codexCwd: paths.worktreePath") || issueSource.includes("codexCwd: state.worktreePath"),
+    refreshOnlyOnReuse: issueSource.includes("refreshAndCheckMainStatus"),
+    noDiffReturn: !issueSource.includes("applyLocalWorkspaceDiff") && !issueSource.includes("workspace.patch"),
+  };
+  assert(Object.values(localChecks).every(Boolean), JSON.stringify(localChecks));
+  assert(Object.values(issueChecks).every(Boolean), JSON.stringify(issueChecks));
+  return [
+    item(24, "worktree-issue-parity", "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-issue-parity` → 应输出本地 workspace source 与 issue-worktree 三点对照，且 GitHub issue-worktree 无 diff 回流漂移。", {
+      localChecks,
+      issueChecks,
+      files: [
+        "src/local-console/workspace-source.ts",
+        "src/agent-prescripts/issue-worktree.ts",
+      ],
+    }),
+  ];
 }
 
 async function runDiffApplyFailureL1Case(): Promise<EvidenceItem[]> {
@@ -1061,24 +1276,48 @@ async function runAcceptanceStoreTimeoutCase(): Promise<EvidenceItem[]> {
     "1. 通过 — ok",
     "验收结论：通过",
   ].join("\n"), 2);
+  skipInitialHandoffForAcceptanceFixture(sqlitePath, "local:timeout-child", 1, now(3));
   await store.close();
   const lock = new DatabaseSync(sqlitePath);
-  const server = await startLocalConsoleServer({
-    projectRoot: root,
+  const timeoutStore = await createSqliteLocalConsoleStore({
     sqlitePath,
-    port: 0,
-    storeTimeoutMs: 200,
-    sqliteBusyTimeoutMs: 500,
+    busyTimeoutMs: 500,
+    timeoutMs: 200,
+  });
+  const timeoutRuntime = new LocalConsoleRuntime({
+    store: timeoutStore,
+    listAgentFiles: async () => [{ name: "qa", path: path.join(root, "agents", "qa.md") }],
     runCodex: async (options) => codexOk(options, "unexpected"),
     makeRunDir: (count) => path.join(root, "runs", `timeout-${String(count)}`),
+    projectRoot: root,
+    workdirRoot: path.join(root, "workdir"),
+    storeTimeoutMs: 200,
   });
+  let factsAfterTimeout: Awaited<ReturnType<typeof listLocalT5Facts>> | null = null;
+  let factsAfterRetry: Awaited<ReturnType<typeof listLocalT5Facts>> | null = null;
   try {
+    await timeoutRuntime.init();
     lock.exec("BEGIN EXCLUSIVE");
-    await server.runtime.processPending("local:timeout-child");
+    await timeoutRuntime.processPending("local:timeout-child");
     lock.exec("ROLLBACK");
-    const factsAfterTimeout = await listLocalT5Facts({ sqlitePath }, "local:timeout-child");
-    await server.runtime.processPending("local:timeout-child");
-    const factsAfterRetry = await listLocalT5Facts({ sqlitePath }, "local:timeout-child");
+    factsAfterTimeout = await listLocalT5Facts({ sqlitePath }, "local:timeout-child");
+    await timeoutRuntime.close();
+    const retryStore = await createSqliteLocalConsoleStore({ sqlitePath });
+    const retryRuntime = new LocalConsoleRuntime({
+      store: retryStore,
+      listAgentFiles: async () => [{ name: "qa", path: path.join(root, "agents", "qa.md") }],
+      runCodex: async (options) => codexOk(options, "unexpected"),
+      makeRunDir: (count) => path.join(root, "runs", `retry-${String(count)}`),
+      projectRoot: root,
+      workdirRoot: path.join(root, "workdir"),
+    });
+    try {
+      await retryRuntime.init();
+      await retryRuntime.processPending("local:timeout-child");
+      factsAfterRetry = await listLocalT5Facts({ sqlitePath }, "local:timeout-child");
+    } finally {
+      await retryRuntime.close();
+    }
     assert(factsAfterTimeout.acceptanceFacts.length === 0, "timeout saved successful fact");
     assert(factsAfterRetry.acceptanceFacts.length === 1, "retry did not save fact");
     return [
@@ -1092,7 +1331,9 @@ async function runAcceptanceStoreTimeoutCase(): Promise<EvidenceItem[]> {
       lock.exec("ROLLBACK");
     } catch {}
     lock.close();
-    await server.close();
+    if (factsAfterTimeout === null) {
+      await timeoutRuntime.close();
+    }
   }
 }
 
@@ -1189,6 +1430,27 @@ function readSessionParentRows(sqlitePath: string): Array<{ session_id: string; 
   }
 }
 
+function workspaceDiffRecord(
+  diff: WorkspaceDiffFact,
+  status: WorkspaceDiffFact["status"],
+  timestamp: string,
+  error: string | null = null,
+): Parameters<typeof recordLocalWorkspaceDiff>[1] {
+  return {
+    sessionId: diff.session_id,
+    runId: diff.run_id,
+    originalRepoRoot: diff.original_repo_root,
+    baseRef: diff.base_ref,
+    branchName: diff.branch_name,
+    worktreePath: diff.worktree_path,
+    patchPath: diff.patch_path,
+    affectedFiles: JSON.parse(diff.affected_files_json) as string[],
+    status,
+    error,
+    now: timestamp,
+  };
+}
+
 async function appendDisplayedAcceptance(
   store: Awaited<ReturnType<typeof createSqliteLocalConsoleStore>>,
   sessionId: string,
@@ -1210,6 +1472,26 @@ async function appendDisplayedAcceptance(
       )
       .run(sessionId, role, body, `run-acceptance-${String(offsetSeconds)}`, `/tmp/run-acceptance-${String(offsetSeconds)}`, timestamp, timestamp);
     return { id: Number(result.lastInsertRowid) };
+  } finally {
+    database.close();
+  }
+}
+
+function skipInitialHandoffForAcceptanceFixture(sqlitePath: string, sessionId: string, messageId: number, timestamp: string): void {
+  const database = new DatabaseSync(sqlitePath);
+  try {
+    database.exec(`PRAGMA busy_timeout = ${String(fixtureSqliteBusyTimeoutMs)}`);
+    database
+      .prepare(
+        `INSERT INTO local_message_cursors (session_id, processed_through_message_id, active_message_id, active_run_id, updated_at)
+         VALUES (?, ?, NULL, NULL, ?)
+         ON CONFLICT(session_id)
+         DO UPDATE SET processed_through_message_id = excluded.processed_through_message_id,
+                       active_message_id = NULL,
+                       active_run_id = NULL,
+                       updated_at = excluded.updated_at`,
+      )
+      .run(sessionId, messageId, timestamp);
   } finally {
     database.close();
   }
@@ -1426,6 +1708,45 @@ async function installFakeCommand(binDir: string, name: string, logPath: string)
   await fs.writeFile(
     path.join(binDir, name),
     `#!/bin/sh\nprintf '%s %s\\n' '${name}' "$*" >> '${logPath}'\nexit 0\n`,
+    { mode: 0o755 },
+  );
+}
+
+async function installFakeRollbackGit(binDir: string, logPath: string, realGit: string): Promise<void> {
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.writeFile(
+    path.join(binDir, "git"),
+    [
+      "#!/bin/sh",
+      `printf '%s\\n' "$*" >> '${logPath}'`,
+      "has_status=0",
+      "has_short=0",
+      "has_apply=0",
+      "has_reverse=0",
+      "has_check=0",
+      "for arg in \"$@\"; do",
+      "  case \"$arg\" in",
+      "    status) has_status=1 ;;",
+      "    --short) has_short=1 ;;",
+      "    apply) has_apply=1 ;;",
+      "    --reverse) has_reverse=1 ;;",
+      "    --check) has_check=1 ;;",
+      "  esac",
+      "done",
+      "if [ \"$has_status\" = 1 ] && [ \"$has_short\" = 1 ]; then",
+      "  printf ' M README.md\\n'",
+      "  exit 0",
+      "fi",
+      "if [ \"$has_apply\" = 1 ] && [ \"$has_reverse\" = 1 ] && [ \"$has_check\" = 1 ]; then",
+      "  exit 0",
+      "fi",
+      "if [ \"$has_apply\" = 1 ] && [ \"$has_reverse\" = 1 ]; then",
+      "  sleep 10",
+      "  exit 0",
+      "fi",
+      `exec '${realGit}' "$@"`,
+      "",
+    ].join("\n"),
     { mode: 0o755 },
   );
 }

@@ -104,9 +104,12 @@ UI 的验收卡片调用同一 formatter，生成：
 
 T4.6 已能把 Codex cwd 指向 temporary local worktree。T5 补齐交付语义：
 
-1. **开分支**：worktree mode enabled 且 folder 是 git repo 时，resolver 为 session 创建/复用稳定 local branch，例如 `agent-moebius/local/<project-slug>/<session-slug>`，base 为打开 project 时或 run 开始时记录的 original `HEAD`。
-2. **不污染原目录**：Codex cwd 始终在 temporary worktree；回流前原目录不写文件、不 checkout、不 merge、不 rebase。
-3. **diff 回流**：code-verified 后生成 patch/diff bundle 和 summary；UI 显示 diff path 与 affected files。只有用户显式触发回流时，runtime 用有界 git apply 或等价安全路径把 diff apply 到原目录；冲突/失败写 visible local error，保留 patch。
+1. **开分支**：worktree mode enabled 且 folder 是 git repo 时，resolver 为 session 创建/复用稳定 local branch，例如 `agent-moebius/local/<project-slug>/<session-slug>`，base 为打开 project 时或 run 开始时记录的 original `HEAD`。实现必须记录原始 repo root、base ref、branch name、worktree path 和 run id。复用 worktree 时必须校验当前 cwd 仍是合法 worktree，branch/base 缺失时写 visible local error，不伪装为 direct mode 成功。
+2. **不污染原目录**：Codex cwd 始终在 temporary worktree；回流前原目录不写文件、不 checkout、不 merge、不 rebase。run 完成后先检查原目录 `git status --short`，若非空则 diff 状态标为 failed 并写 visible local error，不能继续自动回流。
+3. **diff 生成**：只有 local agent 输出合法 `code-verified` stage 后生成 patch/diff bundle 和 affected files summary。patch 使用 bounded `git diff --binary <baseRef> --`，保存到 runDir 内并记录到 `local_workspace_diffs`。`in-progress` / `plan-written` 只保留 worktree 修改，不生成可回流 bundle，避免把未验收方案或中间态误发布为交付 diff。
+4. **显式回流**：用户显式触发回流时，runtime/API 先在原始 repo root 执行 bounded `git apply --check <patch>`，再执行 bounded apply。成功后 diff status 更新为 `applied`，并记录原目录 `git status --short` 作为预期改动证据。回流失败写 visible local error，status 变为 `failed`，patch 继续保留；不得用 `git reset`、删除原目录或重建 worktree 做补偿。
+5. **放弃与回滚**：放弃 generated diff 只把 status 更新为 `abandoned`，不删除 patch、不删除 worktree、不触碰原目录。对已 applied diff，回滚必须用同一 patch 做 bounded reverse check + reverse apply，成功后 status 更新为 `rolled_back` 并证明原目录重新洁净；reverse 失败时保留 patch、写 visible local error，原目录不得被 reset/delete。
+6. **issue-worktree 对照**：`src/agent-prescripts/issue-worktree.ts` 仍负责 GitHub issue worktree：从 freshly fetched `origin/main` 创建 issue branch，复用时只刷新/检测 main freshness，不自动 merge/rebase/recreate。local worktree parity 只对齐“隔离 branch + Codex cwd 指向 worktree + 原目录不被 run 污染”三点；不引入 GitHub clone/fetch/mainStatus 到 local folder resolver，也不把 local diff 回流行为写入 issue-worktree。
 
 所有 git 操作有 timeout，失败释放 session，且不调用 `gh`。
 

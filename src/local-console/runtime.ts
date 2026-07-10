@@ -18,6 +18,7 @@ import {
   isInterruptedCodexRunResult,
 } from "../codex.js";
 import { log } from "../log.js";
+import { parseTrailingStageMarker } from "../stages.js";
 import { resolveTrigger } from "../triggers/index.js";
 import {
   buildLocalAcceptanceBlockedMessage,
@@ -53,6 +54,7 @@ import {
 } from "./types.js";
 import {
   generateLocalWorkspaceDiff,
+  readLocalGitStatus,
   resolveLocalWorkspaceSource,
   type ResolvedLocalWorkspace,
 } from "./workspace-source.js";
@@ -92,6 +94,7 @@ interface ActiveLocalRun {
   worktreeUnavailableReason: string | null;
   branchName: string | null;
   baseRef: string | null;
+  originalRepoRoot: string | null;
   startedAt: string;
   controller: AbortController;
 }
@@ -451,6 +454,7 @@ export class LocalConsoleRuntime {
             worktreeUnavailableReason: workspace.worktreeUnavailableReason,
             branchName: workspace.branchName,
             baseRef: workspace.baseRef,
+            originalRepoRoot: workspace.originalRepoRoot,
             startedAt: this.nowIso(),
             controller,
           });
@@ -480,7 +484,7 @@ export class LocalConsoleRuntime {
             });
           }
 
-          await this.recordWorkspaceDiffIfNeeded(sessionId, nextRunId, resolvedRunDir, workspace, controller.signal);
+          await this.recordWorkspaceDiffIfNeeded(sessionId, nextRunId, resolvedRunDir, workspace, result.finalText, controller.signal);
 
           try {
             await this.storeCall("local-console-store-record-agent-response", () =>
@@ -1057,17 +1061,32 @@ export class LocalConsoleRuntime {
     runId: string,
     runDir: string,
     workspace: ResolvedLocalWorkspace,
+    finalText: string,
     signal: AbortSignal,
   ): Promise<void> {
     if (workspace.mode !== "worktree" || workspace.worktreePath === null) {
       return;
     }
+    if (parseTrailingStageMarker(finalText) !== "code-verified") {
+      return;
+    }
     try {
+      const originalStatus = workspace.originalRepoRoot === null
+        ? ""
+        : await readLocalGitStatus({
+          folderPath: workspace.originalRepoRoot,
+          gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+          signal,
+        });
+      if (originalStatus !== "") {
+        throw new Error(`original-repo-dirty-before-diff:${originalStatus}`);
+      }
       const diff = await generateLocalWorkspaceDiff({
         worktreePath: workspace.worktreePath,
         runDir,
         baseRef: workspace.baseRef,
         branchName: workspace.branchName,
+        originalRepoRoot: workspace.originalRepoRoot,
         gitTimeoutMs: this.options.workspaceGitTimeoutMs,
         signal,
       });
@@ -1080,10 +1099,12 @@ export class LocalConsoleRuntime {
           {
             sessionId,
             runId,
+            originalRepoRoot: workspace.originalRepoRoot,
             baseRef: diff.baseRef,
             branchName: diff.branchName,
             worktreePath: diff.worktreePath,
             patchPath: diff.patchPath,
+            affectedFiles: diff.affectedFiles,
             status: "generated",
             error: null,
             now: this.nowIso(),
@@ -1101,10 +1122,12 @@ export class LocalConsoleRuntime {
         {
           sessionId,
           runId,
+          originalRepoRoot: workspace.originalRepoRoot,
           baseRef: workspace.baseRef ?? "unknown",
           branchName: workspace.branchName ?? "unknown",
           worktreePath: workspace.worktreePath,
           patchPath: path.join(runDir, "workspace.patch"),
+          affectedFiles: [],
           status: "failed",
           error: message,
           now: this.nowIso(),

@@ -1,223 +1,26 @@
 {
   "ok": true,
-  "selectedCase": "child-session-acceptance",
+  "selectedCase": "acceptance-store-timeout",
   "acceptance": [
     {
-      "id": 1,
-      "case": "child-session-orchestration",
-      "statement": "本地 CEO 编排多子任务目标 → 应创建子会话并在 SQLite sessions.parent_session_id 写入父会话 id。",
+      "id": 21,
+      "case": "acceptance-store-timeout",
+      "statement": "SQLite 组合事务或 store command timeout → 系统应在配置超时内释放 session drain，消息保持 retryable 或 visible diagnosed，且不保存成功验收事实。",
       "evidence": {
-        "parentSessionId": "local:parent",
-        "childSessions": [
+        "factsAfterTimeout": [],
+        "factsAfterRetry": [
           {
-            "sessionId": "local:child-a",
-            "projectId": "local",
-            "parentSessionId": "local:parent",
-            "title": "Task A",
-            "status": "idle",
-            "runningCount": 0,
-            "waitingCount": 0,
-            "stuckCount": 0,
-            "errorCount": 0,
-            "interruptedCount": 0,
-            "childCount": 0,
-            "createdAt": "2026-07-10T00:00:01.000Z",
-            "updatedAt": "2026-07-10T00:00:01.000Z"
-          },
-          {
-            "sessionId": "local:child-b",
-            "projectId": "local",
-            "parentSessionId": "local:parent",
-            "title": "Task B",
-            "status": "idle",
-            "runningCount": 0,
-            "waitingCount": 0,
-            "stuckCount": 0,
-            "errorCount": 0,
-            "interruptedCount": 0,
-            "childCount": 0,
-            "createdAt": "2026-07-10T00:00:02.000Z",
-            "updatedAt": "2026-07-10T00:00:02.000Z"
-          }
-        ],
-        "sqliteRows": [
-          {
-            "session_id": "default",
-            "parent_session_id": null
-          },
-          {
-            "session_id": "local:child-a",
-            "parent_session_id": "local:parent"
-          },
-          {
-            "session_id": "local:child-b",
-            "parent_session_id": "local:parent"
-          },
-          {
-            "session_id": "local:parent",
-            "parent_session_id": null
+            "id": 1,
+            "session_id": "local:timeout-child",
+            "task_id": "task-timeout",
+            "role": "qa",
+            "verdict": "passed",
+            "evidence_json": "{\"role\":\"qa\",\"taskId\":\"task-timeout\",\"messageId\":3,\"sourceBodyDigest\":\"84fca5cdc039f3337e471a41ba3ecbe91578300e49751013f9d37cbcc1b3818b\",\"rawConclusion\":\"通过\",\"statementResults\":[{\"index\":1,\"status\":\"passed\",\"evidence\":\"ok\"}],\"acceptanceStatements\":[\"跑 one → 应退出码 0\"]}",
+            "source_message_id": 3,
+            "superseded_at": null,
+            "created_at": "2026-07-10T13:42:42.164Z"
           }
         ]
-      }
-    },
-    {
-      "id": 2,
-      "case": "child-session-sidebar-tree",
-      "statement": "打开桌面台侧栏 → 应看到父会话下按 parent_session_id 渲染的树形子会话层级，刷新后仍保持。",
-      "evidence": {
-        "parentSessionId": "local:parent",
-        "beforeRefresh": [
-          {
-            "sessionId": "local:child-b",
-            "projectId": "local",
-            "parentSessionId": "local:parent",
-            "title": "Task B",
-            "status": "idle",
-            "runningCount": 0,
-            "waitingCount": 0,
-            "stuckCount": 0,
-            "errorCount": 0,
-            "interruptedCount": 0,
-            "childCount": 0,
-            "createdAt": "2026-07-10T00:00:02.000Z",
-            "updatedAt": "2026-07-10T00:00:02.000Z"
-          },
-          {
-            "sessionId": "local:parent",
-            "projectId": "local",
-            "parentSessionId": null,
-            "title": "Parent goal",
-            "status": "idle",
-            "runningCount": 0,
-            "waitingCount": 0,
-            "stuckCount": 0,
-            "errorCount": 0,
-            "interruptedCount": 0,
-            "childCount": 2,
-            "createdAt": "2026-07-10T00:00:00.000Z",
-            "updatedAt": "2026-07-10T00:00:02.000Z"
-          },
-          {
-            "sessionId": "local:child-a",
-            "projectId": "local",
-            "parentSessionId": "local:parent",
-            "title": "Task A",
-            "status": "idle",
-            "runningCount": 0,
-            "waitingCount": 0,
-            "stuckCount": 0,
-            "errorCount": 0,
-            "interruptedCount": 0,
-            "childCount": 0,
-            "createdAt": "2026-07-10T00:00:01.000Z",
-            "updatedAt": "2026-07-10T00:00:01.000Z"
-          }
-        ],
-        "afterRefresh": [
-          {
-            "sessionId": "local:child-b",
-            "projectId": "local",
-            "parentSessionId": "local:parent",
-            "title": "Task B",
-            "status": "idle",
-            "runningCount": 0,
-            "waitingCount": 0,
-            "stuckCount": 0,
-            "errorCount": 0,
-            "interruptedCount": 0,
-            "childCount": 0,
-            "createdAt": "2026-07-10T00:00:02.000Z",
-            "updatedAt": "2026-07-10T00:00:02.000Z"
-          },
-          {
-            "sessionId": "local:parent",
-            "projectId": "local",
-            "parentSessionId": null,
-            "title": "Parent goal",
-            "status": "idle",
-            "runningCount": 0,
-            "waitingCount": 0,
-            "stuckCount": 0,
-            "errorCount": 0,
-            "interruptedCount": 0,
-            "childCount": 2,
-            "createdAt": "2026-07-10T00:00:00.000Z",
-            "updatedAt": "2026-07-10T00:00:02.000Z"
-          },
-          {
-            "sessionId": "local:child-a",
-            "projectId": "local",
-            "parentSessionId": "local:parent",
-            "title": "Task A",
-            "status": "idle",
-            "runningCount": 0,
-            "waitingCount": 0,
-            "stuckCount": 0,
-            "errorCount": 0,
-            "interruptedCount": 0,
-            "childCount": 0,
-            "createdAt": "2026-07-10T00:00:01.000Z",
-            "updatedAt": "2026-07-10T00:00:01.000Z"
-          }
-        ],
-        "uiTest": "packages/console-ui/src/console/operator-console.test.tsx"
-      }
-    },
-    {
-      "id": 3,
-      "case": "child-session-orchestration",
-      "statement": "QA 增补：验收 evidence 中记录 store timeout、project mismatch、hidden key collision、corrupt parent chain 四类故障用例。",
-      "evidence": {
-        "storeTimeout": "sqlite-state-local-create-child-session-timeout:50ms",
-        "projectMismatch": "local child project mismatch: parent=local input=local-project:a862dec7628f8b23",
-        "hiddenKeyCollision": "local child hidden key collision: hidden:local:child-a",
-        "corruptParentChain": [
-          {
-            "sessionId": "cycle-a",
-            "parentSessionId": "cycle-b"
-          },
-          {
-            "sessionId": "cycle-b",
-            "parentSessionId": "cycle-a"
-          },
-          {
-            "sessionId": "self-parent",
-            "parentSessionId": "self-parent"
-          },
-          {
-            "sessionId": "missing-parent",
-            "parentSessionId": "missing"
-          }
-        ],
-        "boundedUiTest": "packages/console-ui/src/console/operator-console.test.tsx"
-      }
-    },
-    {
-      "id": 4,
-      "case": "child-session-sidebar-tree",
-      "statement": "QA 增补：查看归档后的 local-console spec 与 module-map → 应看到只开放 child session orchestration，仍禁止未纳入能力。",
-      "evidence": {
-        "corruptParentChain": [
-          {
-            "sessionId": "cycle-a",
-            "parentSessionId": "cycle-b"
-          },
-          {
-            "sessionId": "cycle-b",
-            "parentSessionId": "cycle-a"
-          },
-          {
-            "sessionId": "self-parent",
-            "parentSessionId": "self-parent"
-          },
-          {
-            "sessionId": "missing-parent",
-            "parentSessionId": "missing"
-          }
-        ],
-        "boundedUiTest": "packages/console-ui/src/console/operator-console.test.tsx",
-        "currentLocalConsoleSpec": "openspec/specs/local-console/spec.md",
-        "moduleMap": "docs/architecture/module-map.md"
       }
     }
   ],

@@ -21,6 +21,7 @@ export interface ResolvedLocalWorkspace {
   worktreeUnavailableReason: string | null;
   branchName: string | null;
   baseRef: string | null;
+  originalRepoRoot: string | null;
 }
 
 interface GitRunOptions {
@@ -73,6 +74,7 @@ export async function resolveLocalWorkspaceSource(
       worktreeUnavailableReason: null,
       branchName: null,
       baseRef: null,
+      originalRepoRoot: null,
     };
   }
 
@@ -85,6 +87,7 @@ export async function resolveLocalWorkspaceSource(
       worktreeUnavailableReason: "not-git-repository",
       branchName: null,
       baseRef: null,
+      originalRepoRoot: null,
     };
   }
 
@@ -100,6 +103,7 @@ export async function resolveLocalWorkspaceSource(
       worktreeUnavailableReason: null,
       branchName: await readCurrentBranch(worktreePath, input.signal, effectiveDependencies),
       baseRef: await readHeadRef(worktreePath, input.signal, effectiveDependencies),
+      originalRepoRoot: repoRoot,
     };
   }
 
@@ -117,6 +121,7 @@ export async function resolveLocalWorkspaceSource(
     worktreeUnavailableReason: null,
     branchName,
     baseRef: await readHeadRef(worktreePath, input.signal, effectiveDependencies),
+    originalRepoRoot: repoRoot,
   };
 }
 
@@ -124,7 +129,9 @@ export interface GeneratedLocalWorkspaceDiff {
   baseRef: string;
   branchName: string;
   worktreePath: string;
+  originalRepoRoot: string | null;
   patchPath: string;
+  affectedFiles: string[];
   empty: boolean;
 }
 
@@ -133,6 +140,7 @@ export async function generateLocalWorkspaceDiff(input: {
   runDir: string;
   baseRef?: string | null;
   branchName?: string | null;
+  originalRepoRoot?: string | null;
   gitTimeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<GeneratedLocalWorkspaceDiff> {
@@ -155,39 +163,97 @@ export async function generateLocalWorkspaceDiff(input: {
     input.signal,
     dependencies,
   );
+  const affected = await runBoundedGit(
+    ["-C", input.worktreePath, "diff", "--name-only", "-z", baseRef, "--"],
+    "worktree-diff-affected-files",
+    input.signal,
+    dependencies,
+  );
   const patchPath = path.join(input.runDir, "workspace.patch");
   await fs.writeFile(patchPath, diff.stdout, "utf8");
   return {
     baseRef,
     branchName,
     worktreePath: input.worktreePath,
+    originalRepoRoot: input.originalRepoRoot ?? null,
     patchPath,
+    affectedFiles: splitNulList(affected.stdout),
     empty: diff.stdout.trim() === "",
   };
+}
+
+export async function readLocalGitStatus(input: {
+  folderPath: string;
+  gitTimeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const dependencies = {
+    ...defaultDependencies,
+    gitTimeoutMs: input.gitTimeoutMs ?? defaultDependencies.gitTimeoutMs,
+  };
+  const status = await runBoundedGit(
+    ["-C", input.folderPath, "status", "--short"],
+    "git-status",
+    input.signal,
+    dependencies,
+  );
+  return status.stdout.trim();
 }
 
 export async function applyLocalWorkspaceDiff(input: {
   originalFolderPath: string;
   patchPath: string;
+  reverse?: boolean;
+  requireClean?: boolean;
   gitTimeoutMs?: number;
   signal?: AbortSignal;
-}): Promise<void> {
+}): Promise<{ beforeStatus: string; afterStatus: string }> {
   const dependencies = {
     ...defaultDependencies,
     gitTimeoutMs: input.gitTimeoutMs ?? defaultDependencies.gitTimeoutMs,
   };
+  const reverse = input.reverse ?? false;
+  const beforeStatus = await readLocalGitStatus({
+    folderPath: input.originalFolderPath,
+    gitTimeoutMs: dependencies.gitTimeoutMs,
+    signal: input.signal,
+  });
+  if ((input.requireClean ?? !reverse) && beforeStatus !== "") {
+    throw new Error(`original-repo-dirty-before-diff-return:${beforeStatus}`);
+  }
   await runBoundedGit(
-    ["-C", input.originalFolderPath, "apply", "--check", input.patchPath],
-    "diff-apply-check",
+    ["-C", input.originalFolderPath, "apply", ...(reverse ? ["--reverse"] : []), "--check", input.patchPath],
+    reverse ? "diff-rollback-check" : "diff-apply-check",
     input.signal,
     dependencies,
   );
   await runBoundedGit(
-    ["-C", input.originalFolderPath, "apply", input.patchPath],
-    "diff-apply",
+    ["-C", input.originalFolderPath, "apply", ...(reverse ? ["--reverse"] : []), input.patchPath],
+    reverse ? "diff-rollback" : "diff-apply",
     input.signal,
     dependencies,
   );
+  return {
+    beforeStatus,
+    afterStatus: await readLocalGitStatus({
+      folderPath: input.originalFolderPath,
+      gitTimeoutMs: dependencies.gitTimeoutMs,
+      signal: input.signal,
+    }),
+  };
+}
+
+export async function rollbackLocalWorkspaceDiff(input: {
+  originalFolderPath: string;
+  patchPath: string;
+  gitTimeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<{ beforeStatus: string; afterStatus: string }> {
+  return await applyLocalWorkspaceDiff({
+    ...input,
+    reverse: true,
+    requireClean: false,
+  });
 }
 
 async function detectGitRepositoryRoot(
@@ -253,6 +319,10 @@ function localWorktreeBranch(projectId: string, sessionId: string): string {
 
 function safePathSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/gu, "_");
+}
+
+function splitNulList(value: string): string[] {
+  return value.split("\0").filter((entry) => entry !== "");
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {

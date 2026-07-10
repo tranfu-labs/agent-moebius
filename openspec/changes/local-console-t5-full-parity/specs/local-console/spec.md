@@ -177,15 +177,29 @@ And the dead-lettered source message is not replayed.
 ### Requirement: Worktree branch and diff parity
 The local console MUST create or reuse a stable local branch inside the temporary worktree when worktree mode is enabled for a git project.
 
-The local console MUST record the base ref, branch name, worktree path, and run id for each worktree-mode Codex run.
+The local console MUST record the original repository root, base ref, branch name, worktree path, and run id for each worktree-mode Codex run.
 
-The local console MUST generate a bounded diff bundle after a code-verified local worktree run.
+The local console MUST generate a bounded diff bundle only after a code-verified local worktree run.
+
+The local console MUST NOT generate a returnable diff bundle for in-progress or plan-written local worktree runs.
+
+The local console MUST persist the diff patch path, affected files summary, and diff status for each generated local workspace diff.
 
 The local console MUST keep the original project directory clean before explicit diff return.
 
+The local console MUST fail visibly and preserve the diff source when the original project directory is dirty before diff return.
+
 The local console MUST apply the generated diff to the original project directory only after an explicit local user action.
 
-The local console MUST preserve the diff bundle and write a visible local error if diff return fails.
+The local console MUST run a bounded diff apply check before applying a generated diff to the original project directory.
+
+The local console MUST preserve the diff bundle and write a visible local error if diff return fails or times out.
+
+The local console MUST support abandoning a generated diff without modifying the original project directory or deleting the temporary worktree.
+
+The local console MUST support rolling back an applied diff through a bounded reverse apply of the same patch.
+
+The local console MUST keep the original project directory clean after a successful rollback.
 
 The local console MUST NOT call `gh`, fetch, merge, rebase, delete the original directory, or modify GitHub issue worktree state while performing local worktree diff return.
 
@@ -196,6 +210,34 @@ Then Codex ran on a local branch in a temporary worktree
 And a diff bundle is generated
 And the original project directory remains clean until the user explicitly applies the diff.
 
+#### Scenario: Only code-verified worktree runs produce returnable diffs
+Given a git project has worktree mode enabled
+When dev completes a local in-progress or plan-written run
+Then the local console does not create a returnable workspace diff bundle
+And the temporary worktree remains available for later work.
+
+#### Scenario: Explicit diff return changes only the expected files
+Given a generated worktree diff bundle exists
+And the original project directory is clean
+When the user explicitly applies the diff
+Then the apply check succeeds before apply
+And the original project directory status contains only files described by the diff bundle
+And the diff status becomes applied.
+
+#### Scenario: Abandoning a generated diff preserves isolation
+Given a generated worktree diff bundle exists
+When the user abandons the diff
+Then the diff status becomes abandoned
+And the original project directory remains clean
+And the temporary worktree is not deleted.
+
+#### Scenario: Applied diff can be rolled back without destructive reset
+Given a generated worktree diff bundle has been applied to the original project directory
+When the user rolls back that diff
+Then the local console reverse-applies the same patch with a bounded check
+And the original project directory becomes clean
+And the local console does not run a destructive reset or delete the original directory.
+
 #### Scenario: Diff apply conflict or hang is bounded
 Given a generated worktree diff bundle exists
 When applying the diff to the original project directory conflicts or never settles
@@ -203,6 +245,13 @@ Then the system writes a visible local error within the configured timeout
 And the patch file is preserved
 And the session is released
 And the original directory is not left half-written by the failed apply.
+
+#### Scenario: Local worktree parity does not change GitHub issue worktree behavior
+Given the local console implements worktree branch and diff return
+When the GitHub issue worktree capability prepares an issue workspace
+Then the issue workspace still uses the issue-scoped worktree path and branch
+And reuse still only refreshes and reports main freshness
+And the issue workspace is not automatically merged, rebased, recreated, or diff-returned into another directory.
 
 ### Requirement: Local T5 GitHub-zero evidence
 The local T5 acceptance flow MUST NOT call `gh`.

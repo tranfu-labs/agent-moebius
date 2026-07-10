@@ -340,10 +340,12 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
       run_id TEXT NOT NULL,
+      original_repo_root TEXT,
       base_ref TEXT NOT NULL,
       branch_name TEXT NOT NULL,
       worktree_path TEXT NOT NULL,
       patch_path TEXT NOT NULL,
+      affected_files_json TEXT NOT NULL DEFAULT '[]',
       status TEXT NOT NULL,
       error TEXT,
       created_at TEXT NOT NULL,
@@ -354,6 +356,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   migrateSessionEdgesHiddenKey(database);
   migrateLocalAcceptanceFactsHistory(database);
   migrateLocalMessageFailureMetadata(database);
+  migrateLocalWorkspaceDiffMetadata(database);
   const now = new Date().toISOString();
   ensureDefaultLocalProject(database, defaultLocalProjectFolderPath(sqlitePath), now);
   migrateSessionsProjectId(database, now);
@@ -410,6 +413,15 @@ function migrateLocalMessageFailureMetadata(database: SqliteDatabase): void {
   }
   if (!tableHasColumn(database, "session_messages", "last_failure_reason")) {
     database.exec("ALTER TABLE session_messages ADD COLUMN last_failure_reason TEXT");
+  }
+}
+
+function migrateLocalWorkspaceDiffMetadata(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "local_workspace_diffs", "original_repo_root")) {
+    database.exec("ALTER TABLE local_workspace_diffs ADD COLUMN original_repo_root TEXT");
+  }
+  if (!tableHasColumn(database, "local_workspace_diffs", "affected_files_json")) {
+    database.exec("ALTER TABLE local_workspace_diffs ADD COLUMN affected_files_json TEXT NOT NULL DEFAULT '[]'");
   }
 }
 
@@ -1521,19 +1533,34 @@ function recordLocalWorkspaceDiff(
     database
       .prepare(
         `INSERT INTO local_workspace_diffs
-          (session_id, run_id, base_ref, branch_name, worktree_path, patch_path, status, error, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (session_id, run_id, original_repo_root, base_ref, branch_name, worktree_path, patch_path, affected_files_json, status, error, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(session_id, run_id)
          DO UPDATE SET
+           original_repo_root = excluded.original_repo_root,
            base_ref = excluded.base_ref,
            branch_name = excluded.branch_name,
            worktree_path = excluded.worktree_path,
            patch_path = excluded.patch_path,
+           affected_files_json = excluded.affected_files_json,
            status = excluded.status,
            error = excluded.error,
            updated_at = excluded.updated_at`,
       )
-      .run(input.sessionId, input.runId, input.baseRef, input.branchName, input.worktreePath, input.patchPath, input.status, input.error, input.now, input.now);
+      .run(
+        input.sessionId,
+        input.runId,
+        input.originalRepoRoot,
+        input.baseRef,
+        input.branchName,
+        input.worktreePath,
+        input.patchPath,
+        input.affectedFilesJson,
+        input.status,
+        input.error,
+        input.now,
+        input.now,
+      );
     return null;
   });
 }

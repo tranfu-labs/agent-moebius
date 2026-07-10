@@ -140,19 +140,30 @@ export async function recordLocalWorkspaceDiff(
   input: {
     sessionId: string;
     runId: string;
+    originalRepoRoot?: string | null;
     baseRef: string;
     branchName: string;
     worktreePath: string;
     patchPath: string;
-    status: "generated" | "applied" | "failed";
+    affectedFiles?: string[];
+    status: "generated" | "applied" | "failed" | "abandoned" | "rolled_back";
     error?: string | null;
     now: string;
   },
 ): Promise<void> {
   await runLocalT5Command(options, {
     kind: "local-record-workspace-diff",
-    ...input,
+    sessionId: input.sessionId,
+    runId: input.runId,
+    originalRepoRoot: input.originalRepoRoot ?? null,
+    baseRef: input.baseRef,
+    branchName: input.branchName,
+    worktreePath: input.worktreePath,
+    patchPath: input.patchPath,
+    affectedFilesJson: JSON.stringify(input.affectedFiles ?? []),
+    status: input.status,
     error: input.error ?? null,
+    now: input.now,
   });
 }
 
