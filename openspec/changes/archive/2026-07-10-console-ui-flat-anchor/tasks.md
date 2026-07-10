@@ -1,0 +1,32 @@
+# 任务：console-ui-flat-anchor
+
+- [x] 扁平化组件默认锚点
+  - [x] 调整 `packages/console-ui/src/ui/card.tsx`，移除 `rounded-lg` 浮起观感，保持细边、扁平、无阴影。
+  - [x] 调整 `packages/console-ui/src/ui/badge.tsx`，删除旧 `neutral / selected / accent / pass / danger` 变体。
+  - [x] 为 `Badge` 增加 status 语义变体：`idle / running / waiting / pending / completed / displayed / failed / stuck / interrupted`。
+- [x] 回收主界面组件
+  - [x] 在 `operator-console.tsx` 中用 `<Badge>` 替换本地 `StatusBadge`。
+  - [x] 在 `operator-console.tsx` 中用 `<Card>` 替换 `RunLiveBlock` 根容器。
+  - [x] 在 `operator-console.tsx` 中用 `<Card>` 替换 `TimelineMessage` 根容器，并移除 `<article>`。
+  - [x] 保持侧栏 project/session 导航按钮不改成 Card。
+  - [x] 确保 `operator-console.tsx` 主内容区 grep `border border-line|<article` 命中 0。
+- [x] 同步 Storybook 与测试
+  - [x] 更新 `packages/console-ui/src/ui/badge.stories.tsx` 为 status 语义示例和 controls。
+  - [x] 更新 `packages/console-ui/src/ui/card.stories.tsx`，让 Card story 使用新的 status Badge。
+  - [x] 按需要补强 `packages/console-ui/src/console/operator-console.test.tsx`，覆盖 active run、timeline message 和 status badge 仍正常渲染。
+  - [x] 回归 `packages/console-ui/src/console/accept-card.test.tsx`，确认验收协议格式和交互无回退。
+- [x] 生成验收证据
+  - [x] 跑 Storybook 静态构建，检查 Card / Badge 与 OperatorConsole 视觉一致。
+  - [x] 跑 fake desktop renderer state fixture，生成 desktop renderer 截图证据。
+  - [x] 现有 T4 截图未稳定覆盖本任务所需状态组合，已补足 T6 最小 fixture。
+  - [x] 保存需发布的截图或 evidence 到 `artifacts/acceptance/`，并在最终 `code-verified` 回复中显式引用。
+- [x] 回归命令
+  - [x] 跑 `pnpm --filter @agent-moebius/console-ui test`。
+  - [x] 跑 `pnpm --filter @agent-moebius/desktop build`。
+  - [x] 跑 `pnpm typecheck`。
+  - [x] 跑 `git diff --check`。
+- [x] Roadmap 与交付收尾
+  - [x] 将 T6 验收证据追记到 `docs/roadmap/milestone-4-local-console.md` 并勾选 `[x]`。
+  - [x] `git add -A && git commit`，commit message/body 含 `Closes #126`。
+  - [x] `git push -u origin` 当前分支。
+  - [x] `gh pr create --base main`，PR body 含 `Closes #126` 与验收证据摘要。
