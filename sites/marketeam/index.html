@@ -931,9 +931,13 @@ body {
 .rack-modal-overlay {
   position: absolute; inset: 0;
   background: rgba(6, 2, 20, 0.72);
+  animation: rmFade 0.25s ease both;
+  /* blur 每帧重合成整个背景，动画期间是掉帧源——落定后（.is-settled）才渐入 */
+  transition: -webkit-backdrop-filter 0.25s ease, backdrop-filter 0.25s ease;
+}
+.rack-modal.is-settled .rack-modal-overlay {
   -webkit-backdrop-filter: blur(6px);
           backdrop-filter: blur(6px);
-  animation: rmFade 0.25s ease both;
 }
 .rack-modal-sheet {
   position: relative;
@@ -990,7 +994,10 @@ body {
   pointer-events: none;
   perspective: 1500px;       /* 与 .rack 的透视值一致；origin 由脚本按 .rack 实测设置 */
 }
-.morph-ghost { position: absolute; left: 0; top: 0; transform-origin: center; }
+/* 幽灵三层 wrapper 分轴驱动：ghost=X（连续不停）、mg-y=Y（抛物弧）、mg-spin=转正缩放；
+   preserve-3d 链让内层 rotateY 吃到 fly-layer 的透视 */
+.morph-ghost { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
+.mg-y, .mg-spin { position: absolute; inset: 0; transform-style: preserve-3d; }
 .morph-ghost .rack-face,
 .morph-ghost .badge { position: absolute; left: 0; top: 0; margin: 0; cursor: default; }
 /* 变形面：面板同款空面（无内容 → 缩放不产生可见拉伸） */
@@ -1692,14 +1699,16 @@ body {
 
 /* =========================================================================
    3) 底部工牌架点击/Enter → 标准三层容器变形后显示详情弹窗：
-      ① 幽灵卡（共享元素，两拍编排）：第一拍「拿起」——原地上抬、前移、
-         44°→0° 转正、微放大提亮（黑胶唱片架的拿起动作）；第二拍「入窗」——
-         从举起姿态连续飞抵弹窗内真工牌位，途中双内容交叉淡化，
-         落定像素级换装，全程不淡出；
-      ② 变形面（容器连续）：无内容空面从卡片足迹插值到面板矩形，
+      ① 幽灵卡（共享元素）：「拿起」表达为空间弧线而非时间分拍——
+         三层 wrapper 分轴并行平滑曲线：X 平移一条曲线全程不停（丝滑底线）、
+         Y 走先升后落的抛物弧（顶点零速是物理自然的）、转正+缩放前重单曲线
+         在弧线前段完成；途中双内容交叉淡化，落定像素级换装，全程不淡出。
+         任何运动分量 NEVER 中途同时刹停再重启（那就是顿挫本身）。
+      ② 变形面（容器连续）：无内容空面延迟 12% 后单曲线从足迹长成面板，
          层序在遮罩之上、面板之下；
       ③ 真面板（内容层）：不做 transform，内容在容器就位后淡入。
-      关闭（Esc / 遮罩 / 按钮）逆向且更快（420ms vs 620ms）。转场期间防重入；
+      遮罩 blur 在落定后（.is-settled）才渐入，动画期不做每帧背景重合成。
+      关闭（Esc / 遮罩 / 按钮）逆向弧线且更快（380ms vs 600ms）。转场期间防重入；
       prefers-reduced-motion 或无 WAAPI 时降级为直接开合（仅淡入淡出）。
    ========================================================================= */
 (function () {
@@ -1719,12 +1728,16 @@ body {
   var animating = false;
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var canFly = !reduce && typeof sheet.animate === 'function';
-  var OPEN_MS = 760;                                   // 两拍：拿起(0–38%) + 入窗(38–100%)
-  var CLOSE_MS = 480;                                  // 两拍：离窗(0–55%) + 放回(55–100%)，快于打开
-  var EASE_OUT = 'cubic-bezier(0.2, 0, 0, 1)';        // 入窗：轻加速起步→高速中段→缓收
-  var EASE_IN = 'cubic-bezier(0.3, 0, 0.8, 0.15)';    // 离窗：加速离场
-  var EASE_SETTLE = 'cubic-bezier(0.22, 1, 0.36, 1)'; // 拿起/放回：黑胶架 demo 同款减速
-  var LIFT = 28;                                       // 拿起时的上抬量（px）
+  var OPEN_MS = 600;                                       // 单段，无时间分拍
+  var CLOSE_MS = 380;                                      // 关闭快于打开
+  var EASE_X_OPEN = 'cubic-bezier(0.2, 0, 0, 1)';         // X：轻加速→高速→缓收，全程不停
+  var EASE_X_CLOSE = 'cubic-bezier(0.4, 0, 0.2, 1)';      // X：加速离窗、减速入槽
+  var EASE_UP = 'cubic-bezier(0.25, 0, 0.3, 1)';          // Y 升段：减速到弧顶（自然零速顶点）
+  var EASE_DOWN = 'cubic-bezier(0.35, 0, 0.55, 1)';       // Y 落段：由零起速缓落
+  var EASE_SPIN_OPEN = 'cubic-bezier(0.05, 0.7, 0.1, 1)'; // 转正：前重，弧线前段完成
+  var EASE_SPIN_CLOSE = 'cubic-bezier(0.7, 0, 0.85, 0.5)';// 转回：后重，临近插槽才侧立
+  var ARC = 40;                                            // 打开弧顶高出两端的量（px）
+  var ARC_BACK = 30;                                       // 关闭弧顶（px）
   var RACK_DEG = 44;   // 与 .rack-item 的侧立角保持一致
 
   /* 架上卡姿态：rotateY 投影不移动中心点 → 定位用投影 rect 中心；
@@ -1759,6 +1772,10 @@ body {
     ghost.className = 'morph-ghost';
     ghost.style.width = badgeRect.width + 'px';
     ghost.style.height = badgeRect.height + 'px';
+    var yWrap = document.createElement('div');
+    yWrap.className = 'mg-y';
+    var spin = document.createElement('div');
+    spin.className = 'mg-spin';
 
     var b = mBadge.cloneNode(true);
     b.removeAttribute('id');
@@ -1776,8 +1793,10 @@ body {
     var glow = item.style.getPropertyValue('--glow');
     if (glow) a.style.setProperty('--glow', glow.trim());
 
-    ghost.appendChild(b);   // B 在下
-    ghost.appendChild(a);   // A 在上（起飞帧可见的是架上卡面）
+    spin.appendChild(b);    // B 在下
+    spin.appendChild(a);    // A 在上（起飞帧可见的是架上卡面）
+    yWrap.appendChild(spin);
+    ghost.appendChild(yWrap);
     layer.appendChild(ghost);
     document.body.appendChild(layer);
 
@@ -1790,15 +1809,13 @@ body {
       var rb = avaB.getBoundingClientRect();
       dAva = (rb.top + rb.height / 2) - (ra.top + ra.height / 2);
     }
-    return { layer: layer, ghost: ghost, a: a, b: b, k: k, dAva: dAva };
+    return { layer: layer, ghost: ghost, y: yWrap, spin: spin, a: a, b: b, k: k, dAva: dAva };
   }
 
-  /* 姿态统一为同构 transform 列表——关键帧结构一致才走逐函数插值，
-     避免混构列表触发矩阵分解插值产生怪扭 */
-  function pose(x, y, z, rx, ry, s) {
-    return 'translate(' + x + 'px,' + y + 'px) translate(-50%,-50%) translateZ(' + z +
-      'px) rotateX(' + rx + 'deg) rotateY(' + ry + 'deg) scale(' + s + ')';
-  }
+  /* 分轴姿态：X/Y 各带 -50% 居中修正（分别相对幽灵盒宽/高），spin 只管转正缩放 */
+  function tx(x) { return 'translateX(' + x + 'px) translateX(-50%)'; }
+  function ty(y) { return 'translateY(' + y + 'px) translateY(-50%)'; }
+  function spinAt(deg, s) { return 'rotateY(' + deg + 'deg) scale(' + s + ')'; }
 
   /* .rack 两端 7% 渐隐 mask 下，横坐标 x 处的近似透明度（对齐边缘卡起飞帧） */
   function maskAlpha(x) {
@@ -1834,76 +1851,81 @@ body {
 
     var g = makeGhost(item, badgeRect);
 
-    var ghostFrom = pose(p.x, p.y, 0, 0, RACK_DEG, s0);
-    var ghostLift = pose(p.x, p.y - LIFT, 110, 4, 0, s0 * 1.05);  // 拿起：上抬、前移、转正、微放大
-    var ghostTo = pose(bX, bY, 0, 0, 0, 1);
-    var surFrom = 'translate(' + (p.x - shX) + 'px,' + (p.y - LIFT - shY) + 'px) scale(' +
+    var apex = Math.min(p.y, bY) - (backwards ? ARC_BACK : ARC);   // 弧顶：高于两端
+    var surFrom = 'translate(' + (p.x - shX) + 'px,' + (p.y - shY) + 'px) scale(' +
         (p.projW / sheetRect.width) + ',' + (p.projH / sheetRect.height) + ')';
 
     var dur = backwards ? CLOSE_MS : OPEN_MS;
-    var move = { duration: dur, fill: 'both' };   // 分段缓动写在关键帧上
-    var fade = { duration: dur, easing: 'linear', fill: 'both' };
+    var fade = { duration: dur, easing: 'ease-in-out', fill: 'both' };  // 淡化变化率始末为零，无突变
     var anims = [];
     function run(el, frames, opts) { anims.push(el.animate(frames, opts)); }
 
     if (!backwards) {
-      run(g.ghost, [
-        { transform: ghostFrom, easing: EASE_SETTLE, offset: 0 },    // 第一拍：拿起
-        { transform: ghostLift, easing: EASE_OUT, offset: 0.38 },    // 第二拍：入窗
-        { transform: ghostTo, offset: 1 }
-      ], move);
-      run(g.a, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.42 },
-                { opacity: 0, offset: 0.7 }, { opacity: 0, offset: 1 }], fade);
-      run(g.b, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.42 },
-                { opacity: 1, offset: 0.7 }, { opacity: 1, offset: 1 }], fade);
+      // X：一条连续曲线全程不停——丝滑的底线；onfinish 锚定在这条上
+      run(g.ghost, [{ transform: tx(p.x) }, { transform: tx(bX) }],
+          { duration: dur, easing: EASE_X_OPEN, fill: 'both' });
+      // Y：拿起的抛物弧——升至弧顶（顶点零速是物理自然的）再落入卡位
+      run(g.y, [
+        { transform: ty(p.y), easing: EASE_UP, offset: 0 },
+        { transform: ty(apex), easing: EASE_DOWN, offset: 0.45 },
+        { transform: ty(bY), offset: 1 }
+      ], { duration: dur, fill: 'both' });
+      // 转正+放大：前重单曲线，弧线前段完成
+      run(g.spin, [{ transform: spinAt(RACK_DEG, s0) }, { transform: spinAt(0, 1) }],
+          { duration: dur, easing: EASE_SPIN_OPEN, fill: 'both' });
+      run(g.a, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.25 },
+                { opacity: 0, offset: 0.6 }, { opacity: 0, offset: 1 }], fade);
+      run(g.b, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.25 },
+                { opacity: 1, offset: 0.6 }, { opacity: 1, offset: 1 }], fade);
       run(g.a, [{ transform: 'translateY(0px) scale(' + g.k + ')', offset: 0 },
-                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 0.42 },
-                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0.7 },
+                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 0.25 },
+                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0.6 },
                 { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 1 }], fade);
-      run(surface, [
-        { transform: surFrom, offset: 0 },
-        { transform: surFrom, easing: EASE_OUT, offset: 0.38 },      // 拿起拍按兵不动
-        { transform: 'none', offset: 1 }
-      ], move);
-      run(surface, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.38 },
-                    { opacity: 1, offset: 0.55 }, { opacity: 1, offset: 1 }], fade);
-      run(sheet, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.6 },
+      // 变形面：短延迟后单曲线长成（起步零速自然；要消灭的是中途刹停，不是起步）
+      run(surface, [{ transform: surFrom }, { transform: 'none' }],
+          { delay: Math.round(dur * 0.12), duration: Math.round(dur * 0.88),
+            easing: EASE_X_OPEN, fill: 'both' });
+      run(surface, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.12 },
+                    { opacity: 1, offset: 0.5 }, { opacity: 1, offset: 1 }], fade);
+      run(sheet, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.5 },
                   { opacity: 1, offset: 0.92 }, { opacity: 1, offset: 1 }], fade);
       run(g.ghost, [{ filter: 'brightness(' + (hovered ? 1.08 : 1) + ')', offset: 0 },
-                    { filter: 'brightness(1.08)', offset: 0.38 },    // 拿起时提亮（demo hover 同款）
-                    { filter: 'brightness(1)', offset: 0.75 },
+                    { filter: 'brightness(1.06)', offset: 0.35 },   // 弧顶附近微提亮
+                    { filter: 'brightness(1)', offset: 0.8 },
                     { filter: 'brightness(1)', offset: 1 }], fade);
       if (alpha < 1)
-        run(g.ghost, [{ opacity: alpha, offset: 0 }, { opacity: 1, offset: 0.15 },
+        run(g.ghost, [{ opacity: alpha, offset: 0 }, { opacity: 1, offset: 0.12 },
                       { opacity: 1, offset: 1 }], fade);
     } else {
-      run(g.ghost, [
-        { transform: ghostTo, easing: EASE_IN, offset: 0 },          // 第一拍：离窗缩回
-        { transform: ghostLift, easing: EASE_SETTLE, offset: 0.55 }, // 第二拍：放回插槽
-        { transform: ghostFrom, offset: 1 }
-      ], move);
-      run(g.b, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.3 },
-                { opacity: 0, offset: 0.58 }, { opacity: 0, offset: 1 }], fade);
-      run(g.a, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.3 },
-                { opacity: 1, offset: 0.58 }, { opacity: 1, offset: 1 }], fade);
+      run(g.ghost, [{ transform: tx(bX) }, { transform: tx(p.x) }],
+          { duration: dur, easing: EASE_X_CLOSE, fill: 'both' });
+      run(g.y, [
+        { transform: ty(bY), easing: EASE_UP, offset: 0 },
+        { transform: ty(apex), easing: EASE_DOWN, offset: 0.5 },
+        { transform: ty(p.y), offset: 1 }
+      ], { duration: dur, fill: 'both' });
+      // 转回：后重单曲线，临近插槽才侧立
+      run(g.spin, [{ transform: spinAt(0, 1) }, { transform: spinAt(RACK_DEG, s0) }],
+          { duration: dur, easing: EASE_SPIN_CLOSE, fill: 'both' });
+      run(g.b, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.35 },
+                { opacity: 0, offset: 0.7 }, { opacity: 0, offset: 1 }], fade);
+      run(g.a, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.35 },
+                { opacity: 1, offset: 0.7 }, { opacity: 1, offset: 1 }], fade);
       run(g.a, [{ transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0 },
-                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0.3 },
-                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 0.58 },
+                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0.35 },
+                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 0.7 },
                 { transform: 'translateY(0px) scale(' + g.k + ')', offset: 1 }], fade);
-      run(surface, [
-        { transform: 'none', easing: EASE_IN, offset: 0 },
-        { transform: surFrom, offset: 0.55 },
-        { transform: surFrom, offset: 1 }
-      ], move);
-      run(surface, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.35 },
-                    { opacity: 0, offset: 0.55 }, { opacity: 0, offset: 1 }], fade);
-      run(sheet, [{ opacity: 1, offset: 0 }, { opacity: 0, offset: 0.2 },
+      run(surface, [{ transform: 'none' }, { transform: surFrom }],
+          { duration: Math.round(dur * 0.85), easing: EASE_X_CLOSE, fill: 'both' });
+      run(surface, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.55 },
+                    { opacity: 0, offset: 0.85 }, { opacity: 0, offset: 1 }], fade);
+      run(sheet, [{ opacity: 1, offset: 0 }, { opacity: 0, offset: 0.22 },
                   { opacity: 0, offset: 1 }], fade);
       run(g.ghost, [{ filter: 'brightness(1)', offset: 0 },
-                    { filter: 'brightness(1.08)', offset: 0.55 },    // 放回途中过手提亮
+                    { filter: 'brightness(1.06)', offset: 0.55 },
                     { filter: 'brightness(1)', offset: 1 }], fade);
       if (alpha < 1)
-        run(g.ghost, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.85 },
+        run(g.ghost, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.88 },
                       { opacity: alpha, offset: 1 }], fade);
     }
 
@@ -1936,6 +1958,7 @@ body {
     mBadge.style.setProperty('--ry', '0deg');
     if (!canFly) {
       modal.hidden = false;
+      modal.classList.add('is-settled');   // 降级路径：blur 直接就位
       closeBtn.focus();
       document.addEventListener('keydown', onKey);
       return;
@@ -1946,6 +1969,7 @@ body {
     item.classList.add('is-away');
     morph(item, false, function () {
       modal.classList.remove('is-morphing');   // 与拆幽灵同帧 → 像素级换装
+      modal.classList.add('is-settled');       // 落定后遮罩 blur 才渐入（动画期不背这个合成开销）
       animating = false;
       closeBtn.focus();
       document.addEventListener('keydown', onKey);
@@ -1955,6 +1979,7 @@ body {
   function close() {
     if (animating || modal.hidden) return;
     document.removeEventListener('keydown', onKey);
+    modal.classList.remove('is-settled');   // 起手先撤 blur
     if (!canFly || !lastTrigger) { finishClose(); return; }
     animating = true;
     modal.classList.add('is-morphing'); // 真工牌隐位，与同帧出现的幽灵像素级换装
@@ -1969,6 +1994,7 @@ body {
     modal.hidden = true;
     modal.classList.remove('is-morphing');
     modal.classList.remove('is-closing');
+    modal.classList.remove('is-settled');
     if (lastTrigger) {
       lastTrigger.classList.remove('is-away');
       lastTrigger.focus();
