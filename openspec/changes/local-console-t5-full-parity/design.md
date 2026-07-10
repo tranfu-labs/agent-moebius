@@ -43,6 +43,24 @@ no-mention 兜底使用同样两步：
 - append 成功写入 local CEO message 后推进 cursor；写入失败保持 retry。
 - 已有 route decision 的 message 不重复调用 CEO。
 
+### Issue #111：本地交棒总线切片
+
+实现先落在 local-console 边界内，形态上是一个 runtime-local route bus：
+
+1. `processPending()` claim 到 pending message 后先构造 local timeline，继续用共享 `resolveTrigger()` 检查最新消息。
+2. 若 mention trigger 命中，沿现有 Codex 路径运行，不经过 no-mention route bus。
+3. 若没有合法 mention，调用本地 `maybeRouteLocalNoMentionMessage()`。它只接收 local session/message/timeline/agent list、local route store API、CEO route judgment adapter 和日志函数；不得依赖 `src/runner/external-route.ts` 或 GitHub issue/intake 类型。
+4. route bus 对 user message 与 child-session agent message 使用不同 route key 前缀，例如 `local-message:<id>` 与 `local-child-agent:<id>`；首批 #111 实现 user message，接口保留 child agent route 的 source kind。
+5. route bus 先查 `local_route_decisions`。已有记录时直接把源 message 标记为 processed 或维持既有状态，不再次调用 CEO、不再次写 handoff。
+6. CEO route judgment 返回 `append` 时，先校验正文：非空、代码区域外恰好一个合法 agent mention、mention 在 available agents 中。校验通过后，在一个 SQLite transaction 内写入 visible local CEO message、写入 append route decision、完成源 message。
+7. append body 校验失败时按源消息意图分流：对“明确交棒”的 local message，非法 append 不是可接受的 no-action，不能静默完成源 message；runtime 必须释放源 message 供 retry，或写一条不含合法 agent mention 的 visible local failure / dead-letter 并记录非 successful append outcome 后才完成。对无法判定交棒意图的普通 no-trigger message，可记录 `fail_open` / `no_action` 并完成，但必须留下可诊断 reason。
+8. append 写入成功后不在同一 loop 直接调用目标 agent。因为 visible CEO message 是新的 pending/displayed trigger source，下一轮 drain 重新 claim/resolve，沿已有 mention trigger 唤醒目标角色。
+9. append visible write 或 route decision transaction 失败时，源 message 通过 `releaseMessageForRetry()` 回到 retryable 状态；不得保存成功 append decision，也不得推进 cursor。
+
+CEO route judgment adapter 复用现有 CEO persona 规则，但 prompt 要本地化：输入是 local session context 与 latest local message，不包含 GitHub issue/comment/reaction 语义；输出仍限定为 `no_action` 或 `append`，append body 必须满足单 mention 约束。为了避免污染 GitHub 模式，本地 adapter 可以复用 `parseExternalCommentRouteOutput()` / append-body 校验这类纯函数，但不得复用发布 GitHub comment 的 runner module。
+
+本切片不处理 child session 编排、验收 pre-pass、dead-letter 完整预算和 worktree diff 回流；这些仍留在同一个 T5 change 的后续任务里。#111 只要求本地无 mention handoff 的可见追加、下一轮触发、防重和 GitHub intake 测试不回退。
+
 ## 子会话编排
 
 CEO `spawn_child_issues` 和 `goal_intake.confirm` 在本地映射为 child session executor：

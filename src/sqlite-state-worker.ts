@@ -137,6 +137,12 @@ function runCommand(input: WorkerInput): unknown {
         return setRunDir(database, input.command);
       case "local-record-message-processed":
         return recordMessageProcessed(database, input.command);
+      case "local-find-route-decision":
+        return findLocalRouteDecision(database, input.command);
+      case "local-record-route-append":
+        return recordLocalRouteAppend(database, input.command);
+      case "local-record-route-no-action":
+        return recordLocalRouteNoAction(database, input.command);
       case "local-release-message-for-retry":
         return releaseMessageForRetry(database, input.command);
       case "local-record-agent-response":
@@ -988,6 +994,76 @@ function recordMessageProcessed(
   });
 }
 
+function findLocalRouteDecision(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-find-route-decision" }>,
+): unknown | null {
+  const row = database
+    .prepare(
+      `SELECT
+         session_id AS sessionId,
+         message_id AS messageId,
+         route_key AS routeKey,
+         outcome,
+         target_role AS targetRole,
+         reason,
+         created_at AS createdAt
+       FROM local_route_decisions
+       WHERE session_id = ? AND route_key = ?`,
+    )
+    .get(input.sessionId, input.routeKey);
+  return row ?? null;
+}
+
+function recordLocalRouteAppend(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-route-append" }>,
+): null {
+  return transaction(database, () => {
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    database
+      .prepare(
+        `INSERT INTO session_messages
+          (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
+        VALUES (?, 'agent', 'ceo', ?, 'displayed', ?, ?, NULL, 'local-route', ?, ?, ?)`,
+      )
+      .run(input.sessionId, input.body, input.runId, input.runDir, input.routeKey, input.now, input.now);
+    insertLocalRouteDecision(database, {
+      sessionId: input.sessionId,
+      messageId: input.userMessageId,
+      routeKey: input.routeKey,
+      outcome: "append",
+      targetRole: input.targetRole,
+      reason: "appended",
+      now: input.now,
+    });
+    completeSourceMessage(database, source, "completed", null, input.runId, input.runDir, input.now);
+    return null;
+  });
+}
+
+function recordLocalRouteNoAction(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-route-no-action" }>,
+): null {
+  return transaction(database, () => {
+    ensureLocalCursor(database, input.sessionId, input.now);
+    const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    insertLocalRouteDecision(database, {
+      sessionId: input.sessionId,
+      messageId: input.userMessageId,
+      routeKey: input.routeKey,
+      outcome: input.outcome,
+      targetRole: null,
+      reason: input.reason,
+      now: input.now,
+    });
+    completeSourceMessage(database, source, "completed", null, input.runId, input.runDir, input.now);
+    return null;
+  });
+}
+
 function releaseMessageForRetry(
   database: SqliteDatabase,
   input: Extract<SqliteStateCommand, { kind: "local-release-message-for-retry" }>,
@@ -1081,16 +1157,31 @@ function recordLocalRouteDecision(
 ): null {
   return transaction(database, () => {
     ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
-    database
-      .prepare(
-        `INSERT INTO local_route_decisions
-          (session_id, message_id, route_key, outcome, target_role, reason, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(session_id, route_key) DO NOTHING`,
-      )
-      .run(input.sessionId, input.messageId, input.routeKey, input.outcome, input.targetRole, input.reason, input.now);
+    insertLocalRouteDecision(database, input);
     return null;
   });
+}
+
+function insertLocalRouteDecision(
+  database: SqliteDatabase,
+  input: {
+    sessionId: string;
+    messageId: number;
+    routeKey: string;
+    outcome: "append" | "no_action" | "fail_open" | "dead_letter";
+    targetRole: string | null;
+    reason: string;
+    now: string;
+  },
+): void {
+  database
+    .prepare(
+      `INSERT INTO local_route_decisions
+        (session_id, message_id, route_key, outcome, target_role, reason, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(session_id, route_key) DO NOTHING`,
+    )
+    .run(input.sessionId, input.messageId, input.routeKey, input.outcome, input.targetRole, input.reason, input.now);
 }
 
 function recordLocalAcceptanceFact(

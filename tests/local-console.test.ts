@@ -461,6 +461,245 @@ describe("local console", () => {
     }
   }, 10_000);
 
+  it("routes a clear local handoff without mention through a visible CEO handoff and next-drain trigger", async () => {
+    const root = await makeFixtureRoot();
+    for (const role of ["ceo", "dev"]) {
+      await writeAgent(root, role, `# ${role}\n\nROLE:${role}`);
+    }
+    const routeJudgment = vi.fn(async () => ({
+      action: "APPEND" as const,
+      body: "@dev 请继续处理本地交棒。",
+      targetRole: "dev",
+      reason: "appended" as const,
+    }));
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "dev handled local route"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      routeJudgment,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `route-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const session = await createSession(started.url, "local route");
+      await postSessionMessage(started.url, session.sessionId, "交给 dev 继续处理");
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.role === "dev"),
+      );
+      expect(routeJudgment).toHaveBeenCalledTimes(1);
+      expect(runCodex).toHaveBeenCalledTimes(1);
+      expect(state.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ speaker: "agent", role: "ceo", body: "@dev 请继续处理本地交棒。" }),
+          expect.objectContaining({ speaker: "agent", role: "dev", body: "dev handled local route" }),
+        ]),
+      );
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
+      expect(facts.routeDecisions).toEqual([
+        expect.objectContaining({ outcome: "append", target_role: "dev", route_key: expect.stringMatching(/^local-message:/) }),
+      ]);
+    } finally {
+      await started.close();
+    }
+  }, 10_000);
+
+  it("dedupes repeated local no-mention route processing by local message key", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+    const routeJudgment = vi.fn(async () => ({
+      action: "APPEND" as const,
+      body: "@dev 请继续处理。",
+      targetRole: "dev",
+      reason: "appended" as const,
+    }));
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "dev once"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      routeJudgment,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `dedupe-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const session = await createSession(started.url, "dedupe route");
+      await postSessionMessage(started.url, session.sessionId, "交给 dev");
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.role === "dev"),
+      );
+      await started.runtime.processPending(session.sessionId);
+      await started.runtime.processPending(session.sessionId);
+      const state = await getState(started.url, session.sessionId);
+      expect(routeJudgment).toHaveBeenCalledTimes(1);
+      expect(runCodex).toHaveBeenCalledTimes(1);
+      expect(state.messages.filter((entry) => entry.speaker === "agent" && entry.role === "ceo")).toHaveLength(1);
+      expect(state.messages.filter((entry) => entry.speaker === "agent" && entry.role === "dev")).toHaveLength(1);
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
+      expect(facts.routeDecisions).toHaveLength(1);
+    } finally {
+      await started.close();
+    }
+  }, 10_000);
+
+  it("keeps a clear local handoff retryable when route append has multiple legal mentions", async () => {
+    const root = await makeFixtureRoot();
+    for (const role of ["dev", "qa"]) {
+      await writeAgent(root, role, `# ${role}\n\nROLE:${role}`);
+    }
+    const routeJudgment = vi.fn(async () => ({
+      action: "APPEND" as const,
+      body: "@dev 和 @qa 都看一下",
+      targetRole: "dev",
+      reason: "appended" as const,
+    }));
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "should not run"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      routeJudgment,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `invalid-route-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const session = await createSession(started.url, "invalid route");
+      await postSessionMessage(started.url, session.sessionId, "交给 dev");
+      await waitFor(() => routeJudgment.mock.calls.length === 1);
+      await started.runtime.processPending(session.sessionId);
+      await waitFor(() => routeJudgment.mock.calls.length === 2);
+      const state = await getState(started.url, session.sessionId);
+      expect(routeJudgment).toHaveBeenCalledTimes(2);
+      expect(runCodex).not.toHaveBeenCalled();
+      expect(state.messages.filter((entry) => entry.speaker === "agent")).toHaveLength(0);
+      expect(state.messages.filter((entry) => entry.speaker === "user" && entry.status === "pending")).toHaveLength(1);
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
+      expect(facts.routeDecisions).toHaveLength(0);
+    } finally {
+      await started.close();
+    }
+  }, 10_000);
+
+  it("keeps a clear local handoff retryable when route append has no legal mention", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+    const routeJudgment = vi.fn(async () => ({
+      action: "APPEND" as const,
+      body: "请 dev 看一下",
+      targetRole: "dev",
+      reason: "appended" as const,
+    }));
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "should not run"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      routeJudgment,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `missing-mention-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const session = await createSession(started.url, "missing mention route");
+      await postSessionMessage(started.url, session.sessionId, "请交给 dev");
+      await waitFor(() => routeJudgment.mock.calls.length === 1);
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending"),
+      );
+      expect(routeJudgment).toHaveBeenCalledTimes(1);
+      expect(runCodex).not.toHaveBeenCalled();
+      expect(state.messages.filter((entry) => entry.speaker === "agent")).toHaveLength(0);
+      expect(state.messages.filter((entry) => entry.speaker === "user" && entry.status === "pending")).toHaveLength(1);
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
+      expect(facts.routeDecisions).toHaveLength(0);
+    } finally {
+      await started.close();
+    }
+  }, 10_000);
+
+  it("retries a local route append when the visible handoff transaction fails before commit", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
+    const inner = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
+    const store = new FailOnceRecordRouteAppendStore(inner);
+    const routeJudgment = vi.fn(async () => ({
+      action: "APPEND" as const,
+      body: "@dev 请继续处理。",
+      targetRole: "dev",
+      reason: "appended" as const,
+    }));
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "dev after retry"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      store,
+      routeJudgment,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `route-write-fail-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const session = await createSession(started.url, "route write retry");
+      await postSessionMessage(started.url, session.sessionId, "交给 dev");
+      await waitFor(() => routeJudgment.mock.calls.length === 1);
+      let state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending"),
+      );
+      expect(state.messages.filter((entry) => entry.speaker === "agent")).toHaveLength(0);
+      expect(state.messages.filter((entry) => entry.speaker === "user" && entry.status === "pending")).toHaveLength(1);
+      expect(await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId)).toMatchObject({ routeDecisions: [] });
+
+      await started.runtime.processPending(session.sessionId);
+      state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.role === "dev"),
+      );
+      expect(routeJudgment).toHaveBeenCalledTimes(2);
+      expect(runCodex).toHaveBeenCalledTimes(1);
+      expect(state.messages.filter((entry) => entry.speaker === "agent" && entry.role === "ceo")).toHaveLength(1);
+      expect(state.messages.filter((entry) => entry.speaker === "agent" && entry.role === "dev")).toHaveLength(1);
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
+      expect(facts.routeDecisions).toEqual([
+        expect.objectContaining({ outcome: "append", target_role: "dev", route_key: expect.stringMatching(/^local-message:/) }),
+      ]);
+    } finally {
+      await started.close();
+    }
+  }, 10_000);
+
+  it("rejects an invalid route append body from the default local CEO adapter before saving a route decision", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "ceo", "# CEO\n\nRoute local messages.");
+    for (const role of ["dev", "qa"]) {
+      await writeAgent(root, role, `# ${role}\n\nROLE:${role}`);
+    }
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      if (options.prompt.includes("local-console no-trigger")) {
+        return codexOk(options, JSON.stringify({ action: "append", body: "@dev 和 @qa 都看一下" }));
+      }
+      return codexOk(options, "should not run");
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `default-invalid-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const session = await createSession(started.url, "default invalid route");
+      await postSessionMessage(started.url, session.sessionId, "交给 dev");
+      await waitFor(() => runCodex.mock.calls.length === 1);
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending"),
+      );
+      expect(runCodex).toHaveBeenCalledTimes(1);
+      expect(state.messages.filter((entry) => entry.speaker === "agent")).toHaveLength(0);
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
+      expect(facts.routeDecisions).toHaveLength(0);
+    } finally {
+      await started.close();
+    }
+  }, 10_000);
+
   it("silently advances an agent reply with no valid trigger once", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "ceo", "# ceo\n\nROLE:ceo");
@@ -1495,6 +1734,14 @@ class FastFailAppendStore implements LocalConsoleStore {
 
   async recordMessageProcessed(): Promise<void> {}
 
+  async findRouteDecision(): Promise<null> {
+    return null;
+  }
+
+  async recordRouteAppend(): Promise<void> {}
+
+  async recordRouteNoAction(): Promise<void> {}
+
   async releaseMessageForRetry(): Promise<void> {}
 
   async recordFailure(): Promise<void> {}
@@ -1614,6 +1861,221 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
     now: string;
   }): Promise<void> {
     await this.inner.recordMessageProcessed(input);
+  }
+
+  async findRouteDecision(input: { sessionId: string; routeKey: string }) {
+    return await this.inner.findRouteDecision(input);
+  }
+
+  async recordRouteAppend(input: {
+    userMessageId: number;
+    sessionId: string;
+    routeKey: string;
+    body: string;
+    targetRole: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordRouteAppend(input);
+  }
+
+  async recordRouteNoAction(input: {
+    userMessageId: number;
+    sessionId: string;
+    routeKey: string;
+    outcome: "no_action" | "fail_open" | "dead_letter";
+    reason: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordRouteNoAction(input);
+  }
+
+  async releaseMessageForRetry(input: { userMessageId: number; sessionId: string; now: string }): Promise<void> {
+    await this.inner.releaseMessageForRetry(input);
+  }
+
+  async recordFailure(input: {
+    userMessageId: number;
+    sessionId: string;
+    error: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordFailure(input);
+  }
+
+  async recordInterrupted(input: {
+    userMessageId: number;
+    sessionId: string;
+    reason: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordInterrupted(input);
+  }
+
+  async recordStuck(input: {
+    userMessageId: number;
+    sessionId: string;
+    reason: string;
+    runId: string | null;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordStuck(input);
+  }
+
+  async markStaleRunning(input: {
+    sessionId: string;
+    cutoffIso: string;
+    now: string;
+    reason: string;
+  }): Promise<number> {
+    return await this.inner.markStaleRunning(input);
+  }
+}
+
+class FailOnceRecordRouteAppendStore implements LocalConsoleStore {
+  readonly sqlitePath: string;
+  private failNextRecord = true;
+
+  constructor(private readonly inner: LocalConsoleStore) {
+    this.sqlitePath = inner.sqlitePath;
+  }
+
+  async init(): Promise<void> {
+    await this.inner.init();
+  }
+
+  async close(): Promise<void> {
+    await this.inner.close();
+  }
+
+  async createProject(input: { folderPath: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    return await this.inner.createProject(input);
+  }
+
+  async updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
+    return await this.inner.updateProject(input);
+  }
+
+  async listProjects(): Promise<LocalConsoleProjectSummary[]> {
+    return await this.inner.listProjects();
+  }
+
+  async getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource> {
+    return await this.inner.getSessionWorkspace(sessionId);
+  }
+
+  async recordProjectWorkspaceStatus(input: {
+    projectId: string;
+    cwd: string;
+    mode: "direct" | "worktree";
+    worktreePath: string | null;
+    worktreeUnavailableReason: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordProjectWorkspaceStatus(input);
+  }
+
+  async createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.createSession(input);
+  }
+
+  async listSessions(): Promise<LocalConsoleSessionSummary[]> {
+    return await this.inner.listSessions();
+  }
+
+  async appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {
+    return await this.inner.appendUserMessage(input);
+  }
+
+  async listMessages(sessionId: string): Promise<LocalConsoleMessage[]> {
+    return await this.inner.listMessages(sessionId);
+  }
+
+  async hasRunningMessage(sessionId: string): Promise<boolean> {
+    return await this.inner.hasRunningMessage(sessionId);
+  }
+
+  async claimNextPendingMessage(input: { sessionId: string; runId: string; now: string }): Promise<LocalConsoleMessage | null> {
+    return await this.inner.claimNextPendingMessage(input);
+  }
+
+  async setRunDir(input: { id: number; runDir: string; now: string }): Promise<void> {
+    await this.inner.setRunDir(input);
+  }
+
+  async recordAgentResponse(input: {
+    userMessageId: number;
+    sessionId: string;
+    role: string;
+    body: string;
+    runId: string;
+    runDir: string;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordAgentResponse(input);
+  }
+
+  async recordSystemAndComplete(input: {
+    userMessageId: number;
+    sessionId: string;
+    body: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordSystemAndComplete(input);
+  }
+
+  async recordMessageProcessed(input: {
+    userMessageId: number;
+    sessionId: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordMessageProcessed(input);
+  }
+
+  async findRouteDecision(input: { sessionId: string; routeKey: string }) {
+    return await this.inner.findRouteDecision(input);
+  }
+
+  async recordRouteAppend(input: {
+    userMessageId: number;
+    sessionId: string;
+    routeKey: string;
+    body: string;
+    targetRole: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    if (this.failNextRecord) {
+      this.failNextRecord = false;
+      throw new Error("injected-record-route-append-before-commit");
+    }
+    await this.inner.recordRouteAppend(input);
+  }
+
+  async recordRouteNoAction(input: {
+    userMessageId: number;
+    sessionId: string;
+    routeKey: string;
+    outcome: "no_action" | "fail_open" | "dead_letter";
+    reason: string;
+    runId: string;
+    runDir: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.inner.recordRouteNoAction(input);
   }
 
   async releaseMessageForRetry(input: { userMessageId: number; sessionId: string; now: string }): Promise<void> {
@@ -1812,6 +2274,14 @@ class RecoveringAppendStore implements LocalConsoleStore {
       message.updatedAt = input.now;
     }
   }
+
+  async findRouteDecision(): Promise<null> {
+    return null;
+  }
+
+  async recordRouteAppend(): Promise<void> {}
+
+  async recordRouteNoAction(): Promise<void> {}
 
   async releaseMessageForRetry(input: { userMessageId: number; sessionId: string; now: string }): Promise<void> {
     void input.sessionId;

@@ -23,6 +23,17 @@ M4 T5 是本地对话操作台的终点线：拿 `github-issue-runner` spec 的 
 
 OpenSpec delta 使用当前 CLI 识别的 `openspec/changes/local-console-t5-full-parity/specs/<capability>/spec.md` 形态，且只修改 `local-console` 与 `console-ui` 业务域。`github-issue-runner` spec 作为 MUST 矩阵事实源，不在本 change 中新增或修改 delta，避免把本地 T5 行为写进 GitHub runner 边界。
 
+### T5 routing-bus implementation slice
+Issue #111 先实现其中的“本地交棒总线 + CEO 无 mention 兜底路由”切片，不新建平行 OpenSpec change。该切片建立本地通道与 GitHub mention trigger 对等的最小闭环：
+
+1. **本地 route sink**：新增 runtime-local 路由协调模块，把 GitHub external route 的 `no_action` / `append` / `fail_open` 结果映射到 `session_messages` 与 `local_route_decisions`，但不 import GitHub runner side-effect modules。
+2. **无 mention CEO 兜底**：当最新 pending local user message 没有合法 agent mention、且呈现明确交棒或目标形状时，调用 CEO route judgment；append 只写一条 visible local CEO message，目标 agent 由下一轮 drain 通过既有 mention trigger 唤醒。
+3. **单 mention 约束**：本地 route append 的正文必须在代码区域外包含且只包含一个合法 agent mention；不合规 append 对明确交棒消息不能静默完成，必须保持 retryable，或先写一条不含合法 agent mention 的 visible local failure / dead-letter 后才完成。
+4. **防重与可见边界**：同一 local message id / route key 只记录一次 route decision；append 可见消息写入失败时不推进 cursor、不保存成功 append decision，后续 retry 可重入且不会污染 GitHub intake state。
+5. **GitHub 模式隔离**：所有新状态落在 `.state/local-console.sqlite`；不修改 `github-response-intake` 的 external route ledger，不改 `format-ceo` 的 GitHub prompt 契约，不改变 GitHub issue runner 的 comment / reaction / artifact 行为。
+
+QA 方案审查指出的 S1/V1 修正已纳入本切片：CEO route judgment 返回非法 append body（无 mention、多 mention、unknown mention、mention 只在代码区域内）时，不得把“明确交棒”的源消息当作已处理；实现必须选择“释放重试”或“可见失败 / dead-letter 后完成”的其中一种收敛路径，并证明不会保存 successful append decision、不会直接运行任何目标角色。
+
 ## Impact
 受影响模块：
 
@@ -110,3 +121,11 @@ OpenSpec delta 使用当前 CLI 识别的 `openspec/changes/local-console-t5-ful
 13. 跑 `PATH="$(pwd)/scripts/acceptance/fake-bin:$PATH" pnpm exec tsx scripts/acceptance/local-console-t5.ts --case fake-gh-zero` → 应输出 fake `gh` 调用次数为 0。
 14. 查看 `docs/roadmap/milestone-4-local-console.md` → 应看到 T5 勾选、T5 验收证据摘要、MUST 文档勾选说明，并明确 T6 互斥启动 flag 与 M3 A-K 不在 T5 范围。
 15. 查看 T5 PR → 应看到 PR body 包含 T5 验收证据、测试/typecheck 退出码、MUST 矩阵路径，以及关闭当前实现 issue 的 `Closes #...` 收尾。
+16. 在本地会话发送无 mention 但明确移交控制权的消息 → 应由 CEO 兜底追加一条 visible local CEO handoff 消息，该消息代码区域外只含一个合法 agent mention，且目标角色由下一轮 local drain 唤醒。
+17. 重复处理同一条无 mention local message → 应不重复调用 CEO route judgment、不重复追加 handoff 消息、不重复唤醒目标角色，且 `tests/github-response-intake.test.ts` 中 GitHub intake fallback route 相关测试保持通过。
+18. 注入 CEO route judgment 对明确交棒 local message 返回含两个合法 agent mention 的 append body → 应拒绝该 append，不直接运行任何目标角色，不保存 successful append decision，并保持源消息 retryable 或写 visible local failure/dead-letter 后才完成。
+19. 注入 CEO route judgment 对明确交棒 local message 返回不含合法 agent mention 的 append body → 应留下可见降级结果或保持 retry，不能静默完成源消息，且 GitHub intake fallback route ledger 不应出现 local route decision。
+20. 重复处理同一条曾遇到非法 append 的 local message → 应按 route key 防重处理已可见降级结果，或在未可见降级前允许 retry，不应重复追加 handoff 或重复唤醒目标角色。
+
+## 验收治理记录
+QA 增补的 3 条非法 append S1/V1 防回归语句已由 product-manager 在 issue 时间线明确接受为本子 issue 的正式实现验收扩展；实现阶段必须按正式验收清单逐条提供证据，不得降级为普通建议。

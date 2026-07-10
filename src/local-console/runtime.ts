@@ -11,6 +11,7 @@ import {
 import { log } from "../log.js";
 import { resolveTrigger } from "../triggers/index.js";
 import { readLocalConsoleOutputTail } from "./output-tail.js";
+import { maybeRouteLocalNoMentionMessage, type LocalRouteJudgment } from "./route-bus.js";
 import { recordLocalWorkspaceDiff } from "./t5-store.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
 import {
@@ -49,6 +50,8 @@ export interface LocalConsoleRuntimeOptions {
   codexMaxDurationMs?: number;
   workspaceGitTimeoutMs?: number;
   staleRunningGraceMs?: number;
+  routeJudgment?: LocalRouteJudgment;
+  routeTimeoutMs?: number;
   now?: () => Date;
 }
 
@@ -72,6 +75,7 @@ export class LocalConsoleRuntime {
   private readonly storeTimeoutMs: number;
   private readonly codexIdleTimeoutMs?: number;
   private readonly codexMaxDurationMs?: number;
+  private readonly routeTimeoutMs?: number;
   private readonly staleRunningGraceMs: number;
   private readonly now: () => Date;
   private readonly processingSessions = new Set<string>();
@@ -84,6 +88,7 @@ export class LocalConsoleRuntime {
     this.storeTimeoutMs = options.storeTimeoutMs ?? 2_000;
     this.codexIdleTimeoutMs = options.codexIdleTimeoutMs;
     this.codexMaxDurationMs = options.codexMaxDurationMs;
+    this.routeTimeoutMs = options.routeTimeoutMs;
     this.staleRunningGraceMs = options.staleRunningGraceMs ?? 5_000;
     this.now = options.now ?? (() => new Date());
   }
@@ -271,7 +276,33 @@ export class LocalConsoleRuntime {
           });
 
           if (trigger.kind !== "run-agent") {
-            await this.recordNoTrigger(claimedMessage, sessionId, nextRunId);
+            let route: Awaited<ReturnType<typeof maybeRouteLocalNoMentionMessage>>;
+            try {
+              route = await maybeRouteLocalNoMentionMessage({
+                store: this.options.store,
+                message: claimedMessage,
+                sessionId,
+                timeline,
+                availableAgentNames: agentFiles.map((agent) => agent.name),
+                runId: nextRunId,
+                runDir: activeRunDir,
+                agentsDir: path.join(this.options.projectRoot, "agents"),
+                now: this.nowIso(),
+                routeJudgment: this.options.routeJudgment,
+                timeoutMs: this.routeTimeoutMs,
+                runCodex: this.options.runCodex,
+              });
+            } catch (error) {
+              await this.releaseForRetryBestEffort(claimedMessage, sessionId);
+              activeMessage = null;
+              activeRunId = null;
+              activeRunDir = null;
+              throw error;
+            }
+            if (route.kind === "retry") {
+              this.lastError = `local-route-retry:${route.reason}`;
+              return;
+            }
             continue;
           }
 

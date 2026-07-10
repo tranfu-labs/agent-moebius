@@ -54,6 +54,29 @@ export type SqliteStateCommand =
   | { kind: "local-claim-next"; sessionId: string; runId: string; now: string }
   | { kind: "local-set-run-dir"; id: number; runDir: string; now: string }
   | { kind: "local-record-message-processed"; userMessageId: number; sessionId: string; runId: string; runDir: string | null; now: string }
+  | { kind: "local-find-route-decision"; sessionId: string; routeKey: string }
+  | {
+      kind: "local-record-route-append";
+      userMessageId: number;
+      sessionId: string;
+      routeKey: string;
+      body: string;
+      targetRole: string;
+      runId: string;
+      runDir: string | null;
+      now: string;
+    }
+  | {
+      kind: "local-record-route-no-action";
+      userMessageId: number;
+      sessionId: string;
+      routeKey: string;
+      outcome: "no_action" | "fail_open" | "dead_letter";
+      reason: string;
+      runId: string;
+      runDir: string | null;
+      now: string;
+    }
   | { kind: "local-release-message-for-retry"; userMessageId: number; sessionId: string; now: string }
   | {
       kind: "local-record-agent-response";

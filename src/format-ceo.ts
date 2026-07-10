@@ -470,7 +470,7 @@ function formatIssueContextComments(comments: CeoIssueCommentContext[]): string 
     .join("\n\n");
 }
 
-function validateExternalRouteAppendBody(
+export function validateExternalRouteAppendBody(
   body: string,
   availableAgentNames: string[],
 ):
@@ -501,7 +501,7 @@ function validateExternalRouteAppendBody(
   return { ok: true, targetRole };
 }
 
-async function loadCeoPersonaWithScripts(agentsDir = AGENTS_DIR): Promise<string> {
+export async function loadCeoPersonaWithScripts(agentsDir = AGENTS_DIR): Promise<string> {
   const raw = await fs.readFile(path.join(agentsDir, "ceo.md"), "utf8");
   const persona = parseAgentManifest(raw).body;
   const scripts = await loadCeoScripts({ agentsDir, required: false });
