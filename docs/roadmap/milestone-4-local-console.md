@@ -1,6 +1,6 @@
 # 里程碑 4：默认本地对话操作台
 
-> **状态：已裁决放行，进行中（2026-07-09）。** 各任务验收语句以本文档各任务「验收场景」为基线，由 dev 方案 + qa 审查按 `docs/roadmap/milestone-standards.md` 逐条细化增补。依赖序：T1 独立、可与 T2 并行；T2 为风险优先 spike，gate 住 T3+；T4.5 gate 住所有多角色接力场景（含 T5 的交棒总线 / 走查 / 开子会话）；T4.6 gate 住 T5 的 workspace 隔离对等；T5 为终点线，T6 收尾。
+> **状态：已裁决放行，进行中（2026-07-09）。** 各任务验收语句以本文档各任务「验收场景」为基线，由 dev 方案 + qa 审查按 `docs/roadmap/milestone-standards.md` 逐条细化增补。依赖序：T1 独立、可与 T2 并行；T2 为风险优先 spike，gate 住 T3+；T4.5 gate 住所有多角色接力场景（含 T5 的交棒总线 / 走查 / 开子会话）；T4.6 gate 住 T5 的 workspace 隔离对等；T5 为终点线，T6 视觉锚归位（组件库扁平化 + 主界面回收组件），T7 收尾。
 > **与 M3 遗留卡点的关系：** M3 T9/T10 回流的卡点 A–K 是 runner 稳定性 / 编排维度，与本里程碑（对话介质本地化）正交，不在本里程碑范围，另行承接。
 
 ## 背景
@@ -93,7 +93,17 @@ T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packa
 
 验收证据（2026-07-10，#116）：T5 集成收尾按 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case all` 生成全量证据 `artifacts/acceptance/t5-evidence.json`，覆盖多子任务目标、CEO 兜底路由、`parent_session_id` 树、qa/product-manager 走查、父级集成回流、worktree diff 回流对等、dead-letter 降级、MUST 矩阵与 fake `gh` 零调用。MUST 矩阵以 `openspec/specs/github-issue-runner/spec.md` 当前 564 行含 `MUST`、475 行项目符号 `- MUST` 为口径，并由 `openspec/changes/local-console-t5-full-parity/proposal.md` / `tasks.md` 映射。自动化回归：`pnpm test` 退出码 0（root 35 文件 425 测试、desktop 5 文件 15 测试、console-ui 3 文件 10 测试）；`pnpm typecheck` 退出码 0；`pnpm --filter @agent-moebius/desktop build` 退出码 0；`pnpm --filter @agent-moebius/console-ui test` 退出码 0。T6 互斥 flag 与 M3 A-K 遗留卡点仍不在 T5 范围。
 
-### - [ ] T6 · GitHub 降为互斥 flag 模式 + 收尾（`成品级`）
+### - [ ] T6 · console-ui 扁平锚归位（组件库对齐 Linear + 主界面回收组件，`成品级`）
+
+**问题**：T4 建 `packages/console-ui/src/console/operator-console.tsx`（527 行）时除 `Button` 外几乎绕开了组件库——`RunLiveBlock`（第 348 行起）/ `TimelineMessage`（第 395 行起）/ `StatusBadge`（第 420 行起）三处用原生 `<article>` / `<div>` / `<span>` + tailwind 手撸重写了 `Card` / `Badge` 的等价形态；组件库里 `Card` 默认 `rounded-lg` + 浮起观感与项目视觉锚（conversation-console 对标 Linear 扁平语言：方角 / 细边 / 紧凑 / 纯色扁平按钮 / 阴影只留浮层）不符，是「作者绕开组件库」的直接诱因。**目标**：把组件库改到扁平锚一致，主界面回收组件，让 T5 #113 等后续 UI 增量默认在统一基线上生长，不再各处 tailwind 手撸。
+
+范围：调 `packages/console-ui/src/ui/card.tsx` + `ui/badge.tsx` 默认样式与 Linear 扁平锚对齐（Card 去 `rounded-lg` 或改到扁平半径 / 只保留细边 / 无浮起阴影；Badge 变体从当前通用命名 `neutral / accent / pass / danger` 收敛到 status 语义 `running / failed / waiting / interrupted / idle` 等）；替换 `operator-console.tsx` 中 `StatusBadge` → `<Badge>`、`TimelineMessage` → `<Card>`、`RunLiveBlock` → `<Card>`；若 T5 #113 已把子会话树形渲染合入并在侧栏叠新的手撸样式，一并纳入回收。侧栏 project/session 导航按钮属导航语义、不属卡片/徽章，本任务不动。同一改动回归 `packages/console-ui/src/console/accept-card.tsx` 规范样例（它是组件库正确用法的活参考）、`console-ui` storybook 与 desktop 打包。
+
+依赖：建议 T5 全部合入后启动，避免与 #113 树形渲染新增 UI 节点叠加返工；如需并行，可先跑「组件库 `Card` / `Badge` 扁平化」子步骤，主界面替换段等 T5 合入。
+
+验收场景（细化时保留）：(a) 跑 `pnpm --filter @agent-moebius/console-ui storybook` → 应看到 Card / Badge 与主界面视觉一致，不出现「组件库偏浮起、主界面偏扁平」两套观感；(b) 打开桌面台会话页 → 应看到时间线消息、`RunLiveBlock`、状态徽章的圆角 / 边框 / 内边距与 `accept-card` 规范样例、Linear 扁平锚一致（方角 / 细边 / 紧凑）；(c) 在 `packages/console-ui/src/console/operator-console.tsx` 主内容区（`<main>` 及以内，除侧栏导航按钮外）跑 `grep -nE 'border border-line|<article'` → 应命中 0，卡片/徽章全部通过组件；(d) 跑 `pnpm --filter @agent-moebius/console-ui test`、`pnpm --filter @agent-moebius/desktop build`、`pnpm typecheck` → 应全绿；(e) 回归 `accept-card` 规范样例视觉与交互 → 应无回退。
+
+### - [ ] T7 · GitHub 降为互斥 flag 模式 + 收尾（`成品级`）
 
 默认 local；启动参数切纯 GitHub 模式，二选一、运行时不并存、数据不互通。事实源收尾：`github-issue-runner` spec 中观察页 / GitHub 呈现类规格迁移到新业务域（如 `local-console`）；`docs/wireframes/pages/observer.md` → `pages/console.md` + `flow.md` 同步；AGENTS.md 更新启动形态。
 
