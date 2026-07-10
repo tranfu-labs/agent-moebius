@@ -1,24 +1,194 @@
 {
   "ok": true,
-  "selectedCase": "acceptance-store-timeout",
+  "selectedCase": "worktree-parity-suite",
   "acceptance": [
     {
-      "id": 21,
-      "case": "acceptance-store-timeout",
-      "statement": "SQLite 组合事务或 store command timeout → 系统应在配置超时内释放 session drain，消息保持 retryable 或 visible diagnosed，且不保存成功验收事实。",
+      "id": 9,
+      "case": "worktree-diff",
+      "statement": "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-diff` → 应输出开分支、diff bundle、显式回流和原目录洁净证据。",
       "evidence": {
-        "factsAfterTimeout": [],
-        "factsAfterRetry": [
+        "codexCwd": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-diff-wCRqx1/workdir/local-worktrees/local-project_4237cecb33229915/local_2026-07-10T13_45_12.484Z-8b9xjd",
+        "originalFolder": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-diff-wCRqx1/repo",
+        "cwdIsWorktree": true,
+        "branchName": "agent/local-local-project_4237cecb33229915-local_2026-07-10T13_45_12.484Z-8b9xjd",
+        "baseRef": "27cba49f6329efa54ebdc2d767d674f87a2af791",
+        "beforeApplyStatus": "",
+        "afterApplyStatus": "D README.md\n?? binary-output.bin\n?? local-output.txt",
+        "affectedFiles": [
+          "README.md",
+          "binary-output.bin",
+          "local-output.txt"
+        ],
+        "coversNewDeleteBinary": true,
+        "workspaceDiffsBeforeApply": [
           {
             "id": 1,
-            "session_id": "local:timeout-child",
-            "task_id": "task-timeout",
-            "role": "qa",
-            "verdict": "passed",
-            "evidence_json": "{\"role\":\"qa\",\"taskId\":\"task-timeout\",\"messageId\":3,\"sourceBodyDigest\":\"84fca5cdc039f3337e471a41ba3ecbe91578300e49751013f9d37cbcc1b3818b\",\"rawConclusion\":\"通过\",\"statementResults\":[{\"index\":1,\"status\":\"passed\",\"evidence\":\"ok\"}],\"acceptanceStatements\":[\"跑 one → 应退出码 0\"]}",
-            "source_message_id": 3,
-            "superseded_at": null,
-            "created_at": "2026-07-10T13:42:42.164Z"
+            "session_id": "local:2026-07-10T13:45:12.484Z-8b9xjd",
+            "run_id": "local-2026-07-10T13:45:12.743Z-v8ebqmmj",
+            "original_repo_root": "/private/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-diff-wCRqx1/repo",
+            "base_ref": "27cba49f6329efa54ebdc2d767d674f87a2af791",
+            "branch_name": "agent/local-local-project_4237cecb33229915-local_2026-07-10T13_45_12.484Z-8b9xjd",
+            "worktree_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-diff-wCRqx1/workdir/local-worktrees/local-project_4237cecb33229915/local_2026-07-10T13_45_12.484Z-8b9xjd",
+            "patch_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-diff-wCRqx1/runs/run-1/workspace.patch",
+            "affected_files_json": "[\"README.md\",\"binary-output.bin\",\"local-output.txt\"]",
+            "status": "generated",
+            "error": null,
+            "created_at": "2026-07-10T13:45:13.165Z",
+            "updated_at": "2026-07-10T13:45:13.165Z"
+          }
+        ],
+        "workspaceDiffsAfterApply": [
+          {
+            "id": 1,
+            "session_id": "local:2026-07-10T13:45:12.484Z-8b9xjd",
+            "run_id": "local-2026-07-10T13:45:12.743Z-v8ebqmmj",
+            "original_repo_root": "/private/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-diff-wCRqx1/repo",
+            "base_ref": "27cba49f6329efa54ebdc2d767d674f87a2af791",
+            "branch_name": "agent/local-local-project_4237cecb33229915-local_2026-07-10T13_45_12.484Z-8b9xjd",
+            "worktree_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-diff-wCRqx1/workdir/local-worktrees/local-project_4237cecb33229915/local_2026-07-10T13_45_12.484Z-8b9xjd",
+            "patch_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-diff-wCRqx1/runs/run-1/workspace.patch",
+            "affected_files_json": "[\"README.md\",\"binary-output.bin\",\"local-output.txt\"]",
+            "status": "applied",
+            "error": null,
+            "created_at": "2026-07-10T13:45:13.165Z",
+            "updated_at": "2026-07-10T00:00:20.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "case": "diff-apply-failure-l1",
+      "statement": "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case diff-apply-failure-l1` → 应输出 diff apply 冲突/挂起后 visible error、patch 保留、session 释放、原目录不半写脏。",
+      "evidence": {
+        "error": "git diff-apply-check failed with exit-code-1: error: missing.txt: No such file or directory",
+        "patchExists": true,
+        "originalStatus": "",
+        "workspaceDiffs": [
+          {
+            "id": 1,
+            "session_id": "local:diff-failure",
+            "run_id": "run-diff",
+            "original_repo_root": null,
+            "base_ref": "7f3126a248cc97640e52c3422665120839fdb247",
+            "branch_name": "main",
+            "worktree_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-diff-failure-YATm3b/repo",
+            "patch_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-diff-failure-YATm3b/bad.patch",
+            "affected_files_json": "[]",
+            "status": "failed",
+            "error": "git diff-apply-check failed with exit-code-1: error: missing.txt: No such file or directory",
+            "created_at": "2026-07-10T00:00:01.000Z",
+            "updated_at": "2026-07-10T00:00:01.000Z"
+          }
+        ],
+        "sessionReleased": true
+      }
+    },
+    {
+      "id": 22,
+      "case": "worktree-return-rollback",
+      "statement": "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-return-rollback` → 应输出显式回流、reverse rollback、reverse apply 冲突安全失败证据。",
+      "evidence": {
+        "afterApplyStatus": "?? local-output.txt",
+        "afterRollbackStatus": "",
+        "rollbackConflictError": "git diff-rollback-check failed with exit-code-1: error: patch failed: local-output.txt:1\nerror: local-output.txt: patch does not apply",
+        "afterConflictStatus": "?? local-output.txt",
+        "patchExists": true,
+        "workspaceDiffs": [
+          {
+            "id": 1,
+            "session_id": "local:2026-07-10T13:45:13.952Z-ct42gk",
+            "run_id": "local-2026-07-10T13:45:14.213Z-bt5o6zpu",
+            "original_repo_root": "/private/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-return-rollback-vFg9Su/repo",
+            "base_ref": "70387f924b9d28467a51c35d0c3d4204bfdf9237",
+            "branch_name": "agent/local-local-project_42943742192b4582-local_2026-07-10T13_45_13.952Z-ct42gk",
+            "worktree_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-return-rollback-vFg9Su/workdir/local-worktrees/local-project_42943742192b4582/local_2026-07-10T13_45_13.952Z-ct42gk",
+            "patch_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-return-rollback-vFg9Su/runs/run-1/workspace.patch",
+            "affected_files_json": "[\"local-output.txt\"]",
+            "status": "failed",
+            "error": "git diff-rollback-check failed with exit-code-1: error: patch failed: local-output.txt:1\nerror: local-output.txt: patch does not apply",
+            "created_at": "2026-07-10T13:45:14.610Z",
+            "updated_at": "2026-07-10T00:00:32.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": 23,
+      "case": "worktree-abandon",
+      "statement": "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-abandon` → 应输出放弃 diff 只更新 status、不触碰原目录、不删除 worktree。",
+      "evidence": {
+        "beforeAbandonStatus": "",
+        "afterAbandonStatus": "",
+        "worktreeStillExists": true,
+        "patchExists": true,
+        "workspaceDiffs": [
+          {
+            "id": 1,
+            "session_id": "local:2026-07-10T13:45:17.507Z-6644df",
+            "run_id": "local-2026-07-10T13:45:17.760Z-y684996h",
+            "original_repo_root": "/private/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-abandon-GmLmKh/repo",
+            "base_ref": "38eb60d1833616fba67c148b7b049bdb4c6b2e96",
+            "branch_name": "agent/local-local-project_09539d4d71b6b9a7-local_2026-07-10T13_45_17.507Z-6644df",
+            "worktree_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-abandon-GmLmKh/workdir/local-worktrees/local-project_09539d4d71b6b9a7/local_2026-07-10T13_45_17.507Z-6644df",
+            "patch_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-abandon-GmLmKh/runs/run-1/workspace.patch",
+            "affected_files_json": "[\"abandoned-output.txt\"]",
+            "status": "abandoned",
+            "error": null,
+            "created_at": "2026-07-10T13:45:18.159Z",
+            "updated_at": "2026-07-10T00:00:40.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": 24,
+      "case": "worktree-issue-parity",
+      "statement": "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-issue-parity` → 应输出本地 workspace source 与 issue-worktree 三点对照，且 GitHub issue-worktree 无 diff 回流漂移。",
+      "evidence": {
+        "localChecks": {
+          "stableBranch": true,
+          "cwdWorktree": true,
+          "noRemoteFetch": true,
+          "diffReturnLocalOnly": true
+        },
+        "issueChecks": {
+          "stableIssueBranch": true,
+          "cwdWorktree": true,
+          "refreshOnlyOnReuse": true,
+          "noDiffReturn": true
+        },
+        "files": [
+          "src/local-console/workspace-source.ts",
+          "src/agent-prescripts/issue-worktree.ts"
+        ]
+      }
+    },
+    {
+      "id": 25,
+      "case": "worktree-rollback-hang",
+      "statement": "跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-rollback-hang` → 应输出 reverse apply 永久挂起后超时终止、patch 保留、session 可释放。",
+      "evidence": {
+        "error": "workspace-git-timeout:diff-rollback:1000ms",
+        "fakeGitCalls": 3,
+        "patchExists": true,
+        "originalStatus": "M README.md",
+        "sessionReleased": true,
+        "workspaceDiffs": [
+          {
+            "id": 1,
+            "session_id": "local:rollback-hang",
+            "run_id": "run-rollback-hang",
+            "original_repo_root": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-rollback-hang-z0qZ7I/repo",
+            "base_ref": "e8d7125d39e27c4fc93b0729f63bb2831d3725ae",
+            "branch_name": "main",
+            "worktree_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-rollback-hang-z0qZ7I/repo",
+            "patch_path": "/var/folders/15/y09rxzss4vq0c4sd9_g_0bvr0000gn/T/agent-moebius-t5-worktree-rollback-hang-z0qZ7I/workspace.patch",
+            "affected_files_json": "[\"README.md\"]",
+            "status": "failed",
+            "error": "workspace-git-timeout:diff-rollback:1000ms",
+            "created_at": "2026-07-10T00:00:45.000Z",
+            "updated_at": "2026-07-10T00:00:45.000Z"
           }
         ]
       }
