@@ -11,6 +11,7 @@ import {
 import { log } from "../log.js";
 import { resolveTrigger } from "../triggers/index.js";
 import { readLocalConsoleOutputTail } from "./output-tail.js";
+import { recordLocalWorkspaceDiff } from "./t5-store.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
@@ -24,7 +25,11 @@ import {
   type LocalConsoleStateSnapshot,
   type LocalConsoleStore,
 } from "./types.js";
-import { resolveLocalWorkspaceSource, type ResolvedLocalWorkspace } from "./workspace-source.js";
+import {
+  generateLocalWorkspaceDiff,
+  resolveLocalWorkspaceSource,
+  type ResolvedLocalWorkspace,
+} from "./workspace-source.js";
 
 export interface LocalConsoleAgentFile {
   name: string;
@@ -56,6 +61,8 @@ interface ActiveLocalRun {
   cwd: string | null;
   workspaceMode: "direct" | "worktree" | null;
   worktreeUnavailableReason: string | null;
+  branchName: string | null;
+  baseRef: string | null;
   startedAt: string;
   controller: AbortController;
 }
@@ -79,6 +86,10 @@ export class LocalConsoleRuntime {
     this.codexMaxDurationMs = options.codexMaxDurationMs;
     this.staleRunningGraceMs = options.staleRunningGraceMs ?? 5_000;
     this.now = options.now ?? (() => new Date());
+  }
+
+  get sqlitePath(): string {
+    return this.options.store.sqlitePath;
   }
 
   async init(): Promise<void> {
@@ -314,6 +325,8 @@ export class LocalConsoleRuntime {
             cwd: workspace.cwd,
             workspaceMode: workspace.mode,
             worktreeUnavailableReason: workspace.worktreeUnavailableReason,
+            branchName: workspace.branchName,
+            baseRef: workspace.baseRef,
             startedAt: this.nowIso(),
             controller,
           });
@@ -332,6 +345,8 @@ export class LocalConsoleRuntime {
             await this.recordFailedCodexResult(claimedMessage, sessionId, nextRunId, result);
             return;
           }
+
+          await this.recordWorkspaceDiffIfNeeded(sessionId, nextRunId, resolvedRunDir, workspace, controller.signal);
 
           try {
             await this.storeCall("local-console-store-record-agent-response", () =>
@@ -507,6 +522,8 @@ export class LocalConsoleRuntime {
       cwd: active.cwd,
       workspaceMode: active.workspaceMode,
       worktreeUnavailableReason: active.worktreeUnavailableReason,
+      branchName: active.branchName,
+      baseRef: active.baseRef,
       stdoutTail: tail.stdoutTail,
       stderrTail: tail.stderrTail,
       lastOutputSummary: tail.lastOutputSummary,
@@ -584,6 +601,67 @@ export class LocalConsoleRuntime {
     } catch (recordError) {
       this.lastError = formatLocalError(recordError);
       log({ event: "local-console-record-stuck-failed", error: this.lastError, originalError: reason });
+    }
+  }
+
+  private async recordWorkspaceDiffIfNeeded(
+    sessionId: string,
+    runId: string,
+    runDir: string,
+    workspace: ResolvedLocalWorkspace,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (workspace.mode !== "worktree" || workspace.worktreePath === null) {
+      return;
+    }
+    try {
+      const diff = await generateLocalWorkspaceDiff({
+        worktreePath: workspace.worktreePath,
+        runDir,
+        baseRef: workspace.baseRef,
+        branchName: workspace.branchName,
+        gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+        signal,
+      });
+      await this.storeCall("local-console-store-record-workspace-diff", () =>
+        recordLocalWorkspaceDiff(
+          {
+            sqlitePath: this.options.store.sqlitePath,
+            timeoutMs: this.storeTimeoutMs,
+          },
+          {
+            sessionId,
+            runId,
+            baseRef: diff.baseRef,
+            branchName: diff.branchName,
+            worktreePath: diff.worktreePath,
+            patchPath: diff.patchPath,
+            status: "generated",
+            error: null,
+            now: this.nowIso(),
+          },
+        ),
+      );
+    } catch (error) {
+      const message = formatLocalError(error);
+      log({ event: "local-console-workspace-diff-failed", error: message, sessionId, runId });
+      await recordLocalWorkspaceDiff(
+        {
+          sqlitePath: this.options.store.sqlitePath,
+          timeoutMs: this.storeTimeoutMs,
+        },
+        {
+          sessionId,
+          runId,
+          baseRef: workspace.baseRef ?? "unknown",
+          branchName: workspace.branchName ?? "unknown",
+          worktreePath: workspace.worktreePath,
+          patchPath: path.join(runDir, "workspace.patch"),
+          status: "failed",
+          error: message,
+          now: this.nowIso(),
+        },
+      );
     }
   }
 

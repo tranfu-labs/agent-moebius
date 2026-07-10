@@ -30,6 +30,7 @@ export type OperatorRunnerStatus = "starting" | "running" | "stopped" | "crashed
 export interface OperatorSession {
   sessionId: string;
   projectId: string;
+  parentSessionId?: string | null;
   title: string;
   status: OperatorSessionStatus;
   runningCount: number;
@@ -37,6 +38,7 @@ export interface OperatorSession {
   stuckCount: number;
   errorCount: number;
   interruptedCount: number;
+  childCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -206,13 +208,14 @@ export function OperatorConsole({
                 ) : null}
               </div>
               <div className="mt-1 space-y-1 pl-2">
-                {item.sessions.map((session) => (
+                {treeSessions(item.sessions).map(({ session, depth }) => (
                   <button
                     key={session.sessionId}
                     type="button"
                     className={cn(
                       "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-hover",
                       session.sessionId === selectedSessionId ? "bg-sel" : "bg-transparent",
+                      depth > 0 ? "ml-4 w-[calc(100%-1rem)] border-l border-line" : "",
                     )}
                     onClick={() => {
                       onSelectProject?.(item.projectId);
@@ -220,11 +223,15 @@ export function OperatorConsole({
                     }}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">{session.title}</span>
+                      <span className="block truncate font-medium">
+                        {depth > 0 ? "子会话 · " : ""}
+                        {session.title}
+                      </span>
                       <span className="mt-0.5 block truncate text-xs text-sub">
                         {statusLabel(session.status)}
                         {session.errorCount > 0 ? ` · 错误 ${session.errorCount}` : ""}
                         {session.stuckCount > 0 ? ` · 卡住 ${session.stuckCount}` : ""}
+                        {(session.childCount ?? 0) > 0 ? ` · 子会话 ${session.childCount ?? 0}` : ""}
                       </span>
                     </span>
                     <StatusDot status={session.status} />
@@ -309,6 +316,33 @@ export function OperatorConsole({
       </main>
     </div>
   );
+}
+
+function treeSessions(sessions: OperatorSession[]): Array<{ session: OperatorSession; depth: number }> {
+  const byParent = new Map<string | null, OperatorSession[]>();
+  for (const session of sessions) {
+    const parent = session.parentSessionId ?? null;
+    byParent.set(parent, [...(byParent.get(parent) ?? []), session]);
+  }
+  const result: Array<{ session: OperatorSession; depth: number }> = [];
+  const visited = new Set<string>();
+  const append = (parent: string | null, depth: number) => {
+    for (const session of byParent.get(parent) ?? []) {
+      if (visited.has(session.sessionId)) {
+        continue;
+      }
+      visited.add(session.sessionId);
+      result.push({ session, depth });
+      append(session.sessionId, depth + 1);
+    }
+  };
+  append(null, 0);
+  for (const session of sessions) {
+    if (!visited.has(session.sessionId)) {
+      result.push({ session, depth: 0 });
+    }
+  }
+  return result;
 }
 
 function RunLiveBlock({

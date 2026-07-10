@@ -19,6 +19,8 @@ export interface ResolvedLocalWorkspace {
   mode: LocalConsoleWorkspaceMode;
   worktreePath: string | null;
   worktreeUnavailableReason: string | null;
+  branchName: string | null;
+  baseRef: string | null;
 }
 
 interface GitRunOptions {
@@ -69,6 +71,8 @@ export async function resolveLocalWorkspaceSource(
       mode: "direct",
       worktreePath: null,
       worktreeUnavailableReason: null,
+      branchName: null,
+      baseRef: null,
     };
   }
 
@@ -79,10 +83,13 @@ export async function resolveLocalWorkspaceSource(
       mode: "direct",
       worktreePath: null,
       worktreeUnavailableReason: "not-git-repository",
+      branchName: null,
+      baseRef: null,
     };
   }
 
   const worktreePath = localWorktreePath(input.workdirRoot, input.projectId, input.sessionId);
+  const branchName = localWorktreeBranch(input.projectId, input.sessionId);
   await effectiveDependencies.mkdir(path.dirname(worktreePath), { recursive: true });
   if (await effectiveDependencies.pathExists(worktreePath)) {
     await assertUsableGitWorktree(worktreePath, input.signal, effectiveDependencies);
@@ -91,11 +98,13 @@ export async function resolveLocalWorkspaceSource(
       mode: "worktree",
       worktreePath,
       worktreeUnavailableReason: null,
+      branchName: await readCurrentBranch(worktreePath, input.signal, effectiveDependencies),
+      baseRef: await readHeadRef(worktreePath, input.signal, effectiveDependencies),
     };
   }
 
   await runBoundedGit(
-    ["-C", repoRoot, "worktree", "add", "-B", localWorktreeBranch(input.projectId, input.sessionId), worktreePath, "HEAD"],
+    ["-C", repoRoot, "worktree", "add", "-B", branchName, worktreePath, "HEAD"],
     "worktree-add",
     input.signal,
     effectiveDependencies,
@@ -106,7 +115,79 @@ export async function resolveLocalWorkspaceSource(
     mode: "worktree",
     worktreePath,
     worktreeUnavailableReason: null,
+    branchName,
+    baseRef: await readHeadRef(worktreePath, input.signal, effectiveDependencies),
   };
+}
+
+export interface GeneratedLocalWorkspaceDiff {
+  baseRef: string;
+  branchName: string;
+  worktreePath: string;
+  patchPath: string;
+  empty: boolean;
+}
+
+export async function generateLocalWorkspaceDiff(input: {
+  worktreePath: string;
+  runDir: string;
+  baseRef?: string | null;
+  branchName?: string | null;
+  gitTimeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<GeneratedLocalWorkspaceDiff> {
+  const dependencies = {
+    ...defaultDependencies,
+    gitTimeoutMs: input.gitTimeoutMs ?? defaultDependencies.gitTimeoutMs,
+  };
+  await fs.mkdir(input.runDir, { recursive: true });
+  const baseRef = input.baseRef ?? (await readHeadRef(input.worktreePath, input.signal, dependencies));
+  const branchName = input.branchName ?? (await readCurrentBranch(input.worktreePath, input.signal, dependencies));
+  await runBoundedGit(
+    ["-C", input.worktreePath, "add", "-N", "."],
+    "worktree-diff-intent-to-add",
+    input.signal,
+    dependencies,
+  );
+  const diff = await runBoundedGit(
+    ["-C", input.worktreePath, "diff", "--binary", baseRef, "--"],
+    "worktree-diff",
+    input.signal,
+    dependencies,
+  );
+  const patchPath = path.join(input.runDir, "workspace.patch");
+  await fs.writeFile(patchPath, diff.stdout, "utf8");
+  return {
+    baseRef,
+    branchName,
+    worktreePath: input.worktreePath,
+    patchPath,
+    empty: diff.stdout.trim() === "",
+  };
+}
+
+export async function applyLocalWorkspaceDiff(input: {
+  originalFolderPath: string;
+  patchPath: string;
+  gitTimeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const dependencies = {
+    ...defaultDependencies,
+    gitTimeoutMs: input.gitTimeoutMs ?? defaultDependencies.gitTimeoutMs,
+  };
+  await runBoundedGit(
+    ["-C", input.originalFolderPath, "apply", "--check", input.patchPath],
+    "diff-apply-check",
+    input.signal,
+    dependencies,
+  );
+  await runBoundedGit(
+    ["-C", input.originalFolderPath, "apply", input.patchPath],
+    "diff-apply",
+    input.signal,
+    dependencies,
+  );
 }
 
 async function detectGitRepositoryRoot(
@@ -131,6 +212,25 @@ async function assertUsableGitWorktree(
   if (result.code !== 0) {
     throw new Error(formatGitFailure("git", result, "worktree-reuse"));
   }
+}
+
+async function readHeadRef(
+  worktreePath: string,
+  signal: AbortSignal | undefined,
+  dependencies: WorkspaceResolverDependencies,
+): Promise<string> {
+  const result = await runBoundedGit(["-C", worktreePath, "rev-parse", "HEAD"], "worktree-head", signal, dependencies, [0]);
+  return result.stdout.trim();
+}
+
+async function readCurrentBranch(
+  worktreePath: string,
+  signal: AbortSignal | undefined,
+  dependencies: WorkspaceResolverDependencies,
+): Promise<string> {
+  const result = await runBoundedGit(["-C", worktreePath, "branch", "--show-current"], "worktree-branch", signal, dependencies, [0]);
+  const branch = result.stdout.trim();
+  return branch === "" ? "detached" : branch;
 }
 
 async function runBoundedGit(

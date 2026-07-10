@@ -1,0 +1,112 @@
+# 提案：local-console-t5-full-parity
+
+## Why
+M4 T5 是本地对话操作台的终点线：拿 `github-issue-runner` spec 的 MUST 清单逐条核对，把 GitHub issue 模式的协作能力在本地落成原生形态。T4.5 已打通本地时间线接力总线，T4.6 已建立本地 project/workspace source；T5 不重做这两块，而是在它们之上补齐全功能对等。
+
+需求持有者已确认边界：
+
+- 事实源以 `docs/roadmap/milestone-4-local-console.md`、`openspec/specs/github-issue-runner/spec.md`、现有本地 console/runtime 基座为准。
+- T4.5/T4.6 已验收内容只作为现有基座与“已对等”证据，不扩大 T5 scope。
+- MUST 矩阵分类固定为 `已对等`、`本任务补齐`、`不在 T5 范围`；备注列可说明证据或风险。
+- T5 的 worktree 三点对等是“开分支、diff 回流、不污染原目录”。GitHub issue-worktree 的创建/复用、跨 role 共享、remote main 前进只检测不自动合并/重建也纳入矩阵，但不作为 T5 shorthand 的三点。
+- T6 互斥启动 flag 与 M3 遗留卡点 A-K 不在 T5 范围。
+
+## What Changes
+本 change 规划一个 production 级 T5 实现，分六个能力面落地：
+
+1. **本地目标/会话账本桥**：让本地 session 成为 issue 的本地等价物，SQLite 承载 role thread、目标账本投影、child session references、acceptance facts、integration events 与 visible recovery records；保留现有 `session_messages` 作为时间线事实源。
+2. **本地 CEO 路由与 no-mention 兜底**：把 GitHub 的外部无 mention 兜底与 agent-authored child 兜底落到本地时间线，采用“先写本地 CEO handoff 消息，下一轮 drain 再触发目标 agent”的两步语义。
+3. **子会话编排**：把 CEO 的“开子 issue”改成本地“开子会话”，写入 `sessions.parent_session_id`，用稳定 orchestration key 去重/恢复，父会话只显示进展事件，不复制子会话全文。
+4. **验收走查与集成回流**：在本地普通 mention trigger 前增加 acceptance pre-pass；解析 product-manager/hermes-user 的结构化走查，写 child acceptance fact，全部子任务通过后在父会话发起目标级集成验收，不通过时创建/找回 repair child session。
+5. **dead-letter 与恢复**：把 GitHub 失败预算/死信评论变成本地 visible dead-letter system record；恢复入口是在同 session 追加新消息或子会话状态恢复后重新进入 drain，不静默吞任务。
+6. **worktree 三点对等**：在 T4.6 temporary worktree 基础上补齐本地分支、diff 回流与原目录洁净保证。worktree 开启时 dev 修改先进入临时 worktree 的本地分支；code-verified 后生成可审计 diff bundle；用户显式回流时把 diff apply 到原目录，回流前原目录保持 `git status --short` 为空。
+
+OpenSpec delta 使用当前 CLI 识别的 `openspec/changes/local-console-t5-full-parity/specs/<capability>/spec.md` 形态，且只修改 `local-console` 与 `console-ui` 业务域。`github-issue-runner` spec 作为 MUST 矩阵事实源，不在本 change 中新增或修改 delta，避免把本地 T5 行为写进 GitHub runner 边界。
+
+## Impact
+受影响模块：
+
+- `src/local-console/runtime.ts`：增加 local guardrail/route/acceptance pre-pass/child session orchestration/dead-letter coordination，保持 session 内串行与不同 session 并行。
+- `src/local-console/store.ts`、`src/local-console/types.ts`、`src/sqlite-state.ts`：扩展 SQLite schema 与命令，覆盖 parent session、local role threads、local ledger projection、route decisions、acceptance facts、integration events、dead-letter records、workspace diff metadata。
+- `src/local-console/workspace-source.ts`：在现有 temporary worktree resolver 上补齐 branch naming、base ref、diff generation、diff apply/recovery 状态。
+- `src/local-console/server.ts` 与 desktop preload/main/renderer：新增 child session API、acceptance submit、diff 回流、dead-letter/recovery 相关端点与 IPC。
+- `packages/console-ui/src/console/*`：侧栏渲染子会话树、父会话进展流、验收卡片、dead-letter/recovery 状态、worktree diff 回流操作。
+- `tests/local-console.test.ts`、`packages/console-ui` 测试、`desktop/tests/*`、`scripts/acceptance/local-console-t5.ts`：新增 production 级验收覆盖。
+- `openspec/changes/local-console-t5-full-parity/specs/local-console/spec.md`：修改现有 T5-only 禁止边界，新增本地 T5 等价运行时规则与故障注入场景。
+- `openspec/changes/local-console-t5-full-parity/specs/console-ui/spec.md`：新增 child session tree、验收卡片、dead-letter/diff 回流可视化规则。
+- `docs/roadmap/milestone-4-local-console.md`：实现完成后勾选 T5 并记录证据。
+
+对外行为：
+
+- 本地模式：多子任务目标可从本地会话完成 CEO 兜底路由、子会话创建、子会话树渲染、qa/product-manager 验收走查、父级集成验收和 repair 子会话。
+- 本地模式：dead-letter 和恢复都留在本地时间线，用户能看到失败原因、累计次数和恢复提示。
+- 本地模式：worktree 开启时达到开分支、diff 回流、不污染原目录三点；关闭 worktree 时继续按 T4.6 直接在原目录运行。
+- GitHub 模式：不改变 issue intake、comment/reaction、release artifact、issue worktree、driver pool、observer、CEO agent GitHub 编排的既有语义。
+
+## MUST 矩阵
+说明：`GIR:Lx-Ly` 指 `openspec/specs/github-issue-runner/spec.md` 的源行；矩阵覆盖该文件所有包含字面量 `MUST` 的 552 行。连续范围可包含非 MUST 行，但只表示该范围内含 `MUST` 的源行具有相同分类；不跨越本分类外的 MUST。只统计项目符号 `- MUST` 会得到 463 行，那个口径不作为本任务验收口径。`LC` 指 `openspec/specs/local-console/spec.md` 与 T4.5/T4.6 change 已落事实。
+
+| 源 | 分类 | T5 处理 |
+| --- | --- | --- |
+| GIR:L9-L25 | 不在 T5 范围 | GitHub repository config、polling 和 baseline 语义保持 GitHub-only；本地通道已有 SQLite/API 入口，不在 T5 重做。 |
+| GIR:L26 | 本任务补齐 | 本地处理游标同样只在 visible local result 后推进；失败进入 retry/dead-letter。 |
+| GIR:L27-L38 | 不在 T5 范围 | GitHub issue state、active window、watch repository 上限保持 GitHub-only。 |
+| GIR:L39-L41 | 本任务补齐 | 本地失败预算、last failure reason、dead-letter 后清零/恢复。 |
+| GIR:L42-L47 | 本任务补齐 | 本地 user no-mention 兜底路由，append 本地 CEO handoff 后由下一轮 drain 触发。 |
+| GIR:L48-L53 | 不在 T5 范围 | GitHub runner 模块边界已是既有事实；T5 不重构 GitHub runner。 |
+| GIR:L54-L56 | 本任务补齐 | local acceptance/route/repair/dead-letter 可见边界，禁止在可见写失败时保存成功状态。 |
+| GIR:L57-L60 | 本任务补齐 | local dead-letter system record、无自触发、恢复提示。 |
+| GIR:L61-L74 | 已对等 | T4/T4.5 已有 local session serial、不同 session 独立、store 单写者和 drain；GitHub driver pool/heartbeat不进 T5。 |
+| GIR:L75 | 已对等 | T4.5 local cursor/restart catch-up 已按 durable message cursor 恢复，不依赖执行中标记；T5 保持该 crash recovery 边界。 |
+| GIR:L76-L78 | 不在 T5 范围 | GitHub issue not-found/closed 处理不映射到本地会话。 |
+| GIR:L79 | 本任务补齐 | local workspace/guardrail/Codex/store 失败统一进 retry/dead-letter，不按错误类型吞游标。 |
+| GIR:L80-L86 | 不在 T5 范围 | GitHub CLI retry/timeout 是 GitHub adapter 事实；本地不调用 gh。 |
+| GIR:L87-L89 | 本任务补齐 | local 首个可见结果边界、死信日志、收尾检查 fail-open 的本地等价。 |
+| GIR:L90-L96 | 已对等 | Codex idle/max-duration/watchdog 与 abort 路径已由共享 `codex.ts` 与 T4 local runtime 使用。 |
+| GIR:L97-L113 | 已对等 | agent file discovery、mention trigger、协议事实源、验收治理和 stage 枚举是共享规则；T5 只在本地 UI/API 生成合规输入。 |
+| GIR:L114-L141 | 本任务补齐 | local agent response 也要经过 CEO guardrail/stage route；`plan-written` 到 qa、`code-verified` 到需求持有者的本地回流。 |
+| GIR:L142-L147 | 已对等 | preScript registry、timeline normalize、trigger rules 已由共享 conversation/trigger 模块承载；local timeline 已复用。 |
+| GIR:L148-L153 | 不在 T5 范围 | GitHub `eyes` reaction 无本地等价；本地已有运行直播即时态。 |
+| GIR:L154-L165 | 不在 T5 范围 | GitHub issue media 下载/校验与 comment 错误路径不是 T5；本地附件另行设计。 |
+| GIR:L166-L168 | 已对等 | agent frontmatter/workspaceAccess 与 GitHub issue workspace 权限是既有事实。 |
+| GIR:L169-L186 | 本任务补齐 | local worktree 开启态补齐开分支、diff 回流、不污染原目录；同时矩阵记录 GitHub worktree baseline 约束。 |
+| GIR:L187-L189 | 已对等 | T4 已有本地中断按钮和 Codex abort；GitHub 新评论打断仅属 GitHub issue 语义。 |
+| GIR:L190-L203 | 本任务补齐 | local role threads 挂 session key，支持 per-role resume/delta prompt，而不是每轮 full prompt。 |
+| GIR:L204-L223 | 本任务补齐 | local output artifact/evidence manifest 进入 SQLite/runDir，不走 GitHub release，但保留显式引用、越界拒绝和发布失败可见语义的本地等价。 |
+| GIR:L224-L247 | 不在 T5 范围 | observer 是只读诊断事实源，不属于桌面操作台 T5 全功能对等。 |
+| GIR:L248-L263 | 本任务补齐 | 本地验收卡片与提交 API 生成严格走查文本，保障需求侧验收治理。 |
+| GIR:L264-L292 | 已对等 | dev-manager、secretary、qa persona 与 invariants 是共享事实；T5 不改 persona 职责。 |
+| GIR:L293-L327 | 本任务补齐 | 本地 CEO guardrail、普通 CEO agent、规则进化入口与 speaker 归一化在本地 sink 中生效。 |
+| GIR:L328 | 不在 T5 范围 | T5 不新增 driver agent；未来扩 agent 时同步 CEO append role 白名单仍是 GitHub runner/guardrail 维护任务。 |
+| GIR:L329-L334 | 本任务补齐 | local agent message 写回、role metadata 等价和 role thread 更新边界。 |
+| GIR:L336-L371 | 不在 T5 范围 | `T6 v0 roundtable topology` 是 GitHub 编排 dogfood 主题，不纳入 M4 T5；M4 T6 互斥启动 flag 也不纳入 T5。 |
+| GIR:L449-L462 | 已对等 | spawn argv 安全、不信任外部输入、prompt/trigger 纯函数与 token 不落仓库是共享安全约束。 |
+| GIR:L466-L472 | 本任务补齐 | 本地 UI/API 必须保留统一输出骨架、合法收尾行、等待/交棒状态展示。 |
+| GIR:L473-L500 | 已对等 | T7 guardrail 场景由共享 CEO persona 与 format guardrail 承载；T5 只复用到本地 visible sink。 |
+| GIR:L501-L1716 | 已对等 | 场景段继承上述业务规则；T5 验收脚本只复跑与本地等价相关的场景，不重测全部 GitHub-only 场景。 |
+| GIR:L1722-L1745 | 不在 T5 范围 | observer ledger UI 是只读诊断，不属于本地操作台 T5。 |
+| GIR:L1847-L1879 | 本任务补齐 | CEO spawn child issue 映射为 create/recover child session，失败可见且不重复创建。 |
+| GIR:L2027-L2046 | 本任务补齐 | acceptance pre-pass、child pass、parent integration、repair child session 和 blocked report 的本地等价。 |
+| GIR:L2143-L2164 | 本任务补齐 | goal-intake interview/propose/confirm 在本地写 pending/active ledger projection，并创建/找回 phase-one child sessions。 |
+| GIR:L2272-L2277 | 本任务补齐 | agent-authored no-mention fallback route 在本地 child session 中按 task 状态判定。 |
+| GIR:L2303-L2308 | 本任务补齐 | T5 新增本地验收脚本、测试、typecheck、roadmap 勾选与 PR 收尾证据；GitHub 启动环境要求不进本地模式。 |
+| LC:T4.5 | 已对等 | 本地 agent handoff drain、cursor、restart catch-up、无 1s poll 已验收。 |
+| LC:T4.6 | 已对等 | 本地 project、folder workspace、worktree on/off、非 git 降级、fake gh 零调用已验收。 |
+| LC:spec L48-L50 | 本任务补齐 | 当前 local-console spec 明确禁止 T5-only 能力；本 change 的 `specs/local-console/spec.md` 将把这些边界升级为 T5 正式行为。 |
+
+## 验收语句
+1. 跑 `pnpm exec openspec validate local-console-t5-full-parity --strict` → 应退出码 0。
+2. 查看 `openspec/changes/local-console-t5-full-parity/proposal.md` 与 `tasks.md` → 应看到 `openspec/specs/github-issue-runner/spec.md` 中全部 552 行包含 `MUST` 的源行逐条映射为 `已对等`、`本任务补齐`、`不在 T5 范围`，并说明项目符号 `- MUST` 的 463 行统计不是本任务验收口径。
+3. 查看 `openspec/changes/local-console-t5-full-parity/specs/local-console/spec.md` 与 `specs/console-ui/spec.md` → 应看到当前 OpenSpec CLI 识别的 `specs/<capability>/spec.md` delta，且没有 `specs/github-issue-runner/spec.md` delta。
+4. 查看 `openspec/changes/local-console-t5-full-parity/specs/local-console/spec.md` → 应看到 delta 明确修改现有 T5-only 禁止规则；归档后不得同时存在要求 T5 local equivalents 的 MUST 与禁止同一能力的 MUST NOT。
+5. 跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case multi-child-goal` → 应输出本地多子任务目标从 CEO 兜底路由到子会话创建、子会话树渲染、qa/product-manager 验收走查、父级集成验收、repair child、agent-authored no-mention、closed task no_action 的通过证据。
+6. 跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case route-hang-l1` → 应输出注入 local CEO route judgment 永久挂起后，系统在配置超时内 fail-open 或 retry/dead-letter，并释放 session drain。
+7. 跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case visible-write-s1-v1` → 应输出注入 CEO append 可见消息写入失败后 cursor 不推进、成功 route decision 不保存，后续 retry 可重入。
+8. 跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case acceptance-integration-s1-v1` → 应输出注入 acceptance fact 写入成功但 parent integration request 可见写入失败后，不消费同消息 handoff，且不记录已完成集成请求。
+9. 跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case worktree-diff` → 应输出 worktree 开启态下开分支、生成 diff bundle、显式回流后原目录出现预期 diff、回流前原目录 `git status --short` 为空。
+10. 跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case diff-apply-failure-l1` → 应输出注入 diff apply 冲突或挂起后，系统在超时内写 visible local error，保留 patch，释放 session，且原目录不被半写脏。
+11. 跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case dead-letter-recovery` → 应输出本地处理连续失败进入 visible dead-letter，dead-letter record 不自触发，追加新消息后可恢复处理且不会重复消费已死信消息。
+12. 跑 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case dead-letter-write-failure-s1-v1` → 应输出注入 visible dead-letter 写入失败后 cursor 不推进，成功 dead-letter outcome 不保存，后续 retry 可重入。
+13. 跑 `PATH="$(pwd)/scripts/acceptance/fake-bin:$PATH" pnpm exec tsx scripts/acceptance/local-console-t5.ts --case fake-gh-zero` → 应输出 fake `gh` 调用次数为 0。
+14. 查看 `docs/roadmap/milestone-4-local-console.md` → 应看到 T5 勾选、T5 验收证据摘要、MUST 文档勾选说明，并明确 T6 互斥启动 flag 与 M3 A-K 不在 T5 范围。
+15. 查看 T5 PR → 应看到 PR body 包含 T5 验收证据、测试/typecheck 退出码、MUST 矩阵路径，以及关闭当前实现 issue 的 `Closes #...` 收尾。

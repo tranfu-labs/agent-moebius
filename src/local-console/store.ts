@@ -283,6 +283,7 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
   return {
     sessionId: readString(value.sessionId, "sessionId"),
     projectId: readString(value.projectId, "projectId"),
+    parentSessionId: "parentSessionId" in value ? readNullableString(value.parentSessionId, "parentSessionId") : null,
     title: readString(value.title, "title"),
     status: readSessionStatus(value.status),
     runningCount: readNumber(value.runningCount, "runningCount"),
@@ -290,6 +291,7 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
     stuckCount: readNumber(value.stuckCount, "stuckCount"),
     errorCount: readNumber(value.errorCount, "errorCount"),
     interruptedCount: readNumber(value.interruptedCount, "interruptedCount"),
+    childCount: "childCount" in value ? readNumber(value.childCount, "childCount") : 0,
     createdAt: readString(value.createdAt, "createdAt"),
     updatedAt: readString(value.updatedAt, "updatedAt"),
   } satisfies LocalConsoleSessionSummary;

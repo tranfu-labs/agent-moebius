@@ -121,6 +121,8 @@ function runCommand(input: WorkerInput): unknown {
         return recordLocalProjectWorkspaceStatus(database, input.command);
       case "local-create-session":
         return createLocalSession(database, input.command);
+      case "local-create-child-session":
+        return createLocalChildSession(database, input.command);
       case "local-list-sessions":
         return listLocalSessions(database);
       case "local-append-user":
@@ -147,6 +149,18 @@ function runCommand(input: WorkerInput): unknown {
         return recordInterrupted(database, input.command);
       case "local-record-stuck":
         return recordStuck(database, input.command);
+      case "local-record-route-decision":
+        return recordLocalRouteDecision(database, input.command);
+      case "local-record-acceptance-fact":
+        return recordLocalAcceptanceFact(database, input.command);
+      case "local-record-integration-event":
+        return recordLocalIntegrationEvent(database, input.command);
+      case "local-record-dead-letter":
+        return recordLocalDeadLetter(database, input.command);
+      case "local-record-workspace-diff":
+        return recordLocalWorkspaceDiff(database, input.command);
+      case "local-list-t5-facts":
+        return listLocalT5Facts(database, input.command.sessionId);
       case "local-mark-stale-running":
         return markStaleRunning(database, input.command);
       default:
@@ -202,6 +216,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       parent_session_id TEXT NOT NULL,
       child_session_id TEXT NOT NULL,
       relation TEXT NOT NULL,
+      hidden_key TEXT,
       created_at TEXT NOT NULL,
       PRIMARY KEY(parent_session_id, child_session_id, relation)
     );
@@ -260,12 +275,73 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS local_route_decisions (
+      session_id TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      route_key TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      target_role TEXT,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(session_id, route_key)
+    );
+    CREATE TABLE IF NOT EXISTS local_acceptance_facts (
+      session_id TEXT NOT NULL,
+      task_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      evidence_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(session_id, task_id, role)
+    );
+    CREATE TABLE IF NOT EXISTS local_integration_events (
+      session_id TEXT NOT NULL,
+      event_key TEXT NOT NULL,
+      status TEXT NOT NULL,
+      detail_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(session_id, event_key)
+    );
+    CREATE TABLE IF NOT EXISTS local_dead_letters (
+      session_id TEXT NOT NULL,
+      source_message_id INTEGER NOT NULL,
+      failure_count INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      recovered INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      recovered_at TEXT,
+      PRIMARY KEY(session_id, source_message_id)
+    );
+    CREATE TABLE IF NOT EXISTS local_workspace_diffs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      base_ref TEXT NOT NULL,
+      branch_name TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      patch_path TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(session_id, run_id)
+    );
   `);
+  migrateSessionEdgesHiddenKey(database);
   const now = new Date().toISOString();
   ensureDefaultLocalProject(database, defaultLocalProjectFolderPath(sqlitePath), now);
   migrateSessionsProjectId(database, now);
   markSchemaMigration(database, "t3-unified-sqlite-state");
   markSchemaMigration(database, "t46-local-project-workspace-source");
+  markSchemaMigration(database, "t5-local-console-facts");
+}
+
+function migrateSessionEdgesHiddenKey(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "session_edges", "hidden_key")) {
+    database.exec("ALTER TABLE session_edges ADD COLUMN hidden_key TEXT");
+  }
+  database.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_edges_hidden_key ON session_edges(hidden_key) WHERE hidden_key IS NOT NULL");
 }
 
 function migrateSessionsProjectId(database: SqliteDatabase, now: string): void {
@@ -723,6 +799,60 @@ function createLocalSession(
   });
 }
 
+function createLocalChildSession(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-create-child-session" }>,
+): unknown {
+  return transaction(database, () => {
+    const existing = database
+      .prepare(
+        `SELECT child_session_id FROM session_edges
+         WHERE parent_session_id = ? AND hidden_key = ?
+         LIMIT 1`,
+      )
+      .get(input.parentSessionId, input.hiddenKey);
+    if (isRecord(existing)) {
+      return requireLocalSession(database, readString(existing.child_session_id, "child_session_id"));
+    }
+
+    ensureSession(database, input.parentSessionId, input.now, undefined, input.projectId);
+    ensureSession(database, input.childSessionId, input.now, input.title, input.projectId);
+    database
+      .prepare(
+        `UPDATE sessions
+         SET parent_session_id = ?, project_id = ?, title = COALESCE(title, ?), updated_at = ?
+         WHERE session_id = ?`,
+      )
+      .run(input.parentSessionId, input.projectId, input.title, input.now, input.childSessionId);
+    database
+      .prepare(
+        `INSERT INTO session_edges (parent_session_id, child_session_id, relation, hidden_key, created_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(parent_session_id, child_session_id, relation)
+         DO UPDATE SET hidden_key = COALESCE(session_edges.hidden_key, excluded.hidden_key)`,
+      )
+      .run(input.parentSessionId, input.childSessionId, input.relation, input.hiddenKey, input.now);
+    database
+      .prepare(
+        `INSERT INTO session_messages
+          (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
+        VALUES (?, 'system', ?, ?, 'displayed', NULL, NULL, NULL, 'local-child-session', ?, ?, ?)`,
+      )
+      .run(input.childSessionId, input.initialRole, input.initialBody, input.hiddenKey, input.now, input.now);
+    insertSystemMessage(
+      database,
+      input.parentSessionId,
+      `Local child session created: ${input.title} (${input.childSessionId})`,
+      null,
+      null,
+      null,
+      input.now,
+    );
+    ensureLocalCursor(database, input.childSessionId, input.now);
+    return requireLocalSession(database, input.childSessionId);
+  });
+}
+
 function listLocalSessions(database: SqliteDatabase): unknown[] {
   const rows = database
     .prepare("SELECT * FROM sessions WHERE source_type = 'local' ORDER BY updated_at DESC, created_at DESC")
@@ -943,6 +1073,128 @@ function recordStuck(database: SqliteDatabase, input: Extract<SqliteStateCommand
     completeSourceMessage(database, source, "stuck", input.reason, input.runId, input.runDir, input.now);
     return null;
   });
+}
+
+function recordLocalRouteDecision(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-route-decision" }>,
+): null {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    database
+      .prepare(
+        `INSERT INTO local_route_decisions
+          (session_id, message_id, route_key, outcome, target_role, reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id, route_key) DO NOTHING`,
+      )
+      .run(input.sessionId, input.messageId, input.routeKey, input.outcome, input.targetRole, input.reason, input.now);
+    return null;
+  });
+}
+
+function recordLocalAcceptanceFact(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-acceptance-fact" }>,
+): null {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    database
+      .prepare(
+        `INSERT INTO local_acceptance_facts
+          (session_id, task_id, role, verdict, evidence_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id, task_id, role)
+         DO UPDATE SET verdict = excluded.verdict, evidence_json = excluded.evidence_json, created_at = excluded.created_at`,
+      )
+      .run(input.sessionId, input.taskId, input.role, input.verdict, input.evidenceJson, input.now);
+    return null;
+  });
+}
+
+function recordLocalIntegrationEvent(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-integration-event" }>,
+): null {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    database
+      .prepare(
+        `INSERT INTO local_integration_events
+          (session_id, event_key, status, detail_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id, event_key)
+         DO UPDATE SET status = excluded.status, detail_json = excluded.detail_json, updated_at = excluded.updated_at`,
+      )
+      .run(input.sessionId, input.eventKey, input.status, input.detailJson, input.now, input.now);
+    return null;
+  });
+}
+
+function recordLocalDeadLetter(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-dead-letter" }>,
+): null {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    database
+      .prepare(
+        `INSERT INTO local_dead_letters
+          (session_id, source_message_id, failure_count, reason, recovered, created_at, recovered_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id, source_message_id)
+         DO UPDATE SET
+           failure_count = excluded.failure_count,
+           reason = excluded.reason,
+           recovered = excluded.recovered,
+           recovered_at = excluded.recovered_at`,
+      )
+      .run(input.sessionId, input.sourceMessageId, input.failureCount, input.reason, input.recovered ? 1 : 0, input.now, input.recovered ? input.now : null);
+    return null;
+  });
+}
+
+function recordLocalWorkspaceDiff(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-workspace-diff" }>,
+): null {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    database
+      .prepare(
+        `INSERT INTO local_workspace_diffs
+          (session_id, run_id, base_ref, branch_name, worktree_path, patch_path, status, error, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id, run_id)
+         DO UPDATE SET
+           base_ref = excluded.base_ref,
+           branch_name = excluded.branch_name,
+           worktree_path = excluded.worktree_path,
+           patch_path = excluded.patch_path,
+           status = excluded.status,
+           error = excluded.error,
+           updated_at = excluded.updated_at`,
+      )
+      .run(input.sessionId, input.runId, input.baseRef, input.branchName, input.worktreePath, input.patchPath, input.status, input.error, input.now, input.now);
+    return null;
+  });
+}
+
+function listLocalT5Facts(database: SqliteDatabase, sessionId: string | null): unknown {
+  const sessionFilter = sessionId === null ? "" : " WHERE session_id = ?";
+  const params = sessionId === null ? [] : [sessionId];
+  return {
+    routeDecisions: database.prepare(`SELECT * FROM local_route_decisions${sessionFilter} ORDER BY created_at ASC`).all(...params),
+    acceptanceFacts: database.prepare(`SELECT * FROM local_acceptance_facts${sessionFilter} ORDER BY created_at ASC`).all(...params),
+    integrationEvents: database.prepare(`SELECT * FROM local_integration_events${sessionFilter} ORDER BY created_at ASC`).all(...params),
+    deadLetters: database.prepare(`SELECT * FROM local_dead_letters${sessionFilter} ORDER BY created_at ASC`).all(...params),
+    workspaceDiffs: database.prepare(`SELECT * FROM local_workspace_diffs${sessionFilter} ORDER BY created_at ASC`).all(...params),
+    sessionEdges: sessionId === null
+      ? database.prepare("SELECT * FROM session_edges ORDER BY created_at ASC").all()
+      : database
+          .prepare("SELECT * FROM session_edges WHERE parent_session_id = ? OR child_session_id = ? ORDER BY created_at ASC")
+          .all(sessionId, sessionId),
+  };
 }
 
 function markStaleRunning(
@@ -1221,9 +1473,13 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
   }
   const sessionId = readString(row.session_id, "session_id");
   const counts = readSessionCounts(database, sessionId);
+  const childCountRow = database
+    .prepare("SELECT COUNT(*) AS count FROM sessions WHERE parent_session_id = ?")
+    .get(sessionId);
   return {
     sessionId,
     projectId: readString(row.project_id, "project_id"),
+    parentSessionId: readNullableString(row.parent_session_id, "parent_session_id"),
     title: readNullableString(row.title, "title") ?? fallbackSessionTitle(sessionId),
     status: sessionStatusFromCounts(counts),
     runningCount: counts.running,
@@ -1231,6 +1487,7 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
     stuckCount: counts.stuck,
     errorCount: counts.failed,
     interruptedCount: counts.interrupted,
+    childCount: isRecord(childCountRow) ? readNumber(childCountRow.count, "count") : 0,
     createdAt: readString(row.created_at, "created_at"),
     updatedAt: readString(row.updated_at, "updated_at"),
   };

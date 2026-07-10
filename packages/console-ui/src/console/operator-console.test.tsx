@@ -44,6 +44,21 @@ describe("OperatorConsole", () => {
     expect(screen.getByText("interrupted:user-interrupted")).toBeInTheDocument();
     expect(screen.getByText("idle-timeout:10ms")).toBeInTheDocument();
   });
+
+  it("renders child sessions under their parent session", () => {
+    renderConsole({
+      project: {
+        ...project,
+        sessions: [
+          { ...sessions[0], childCount: 1 },
+          { ...sessions[1], parentSessionId: sessions[0].sessionId, title: "实现子任务" },
+        ],
+      },
+    });
+
+    expect(screen.getByText("子会话 · 实现子任务")).toBeInTheDocument();
+    expect(screen.getByText(/子会话 1/u)).toBeInTheDocument();
+  });
 });
 
 function renderConsole(overrides: Partial<OperatorConsoleProps> = {}) {
