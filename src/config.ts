@@ -77,15 +77,16 @@ export const OUTPUT_ARTIFACT_RELEASE_TAG = "agent-moebius-artifacts";
 export const LOCAL_CONSOLE_HOST = process.env.LOCAL_CONSOLE_HOST?.trim() || "127.0.0.1";
 export const LOCAL_CONSOLE_PORT = parseOptionalPort(process.env.LOCAL_CONSOLE_PORT) ?? 8788;
 export const LOCAL_CONSOLE_SQLITE_PATH = path.join(DATA_ROOT, ".state", "local-console.sqlite");
+export const GITHUB_RUNNER_SQLITE_PATH = path.join(DATA_ROOT, ".state", "github-runner.sqlite");
 export const LOCAL_CONSOLE_STORE_TIMEOUT_MS = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_STORE_TIMEOUT_MS) ?? 2_000;
 export const LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS) ?? 2_000;
 export const LOCAL_CONSOLE_FAILURE_RETRY_LIMIT = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_FAILURE_RETRY_LIMIT) ?? FAILURE_RETRY_LIMIT;
 export const AGENTS_DIR = RUNTIME_PATHS.agentsDir;
 export const TMP_ROOT = "/tmp";
-export const ROLE_THREADS_STATE_PATH = ".state/role-threads.json";
-export const AGENT_CONTEXTS_STATE_PATH = ".state/agent-contexts.json";
-export const GITHUB_RESPONSE_INTAKE_STATE_PATH = ".state/github-response-intake.json";
-export const GOAL_LEDGER_STATE_PATH = ".state/goal-ledger.json";
+export const ROLE_THREADS_STATE_PATH = path.join(DATA_ROOT, ".state", "role-threads.json");
+export const AGENT_CONTEXTS_STATE_PATH = path.join(DATA_ROOT, ".state", "agent-contexts.json");
+export const GITHUB_RESPONSE_INTAKE_STATE_PATH = path.join(DATA_ROOT, ".state", "github-response-intake.json");
+export const GOAL_LEDGER_STATE_PATH = path.join(DATA_ROOT, ".state", "goal-ledger.json");
 export const WORKDIR_ROOT = path.resolve(
   process.env.AGENT_MOEBIUS_WORKDIR_ROOT ?? path.join(PROJECT_ROOT, "..", "agent-moebius-workdir"),
 );
@@ -202,6 +203,7 @@ export const CONFIG_LOG_FIELDS = {
   localConsoleHost: LOCAL_CONSOLE_HOST,
   localConsolePort: LOCAL_CONSOLE_PORT,
   localConsoleSqlitePath: LOCAL_CONSOLE_SQLITE_PATH,
+  githubRunnerSqlitePath: GITHUB_RUNNER_SQLITE_PATH,
   localConsoleStoreTimeoutMs: LOCAL_CONSOLE_STORE_TIMEOUT_MS,
   localConsoleSqliteBusyTimeoutMs: LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS,
   localConsoleFailureRetryLimit: LOCAL_CONSOLE_FAILURE_RETRY_LIMIT,

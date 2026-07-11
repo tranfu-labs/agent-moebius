@@ -1,10 +1,11 @@
-import { start } from "../../src/runner.js";
+import { start, type StartedRuntime } from "../../src/runner.js";
+import { DESKTOP_RUNNER_MODE } from "./runner-launch.js";
 
-let heartbeatTimer: NodeJS.Timeout | undefined;
+let runtime: StartedRuntime | undefined;
 
-start()
-  .then((timer) => {
-    heartbeatTimer = timer;
+start({ mode: DESKTOP_RUNNER_MODE })
+  .then((startedRuntime) => {
+    runtime = startedRuntime;
     if (process.send !== undefined) {
       process.send({ type: "runner-started", pid: process.pid });
     }
@@ -15,9 +16,7 @@ start()
   });
 
 async function shutdown(): Promise<void> {
-  if (heartbeatTimer !== undefined) {
-    clearInterval(heartbeatTimer);
-  }
+  await runtime?.close();
   process.exit(0);
 }
 

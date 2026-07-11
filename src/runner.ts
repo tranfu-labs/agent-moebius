@@ -29,6 +29,7 @@ import {
   type PollingConversationInterruptMonitor,
 } from "./conversation-interrupt.js";
 import { parseAgentManifest } from "./agent-manifest.js";
+import { loadAgentContextStateStore } from "./agent-context-state.js";
 import { runAgentPreScript } from "./agent-prescripts/index.js";
 import { runIssueWorktreeCapability } from "./agent-prescripts/issue-worktree.js";
 import { formatCeoScriptsForPrompt, loadCeoScripts, type CeoScript } from "./ceo-scripts.js";
@@ -126,6 +127,7 @@ import { loadGitHubResponseIntakeState, saveGitHubResponseIntakeState } from "./
 import { makeIssueSource, type IssueSource, type RepositoryRef } from "./issue-source.js";
 import { log } from "./log.js";
 import { startLocalConsoleServer } from "./local-console/server.js";
+import { resolveRuntimeMode, type RuntimeMode } from "./runtime-mode.js";
 import { maybeProcessIntegrationAcceptancePrePass } from "./runner/acceptance-prepass.js";
 import { addCodexExecutionReaction, resolveCodexExecutionReactionTarget } from "./runner/codex-execution-reaction.js";
 import { maybeRecoverRoundtableNoHandoff, maybeRouteExternalNoMentionComment } from "./runner/external-route.js";
@@ -2274,20 +2276,68 @@ function logCeoGuardrailResult(input: {
   });
 }
 
-export async function start(): Promise<NodeJS.Timeout> {
-  log({ event: "start", config: CONFIG_LOG_FIELDS });
-  if (process.env.AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE !== "1") {
-    try {
-      await startLocalConsoleServer();
-    } catch (error) {
-      log({ event: "local-console-start-failed", error: formatError(error) });
-    }
+export interface StartedRuntime {
+  mode: RuntimeMode;
+  close(): Promise<void>;
+}
+
+export interface StartDependencies {
+  startLocalConsoleServer: typeof startLocalConsoleServer;
+  prepareGitHubRunnerState: typeof prepareGitHubRunnerState;
+  createRunner: typeof createRunner;
+  setInterval(callback: () => void, delayMs: number): NodeJS.Timeout;
+  clearInterval(timer: NodeJS.Timeout): void;
+}
+
+export interface StartOptions {
+  mode?: RuntimeMode;
+  argv?: readonly string[];
+  dependencies?: Partial<StartDependencies>;
+}
+
+const DEFAULT_START_DEPENDENCIES: StartDependencies = {
+  startLocalConsoleServer,
+  prepareGitHubRunnerState,
+  createRunner,
+  setInterval,
+  clearInterval,
+};
+
+export async function prepareGitHubRunnerState(): Promise<GitHubResponseIntakeState> {
+  const initialState = await loadGitHubResponseIntakeState();
+  await loadRoleThreadStateStore();
+  await loadAgentContextStateStore();
+  await loadGoalLedgerState();
+  return initialState;
+}
+
+export async function start(options: StartOptions = {}): Promise<StartedRuntime> {
+  const mode = options.mode ?? resolveRuntimeMode(options.argv ?? process.argv.slice(2));
+  const dependencies: StartDependencies = {
+    ...DEFAULT_START_DEPENDENCIES,
+    ...options.dependencies,
+  };
+  log({ event: "start", mode, config: CONFIG_LOG_FIELDS });
+
+  if (mode === "local") {
+    const server = await dependencies.startLocalConsoleServer();
+    return {
+      mode,
+      close: () => server.close(),
+    };
   }
-  const runner = createRunner({ initialState: await loadGitHubResponseIntakeState() });
+
+  const runner = dependencies.createRunner({ initialState: await dependencies.prepareGitHubRunnerState() });
   void runner.heartbeat();
-  return setInterval(() => {
+  const timer = dependencies.setInterval(() => {
     void runner.heartbeat();
   }, TICK_INTERVAL_MS);
+  return {
+    mode,
+    async close() {
+      dependencies.clearInterval(timer);
+    },
+  };
 }
 
 export function makeRunDir(count: number, now = new Date()): string {
@@ -2412,5 +2462,8 @@ export function isDirectRun(modulePath: string, argvPath: string | undefined): b
 }
 
 if (isDirectRun(fileURLToPath(import.meta.url), process.argv[1])) {
-  void start();
+  void start().catch((error) => {
+    log({ event: "start-failed", error: formatError(error) });
+    process.exitCode = 1;
+  });
 }

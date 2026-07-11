@@ -2,14 +2,18 @@ import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { GITHUB_RESPONSE_INTAKE_STATE_PATH } from "./config.js";
 import type { GitHubResponseIntakeState, IntakeIssueState, IntakeRepositoryState } from "./github-response-intake.js";
-import { runSqliteStateCommand, sqlitePathForLegacyStateFile } from "./sqlite-state.js";
+import {
+  githubRunnerSqlitePathForStateFile,
+  migrateLegacySharedGitHubState,
+} from "./github-state-store.js";
+import { runSqliteStateCommand } from "./sqlite-state.js";
 
 export async function loadGitHubResponseIntakeState(
   filePath = GITHUB_RESPONSE_INTAKE_STATE_PATH,
 ): Promise<GitHubResponseIntakeState> {
   await migrateLegacyGitHubIntakeState(filePath);
   const state = await runSqliteStateCommand<unknown>({
-    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
     command: { kind: "load-github-intake" },
   });
   if (!isGitHubResponseIntakeState(state)) {
@@ -47,7 +51,7 @@ export async function saveGitHubResponseIntakeState(
   }
   await migrateLegacyGitHubIntakeState(filePath);
   await runSqliteStateCommand({
-    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
     command: { kind: "save-github-intake", state },
   });
 }
@@ -110,7 +114,8 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 async function migrateLegacyGitHubIntakeState(filePath: string): Promise<void> {
-  const sqlitePath = sqlitePathForLegacyStateFile(filePath);
+  await migrateLegacySharedGitHubState({ filePath, source: "github-intake" });
+  const sqlitePath = githubRunnerSqlitePathForStateFile(filePath);
   const status = await runSqliteStateCommand<{ status: string | null }>({
     sqlitePath,
     command: { kind: "get-migration-status", source: "github-intake" },

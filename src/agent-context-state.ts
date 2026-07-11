@@ -1,7 +1,11 @@
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { AGENT_CONTEXTS_STATE_PATH } from "./config.js";
-import { runSqliteStateCommand, sqlitePathForLegacyStateFile } from "./sqlite-state.js";
+import {
+  githubRunnerSqlitePathForStateFile,
+  migrateLegacySharedGitHubState,
+} from "./github-state-store.js";
+import { runSqliteStateCommand } from "./sqlite-state.js";
 
 export interface AgentContextState {
   preScript: string;
@@ -23,7 +27,7 @@ export async function loadAgentContextStateStore(
 ): Promise<AgentContextStateStore> {
   await migrateLegacyAgentContextState(filePath);
   const store = await runSqliteStateCommand<unknown>({
-    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
     command: { kind: "load-agent-contexts" },
   });
   if (!isAgentContextStateStore(store)) {
@@ -61,7 +65,7 @@ export async function saveAgentContextStateStore(
   }
   await migrateLegacyAgentContextState(filePath);
   await runSqliteStateCommand({
-    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
     command: { kind: "save-agent-contexts", store },
   });
 }
@@ -75,7 +79,7 @@ export async function saveAgentContextStateEntry(
   await withStateFileLock(filePath, async () => {
     await migrateLegacyAgentContextState(filePath);
     await runSqliteStateCommand({
-      sqlitePath: sqlitePathForLegacyStateFile(filePath),
+      sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
       command: { kind: "save-agent-context-entry", issueKey, role, state },
     });
   });
@@ -163,7 +167,8 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 async function migrateLegacyAgentContextState(filePath: string): Promise<void> {
-  const sqlitePath = sqlitePathForLegacyStateFile(filePath);
+  await migrateLegacySharedGitHubState({ filePath, source: "agent-contexts" });
+  const sqlitePath = githubRunnerSqlitePathForStateFile(filePath);
   const status = await runSqliteStateCommand<{ status: string | null }>({
     sqlitePath,
     command: { kind: "get-migration-status", source: "agent-contexts" },

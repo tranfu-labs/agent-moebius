@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、同一套 runner 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。
+本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。
 
 ## 项目结构
 ```text
@@ -17,14 +17,16 @@
 │   └── product-manager.md      # 产品经理 agent 角色素材
 ├── src/                        # TypeScript 运行时代码
 │   ├── runner.ts               # 常驻心跳编排入口（扫描派发与执行解耦）
+│   ├── runtime-mode.ts         # 启动参数解析：默认 local，exact --github-mode 进入 GitHub runner
+│   ├── github-state-store.ts   # GitHub-mode SQLite 路径与 legacy 共库有界迁移
 │   ├── runner/                 # runner 主链路内部副作用协调子模块（验收 pre-pass、外部路由、Codex reaction）
 │   ├── scanner.ts              # 发现层：due 仓库扫描，产出 changed issues
 │   ├── issue-dispatcher.ts     # 派发层：in-flight 防重、完成即折叠回写
 │   ├── state-persister.ts      # intake state 单写者：写串行化 + 合并 + 原子落盘
 │   ├── github-response-intake.ts # GitHub 响应接入的纯业务调度规则
-│   ├── github-intake-state.ts  # .state/github-response-intake.json 状态读写适配
+│   ├── github-intake-state.ts  # GitHub response intake 在 github-runner.sqlite 的读写适配
 │   ├── goal-ledger.ts          # 目标账本 schema、入账流程、ready gate、阶段切换、验收 fact / join 纯业务逻辑
-│   ├── goal-ledger-state.ts    # .state/goal-ledger.json 状态读写适配
+│   ├── goal-ledger-state.ts    # 目标账本在 github-runner.sqlite 的读写适配
 │   ├── issue-source.ts         # repo / issue source key 与 clone URL 生成
 │   ├── local-config.ts         # config.toml / config.local.toml 解析与 shape 校验
 │   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
@@ -42,8 +44,8 @@
 │   ├── observer/               # 本地只读观察页：读配置、目标账本、.state 与 run manifest，不写状态
 │   ├── triggers/               # mention 触发方式
 │   ├── agent-prescripts/       # Codex 执行前准备脚本与内置 workspace capability
-│   ├── agent-context-state.ts  # .state/agent-contexts.json 状态读写适配
-│   └── state.ts                # .state/role-threads.json 状态读写适配
+│   ├── agent-context-state.ts  # agent context 在 github-runner.sqlite 的读写适配
+│   └── state.ts                # role thread 在 github-runner.sqlite 的读写适配
 ├── desktop/                    # Electron 桌面壳：主进程装配、操作台 / 状态页、runner 子进程监管与打包配置
 │   ├── src/
 │   │   ├── main.ts             # Electron 主进程装配：数据根、PATH、自检、observer、runner、IPC
@@ -78,22 +80,26 @@
 
 ## 常用命令
 - 安装：`pnpm install`
-- 运行常驻脚本：`pnpm start`
-  - 需要本机 `codex` CLI 在 `PATH` 中。
-  - 需要已完成 `gh auth login`。
+- 运行本地模式：`pnpm start`
+  - 默认只启动 local console/local runtime，使用 `.state/local-console.sqlite`；不加载 GitHub intake、不创建 GitHub heartbeat、不扫描或读取 GitHub issue。
+  - 不配置 repository、未执行 `gh auth login` 的干净环境也可正常冷启动；只有本地会话真正调用 Codex 时才需要本机 `codex` CLI。
+- 运行纯 GitHub runner：`pnpm start -- --github-mode`
+  - flag 名固定为 `--github-mode`；只接受 exact flag，拼写错误、`--github-mode=1`、未知参数或重复参数会在启动任一 runtime 前失败。
+  - 需要本机 `codex` CLI 在 `PATH` 中，并需要已完成 `gh auth login`。
+  - 只启动 GitHub runner heartbeat，使用 `.state/github-runner.sqlite` 保存 GitHub intake、role thread、agent context 与 goal ledger；不启动 local console server，不写 local console 会话链路。
   - 会真实扫描 `config.local.toml` 中配置的白名单 repository 的最近更新 open issues；没有本机覆盖时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 mention trigger 时，可能调用 Codex 并发表评论；只有真正调用 Codex driver 前会先给本轮触发源消息添加 `eyes` reaction。
 - 运行本地只读观察页：`pnpm observer`
   - 默认监听 `127.0.0.1:8787`，可用 `OBSERVER_PORT` 覆盖端口。
-  - 只读读取 `config.toml` / `config.local.toml`、`.state/goal-ledger.json`、`.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl`，以目标账本为主视图渲染 goal -> milestone -> task 树、owner phase、人工闸口、显式 run evidence 与 unlinked local runs，并保留 legacy issue/run records。
+  - 只读读取 `config.toml` / `config.local.toml`、`.state/github-runner.sqlite`（缺失时兼容 legacy JSON / 共库）与 `.state/run-manifests.jsonl`，以目标账本为主视图渲染 goal -> milestone -> task 树、owner phase、人工闸口、显式 run evidence 与 unlinked local runs，并保留 legacy issue/run records。
   - 账本缺失、损坏或读取超时时只让 ledger tree 显示空态 / 诊断，legacy issue/run records 继续可见；同一 owner 无 active phase 显示 `no active phase`，多个 active phase 显示 owner 级 ledger error，不推断全局 active。
   - 不调用 GitHub、Codex 或 artifact publisher，不写 `.state` / manifest / release / worktree 文件；不提供确认按钮、写接口、file watcher 或 runner 操作能力；观察页进程崩溃或关闭不影响 runner。
 - 运行桌面应用开发态：`pnpm desktop`
   - 使用 Electron 壳启动本地对话操作台主窗口，进程内以动态端口启动 local console server 与只读 observer，并以 `utilityProcess` 派生 runner 子进程。
   - 开发态默认数据根为仓库根；打包态默认数据根为 `~/.agent-moebius`；两种形态都可用 `AGENT_MOEBIUS_DATA_ROOT` 覆盖。
   - 首启会把提交版 `agents/` 与示例 `config.toml` 种子拷贝到数据根，已存在的文件一律不覆盖；用户本机仍通过数据根下被忽略的 `config.local.toml` 配置监听仓库。
-  - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`，并设置 `AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE=1` 避免 runner 子进程重复启动 local console server。
+  - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`；runner child 显式以 GitHub mode 启动，因此不会重复启动 local console server。
   - 操作台通过本地 HTTP API 创建 / 切换会话、发送消息、订阅运行快照并中断当前 run；状态页和 observer 只保留为辅助诊断入口。
-  - 同一台机器上，终端形态与桌面形态不得同时监听相同 GitHub repository；如确需切换形态，优先让终端形态也设置同一个 `AGENT_MOEBIUS_DATA_ROOT`，共享 `.state/` 与 `config.local.toml`。
+  - 同一台机器上，终端 GitHub-mode 与桌面形态不得同时监听相同 GitHub repository；如确需切换形态，优先让终端 GitHub-mode 也设置同一个 `AGENT_MOEBIUS_DATA_ROOT`，共享 GitHub runner state 与 `config.local.toml`。
   - dev 期 `pnpm desktop` 会打开 Chromium 远程调试端口 `9222`（仅当 `!app.isPackaged`），供 AI agent 通过 CDP attach 已运行的桌面窗口，读渲染进程的 DOM / console / network 并 eval 代码；打包版本永不开放。见 [ADR-0002](docs/adr/0002-electron-cdp-dev-debug-channel.md)，其补充节含实测证据与 Codex Chrome 扩展横向对比。
     - 目前只覆盖渲染进程一路；主进程 Node 的 console 与 IPC 状态若要读，需另开 `--inspect=9229`（尚未落地，见 ADR-0002 补充节）。
     - 首选走 `.mcp.json` 里的 `electron` MCP server；若它列不出窗口，可裸 CDP 兜底：`curl http://localhost:9222/json/version` 探活、`curl http://localhost:9222/json` 拿 target 列表后自建 WebSocket 挂载。
@@ -122,6 +128,8 @@
 - TypeScript 使用 `strict`，ESM + `moduleResolution: NodeNext`，相对导入运行时代码时使用 `.js` 后缀。
 - 运行入口使用 `tsx src/runner.ts`；自动化测试使用 Vitest。
 - GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
+- 启动模式只接受两种形态：`pnpm start` 缺省 local；`pnpm start -- --github-mode` 进入纯 GitHub runner。两种 runtime 不得在同一 `start()` 流程并存。
+- local runtime 数据只写 `.state/local-console.sqlite`；GitHub runner state 只写 `.state/github-runner.sqlite`。首次 GitHub-mode 启动会从历史共库中有界迁移 GitHub intake、role thread、agent context、goal ledger，不迁移 local session 数据；迁移失败时在扫描前可见失败，不 silent rebaseline。
 - 当前 repository 白名单先读取数据根下的提交版 `config.toml` 示例，再由同一数据根下的 `config.local.toml` 覆盖；未设置 `AGENT_MOEBIUS_DATA_ROOT` 时数据根等于项目根目录，终端形态行为与原来一致。`config.local.toml` 为本地专用且被 `.gitignore` 忽略。默认白名单为空。
 - `config.local.toml` 示例：
   ```toml
