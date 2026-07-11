@@ -94,6 +94,7 @@
   - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`，并设置 `AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE=1` 避免 runner 子进程重复启动 local console server。
   - 操作台通过本地 HTTP API 创建 / 切换会话、发送消息、订阅运行快照并中断当前 run；状态页和 observer 只保留为辅助诊断入口。
   - 同一台机器上，终端形态与桌面形态不得同时监听相同 GitHub repository；如确需切换形态，优先让终端形态也设置同一个 `AGENT_MOEBIUS_DATA_ROOT`，共享 `.state/` 与 `config.local.toml`。
+  - dev 期 `pnpm desktop` 会打开 Chromium 远程调试端口 `9222`（仅当 `!app.isPackaged`），供 AI agent 通过 `.mcp.json` 里的 `electron` MCP server 走 CDP attach 已运行窗口，读主进程 / 渲染进程 / console 三路日志或 eval 代码；打包版本永不开放。见 [ADR-0002](docs/adr/0002-electron-cdp-dev-debug-channel.md)。端口冲突（被 Chrome debugger 或其他 CDP 工具占用）会导致 Electron 启动失败，可用 `lsof -iTCP:9222 -sTCP:LISTEN` 定位占用方。
 - 构建桌面主进程 / 操作台 / 状态页：`pnpm --filter @agent-moebius/desktop build`
 - 打包桌面应用：`pnpm --filter @agent-moebius/desktop dist`
   - 三平台产物通过 electron-builder 生成：macOS dmg/zip、Windows nsis、Linux AppImage。

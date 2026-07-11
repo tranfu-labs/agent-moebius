@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "electron": {
+      "command": "npx",
+      "args": ["-y", "@laststance/electron-mcp-server@latest"],
+      "env": {
+        "SECURITY_LEVEL": "balanced"
+      }
+    }
+  }
+}

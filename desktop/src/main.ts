@@ -25,6 +25,10 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(dirname, "..", "..");
 const { autoUpdater } = electronUpdater;
 
+if (!app.isPackaged) {
+  app.commandLine.appendSwitch("remote-debugging-port", "9222");
+}
+
 let mainWindow: BrowserWindow | null = null;
 let statusWindow: BrowserWindow | null = null;
 let observerServer: StartedObserverServer | null = null;
