@@ -1,7 +1,7 @@
 # desktop-shell 规格
 
 ## 域定位
-`desktop-shell` 负责把 runner 与 observer 装配成一个纯本地桌面应用（Electron 壳）：启动应用即启动当前全部功能，直接调用本机 codex CLI 与 gh CLI。壳层只做装配、子进程监管、环境自检与更新提示，不承载任何业务规则；runner 与 observer 的行为事实源仍在 `github-issue-runner` 与 `goal-ledger` 域。终端形态（`pnpm start` / `pnpm observer`）继续有效且行为不变。
+`desktop-shell` 负责把 runner 与 observer 装配成一个纯本地桌面应用（Electron 壳）：启动应用即启动当前全部功能，直接调用本机 codex CLI 与 gh CLI。壳层只做装配、子进程监管、环境自检与更新提示，不承载任何业务规则；runner 行为事实源在 `github-issue-runner`，本地操作台与 observer 呈现事实源在 `local-console`，目标账本事实源在 `goal-ledger`。终端形态（`pnpm start` / `pnpm observer`）继续有效且行为不变。
 
 ## 业务规则
 
