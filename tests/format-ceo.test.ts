@@ -15,18 +15,15 @@ import { parseAgentMentions } from "../src/conversation.js";
 import { loadCeoScripts } from "../src/ceo-scripts.js";
 
 const PLAN_REVIEW_TEMPLATE_ITEMS = [
-  "对其他模块的影响",
-  "可行性",
-  "核心目标贴合度",
-  "过度设计",
-  "现有规范遵守",
-  "周全性与鲁棒性",
+  "本轮方案已输出",
+  "「验收语句」清单",
+  "请按你的测试设计流程审查并给出结论",
 ];
 
 const CODE_VERIFIED_RETRO_TEMPLATE_ITEMS = [
-  "实现是否符合方案最初设计",
-  "有无新发现是方案当时没考虑到、其实应该做得不一样的",
-  "本次执行有无新经验值得沉淀",
+  "dev 已输出",
+  "请按已确认「验收语句」逐条验收实现证据",
+  "任一不通过时指出未过语句、实际观察与期望差异",
 ];
 
 describe("parseCeoOutput", () => {
@@ -380,7 +377,7 @@ describe("formatCeoComment", () => {
     expect(prompt).toContain("需求持有者是 product-manager");
     expect(prompt).toContain("<!-- agent-moebius:stage=plan-written -->");
     expect(prompt).toContain("## 验收语句");
-    expect(prompt).toContain("方案评审模板");
+    expect(prompt).toContain("请按你的测试设计流程审查并给出结论");
     expectItemsInOrder(appendBody, PLAN_REVIEW_TEMPLATE_ITEMS);
   });
 
@@ -431,13 +428,13 @@ describe("formatCeoComment", () => {
       expect(result.body).toBe(appendBody);
       expectItemsInOrder(result.body, CODE_VERIFIED_RETRO_TEMPLATE_ITEMS);
       expect(parseAgentMentions(result.body).map((mention) => mention.name)).toEqual(["product-manager"]);
-      expect(result.body).toContain("dev 提供");
+      expect(result.body).toContain("dev 已输出");
       expect(result.body).not.toContain("@dev");
     }
     const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
     expect(prompt).toContain("需求持有者是 product-manager");
     expect(prompt).toContain("<!-- agent-moebius:stage=code-verified -->");
-    expect(prompt).toContain("执行后复盘模板");
+    expect(prompt).toContain("请按已确认「验收语句」逐条验收实现证据");
     expectItemsInOrder(appendBody, CODE_VERIFIED_RETRO_TEMPLATE_ITEMS);
   });
 
@@ -890,26 +887,11 @@ function successfulCodexRun(runDir: string, finalText: string) {
 }
 
 function makePlanReviewAppendBody(): string {
-  return `@qa 本轮方案已输出 \`plan-written\` 且含「验收语句」清单，请按固定方案评审模板审查：
-
-1. 对其他模块的影响：检查依赖边界、module-map 与禁止依赖方向是否受影响。
-2. 可行性：检查技术路径是否已验证，或是否有仓库内先例 / 测试支撑。
-3. 核心目标贴合度：检查方案是否直接服务本任务目标，是否跑偏。
-4. 过度设计：检查是否能用更小改动完成，是否引入不必要抽象 / 文件 / 运行时能力。
-5. 现有规范遵守：检查是否遵守 OpenSpec、AGENTS.md、GitHub 交互协议与验收治理。
-6. 周全性与鲁棒性：检查意外情况、失败路径、边界条件是否覆盖。
-
-请按你的测试设计流程给出审查结论；如需增补验收语句，请标注为测试设计建议，等待需求持有者确认后才并入正式清单。`;
+  return "@qa 本轮方案已输出 `plan-written` 且含「验收语句」清单，请按你的测试设计流程审查并给出结论。";
 }
 
 function makeCodeVerifiedRetroAppendBody(requester: string): string {
-  return `@${requester} 请按已确认方案中的「验收语句」逐条验收本次实现证据，并按固定执行后复盘模板给出结论：
-
-1. 实现是否符合方案最初设计：请对照方案逐条说明，偏差逐条列出，并判断是否可接受。
-2. 有无新发现是方案当时没考虑到、其实应该做得不一样的：如有，请回流为后续任务或规范修订建议。
-3. 本次执行有无新经验值得沉淀：如有，请指出应沉淀到规范、persona 或文档的位置。
-
-同时请检查 dev 提供的测试输出、文件路径或 artifact 证据是否足以支撑每条验收语句；任一不通过时，请指出未过语句、实际观察与期望差异。`;
+  return `@${requester} dev 已输出 \`code-verified\`，请按已确认「验收语句」逐条验收实现证据；任一不通过时指出未过语句、实际观察与期望差异。`;
 }
 
 function extractTemplateSection(text: string, start: string, end: string): string {
