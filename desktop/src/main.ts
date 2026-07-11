@@ -17,6 +17,7 @@ import { startObserverServer, type StartedObserverServer } from "../../src/obser
 import { buildSeedCopyPlan, executeSeedCopyPlan, resolveDesktopDataRoot } from "./data-root.js";
 import { checkDesktopEnvironment } from "./env-doctor.js";
 import { RunnerSupervisor, type RunnerProcess } from "./runner-supervisor.js";
+import { DESKTOP_RUNNER_ARGS } from "./runner-launch.js";
 import { resolveShellPath } from "./shell-path.js";
 import type { DesktopStatusSnapshot } from "./status.js";
 import { decideUpdate, type ReleaseMetadata } from "./updater.js";
@@ -179,13 +180,12 @@ function startRunner(): void {
 function spawnRunnerProcess(logPath: string): RunnerProcess {
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   const logStream = fs.createWriteStream(logPath, { flags: "a" });
-  const child = utilityProcess.fork(path.join(dirname, "runner-child.js"), [], {
+  const child = utilityProcess.fork(path.join(dirname, "runner-child.js"), [...DESKTOP_RUNNER_ARGS], {
     cwd: status.dataRoot,
     env: {
       ...process.env,
       AGENT_MOEBIUS_DATA_ROOT: status.dataRoot,
       AGENT_MOEBIUS_WORKDIR_ROOT: path.join(status.dataRoot, "workdir"),
-      AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE: "1",
     },
     stdio: "pipe",
     serviceName: "agent-moebius-runner",

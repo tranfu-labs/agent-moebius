@@ -325,10 +325,6 @@ export async function runSqliteStateCommand<T>(options: SqliteStateCommandOption
   }
 }
 
-export function sqlitePathForLegacyStateFile(filePath: string): string {
-  return path.join(path.dirname(filePath), "local-console.sqlite");
-}
-
 function resolveWorkerUrl(): URL {
   return new URL(import.meta.url.endsWith(".ts") ? "./sqlite-state-worker.ts" : "./sqlite-state-worker.js", import.meta.url);
 }

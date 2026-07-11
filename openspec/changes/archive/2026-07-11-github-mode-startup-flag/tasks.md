@@ -1,0 +1,50 @@
+# 任务：github-mode-startup-flag
+
+- [x] 采访与范围确认
+  - [x] 确认 flag 名为 `--github-mode`。
+  - [x] 确认用法为 `pnpm start -- --github-mode`。
+  - [x] 确认不带 flag 默认 local。
+  - [x] 确认原三条验收语句，并接收需求侧确认的四条 QA 增补与干净环境 local 冷启动检查。
+- [x] 修正方案静态证据
+  - [x] 新建可读取的 `proposal.md`、`design.md`、`tasks.md`。
+  - [x] 使用当前 OpenSpec CLI 识别的 `specs/<capability>/spec.md` delta。
+  - [x] 将 QA 指出的 OpenSpec 不可复现问题纳入方案风险与验证。
+- [x] 启动模式解析与入口拆分
+  - [x] 新增 `RuntimeMode`、`GITHUB_MODE_FLAG` 与 exact flag parser。
+  - [x] 未知参数、拼写错误、`--github-mode=1`、重复参数 fail fast，且不启动 runtime。
+  - [x] 将缺省 `start()` 改为 local mode，只启动 local console server。
+  - [x] 抽出 GitHub mode 启动路径，复用现有 GitHub runner 心跳行为。
+  - [x] 为启动返回统一 close 句柄，保证 local server 和 GitHub heartbeat 都可关闭。
+- [x] GitHub/local state 隔离
+  - [x] 明确 local session/runtime store 只使用 `.state/local-console.sqlite`。
+  - [x] 为 GitHub intake / role thread / agent context / goal ledger 建立 GitHub-mode 专属 state channel，避免写入 local session SQLite store。
+  - [x] 从当前共用 `.state/local-console.sqlite` 或 legacy JSON 有界迁移 GitHub runner state slice：GitHub intake、role thread、agent context、goal ledger。
+  - [x] 明确禁止迁移 local console session/message/cursor/route/dead-letter/workspace-diff 等 local runtime 数据。
+  - [x] 迁移失败或超时时，在 GitHub issue 扫描前可见失败；不得 silent rebaseline、不得推进 intake cursor、不得启动 local runtime。
+  - [x] 迁移成功后记录 marker / digest / timestamp 或等价信息，确保再次 GitHub mode 启动不重复导入、不覆盖较新的 GitHub-mode state。
+  - [x] 更新 state loader / observer 相关读取边界，确保各 mode 只读自己的 runtime 数据。
+- [x] 桌面 runner child 装配
+  - [x] 将 `desktop/src/runner-child.ts` 或 supervisor fork argv 显式改为 GitHub mode。
+  - [x] 保留桌面主进程拥有唯一 local console server。
+  - [x] 不再把 `AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE` 作为公开启动形态事实源。
+- [x] 测试与验收覆盖
+  - [x] 覆盖 startup parser：缺省 local、exact `--github-mode`、unknown / typo / duplicate fail fast。
+  - [x] 覆盖默认 local 不加载 GitHub intake、不扫描 issue、不调用 GitHub issue 读取 adapter。
+  - [x] 覆盖不配置 repository、无 gh auth 的干净环境默认 local 冷启动。
+  - [x] 覆盖 GitHub mode 不启动 local console server、不创建 / 写入 local SQLite 会话链路。
+  - [x] 覆盖 local SQLite 代表数据与 GitHub intake / role-thread / ledger 代表数据互不可见、不镜像，同一启动流程不并发启用两条写入链路。
+  - [x] 覆盖当前共用 SQLite 到 GitHub-mode channel 的一次性迁移：只迁移 GitHub runner state slice，local session 代表记录不可见且不被镜像。
+  - [x] 覆盖迁移失败 / 超时：扫描前有界失败，不 silent rebaseline，不推进 intake cursor，不启动 local runtime。
+  - [x] 覆盖迁移幂等：再次 GitHub mode 启动不重复导入、不覆盖较新的 GitHub-mode state。
+  - [x] 覆盖 desktop runner child 使用 GitHub mode。
+  - [x] 将需求侧已确认的四条 QA 增补并入正式实现验收清单。
+- [x] 事实源与 PR 描述准备
+  - [x] 更新 AGENTS.md 启动形态章节，显眼写出 `--github-mode` 与 `pnpm start -- --github-mode`。
+  - [x] 更新现有 runtime 运行说明与 OpenSpec specs，记录默认 local 与 GitHub mode 互斥。
+  - [x] PR body 显眼列出 flag 名与用法：`--github-mode` / `pnpm start -- --github-mode`。
+- [x] 验证与收尾
+  - [x] 运行 `pnpm exec openspec validate github-mode-startup-flag --strict`。
+  - [x] 运行 focused Vitest 覆盖启动装配和状态隔离。
+  - [x] 运行 `pnpm test`。
+  - [x] 运行 `pnpm typecheck`。
+  - [x] 运行 `git diff --check`。

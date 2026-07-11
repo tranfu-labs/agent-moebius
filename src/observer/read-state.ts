@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { runSqliteStateCommand, sqlitePathForLegacyStateFile, SqliteStateTimeoutError, type SqliteStateCommand } from "../sqlite-state.js";
+import {
+  githubRunnerSqlitePathForStateFile,
+  legacySharedSqlitePathForStateFile,
+} from "../github-state-store.js";
+import { runSqliteStateCommand, SqliteStateTimeoutError, type SqliteStateCommand } from "../sqlite-state.js";
 import type {
   AcceptanceFactStatus,
   AcceptanceStatementResult,
@@ -287,8 +291,8 @@ async function readGoalLedgerSqliteState(input: {
   timeoutMs: number;
 }): Promise<{ status: ObserverGoalLedgerStatus; data: GoalLedgerState; diagnostics: ObserverDiagnostic[] }> {
   const source = ".state/goal-ledger.json";
-  const sqlitePath = sqlitePathForLegacyStateFile(input.filePath);
-  if (!(await fileExists(sqlitePath))) {
+  const sqlitePath = await resolveObserverGitHubSqlitePath(input.filePath);
+  if (sqlitePath === null) {
     return readGoalLedgerJsonState({
       filePath: input.filePath,
       timeoutMs: input.timeoutMs,
@@ -499,9 +503,9 @@ async function readSqliteState<T>(input: {
   validate: (value: unknown, source: string) => ValidationResult<T>;
   okMessage: string;
 }): Promise<{ data: T; diagnostics: ObserverDiagnostic[] }> {
-  const sqlitePath = sqlitePathForLegacyStateFile(input.filePath);
+  const sqlitePath = await resolveObserverGitHubSqlitePath(input.filePath);
   try {
-    const loaded = (await fileExists(sqlitePath))
+    const loaded = sqlitePath !== null
       ? await runSqliteStateCommand<unknown>({
           sqlitePath,
           command: input.sqliteCommand,
@@ -540,6 +544,16 @@ async function readSqliteState<T>(input: {
       diagnostics: [{ source: input.source, status: "error", message: `读取失败：${formatError(error)}` }],
     };
   }
+}
+
+async function resolveObserverGitHubSqlitePath(filePath: string): Promise<string | null> {
+  const githubRunnerPath = githubRunnerSqlitePathForStateFile(filePath);
+  if (await fileExists(githubRunnerPath)) {
+    return githubRunnerPath;
+  }
+
+  const legacySharedPath = legacySharedSqlitePathForStateFile(filePath);
+  return (await fileExists(legacySharedPath)) ? legacySharedPath : null;
 }
 
 async function readJsonFile(filePath: string): Promise<unknown> {

@@ -11,7 +11,11 @@ import {
   type GoalLedgerEntryKind,
   type GoalLedgerState,
 } from "./goal-ledger.js";
-import { runSqliteStateCommand, sqlitePathForLegacyStateFile } from "./sqlite-state.js";
+import {
+  githubRunnerSqlitePathForStateFile,
+  migrateLegacySharedGitHubState,
+} from "./github-state-store.js";
+import { runSqliteStateCommand } from "./sqlite-state.js";
 
 export interface GoalLedgerStateIo {
   mkdir(path: string, options?: { signal?: AbortSignal }): Promise<void>;
@@ -61,7 +65,7 @@ export async function loadGoalLedgerState(
 
   await migrateLegacyGoalLedgerState(filePath);
   const state = await runSqliteStateCommand<unknown | null>({
-    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
     command: { kind: "load-goal-ledger" },
     timeoutMs: options.timeoutMs,
   });
@@ -98,7 +102,7 @@ export async function saveGoalLedgerState(
   if (options.io === undefined) {
     await migrateLegacyGoalLedgerState(filePath);
     await runSqliteStateCommand({
-      sqlitePath: sqlitePathForLegacyStateFile(filePath),
+      sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
       command: { kind: "save-goal-ledger", state },
       timeoutMs: options.timeoutMs,
     });
@@ -192,7 +196,8 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 async function migrateLegacyGoalLedgerState(filePath: string): Promise<void> {
-  const sqlitePath = sqlitePathForLegacyStateFile(filePath);
+  await migrateLegacySharedGitHubState({ filePath, source: "goal-ledger" });
+  const sqlitePath = githubRunnerSqlitePathForStateFile(filePath);
   const status = await runSqliteStateCommand<{ status: string | null }>({
     sqlitePath,
     command: { kind: "get-migration-status", source: "goal-ledger" },
