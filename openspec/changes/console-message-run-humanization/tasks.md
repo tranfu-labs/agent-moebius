@@ -1,0 +1,35 @@
+# 任务：console-message-run-humanization
+
+- [x] 实现 agent 折叠消息
+  - [x] 新增 `packages/console-ui/src/console/agent-message.tsx`，实现中文角色/stage 映射、Markdown 默认提取与显式字段覆盖。
+  - [x] 默认折叠显示中文角色、阶段、结论和交棒行；展开后保留完整原始 Markdown。
+  - [x] 新增组件测试，覆盖自动提取、覆盖优先级、降级和折叠详情。
+  - [x] 新增独立 Story，覆盖默认折叠与展开查原文。
+- [x] 实现运行块
+  - [x] 新增 `packages/console-ui/src/console/run-block.tsx` 和独立最小步骤展示模型，不导入 local-console runtime 类型。
+  - [x] 有步骤时逐条展示 `completed / running / pending`，每步原始输出折叠可查。
+  - [x] 无步骤时显示单行人话概括，整体原始输出折叠可查。
+  - [x] `steps`、摘要与耗时缺失、为空或纯空白时，分别以「正在运行，等待进展」和「耗时未知」确定性兜底。
+  - [x] 两种分支均显示中文角色、耗时和可访问的中断按钮。
+  - [x] 新增组件测试与有步骤/无步骤 Story。
+- [x] 实现运行结局人话化
+  - [x] 新增 `packages/console-ui/src/console/run-outcome.tsx`，集中映射 failed、stuck、interrupted、dead-letter 的已确认中文主文案。
+  - [x] 将机器原因与原始输出限制在默认关闭的折叠详情，展开后保持原值。
+  - [x] 新增组件测试与四状态 Story，fixture 覆盖 `exit:42`、`idle-timeout:10ms` 等机器串。
+- [x] 视觉与可访问性自审
+  - [x] 复用语义 token 和现有 UI 原语，对照 `accept-card.tsx`、`ui-design.md`、`wireframes.md` 与旧 HTML 原型。
+  - [x] 确认 agent 折叠态低权重、运行块扁平细边、机器原文只在详情层等宽显示。
+  - [x] 用键盘检查所有展开控件和中断按钮，确认可访问名称与焦点行为。
+  - [x] 验证 Enter 与 Space 各自单次切换 agent、步骤和运行结局详情；折叠态按浏览器可见性断言原文不可见。
+  - [x] 验证鼠标和键盘单次激活中断按钮时 `onInterrupt` spy 各只增加一次。
+  - [x] 验证含换行、尖括号、与号和 `exit:42` 的原始文本展开后保持原值。
+- [x] 验证
+  - [x] 跑 `pnpm --filter @agent-moebius/console-ui test`。
+  - [x] 跑 `pnpm --filter @agent-moebius/console-ui build-storybook` 或等价 Storybook 静态构建命令。
+  - [x] 跑 `pnpm typecheck`。
+  - [x] 跑 `git diff --check`。
+  - [x] 启动 Storybook，按六条正式验收语句逐 Story 走查；需要媒体证据时保存到 `artifacts/acceptance/` 并在 `code-verified` 回复显式引用。
+- [x] 范围守卫
+  - [x] 确认 `packages/console-ui/src/console/operator-console.tsx` 未修改。
+  - [x] 确认 `packages/console-ui/src/index.ts` 未修改。
+  - [x] 确认未新增 runtime、IPC、runner、Codex 或 SQLite 依赖。
