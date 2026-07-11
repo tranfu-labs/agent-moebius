@@ -80,6 +80,13 @@
 
 ## 常用命令
 - 安装：`pnpm install`
+
+### 启动形态（运维必读）
+- **默认 local**：`pnpm start` 缺省进入 local console/local runtime，不加载 GitHub intake、不创建 GitHub heartbeat、不扫描或读取 GitHub issue。
+- **纯 GitHub runner**：GitHub-mode flag 的确切名称是 `--github-mode`，固定用法是 `pnpm start -- --github-mode`；带 flag 后只启动 GitHub runner heartbeat，不启动 local console server。
+- **常驻 runner 迁移**：本启动形态合入后，原常驻命令 `pnpm start` MUST 更新为 `pnpm start -- --github-mode`，否则会进入默认 local 模式。
+- **数据隔离**：local 模式使用 `.state/local-console.sqlite`；GitHub 模式使用 `.state/github-runner.sqlite`。两种模式的运行时数据互不可见、不镜像，同一启动流程不并发启用两条写入链路。
+
 - 运行本地模式：`pnpm start`
   - 默认只启动 local console/local runtime，使用 `.state/local-console.sqlite`；不加载 GitHub intake、不创建 GitHub heartbeat、不扫描或读取 GitHub issue。
   - 不配置 repository、未执行 `gh auth login` 的干净环境也可正常冷启动；只有本地会话真正调用 Codex 时才需要本机 `codex` CLI。

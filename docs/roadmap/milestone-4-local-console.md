@@ -124,11 +124,13 @@ T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packa
 
 验收场景（细化时保留，**每条锚设计事实源**）：(a) 打开桌面台会话页，对照 `openspec/changes/conversation-console/wireframes.md` 时间线节 → agent 消息默认折叠为「角色 + 阶段 + 结论 + 交棒行」，点开可见全文；(b) 触发一轮运行 → 运行块显示角色中文名 + 耗时 + 中断按钮，无步骤数据时为单行人话概括，原始输出点开才可见；(c) 构造 failed / stuck / interrupted / dead-letter 各一 → 时间线内错误均为中文人话概括、原始机器信息折叠可查；对主界面用户可见文案跑机器词检查（`worktree|direct|cwd|runDir|dead-letter|handoff` 及英文作者标签）→ 应命中 0（代码标识符与折叠详情除外）；(d) 侧栏 → 项目名为目录名；会话按上述优先级排序、已完成折叠；(e) 在 composer 输入 `@` → 出现角色补全面板，可选中发送，无需手打完整 mention；(f) `pnpm --filter @agent-moebius/console-ui test`、`pnpm --filter @agent-moebius/desktop build`、`pnpm typecheck` 全绿，storybook 含上述复合组件 story。
 
-### - [ ] T7 · GitHub 降为互斥 flag 模式 + 收尾（`成品级`）
+### - [x] T7 · GitHub 降为互斥 flag 模式 + 收尾（`成品级`）
 
-默认 local；启动参数切纯 GitHub 模式，二选一、运行时不并存、数据不互通。事实源收尾中，观察页 / GitHub 呈现类规格已归入 `local-console`，`docs/wireframes/pages/console.md` 与 `docs/wireframes/flow.md` 已成为现行版式事实源；剩余工作是互斥 flag 与 AGENTS.md 启动形态更新。
+默认 local；启动参数切纯 GitHub 模式，二选一、运行时不并存、数据不互通。GitHub-mode flag 固定为 `--github-mode`，用法为 `pnpm start -- --github-mode`；local 与 GitHub runner 分别使用 `.state/local-console.sqlite` 和 `.state/github-runner.sqlite`。观察页 / GitHub 呈现类规格已归入 `local-console`，`docs/wireframes/pages/console.md` 与 `docs/wireframes/flow.md` 已成为现行版式事实源；`AGENTS.md` 已显眼记录启动形态、数据隔离与常驻 runner 命令迁移要求。
 
 验收场景（细化时保留）：默认启动 → 走本地不碰 GitHub，**全程 fake `gh` 零调用**；**不配置任何 repository、不做 `gh auth` 的干净环境冷启动 → 应正常起且无报错**（当前 `pnpm start` 无条件起 GitHub heartbeat，本条防回归）；带 flag 启动 → 走 GitHub 不碰本地库；两模式数据互不可见。
+
+验收证据（2026-07-11）：#129 / PR #139（merge commit `b7876ed`）已实现 exact `--github-mode` 解析、默认 local、纯 GitHub heartbeat、独立 `.state/local-console.sqlite` / `.state/github-runner.sqlite`、GitHub state 有界迁移与 desktop runner child 显式 GitHub mode；#130 / PR #140（merge commit `395e4a9`）已把 observer / GitHub 呈现类规格迁入 `local-console`，将版式事实合入 `docs/wireframes/pages/console.md` 与 `docs/wireframes/flow.md`，并删除旧 `observer.md`。#131 在最新 main 上复跑 `pnpm exec vitest run tests/runtime-start.test.ts tests/github-state-store.test.ts` 退出码 0（2 文件、11 测试），覆盖默认 local 不准备/创建 GitHub runtime、无 repository 且无 GitHub auth 的真实 `pnpm start` 冷启动无报错、带 `--github-mode` 不启动 local console / 不创建 local SQLite、代表性 local message 与 GitHub intake 分库互不可见且不镜像；`pnpm --filter @agent-moebius/desktop exec vitest run tests/runner-launch.test.ts` 退出码 0（1 测试），证明 desktop runner child 显式携带 GitHub mode。全量 `pnpm test` 退出码 0（root 37 文件 / 442 测试、desktop 6 文件 / 16 测试、console-ui 3 文件 / 10 测试），`pnpm typecheck`、归档前 `pnpm exec openspec validate m4-t7-operational-docs-roadmap-pr-closure --strict`、`git diff --check` 均退出码 0。`AGENTS.md` diff 新增“启动形态（运维必读）”，显眼列出 flag `--github-mode`、固定用法 `pnpm start -- --github-mode`、缺省 local、带 flag 纯 GitHub、两模式数据隔离，以及常驻 runner 必须更新启动命令的运维要求。
 
 ### - [ ] T8 · 里程碑终点真人验收（真实 codex 全链路，硬性 gate，`成品级`）
 
