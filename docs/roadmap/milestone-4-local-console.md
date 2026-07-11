@@ -1,6 +1,6 @@
 # 里程碑 4：默认本地对话操作台
 
-> **状态：已裁决放行，进行中（2026-07-09）。** 各任务验收语句以本文档各任务「验收场景」为基线，由 dev 方案 + qa 审查按 `docs/roadmap/milestone-standards.md` 逐条细化增补。依赖序：T1 独立、可与 T2 并行；T2 为风险优先 spike，gate 住 T3+；T4.5 gate 住所有多角色接力场景（含 T5 的交棒总线 / 走查 / 开子会话）；T4.6 gate 住 T5 的 workspace 隔离对等；T5 为终点线，T6 视觉锚归位（组件库扁平化 + 主界面回收组件），T7 收尾。
+> **状态：已裁决放行，进行中（2026-07-09；2026-07-11 增补 T6.5 / T8 并修订 T7 验收）。** 各任务验收语句以本文档各任务「验收场景」为基线，由 dev 方案 + qa 审查按 `docs/roadmap/milestone-standards.md` 逐条细化增补。依赖序：T1 独立、可与 T2 并行；T2 为风险优先 spike，gate 住 T3+；T4.5 gate 住所有多角色接力场景（含 T5 的交棒总线 / 走查 / 开子会话）；T4.6 gate 住 T5 的 workspace 隔离对等；T5 为功能终点线，T6 视觉锚归位（组件库扁平化 + 主界面回收组件），T6.5 兑现 conversation-console 复合组件设计（与 T7 不同文件、可并行），T7 收尾，T8 为里程碑关闭的硬性 gate（真人 + 真实 codex 终点验收）。
 > **与 M3 遗留卡点的关系：** M3 T9/T10 回流的卡点 A–K 是 runner 稳定性 / 编排维度，与本里程碑（对话介质本地化）正交，不在本里程碑范围，另行承接。
 
 ## 背景
@@ -105,11 +105,38 @@ T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packa
 
 验收证据（2026-07-10）：T6 已按 `openspec/changes/archive/2026-07-10-console-ui-flat-anchor/` 实现 console-ui 扁平锚归位：`Card` 默认方角细边无阴影，`Badge` 从旧 `neutral / selected / accent / pass / danger` 收敛为 status 语义，`operator-console.tsx` 主内容区的 RunLiveBlock / TimelineMessage / status labels 回收到 `Card` / `Badge`。视觉证据见 `artifacts/acceptance/t6-desktop-renderer.png`（desktop renderer 静态包 + fake local console state，覆盖 active RunLiveBlock、普通 TimelineMessage、running/pending/completed/displayed/failed/stuck/interrupted 状态 Badge）与 `artifacts/acceptance/t6-component-gallery.png`（Card / Badge / OperatorConsole-like timeline / AcceptCard-like surface 同一方角、细边、紧凑、无浮起阴影基线），结构化摘要见 `artifacts/acceptance/t6-evidence.json`。静态 gate：`rg 'variant="(neutral|selected|accent|pass|danger)"|variant: "(neutral|selected|accent|pass|danger)"' packages/console-ui/src` 命中 0；`rg 'StatusBadge|statusClass|<article|border border-line' packages/console-ui/src/console/operator-console.tsx` 命中 0，并已确认 RunLiveBlock / TimelineMessage 根容器来自 `Card`、状态标签来自 `Badge`。回归命令：`pnpm --filter @agent-moebius/console-ui test` 退出码 0（3 文件 10 测试，含 AcceptCard 与 OperatorConsole 回归）；`pnpm --filter @agent-moebius/desktop build` 退出码 0；`pnpm typecheck` 退出码 0；`pnpm exec openspec validate console-ui --type spec --strict` 退出码 0；`git diff --check` 退出码 0。
 
+### - [ ] T6.5 · 操作台复合组件按设计落地（兑现 conversation-console 设计，`成品级`）
+
+**问题**：设计到实现的传递链在复合组件层断裂。`openspec/changes/conversation-console/`（ui-design.md / wireframes.md）把操作台页面设计做完且至今未归档（即从未被实现）；desktop-console-ui change（已归档 2026-07-09）只移植了 7 个 shadcn 原语 + 1 个验收卡复合样板，其提案明确写「22 个对话操作台界面片段如何拆成 React 复合组件，另起后续 change 决策并实现」——**该后续 change 从未立项**。随后 T4 按「数据正确级」验收从零手撸 `operator-console.tsx`，无任何验收语句锚设计事实源；T6 只归位了令牌层扁平锚。结果：当前桌面台是「数据调试视图」形态——agent 消息整段原文直出、作者标签英文 `user/agent/system`、每条消息挂 runDir 路径、codex 原始 tail 直灌 mono 块、错误红字机器串直出（`exit:42` / `idle-timeout:10ms` / 英文 dead-letter 消息）、侧栏项目名是裸文件夹路径、composer 要求用户手打 `@dev`。
+
+**目标**：按 conversation-console 设计（近单色修订版）把操作台复合组件真正落地，桌面台从调试器形态升为设计稿形态。这同时消掉「机器术语外泄给普通用户」问题（它只是本欠账的症状）。
+
+范围（复合组件清单）：
+- **agent 折叠消息**：agent 消息默认折叠为「角色中文名 + 阶段 + 结论 + 交棒行」，点开全文才展开原始内容。
+- **运行块**：角色 + 耗时 + 中断按钮；有计划步骤数据时逐条推进（已完成 / 进行中 / 未开始），拿不到步骤数据时降级为单行人话概括；原始输出点开才可见。
+- **侧栏**：项目显示目录名而非裸路径；会话按「等你 > 运行中 > 静止 > 已完成」排序，已完成折叠。
+- **角色与状态人话化**：`user/agent/system` 作者标签、`worktree/direct`、cwd / runDir、dead-letter / handoff 系统消息全部转中文人话；原始机器信息折叠可查、不删。
+- **composer @ 补全面板**：协议由控件生成，不教用户手打 mention。
+- 空状态、顶栏会话上下文。
+视觉参照：旧 HTML 原型可用 `git archive d50f119^ component-library` 取回作实现期参照（22 个组件的成品形态），不回迁入仓库。
+
+依赖：T6 已完成；与 T7 改动不同文件，可并行。
+
+验收场景（细化时保留，**每条锚设计事实源**）：(a) 打开桌面台会话页，对照 `openspec/changes/conversation-console/wireframes.md` 时间线节 → agent 消息默认折叠为「角色 + 阶段 + 结论 + 交棒行」，点开可见全文；(b) 触发一轮运行 → 运行块显示角色中文名 + 耗时 + 中断按钮，无步骤数据时为单行人话概括，原始输出点开才可见；(c) 构造 failed / stuck / interrupted / dead-letter 各一 → 时间线内错误均为中文人话概括、原始机器信息折叠可查；对主界面用户可见文案跑机器词检查（`worktree|direct|cwd|runDir|dead-letter|handoff` 及英文作者标签）→ 应命中 0（代码标识符与折叠详情除外）；(d) 侧栏 → 项目名为目录名；会话按上述优先级排序、已完成折叠；(e) 在 composer 输入 `@` → 出现角色补全面板，可选中发送，无需手打完整 mention；(f) `pnpm --filter @agent-moebius/console-ui test`、`pnpm --filter @agent-moebius/desktop build`、`pnpm typecheck` 全绿，storybook 含上述复合组件 story。
+
 ### - [ ] T7 · GitHub 降为互斥 flag 模式 + 收尾（`成品级`）
 
 默认 local；启动参数切纯 GitHub 模式，二选一、运行时不并存、数据不互通。事实源收尾：`github-issue-runner` spec 中观察页 / GitHub 呈现类规格迁移到新业务域（如 `local-console`）；`docs/wireframes/pages/observer.md` → `pages/console.md` + `flow.md` 同步；AGENTS.md 更新启动形态。
 
-验收场景（细化时保留）：默认启动 → 走本地不碰 GitHub；带 flag 启动 → 走 GitHub 不碰本地库；两模式数据互不可见。
+验收场景（细化时保留）：默认启动 → 走本地不碰 GitHub，**全程 fake `gh` 零调用**；**不配置任何 repository、不做 `gh auth` 的干净环境冷启动 → 应正常起且无报错**（当前 `pnpm start` 无条件起 GitHub heartbeat，本条防回归）；带 flag 启动 → 走 GitHub 不碰本地库；两模式数据互不可见。
+
+### - [ ] T8 · 里程碑终点真人验收（真实 codex 全链路，硬性 gate，`成品级`）
+
+**问题**：T3–T6 的验收证据全部由 stub codex 脚本产生（`scripts/acceptance/local-console-t45/t46/t5.ts` 的 `runCodex` 均为 fixture 注入的假实现），整个 M4 唯一一次真实 codex 运行是 T2 的单条 hello。本文档「成功标准」所写的**真人从桌面台发起真实多角色目标、真实 codex 走完方案链与本地验收**从未被演练。脚本验收覆盖异常路径、符合各任务「数据正确级」档位，但按 `milestone-standards.md`，`成品级` 终点必须面向真实使用验收——**本任务是 M4 关闭的硬性 gate，未过则 T5 的完成态只视为「脚本级对等」**。
+
+范围：真人从桌面壳发起一个真实多角色协作目标（打开真实 git 目录），真实 codex 跑完 ceo → dev-manager → dev → qa 方案链与本地验收走查，全程状态在桌面台完备可见；不修代码，只演练、留证、回流缺陷。演练中发现的缺陷按严重度决定是否 gate（阻断多角色链路 / 状态失真的必须修复后重跑；纯体验项回流 T6.5 或后续任务）。
+
+验收场景（细化时保留）：(a) 不配置任何 repository、不做 `gh auth`，启动桌面壳 → 打开一个真实 git 目录 → 发一条目标形状消息 → 应看到四角色真实接力完成方案链、验收走查回流，全程零 GitHub 调用；(b) 全程关键节点截图 + 结束后 SQLite 快照落 `artifacts/acceptance/`（真实 codex 版本号入证据文件）；(c) 期间进行中 / 等待真人 / 卡住 / 错误状态在桌面台完备可见，任一状态失真记为不通过；(d) 若启用 worktree 模式 → 原目录 `git status` 全程无脏改。
 
 ## 非目标
 
