@@ -28,6 +28,16 @@ await build({
   ],
 });
 
+// sqlite-state.ts resolves its worker thread module relative to its own bundled
+// location (./sqlite-state-worker.js next to main.js/runner-child.js), so it must be
+// built as its own output file rather than inlined into the bundles above.
+await build({
+  ...common,
+  entryPoints: [path.join(root, "..", "src/sqlite-state-worker.ts")],
+  outdir: undefined,
+  outfile: path.join(dist, "sqlite-state-worker.js"),
+});
+
 await build({
   bundle: true,
   format: "cjs",
