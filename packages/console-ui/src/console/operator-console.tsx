@@ -1,17 +1,20 @@
 import {
-  AlertCircle,
   Clock3,
-  Folder,
   FolderOpen,
   GitBranch,
-  Loader2,
-  MessageSquareText,
   Plus,
-  Send,
-  Square,
-  TerminalSquare,
 } from "lucide-react";
 
+import { AgentMessage } from "@/console/agent-message";
+import { ConversationEmptyState } from "@/console/conversation-empty-state";
+import { ConversationSidebar, type ConversationSidebarProject, type ConversationSessionStatus } from "@/console/conversation-sidebar";
+import { RoleComposer } from "@/console/role-composer";
+import { RunBlock } from "@/console/run-block";
+import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
+import {
+  SessionContextHeader,
+  type SessionContextStatus,
+} from "@/console/session-context-header";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeProps } from "@/ui/badge";
 import { Button } from "@/ui/button";
@@ -26,7 +29,14 @@ export type OperatorMessageStatus =
   | "interrupted"
   | "stuck"
   | "displayed";
-export type OperatorSessionStatus = "idle" | "running" | "waiting" | "stuck" | "failed" | "interrupted";
+export type OperatorSessionStatus =
+  | "idle"
+  | "running"
+  | "waiting"
+  | "completed"
+  | "stuck"
+  | "failed"
+  | "interrupted";
 export type OperatorRunnerStatus = "starting" | "running" | "stopped" | "crashed" | "error";
 
 export interface OperatorSession {
@@ -144,22 +154,34 @@ export function OperatorConsole({
   isSending = false,
   className,
 }: OperatorConsoleProps): JSX.Element {
-  const canSend = composerValue.trim() !== "" && activeRun === null && !isSending;
   const visibleProjects = projects ?? [project];
   const activeProjectId = selectedProjectId ?? project.projectId;
+  const activeProject = visibleProjects.find((item) => item.projectId === activeProjectId) ?? project;
+  const sidebarProjects = visibleProjects.map(toSidebarProject);
+  const allSessions = visibleProjects.flatMap((item) => item.sessions);
+  const parentSession = selectedSession?.parentSessionId
+    ? allSessions.find((item) => item.sessionId === selectedSession.parentSessionId) ?? null
+    : null;
+  const canSend = composerValue.trim() !== "" && activeRun === null && !isSending;
+  const emptyConversation = messages.length === 0 && activeRun === null;
+  const contextStatus = toContextStatus(selectedSession, activeRun);
+
+  const submitComposer = () => {
+    if (canSend) {
+      onSend();
+    }
+  };
+
   return (
     <div className={cn("flex h-screen min-h-[560px] bg-canvas text-ink", className)}>
-      <aside className="flex w-[268px] shrink-0 flex-col border-r border-line bg-rail">
+      <aside className="flex w-[300px] shrink-0 flex-col border-r border-line bg-rail">
         <div className="border-b border-line px-3 py-3">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Folder className="h-4 w-4 text-sub" aria-hidden="true" />
-                <span className="truncate">Projects</span>
-              </div>
+              <div className="truncate text-sm font-semibold">项目</div>
               <div className="mt-1 flex items-center gap-2 text-xs text-sub">
                 <StatusDot status={runnerStatus === "running" ? "running" : "idle"} />
-                <span className="truncate">runner {runnerStatusLabel(runnerStatus)}</span>
+                <span className="truncate">本地引擎{runnerStatusLabel(runnerStatus)}</span>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -175,259 +197,383 @@ export function OperatorConsole({
           </div>
         </div>
 
-        <nav className="scroll-thin min-h-0 flex-1 overflow-auto p-2" aria-label="项目和会话">
-          {visibleProjects.map((item) => (
-            <div key={item.projectId} className="mb-2">
-              <div
-                className={cn(
-                  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md px-2 py-2",
-                  item.projectId === activeProjectId ? "bg-sel" : "bg-transparent",
-                )}
-              >
-                <button
-                  type="button"
-                  className="min-w-0 text-left"
-                  onClick={() => onSelectProject?.(item.projectId)}
-                >
-                  <span className="block truncate text-sm font-semibold">{item.title}</span>
-                  <span className="mt-0.5 block truncate text-xs text-sub">{item.folderPath}</span>
-                  <span className="mt-1 block truncate text-xs text-sub">
-                    {item.worktreeMode ? "worktree" : "direct"}
-                    {item.worktreeUnavailableReason ? ` · ${item.worktreeUnavailableReason}` : ""}
-                  </span>
-                </button>
-                {onToggleProjectWorktree ? (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant={item.worktreeMode ? "outline" : "ghost"}
-                    aria-label={item.worktreeMode ? "关闭 worktree" : "开启 worktree"}
-                    aria-pressed={item.worktreeMode}
-                    onClick={() => onToggleProjectWorktree(item.projectId, !item.worktreeMode)}
-                  >
-                    <GitBranch className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                ) : null}
-              </div>
-              <div className="mt-1 space-y-1 pl-2">
-                {treeSessions(item.sessions).map(({ session, depth }) => (
-                  <button
-                    key={session.sessionId}
-                    type="button"
-                    className={cn(
-                      "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-hover",
-                      session.sessionId === selectedSessionId ? "bg-sel" : "bg-transparent",
-                      depth > 0 ? "ml-4 w-[calc(100%-1rem)] border-l border-line" : "",
-                    )}
-                    onClick={() => {
-                      onSelectProject?.(item.projectId);
-                      onSelectSession(session.sessionId);
-                    }}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">
-                        {depth > 0 ? "子会话 · " : ""}
-                        {session.title}
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs text-sub">
-                        {statusLabel(session.status)}
-                        {session.errorCount > 0 ? ` · 错误 ${session.errorCount}` : ""}
-                        {session.stuckCount > 0 ? ` · 卡住 ${session.stuckCount}` : ""}
-                        {(session.childCount ?? 0) > 0 ? ` · 子会话 ${session.childCount ?? 0}` : ""}
-                      </span>
-                    </span>
-                    <StatusDot status={session.status} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </nav>
+        <ConversationSidebar
+          projects={sidebarProjects}
+          selectedSessionId={selectedSessionId}
+          showProjectPath={false}
+          onSelectSession={(sessionId, projectId) => {
+            onSelectProject?.(projectId);
+            onSelectSession(sessionId);
+          }}
+          className="min-h-0 w-full flex-1 border-0"
+        />
+
+        <div className="border-t border-line p-3">
+          {onToggleProjectWorktree ? (
+            <Button
+              type="button"
+              variant={activeProject.worktreeMode ? "outline" : "ghost"}
+              size="sm"
+              className="w-full justify-start"
+              aria-label={activeProject.worktreeMode ? "关闭隔离工作区" : "开启隔离工作区"}
+              aria-pressed={activeProject.worktreeMode}
+              onClick={() => onToggleProjectWorktree(activeProject.projectId, !activeProject.worktreeMode)}
+            >
+              <GitBranch className="h-4 w-4" aria-hidden="true" />
+              隔离工作区
+            </Button>
+          ) : null}
+          <RawInfoDetails
+            className="mt-2"
+            items={projectRawItems(activeProject, sqlitePath)}
+            summary="查看项目原始信息"
+          />
+        </div>
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-card px-4">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{selectedSession?.title ?? "未选择会话"}</div>
-            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-sub">
-              <span className="inline-flex items-center gap-1">
-                <MessageSquareText className="h-3.5 w-3.5" aria-hidden="true" />
-                {messages.length} 条消息
-              </span>
-              {activeRun ? (
-                <span className="inline-flex min-w-0 items-center gap-1">
-                  <TerminalSquare className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="truncate">{activeRun.cwd ?? activeRun.runDir ?? "cwd 未记录"}</span>
-                </span>
-              ) : sqlitePath ? (
-                <span className="truncate">{sqlitePath}</span>
+        <div className="border-b border-line bg-card p-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+            <SessionContextHeader
+              parentTitle={parentSession?.title}
+              taskLabel={selectedSession?.title ?? "未选择会话"}
+              status={contextStatus}
+              progress={sessionProgress(selectedSession, messages, activeRun)}
+              onOpenParent={parentSession ? () => onSelectSession(parentSession.sessionId) : undefined}
+            />
+            <div className="flex items-start gap-2">
+              <Badge variant={statusVariant(contextStatus)}>{contextStatusLabel(contextStatus)}</Badge>
+              {onOpenDiagnostics ? (
+                <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
+                  诊断
+                </Button>
               ) : null}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant={statusVariant(activeRun ? "running" : (selectedSession?.status ?? "idle"))}>
-              {statusLabel(activeRun ? "running" : (selectedSession?.status ?? "idle"))}
-            </Badge>
-            {onOpenDiagnostics ? (
-              <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
-                诊断
-              </Button>
-            ) : null}
-          </div>
-        </header>
+          <RawInfoDetails
+            className="mt-2"
+            items={sessionRawItems(activeProject, selectedSession, activeRun)}
+            summary="查看当前会话原始信息"
+          />
+        </div>
 
-        <section className="scroll-thin min-h-0 flex-1 overflow-auto px-4 py-3">
-          {activeRun ? <RunLiveBlock activeRun={activeRun} onInterrupt={onInterrupt} /> : null}
-          {messages.length === 0 && activeRun === null ? (
-            <div className="grid h-full place-items-center text-sm text-sub">暂无消息</div>
+        <section className="scroll-thin min-h-0 flex-1 overflow-auto px-4 py-3" aria-label="会话时间线">
+          {activeRun ? (
+            <RunBlock
+              role={activeRun.role ?? "dev"}
+              elapsedTime={formatElapsed(activeRun.elapsedMs)}
+              summary={safeRunSummary(activeRun.lastOutputSummary)}
+              rawOutput={runRawOutput(activeRun)}
+              onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
+              className="mb-3"
+            />
+          ) : null}
+
+          {emptyConversation ? (
+            <div className="grid h-full place-items-center">
+              <ConversationEmptyState value={composerValue} onValueChange={onComposerChange} onSubmit={submitComposer} />
+            </div>
           ) : (
             <div className="space-y-2.5">
               {messages.map((message) => (
-                <TimelineMessage key={message.id} message={message} />
+                <TimelineEntry key={message.id} message={message} />
               ))}
             </div>
           )}
         </section>
 
         {lastError ? (
-          <div className="border-t border-line bg-card px-4 py-2 text-xs text-danger">{lastError}</div>
+          <div className="border-t border-line bg-card px-4 py-2 text-xs text-danger">
+            遇到问题，详情可展开。
+            <RawInfoDetails className="mt-1 text-sub" items={[["错误原文", lastError]]} summary="查看错误详情" />
+          </div>
         ) : null}
 
-        <footer className="border-t border-line bg-card p-3">
-          <form
-            className="grid grid-cols-[minmax(0,1fr)_auto] gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (canSend) {
-                onSend();
-              }
-            }}
-          >
-            <textarea
-              className="min-h-10 max-h-28 resize-y rounded-sm border-line border bg-input px-3 py-2 text-sm text-ink placeholder:text-hint disabled:cursor-not-allowed disabled:opacity-50"
+        {!emptyConversation ? (
+          <footer className="border-t border-line bg-card p-3">
+            <RoleComposer
               value={composerValue}
-              placeholder="输入本地对话消息，例如 @dev ..."
+              onValueChange={onComposerChange}
+              onSubmit={submitComposer}
               disabled={activeRun !== null || isSending}
-              onChange={(event) => onComposerChange(event.target.value)}
-              aria-label="消息内容"
+              placeholder="描述你的目标，@ 一个角色开始…"
+              statusText={activeRun ? "当前正在执行，稍后可继续发送" : undefined}
             />
-            <Button type="submit" disabled={!canSend} aria-label="发送消息">
-              <Send className="h-4 w-4" aria-hidden="true" />
-              发送
-            </Button>
-          </form>
-        </footer>
+          </footer>
+        ) : null}
       </main>
     </div>
   );
 }
 
-function treeSessions(sessions: OperatorSession[]): Array<{ session: OperatorSession; depth: number }> {
-  const byParent = new Map<string | null, OperatorSession[]>();
-  for (const session of sessions) {
-    const parent = session.parentSessionId ?? null;
-    byParent.set(parent, [...(byParent.get(parent) ?? []), session]);
+function TimelineEntry({ message }: { message: OperatorMessage }): JSX.Element {
+  const outcome = terminalOutcome(message);
+  if (outcome) {
+    return (
+      <RunOutcome
+        status={outcome}
+        role={message.role}
+        rawReason={message.error ?? message.body}
+        rawOutput={message.error ? message.body : null}
+      />
+    );
   }
-  const result: Array<{ session: OperatorSession; depth: number }> = [];
-  const visited = new Set<string>();
-  const append = (parent: string | null, depth: number) => {
-    for (const session of byParent.get(parent) ?? []) {
-      if (visited.has(session.sessionId)) {
-        continue;
-      }
-      visited.add(session.sessionId);
-      result.push({ session, depth });
-      append(session.sessionId, depth + 1);
-    }
-  };
-  append(null, 0);
-  for (const session of sessions) {
-    if (!visited.has(session.sessionId)) {
-      result.push({ session, depth: 0 });
-    }
+
+  if (message.speaker === "agent") {
+    return (
+      <Card className="max-w-[760px] p-3">
+        <AgentMessage
+          role={message.role ?? "agent"}
+          rawMarkdown={message.body}
+          timestamp={formatTime(message.updatedAt)}
+        />
+        <MessageRawDetails message={message} />
+      </Card>
+    );
   }
-  return result;
-}
 
-function RunLiveBlock({
-  activeRun,
-  onInterrupt,
-}: {
-  activeRun: OperatorRunSnapshot;
-  onInterrupt(sessionId: string, runId: string): void;
-}): JSX.Element {
   return (
-    <Card className="mb-3 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden="true" />
-            <span>运行直播</span>
-            <Badge variant="running">进行中</Badge>
-            <span className="text-xs font-normal text-sub tnum">{formatElapsed(activeRun.elapsedMs)}</span>
-          </div>
-          <div className="mt-1 truncate text-xs text-sub">{activeRun.runDir ?? "runDir 未记录"}</div>
-          <div className="mt-1 truncate text-xs text-sub">
-            {activeRun.cwd ?? "cwd 未记录"}
-            {activeRun.workspaceMode ? ` · ${workspaceModeLabel(activeRun.workspaceMode)}` : ""}
-            {activeRun.worktreeUnavailableReason ? ` · ${activeRun.worktreeUnavailableReason}` : ""}
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant={"danger"}
-          size="sm"
-          disabled={!activeRun.interruptible}
-          onClick={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
-        >
-          <Square className="h-3.5 w-3.5" aria-hidden="true" />
-          中断
-        </Button>
-      </div>
-      <pre className="mt-3 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md bg-sunken p-2 font-mono text-xs leading-5 text-ink">
-        {activeRun.lastOutputSummary}
-      </pre>
-      {activeRun.tailDiagnostic ? (
-        <div className="mt-2 flex items-center gap-1 text-xs text-sub">
-          <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
-          {activeRun.tailDiagnostic}
-        </div>
-      ) : null}
-    </Card>
-  );
-}
-
-function TimelineMessage({ message }: { message: OperatorMessage }): JSX.Element {
-  const tone = message.status === "failed" || message.status === "stuck"
-    ? "border-danger bg-card"
-    : message.status === "interrupted"
-      ? "border-line-strong bg-card"
-      : message.speaker === "user"
-        ? "border-line bg-card"
-        : "border-line bg-rail";
-  return (
-    <Card className={cn("p-3", tone)}>
+    <Card className="max-w-[760px] p-3">
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-sub">
-        <span className="font-semibold text-ink">{message.role ?? speakerLabel(message.speaker)}</span>
+        <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : "系统提示"}</span>
         <Badge variant={statusVariant(message.status)}>{statusLabel(message.status)}</Badge>
-        {message.runDir ? <span className="truncate">{message.runDir}</span> : null}
         <span className="inline-flex items-center gap-1 tnum">
           <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
           {formatTime(message.updatedAt)}
         </span>
       </div>
-      <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-5 text-ink">{message.body}</pre>
-      {message.error ? <div className="mt-2 text-xs text-danger">{message.error}</div> : null}
+      <div className="whitespace-pre-wrap break-words text-sm leading-5 text-ink">
+        {message.speaker === "system" ? systemSummary(message) : message.body}
+      </div>
+      <MessageRawDetails message={message} />
     </Card>
   );
+}
+
+function MessageRawDetails({ message }: { message: OperatorMessage }): JSX.Element | null {
+  const items: Array<[string, string | null | undefined]> = [
+    ["消息原文", message.body],
+    ["错误原文", message.error],
+    ["运行目录", message.runDir],
+    ["运行编号", message.runId],
+  ];
+  return <RawInfoDetails className="mt-2" items={items} summary="查看原始信息" />;
+}
+
+function RawInfoDetails({
+  items,
+  summary,
+  className,
+}: {
+  items: Array<[string, string | null | undefined]>;
+  summary: string;
+  className?: string;
+}): JSX.Element | null {
+  const visibleItems = items.filter(([, value]) => nonBlank(value));
+  if (visibleItems.length === 0) {
+    return null;
+  }
+  return (
+    <details className={cn("text-xs text-sub", className)}>
+      <summary className="cursor-pointer list-none rounded-sm text-hint outline-none hover:text-sub focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden">
+        {summary}
+      </summary>
+      <div className="mt-2 space-y-2">
+        {visibleItems.map(([label, value]) => (
+          <div key={label}>
+            <div className="mb-1 text-hint">{label}</div>
+            <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-sunken p-3 font-mono leading-5 text-ink">
+              {value}
+            </pre>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function toSidebarProject(project: OperatorProject): ConversationSidebarProject {
+  return {
+    id: project.projectId,
+    path: project.folderPath,
+    label: project.title,
+    sessions: project.sessions.map((session) => ({
+      id: session.sessionId,
+      title: session.title,
+      status: toSidebarStatus(session),
+      summary: sessionSummary(session),
+    })),
+  };
+}
+
+function toSidebarStatus(session: OperatorSession): ConversationSessionStatus {
+  if (session.status === "completed") {
+    return "completed";
+  }
+  if (session.status === "waiting" || session.waitingCount > 0) {
+    return "waiting";
+  }
+  if (session.status === "running" || session.runningCount > 0) {
+    return "running";
+  }
+  return "idle";
+}
+
+function toContextStatus(session: OperatorSession | null, activeRun: OperatorRunSnapshot | null): SessionContextStatus {
+  if (activeRun) {
+    return "running";
+  }
+  if (!session) {
+    return "idle";
+  }
+  if (session.status === "completed") {
+    return "completed";
+  }
+  if (session.status === "waiting" || session.waitingCount > 0) {
+    return "waiting";
+  }
+  if (session.status === "running" || session.runningCount > 0) {
+    return "running";
+  }
+  return "idle";
+}
+
+function sessionProgress(
+  session: OperatorSession | null,
+  messages: OperatorMessage[],
+  activeRun: OperatorRunSnapshot | null,
+): { passed: number; running: number; waiting: number } {
+  return {
+    passed: messages.filter((message) => message.status === "completed" || message.status === "displayed").length,
+    running: activeRun ? 1 : session?.runningCount ?? 0,
+    waiting: session?.waitingCount ?? 0,
+  };
+}
+
+function sessionSummary(session: OperatorSession): string | undefined {
+  if (session.errorCount > 0) {
+    return `错误 ${session.errorCount}`;
+  }
+  if (session.stuckCount > 0) {
+    return `卡住 ${session.stuckCount}`;
+  }
+  if ((session.childCount ?? 0) > 0) {
+    return `子会话 ${session.childCount ?? 0}`;
+  }
+  if (session.interruptedCount > 0) {
+    return `中断 ${session.interruptedCount}`;
+  }
+  return undefined;
+}
+
+function terminalOutcome(message: OperatorMessage): RunOutcomeStatus | null {
+  const rawText = `${message.status}\n${message.body}\n${message.error ?? ""}`.toLowerCase();
+  if (rawText.includes("dead-letter")) {
+    return "dead-letter";
+  }
+  if (message.status === "failed") {
+    return "failed";
+  }
+  if (message.status === "stuck") {
+    return "stuck";
+  }
+  if (message.status === "interrupted") {
+    return "interrupted";
+  }
+  return null;
+}
+
+function systemSummary(message: OperatorMessage): string {
+  switch (message.status) {
+    case "pending":
+      return "系统消息排队中";
+    case "running":
+      return "系统任务执行中";
+    case "completed":
+    case "displayed":
+      return "系统消息已记录";
+    case "failed":
+      return "运行失败，详情可展开";
+    case "interrupted":
+      return "运行已中断，详情可展开";
+    case "stuck":
+      return "运行长时间无响应，详情可展开";
+  }
+}
+
+function safeRunSummary(summary: string | null | undefined): string {
+  const text = nonBlank(summary);
+  if (!text || forbiddenMachineTextPattern.test(text)) {
+    return "正在运行，等待进展";
+  }
+  return text;
+}
+
+function runRawOutput(activeRun: OperatorRunSnapshot): string {
+  return [
+    ["输出摘要", activeRun.lastOutputSummary],
+    ["标准输出", activeRun.stdoutTail],
+    ["错误输出", activeRun.stderrTail],
+    ["尾部诊断", activeRun.tailDiagnostic],
+    ["运行目录", activeRun.runDir],
+    ["工作目录", activeRun.cwd],
+    ["工作区模式", activeRun.workspaceMode],
+    ["隔离不可用原因", activeRun.worktreeUnavailableReason],
+  ]
+    .filter(([, value]) => nonBlank(value))
+    .map(([label, value]) => `${label}：${value}`)
+    .join("\n");
+}
+
+function projectRawItems(project: OperatorProject, sqlitePath: string | undefined): Array<[string, string | null | undefined]> {
+  return [
+    ["项目路径", project.folderPath],
+    ["工作目录", project.workspaceCwd],
+    ["工作区模式", project.workspaceMode],
+    ["隔离路径", project.worktreePath],
+    ["隔离不可用原因", project.worktreeUnavailableReason],
+    ["状态库", sqlitePath],
+    ["更新时间", project.workspaceUpdatedAt],
+  ];
+}
+
+function sessionRawItems(
+  project: OperatorProject,
+  session: OperatorSession | null,
+  activeRun: OperatorRunSnapshot | null,
+): Array<[string, string | null | undefined]> {
+  return [
+    ["项目原始路径", project.folderPath],
+    ["会话编号", session?.sessionId],
+    ["父会话编号", session?.parentSessionId],
+    ["运行编号", activeRun?.runId],
+    ["运行目录", activeRun?.runDir],
+    ["工作目录", activeRun?.cwd],
+    ["工作区模式", activeRun?.workspaceMode],
+  ];
 }
 
 function StatusDot({ status }: { status: OperatorSessionStatus | "idle" }): JSX.Element {
   return <span className={cn("h-2 w-2 rounded-full", dotClass(status))} aria-hidden="true" />;
 }
 
-function statusVariant(status: OperatorSessionStatus | OperatorMessageStatus): BadgeProps["variant"] {
-  return status;
+function statusVariant(status: OperatorSessionStatus | OperatorMessageStatus | SessionContextStatus): BadgeProps["variant"] {
+  if (status === "completed" || status === "displayed") {
+    return "completed";
+  }
+  if (status === "failed" || status === "stuck") {
+    return status;
+  }
+  if (status === "interrupted") {
+    return "interrupted";
+  }
+  if (status === "waiting" || status === "pending") {
+    return "waiting";
+  }
+  if (status === "running") {
+    return "running";
+  }
+  return "idle";
 }
 
 function dotClass(status: OperatorSessionStatus | "idle"): string {
@@ -466,6 +612,19 @@ function statusLabel(status: OperatorSessionStatus | OperatorMessageStatus): str
   }
 }
 
+function contextStatusLabel(status: SessionContextStatus): string {
+  switch (status) {
+    case "completed":
+      return "已完成";
+    case "idle":
+      return "静止";
+    case "running":
+      return "执行中";
+    case "waiting":
+      return "等你";
+  }
+}
+
 function runnerStatusLabel(status: OperatorRunnerStatus): string {
   switch (status) {
     case "starting":
@@ -477,22 +636,7 @@ function runnerStatusLabel(status: OperatorRunnerStatus): string {
     case "crashed":
       return "已崩溃";
     case "error":
-      return "错误";
-  }
-}
-
-function workspaceModeLabel(mode: "direct" | "worktree"): string {
-  return mode === "worktree" ? "worktree" : "direct";
-}
-
-function speakerLabel(speaker: OperatorMessageSpeaker): string {
-  switch (speaker) {
-    case "user":
-      return "user";
-    case "agent":
-      return "agent";
-    case "system":
-      return "system";
+      return "异常";
   }
 }
 
@@ -510,3 +654,10 @@ function formatTime(value: string): string {
   }
   return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
+
+function nonBlank(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+const forbiddenMachineTextPattern = /worktree|direct|cwd|runDir|dead-letter|handoff/iu;

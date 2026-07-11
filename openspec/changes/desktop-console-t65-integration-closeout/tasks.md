@@ -1,0 +1,33 @@
+# 任务：desktop-console-t65-integration-closeout
+
+- [x] 完成采访，确认依赖门、T6.5 事实源、固定验收数据、机器词豁免和三条原始验收语句。
+- [x] 读取 `conversation-console` 设计、T6.5 roadmap、模块边界、真实 OperatorConsole／desktop app，以及 #143、#144 的采访裁决和 OpenSpec 方案。
+- [x] 落盘 proposal、design、tasks、`console-ui`／`desktop-shell` spec delta 及 CLI 镜像，完成首轮方案自审。
+- [x] 按需求侧确认修正 QA 静态缺陷，不新增或改写正式验收语句：有界执行／清理、新鲜证据、完整可访问树、幂等 PR 恢复、字段级唯一哨兵。
+- [x] 按 QA 第二轮审查修正验证机制，不新增或改写正式验收语句：被测工作树身份、无自引用 evidence 摘要、跨平台进程树清理和立即重跑裁决。
+- [x] 等待 #143、#144 均 merge，且真人在 #145 明确通知解阻；此前不得修改源码、roadmap，不得 commit、push 或创建 PR。
+- [x] 解阻后核对两个 merge commit、真实共享出口、组件 props、presentation types、测试和 Story；先确认依赖自身验证通过。
+- [x] 在 `packages/console-ui/src/index.ts` 导出七个复合组件和公共类型。
+- [x] 在 `operator-console.tsx` 建立可单测 presentation adapter，接入侧栏、顶栏、agent 消息、运行块、运行结局、空状态和角色 composer。
+- [x] 保留打开项目、新建会话、项目／会话选择、workspace 开关、发送、中断和诊断动作；如必须修改 desktop app，只做薄字段／回调装配。
+- [x] 将默认可见作者、状态、workspace 和错误文案转为中文人话；把机器原文完整放入默认关闭详情，禁止删除信息或伪造完成态／运行步骤。
+- [x] 更新 OperatorConsole 共置测试与 Story，覆盖真实整页组合、父会话面包屑、空态／footer 单 composer、全部旧动作和机器详情可追溯。
+- [x] 新增 `scripts/acceptance/local-console-t65.ts` 的统一有界执行器：子进程、server 启动／关闭、浏览器导航／等待／场景均有明确上限；超时终止整棵进程树，`finally` 关闭 page、browser、server 并清理临时目录，失败非零退出。
+- [x] 为验收子进程实现跨平台进程树清理：macOS／Linux 使用 owned process group + TERM/KILL，Windows 使用有界 `taskkill /PID <pid> /T /F`，不支持进程树终止的平台在验收开始前 fail-closed。
+- [x] 每轮验收开始先删除全部 T6.5 最终同名 artifact 和旧 staging；生成唯一 run id，在本轮 staging 产出，断言全部成功后才发布最终文件并最后原子写 evidence JSON。
+- [x] 生成 canonical tested-source manifest：记录 `baseHead`，枚举排序后的交付实现／测试／脚本／OpenSpec tracked 修改与 untracked 文件，排除生成 artifact、临时目录、构建缓存和 roadmap-only closeout metadata，记录 path、mode、字节数、SHA-256 并计算 `testedSourceDigest`。
+- [x] evidence JSON 记录 run id、开始／完成时间、分支、`baseHead`、`testedSourceDigest`、tested-source manifest、命令结果和 payload artifact 的相对路径、字节数、mtime、SHA-256；不得摘要 evidence JSON 自身或 sidecar。
+- [x] 生成 `artifacts/acceptance/t65-evidence.sha256` 作为 evidence JSON 的独立 sidecar；收尾门核对 payload artifact 摘要、evidence sidecar 和 tested-source manifest 全部匹配。
+- [x] 用 fake／固定数据逐条执行 T6.5 (a)–(f)，生成六张截图、可见文字、完整 ARIA snapshot 和结构化 JSON 证据；DOM 断言覆盖折叠／展开、排序、完成组、第二角色阻止等截图不能证明的行为。
+- [x] 对默认可见文字和 `body` 完整 ARIA snapshot 执行机器词／英文作者标签零命中硬门，并加入非控件 accessible name 机器词注入回归。
+- [x] 为 body、error、cwd、runDir、workspace mode、dead-letter reason、handoff 原文生成带 run id 的七个唯一哨兵；逐项断言默认态不可见、只在对应详情展开后逐字命中且其他详情不命中。
+- [x] 运行 console-ui test、console-ui typecheck、Storybook 静态构建、desktop build、根 typecheck、T6.5 验收脚本、OpenSpec 严格校验、镜像比较和 `git diff --check`；所有长操作通过统一有界执行器记录退出码／超时状态。
+- [x] 注入 Storybook 子进程挂起、浏览器等待挂起、旧 artifact 加本轮断言失败、evidence JSON／sidecar 摘要重算、孙进程忽略温和终止并占用端口／文件，确认流程有界非零退出、清理整棵进程树、可立即重跑、拒绝陈旧证据且不触发收尾。
+- [x] 注入验收成功后修改交付实现文件的漂移场景，确认 pre-commit tested-source manifest 核对失败，禁止沿用旧 evidence，重新验收后才可继续。
+- [x] 人工对照 `wireframes.md`／`ui-design.md` 逐张走查五个截图，并确认 Storybook 独立复合组件无回退。
+- [x] 全部验证通过后勾选 roadmap T6.5 并追记 artifact 与命令证据。
+- [ ] 提交前重新计算 tested-source manifest，必须与 evidence 中的 `testedSourceDigest` 完全一致；不一致则停止收尾并重新验收。
+- [ ] 检查变更范围无 runner／后端文件；创建含 `Closes #142` 的提交并推送当前分支。
+- [ ] 提交后从当前 commit blob 重算 evidence 中同一组被测文件摘要，必须与 tested-source manifest 完全一致。
+- [ ] PR 前按当前分支有界查询：唯一匹配复用、零匹配创建、多匹配 fail-closed；创建调用超时后只重新查询找回，禁止盲目重复创建。
+- [ ] 有界回读唯一 PR，确认 head SHA 与当前提交一致，body 含 `Closes #142`、run id、`testedSourceDigest`、三条验收证据摘要和 artifact 路径；不满足则停止收尾。
