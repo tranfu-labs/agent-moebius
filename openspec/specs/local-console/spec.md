@@ -615,6 +615,27 @@ Local mode and GitHub mode MAY use the same data root, but they MUST NOT use the
 - **And** the GitHub intake or role-thread state entry is visible only through the GitHub mode state channel
 - **And** neither startup mode mirrors the representative data into the other mode
 
+### Requirement: Operational startup documentation
+
+The local-console domain MUST document the mutually exclusive local and GitHub startup modes.
+
+The operational documentation MUST name the GitHub-mode flag as `--github-mode` and state its startup command as `pnpm start -- --github-mode`.
+
+The operational documentation MUST state that bare `pnpm start` enters the default local mode, while the explicit GitHub-mode command starts the pure GitHub runner without the local console SQLite session write path.
+
+The operational documentation MUST state that local mode uses `.state/local-console.sqlite` and GitHub mode uses `.state/github-runner.sqlite`, and that the two runtime data channels are mutually invisible, not mirrored, and not run concurrently.
+
+The operational documentation MUST instruct operators of a persistent GitHub runner to use `pnpm start -- --github-mode` instead of bare `pnpm start`.
+
+#### Scenario: Operator selects a runtime mode
+
+- **Given** an operator reads the startup documentation
+- **When** the operator selects a runtime mode
+- **Then** `AGENTS.md` documents `--github-mode` and `pnpm start -- --github-mode`
+- **And** `AGENTS.md` states that bare `pnpm start` enters local mode
+- **And** `AGENTS.md` states that local mode and GitHub mode use isolated data paths
+- **And** `AGENTS.md` tells persistent GitHub runner operators to use the explicit GitHub-mode command
+
 ## 可验证行为
 - `pnpm vitest run tests/observer.test.ts` MUST 通过，覆盖 observer 的白名单聚合、状态来源标注、artifact 发布链接 / 图片预览、未发布 artifact 路径、缺 `.state` 文件、坏 state JSON、坏 JSONL、JSONL 尾行截断、manifest 缺字段、损坏 config 诊断、无写入边界、fake `gh` / `codex` 零调用，以及 observer 被强杀后 runner 测试不受影响。
 - `pnpm test` MUST 通过，确保本域规格归位不引入 GitHub runner 核心语义回归。
