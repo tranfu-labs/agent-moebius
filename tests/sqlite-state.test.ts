@@ -3,10 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadAgentContextStateStore, saveAgentContextStateEntry } from "../src/agent-context-state.js";
+import { githubRunnerSqlitePathForStateFile } from "../src/github-state-store.js";
 import { loadGitHubResponseIntakeState, saveGitHubResponseIntakeState } from "../src/github-intake-state.js";
 import { createEmptyGoalLedgerState } from "../src/goal-ledger.js";
 import { loadGoalLedgerState, saveGoalLedgerState } from "../src/goal-ledger-state.js";
-import { runSqliteStateCommand, sqlitePathForLegacyStateFile } from "../src/sqlite-state.js";
+import { runSqliteStateCommand } from "../src/sqlite-state.js";
 import { loadRoleThreadStateStore, saveRoleThreadStateEntry } from "../src/state.js";
 
 const NOW = "2026-07-09T00:00:00.000Z";
@@ -187,7 +188,7 @@ describe("sqlite state persistence", () => {
         },
       },
     });
-    expect((await fs.stat(sqlitePathForLegacyStateFile(roleThreadsPath))).isFile()).toBe(true);
+    expect((await fs.stat(githubRunnerSqlitePathForStateFile(roleThreadsPath))).isFile()).toBe(true);
   }, 15_000);
 });
 

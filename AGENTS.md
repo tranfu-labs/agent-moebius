@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳：运行后按白名单扫描 GitHub repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、同一套 runner 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。
+本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。
 
 ## 项目结构
 ```text
@@ -17,14 +17,16 @@
 │   └── product-manager.md      # 产品经理 agent 角色素材
 ├── src/                        # TypeScript 运行时代码
 │   ├── runner.ts               # 常驻心跳编排入口（扫描派发与执行解耦）
+│   ├── runtime-mode.ts         # 启动参数解析：默认 local，exact --github-mode 进入 GitHub runner
+│   ├── github-state-store.ts   # GitHub-mode SQLite 路径与 legacy 共库有界迁移
 │   ├── runner/                 # runner 主链路内部副作用协调子模块（验收 pre-pass、外部路由、Codex reaction）
 │   ├── scanner.ts              # 发现层：due 仓库扫描，产出 changed issues
 │   ├── issue-dispatcher.ts     # 派发层：in-flight 防重、完成即折叠回写
 │   ├── state-persister.ts      # intake state 单写者：写串行化 + 合并 + 原子落盘
 │   ├── github-response-intake.ts # GitHub 响应接入的纯业务调度规则
-│   ├── github-intake-state.ts  # .state/github-response-intake.json 状态读写适配
+│   ├── github-intake-state.ts  # GitHub response intake 在 github-runner.sqlite 的读写适配
 │   ├── goal-ledger.ts          # 目标账本 schema、入账流程、ready gate、阶段切换、验收 fact / join 纯业务逻辑
-│   ├── goal-ledger-state.ts    # .state/goal-ledger.json 状态读写适配
+│   ├── goal-ledger-state.ts    # 目标账本在 github-runner.sqlite 的读写适配
 │   ├── issue-source.ts         # repo / issue source key 与 clone URL 生成
 │   ├── local-config.ts         # config.toml / config.local.toml 解析与 shape 校验
 │   ├── conversation.ts         # 共享时间线、speaker、agent mention、full/resume prompt 纯业务逻辑
@@ -42,8 +44,8 @@
 │   ├── observer/               # 本地只读观察页：读配置、目标账本、.state 与 run manifest，不写状态
 │   ├── triggers/               # mention 触发方式
 │   ├── agent-prescripts/       # Codex 执行前准备脚本与内置 workspace capability
-│   ├── agent-context-state.ts  # .state/agent-contexts.json 状态读写适配
-│   └── state.ts                # .state/role-threads.json 状态读写适配
+│   ├── agent-context-state.ts  # agent context 在 github-runner.sqlite 的读写适配
+│   └── state.ts                # role thread 在 github-runner.sqlite 的读写适配
 ├── desktop/                    # Electron 桌面壳：主进程装配、操作台 / 状态页、runner 子进程监管与打包配置
 │   ├── src/
 │   │   ├── main.ts             # Electron 主进程装配：数据根、PATH、自检、observer、runner、IPC
@@ -78,22 +80,30 @@
 
 ## 常用命令
 - 安装：`pnpm install`
-- 运行常驻脚本：`pnpm start`
-  - 需要本机 `codex` CLI 在 `PATH` 中。
-  - 需要已完成 `gh auth login`。
+- 运行本地模式：`pnpm start`
+  - 默认只启动 local console/local runtime，使用 `.state/local-console.sqlite`；不加载 GitHub intake、不创建 GitHub heartbeat、不扫描或读取 GitHub issue。
+  - 不配置 repository、未执行 `gh auth login` 的干净环境也可正常冷启动；只有本地会话真正调用 Codex 时才需要本机 `codex` CLI。
+- 运行纯 GitHub runner：`pnpm start -- --github-mode`
+  - flag 名固定为 `--github-mode`；只接受 exact flag，拼写错误、`--github-mode=1`、未知参数或重复参数会在启动任一 runtime 前失败。
+  - 需要本机 `codex` CLI 在 `PATH` 中，并需要已完成 `gh auth login`。
+  - 只启动 GitHub runner heartbeat，使用 `.state/github-runner.sqlite` 保存 GitHub intake、role thread、agent context 与 goal ledger；不启动 local console server，不写 local console 会话链路。
   - 会真实扫描 `config.local.toml` 中配置的白名单 repository 的最近更新 open issues；没有本机覆盖时默认不监听任何 repository。首次扫描默认只建立 baseline，不批量处理历史 issue。最新 issue body/comment 命中 mention trigger 时，可能调用 Codex 并发表评论；只有真正调用 Codex driver 前会先给本轮触发源消息添加 `eyes` reaction。
 - 运行本地只读观察页：`pnpm observer`
   - 默认监听 `127.0.0.1:8787`，可用 `OBSERVER_PORT` 覆盖端口。
-  - 只读读取 `config.toml` / `config.local.toml`、`.state/goal-ledger.json`、`.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl`，以目标账本为主视图渲染 goal -> milestone -> task 树、owner phase、人工闸口、显式 run evidence 与 unlinked local runs，并保留 legacy issue/run records。
+  - 只读读取 `config.toml` / `config.local.toml`、`.state/github-runner.sqlite`（缺失时兼容 legacy JSON / 共库）与 `.state/run-manifests.jsonl`，以目标账本为主视图渲染 goal -> milestone -> task 树、owner phase、人工闸口、显式 run evidence 与 unlinked local runs，并保留 legacy issue/run records。
   - 账本缺失、损坏或读取超时时只让 ledger tree 显示空态 / 诊断，legacy issue/run records 继续可见；同一 owner 无 active phase 显示 `no active phase`，多个 active phase 显示 owner 级 ledger error，不推断全局 active。
   - 不调用 GitHub、Codex 或 artifact publisher，不写 `.state` / manifest / release / worktree 文件；不提供确认按钮、写接口、file watcher 或 runner 操作能力；观察页进程崩溃或关闭不影响 runner。
 - 运行桌面应用开发态：`pnpm desktop`
   - 使用 Electron 壳启动本地对话操作台主窗口，进程内以动态端口启动 local console server 与只读 observer，并以 `utilityProcess` 派生 runner 子进程。
   - 开发态默认数据根为仓库根；打包态默认数据根为 `~/.agent-moebius`；两种形态都可用 `AGENT_MOEBIUS_DATA_ROOT` 覆盖。
   - 首启会把提交版 `agents/` 与示例 `config.toml` 种子拷贝到数据根，已存在的文件一律不覆盖；用户本机仍通过数据根下被忽略的 `config.local.toml` 配置监听仓库。
-  - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`，并设置 `AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE=1` 避免 runner 子进程重复启动 local console server。
+  - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`；runner child 显式以 GitHub mode 启动，因此不会重复启动 local console server。
   - 操作台通过本地 HTTP API 创建 / 切换会话、发送消息、订阅运行快照并中断当前 run；状态页和 observer 只保留为辅助诊断入口。
-  - 同一台机器上，终端形态与桌面形态不得同时监听相同 GitHub repository；如确需切换形态，优先让终端形态也设置同一个 `AGENT_MOEBIUS_DATA_ROOT`，共享 `.state/` 与 `config.local.toml`。
+  - 同一台机器上，终端 GitHub-mode 与桌面形态不得同时监听相同 GitHub repository；如确需切换形态，优先让终端 GitHub-mode 也设置同一个 `AGENT_MOEBIUS_DATA_ROOT`，共享 GitHub runner state 与 `config.local.toml`。
+  - dev 期 `pnpm desktop` 会打开 Chromium 远程调试端口 `9222`（仅当 `!app.isPackaged`），供 AI agent 通过 CDP attach 已运行的桌面窗口，读渲染进程的 DOM / console / network 并 eval 代码；打包版本永不开放。见 [ADR-0002](docs/adr/0002-electron-cdp-dev-debug-channel.md)，其补充节含实测证据与 Codex Chrome 扩展横向对比。
+    - 目前只覆盖渲染进程一路；主进程 Node 的 console 与 IPC 状态若要读，需另开 `--inspect=9229`（尚未落地，见 ADR-0002 补充节）。
+    - 首选走 `.mcp.json` 里的 `electron` MCP server；若它列不出窗口，可裸 CDP 兜底：`curl http://localhost:9222/json/version` 探活、`curl http://localhost:9222/json` 拿 target 列表后自建 WebSocket 挂载。
+    - 端口冲突（被 Chrome debugger 或其他 CDP 工具占用）会导致 Electron 启动失败，可用 `lsof -iTCP:9222 -sTCP:LISTEN` 定位占用方。
 - 构建桌面主进程 / 操作台 / 状态页：`pnpm --filter @agent-moebius/desktop build`
 - 打包桌面应用：`pnpm --filter @agent-moebius/desktop dist`
   - 三平台产物通过 electron-builder 生成：macOS dmg/zip、Windows nsis、Linux AppImage。
@@ -118,6 +128,8 @@
 - TypeScript 使用 `strict`，ESM + `moduleResolution: NodeNext`，相对导入运行时代码时使用 `.js` 后缀。
 - 运行入口使用 `tsx src/runner.ts`；自动化测试使用 Vitest。
 - GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
+- 启动模式只接受两种形态：`pnpm start` 缺省 local；`pnpm start -- --github-mode` 进入纯 GitHub runner。两种 runtime 不得在同一 `start()` 流程并存。
+- local runtime 数据只写 `.state/local-console.sqlite`；GitHub runner state 只写 `.state/github-runner.sqlite`。首次 GitHub-mode 启动会从历史共库中有界迁移 GitHub intake、role thread、agent context、goal ledger，不迁移 local session 数据；迁移失败时在扫描前可见失败，不 silent rebaseline。
 - 当前 repository 白名单先读取数据根下的提交版 `config.toml` 示例，再由同一数据根下的 `config.local.toml` 覆盖；未设置 `AGENT_MOEBIUS_DATA_ROOT` 时数据根等于项目根目录，终端形态行为与原来一致。`config.local.toml` 为本地专用且被 `.gitignore` 忽略。默认白名单为空。
 - `config.local.toml` 示例：
   ```toml
@@ -145,9 +157,9 @@
 - 普通 `@ceo` agent 成功返回后，runner 只接受带合法 `in-progress` stage marker 的结构化 JSON 编排输出。`spawn_child_issues` 工作流会先校验 workflow id、ledger task id、initialRole、qualityBaseline、验收语句、依赖、分组与 provenance，再通过 `src/github.ts` 的受控 adapter 在父 issue 同仓库串行创建子 issue，body 必须包含 parent reference、ledger task id、质量基准、验收语句、依赖、初始交棒角色、provenance、冲突分组理由与 hidden orchestration key。orchestration key 只由 parent issue source + workflow id + ledger task id 派生；重试时先查 ledger child ref，再按 hidden key 查询父 repo，唯一命中则补写 ledger，不重复创建。`goal_intake` 工作流使用单 action 多 mode：`interview` 只发可见 2-4 问采访；`propose` 校验 2-5 个粗里程碑、一个阶段一、3-7 个阶段一任务与每任务 1-3 条验收语句，写 pending ledger bundle，并发布带 hidden proposal key 的待确认提案；`confirm` 校验 proposal key 与阶段一任务描述，先把 ledger 转 ready/active，再复用既有 spawn executor 创建或找回阶段一子 issue。创建、查询、ledger 保存和 fail-closed 可见评论都必须有界；全部副作用成功后才保存 ceo role thread，失败不保存 thread，已创建 / 找回 issue 不删除补偿，失败原因保留 URL 供 dead-letter 留痕；fail-closed 评论发布失败时本轮仍为 `failed`。runner 还会在 mention trigger 前执行验收 pre-pass：验收角色评论先写入 child acceptance fact 或 parent integration acceptance event；全部 in-scope child passed 后按 hidden integration key 在父 issue 发起目标级集成验收；父级验收失败按 hidden orchestration key 创建或找回 repair child issue。验收角色评论声明整体通过但逐条走查解析失败时，pre-pass 记录 `acceptance-walkthrough-unparsed` 事件并以 CEO envelope 发一条含规范格式模板的提醒（mention 该验收角色，hidden reminder 标记防重，单 issue 封顶 2 次，超过只记日志落回普通流程）；join waiting 时会核实 missing 子 issue 的 GitHub 状态，发现已 closed 则在父 issue 发一条按 hidden integration-blocked key 防重的 blocked 上报，状态查询失败 fail-open 维持 waiting。T8 只记录 `switch_phase` 窄契约，不新增自动阶段切换 pre-pass、observer UI 操作或 T9/T10 dogfood runner。
 - 所有 Codex agent 的每条响应末尾都必须显式声明 stage marker；stage 枚举集中在 `src/stages.ts`，当前为 `plan-written`、`code-verified`、`in-progress`。`agents/dev.md` 可用 `plan-written` / `code-verified` 声明开发阶段，普通进度、采访、澄清或其他 agent 默认使用 `in-progress`；stage 只声明阶段，不直接指定后续 agent。persona MUST NOT 输出枚举外的 stage 值（会被静默解析为 unknown）。五个可触发角色（dev / qa / product-manager / dev-manager / hermes-user）的每条评论按统一输出骨架产出（`## 结论`、`## 依据`、角色专属节、`## 下一步`），`## 下一步` 必含恰一条收尾行：`交棒：@<合法角色> …` 或 `等待真人：…`；CEO guardrail 的「交棒完整性裁决（第 0 检查）」对无收尾行的评论禁用 `no_change` 并强制 `append` 路由（规则见 `openspec/specs/github-issue-runner/spec.md` 的 T7 节）。
 - `agents/dev.md` 的 `plan-written` 响应正文末尾必须包含「验收语句」一节，并位于最终 stage marker 之前；每条验收语句必须是一句可机械执行的检查，UI 类使用 `打开 X → 做 Y → 应看到 Z`，非 UI 类使用等价命令 / 断言格式（如 `跑 X → 应输出/退出码 Z`），数量与方案功能点一一对应。
-- runner 在 Codex agent 生成 `LAST_RESPONSE` 后、发布 GitHub 评论前调用 `src/format-ceo.ts`，用 `agents/ceo.md` 的 persona body、CEO 剧本摘要和完整公开 issue context（issue 链接、issue body、所有 comment body 原文、最新响应、agent 名、allowedStages）做一次无状态 CEO guardrail 校正；`latestResponse` 仍是本轮唯一待发布的 agent 响应，完整 issue context 只作为理解用户流程、后续覆盖指令、历史上下文和交付规范的背景。CEO 输出统一为 JSON，三态 `action`：`no_change` 直接发原文；`replace` 用改写后的 `body`（末尾必带合法 stage marker）替换原评论，runner 追加 `ceo-corrected` metadata 后发布；`append` 让 runner 先发原评论、再发一条独立评论（前缀与 `role=<as>` metadata 按 `as` 字段决定，`as` 允许 `{ceo, dev, dev-manager, product-manager, hermes-user, secretary, qa}`；独立评论末尾追加 `ceo-corrected` metadata）。所有 runner 发布的 role envelope 评论必须带 `ceo-reviewed` 审计 metadata；实际经过 CEO 的评论标明 `no_change` / `replace` / `append_*` / `fail_open`，未实际调用 CEO 的系统错误、dead-letter、兜底 route append 标明 bypass 或 not-applicable reason；`ceo-corrected` 只表示 replace / append 修正子类。CEO 超时、失败、返回非法 JSON / 未知 action / 未知 as / body 空 / stage marker 缺失时 fail-open 发布原文；当 `agent=ceo` 时，guardrail 对 `append as=ceo` 或 append body 回交 `@ceo` 的结果 fail-open，防止自激。业务判据（触发条件、模板措辞、`@mention` 与否等）全部由 `agents/ceo.md` 和 `agents/ceo-scripts/` 承担，`format-ceo.ts` 只做格式红线校验与防自激后置校验。persona 层（`agents/ceo.md`）当前只承载 `no_change` / `append` 两种 guardrail 输出（`replace` 保留为代码层能力），并承载协作生态认知：真实可触发 agent 清单、阶段验收回流路由（`plan-written` 先派 `@qa` 测试设计审查并套方案评审六项固定模板，`code-verified` 回流发起需求角色并套执行后复盘三问固定模板）、qa 交棒兜底、缺验收语句时要求补齐、交付规范、死锁等待、PR 冲突提醒和免确认操作放行识别场景。CEO 对 PR 下判断前必须在其 Codex 子进程内用 `gh pr view <完整URL> --json title,body,state,mergeable,mergeStateStatus` 核实 PR 真实状态（`format-ceo.ts` 代码层仍不调用 GitHub），`gh` 失败时不基于猜测介入；免确认清单（只写在 `agents/ceo.md`，dev 行为不变）为从最新 `origin/main` 建 feature 分支、落盘 `openspec/changes/`、方案经 qa 测试设计审查通过且发起角色验收通过后进入实现阶段（不再要求用户口头"开始写代码"），清单外操作（push、建/合 PR、删除类）仍等用户。CEO 规则进化入口是 `@secretary`；CEO 默认超时为 300 秒（`DEFAULT_CEO_TIMEOUT_MS`），为子进程内 `gh` 核实留余量。
+- runner 在 Codex agent 生成 `LAST_RESPONSE` 后、发布 GitHub 评论前调用 `src/format-ceo.ts`，用 `agents/ceo.md` 的 persona body、CEO 剧本摘要和完整公开 issue context（issue 链接、issue body、所有 comment body 原文、最新响应、agent 名、allowedStages）做一次无状态 CEO guardrail 校正；`latestResponse` 仍是本轮唯一待发布的 agent 响应，完整 issue context 只作为理解用户流程、后续覆盖指令、历史上下文和交付规范的背景。CEO 输出统一为 JSON，三态 `action`：`no_change` 直接发原文；`replace` 用改写后的 `body`（末尾必带合法 stage marker）替换原评论，runner 追加 `ceo-corrected` metadata 后发布；`append` 让 runner 先发原评论、再发一条独立评论（前缀与 `role=<as>` metadata 按 `as` 字段决定，`as` 允许 `{ceo, dev, dev-manager, product-manager, hermes-user, secretary, qa}`；独立评论末尾追加 `ceo-corrected` metadata）。所有 runner 发布的 role envelope 评论必须带 `ceo-reviewed` 审计 metadata；实际经过 CEO 的评论标明 `no_change` / `replace` / `append_*` / `fail_open`，未实际调用 CEO 的系统错误、dead-letter、兜底 route append 标明 bypass 或 not-applicable reason；`ceo-corrected` 只表示 replace / append 修正子类。CEO 超时、失败、返回非法 JSON / 未知 action / 未知 as / body 空 / stage marker 缺失时 fail-open 发布原文；当 `agent=ceo` 时，guardrail 对 `append as=ceo` 或 append body 回交 `@ceo` 的结果 fail-open，防止自激。业务判据（触发条件、模板措辞、`@mention` 与否等）全部由 `agents/ceo.md` 和 `agents/ceo-scripts/` 承担，`format-ceo.ts` 只做格式红线校验与防自激后置校验。persona 层（`agents/ceo.md`）当前只承载 `no_change` / `append` 两种 guardrail 输出（`replace` 保留为代码层能力），并承载协作生态认知：真实可触发 agent 清单、阶段验收回流路由（`plan-written` 先派 `@qa` 测试设计审查，`code-verified` 回流发起需求角色，交棒正文一律一行轻交棒，方法论由目标角色 persona 自持）、qa 交棒兜底、缺验收语句时要求补齐、交付规范、死锁等待、PR 冲突提醒和免确认操作放行识别场景。CEO 对 PR 下判断前必须在其 Codex 子进程内用 `gh pr view <完整URL> --json title,body,state,mergeable,mergeStateStatus` 核实 PR 真实状态（`format-ceo.ts` 代码层仍不调用 GitHub），`gh` 失败时不基于猜测介入；免确认清单（只写在 `agents/ceo.md`，dev 行为不变）为从最新 `origin/main` 建 feature 分支、落盘 `openspec/changes/`、方案经 qa 测试设计审查通过且发起角色验收通过后进入实现阶段（不再要求用户口头"开始写代码"），清单外操作（push、建/合 PR、删除类）仍等用户。CEO 规则进化入口是 `@secretary`；CEO 默认超时为 300 秒（`DEFAULT_CEO_TIMEOUT_MS`），为子进程内 `gh` 核实留余量。
 - `agents/ceo.md` 承载 CEO speaker，且 `@ceo` 是普通 mention 可触发 agent；`src/conversation.ts` 的 `normalizeComment` 对 `<!-- agent-moebius:role=ceo -->` metadata 特殊处理直接归为 `speaker=ceo`，不依赖 mention trigger 白名单。
-- `plan-written` / `code-verified` 阶段由 CEO guardrail persona 承接验收回流：有可用「验收语句」时，`plan-written` 必须 `append as=ceo` mention `@qa` 并套方案评审六项固定模板；`code-verified` 必须 `append as=ceo` mention 发起需求 agent 并套执行后复盘三问固定模板，执行方 `dev` 只能裸写、不得额外 mention；缺验收语句时 `append as=ceo` mention `@dev` 要求补齐；若发起者是真人用户而非 agent，最新评论已含 `等待真人：` 行时 `no_change` 等用户，未含时 `append as=ceo` 裸写请真人按验收清单逐条验收（不使用 agent mention），不得静默等待。若 CEO append 正文包含有效 agent mention，后续由下一轮 active poll 按普通 mention trigger 处理。
+- `plan-written` / `code-verified` 阶段由 CEO guardrail persona 承接验收回流：有可用「验收语句」时，`plan-written` 必须 `append as=ceo` mention `@qa`，正文为一行轻交棒（陈述已输出 `plan-written` 且含验收语句，请 qa 按其自身测试设计流程审查）；`code-verified` 必须 `append as=ceo` mention 发起需求 agent，正文为一行轻交棒（请其按已确认验收语句逐条验收实现证据），执行方 `dev` 只能裸写、不得额外 mention；CEO 交棒正文不得复制目标角色 persona 已有的审查 / 验收方法清单；缺验收语句时 `append as=ceo` mention `@dev` 要求补齐；若发起者是真人用户而非 agent，最新评论已含 `等待真人：` 行时 `no_change` 等用户，未含时 `append as=ceo` 裸写请真人按验收清单逐条验收（不使用 agent mention），不得静默等待。若 CEO append 正文包含有效 agent mention，后续由下一轮 active poll 按普通 mention trigger 处理。
 - `agents/hermes-user.md` 与 `agents/product-manager.md` 被 mention 请求验收方案或实现时，必须按可用「验收语句」逐条走查并输出结构化结论；每条结论独立一行、行首为 `N. 通过 — 依据` 或 `N. 不通过 — 依据`（编号与验收语句序号一致，不用表格、不加「原验收」等前缀变体），走查后必须有独立一行 `验收结论：通过/不通过`——该格式是 runner 逐行解析写入账本的硬约束。方案阶段基于 dev 方案推演，代码阶段基于 dev 提供的测试输出、截图 artifact、文件路径或命令输出等证据；全部通过时声明验收通过并说明下一步等待谁，任一不通过时 mention `@dev` 并指出未过语句、实际观察与期望差异。
 - runner 写回 agent 评论时使用 GitHub 页面可见的 `<role>:\n${LAST_RESPONSE}` 前缀；comment body 中落 `&lt;role&gt;:\n${LAST_RESPONSE}`，并追加 `<!-- agent-moebius:role=<role> -->` metadata，便于后续归一化 speaker。
 - 每个 role 在同一个 issue 内维护独立 Codex thread；状态保存在被忽略的 `.state/role-threads.json`，包含 issue、role、threadId、lastSeenIndex。并发 Codex 成功写回时必须使用 issue + role entry 级别的串行 merge helper，不能用旧 state snapshot 覆盖整文件。
@@ -157,7 +169,7 @@
 - Codex stdout/stderr 运行目录格式为 `/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/`；`<sequence>` 是 runner 进程内递增后缀，用来避免并发 runs 在同一 timestamp + count 下复用同一目录。本轮下载的输入媒体位于 `input-media/`，准备发布的输出产物位于 `output-artifacts/`。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
 - 默认数据根为项目根目录；可通过 `AGENT_MOEBIUS_DATA_ROOT` 覆盖 `config.toml`、`config.local.toml` 与 `agents/` 的解析位置。桌面打包态默认数据根为 `~/.agent-moebius`，开发态默认仓库根。
-- Codex 默认走本机 `~/.codex/auth.json` 订阅登录；在 `config.local.toml` 里加 `[codex] provider = "<name>"` 即切到 API 网关（例如 `tranfu` / `derouter`）。provider 名会按约定 `<NAME>_API_KEY` / `<NAME>_BASE_URL` 从 `process.env` 读，`.env` 在项目根被 `src/config.ts` 顶层用 `process.loadEnvFile` 加载一次；缺任一变量会在启动时抛可见错误并且 NEVER spawn codex。切换只追加 `-c model_provider=... -c model_providers.<name>.{name,base_url,env_key,wire_api}` 到 `codex exec` 尾部，NEVER 改写用户 `~/.codex/config.toml`，也 NEVER 触碰 `--yolo / --json / -m gpt-5.5 / xhigh` 等既有 flag。
+- Codex 默认走本机 `~/.codex/auth.json` 订阅登录；在 `config.local.toml` 里加 `[codex] provider = "<name>"` 即切到 API 网关（例如 `tranfu` / `derouter`）。provider 名会按约定 `<NAME>_API_KEY` / `<NAME>_BASE_URL` 从 `process.env` 读，`.env` 在项目根被 `src/config.ts` 顶层用 `process.loadEnvFile` 加载一次；缺任一变量会在启动时抛可见错误并且 NEVER spawn codex。切换只追加 `-c model_provider=... -c model_providers.<name>.{name,base_url,env_key,wire_api}` 到 `codex exec` 尾部，NEVER 改写用户 `~/.codex/config.toml`，也 NEVER 触碰 `--yolo / --json / -m gpt-5.6-sol / xhigh` 等既有 flag。模型名默认 `gpt-5.6-sol`，可通过 `[codex] model = "..."` 覆盖（空白/未设 → 回落默认），与 provider 相互独立。
 - `github-response-intake.ts`、`goal-ledger.ts`、`local-config.ts`、`conversation.ts`、`conversation-interrupt.ts`、`issue-media.ts` 与 `ceo-orchestration.ts` 只做业务数据操作；`ceo-scripts.ts` 只读剧本数据并校验 workflow；`src/triggers/` 封装 mention 触发规则；`driver-pool.ts` 只承载 driver job 并发策略；`scanner.ts` 只做发现、`issue-dispatcher.ts` 只做派发与折叠、`state-persister.ts` 只做单写者状态持有与落盘；GitHub、Codex CLI、媒体 IO、状态文件读写分别由 `github.ts`、`codex.ts`、`media-assets.ts`、`state.ts`、`agent-context-state.ts`、`github-intake-state.ts`、`goal-ledger-state.ts` 适配；`runner.ts` 只做心跳编排、依赖装配与 issue-processing 主顺序，`src/runner/*` 只承载 runner 主链路内部的高内聚副作用协调（如验收 pre-pass、外部路由、Codex execution reaction），仍属于 GitHub issue runner 边界，不得成为新的业务事实源；`src/observer/` 是本地只读旁路，只读消费配置、目标账本、`.state` 与 run manifest，禁止被 runner 主链路依赖。
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 

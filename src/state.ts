@@ -2,14 +2,18 @@ import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { ROLE_THREADS_STATE_PATH } from "./config.js";
 import type { RoleThreadState } from "./conversation.js";
-import { runSqliteStateCommand, sqlitePathForLegacyStateFile } from "./sqlite-state.js";
+import {
+  githubRunnerSqlitePathForStateFile,
+  migrateLegacySharedGitHubState,
+} from "./github-state-store.js";
+import { runSqliteStateCommand } from "./sqlite-state.js";
 
 export type RoleThreadStateStore = Record<string, Record<string, RoleThreadState>>;
 
 export async function loadRoleThreadStateStore(filePath = ROLE_THREADS_STATE_PATH): Promise<RoleThreadStateStore> {
   await migrateLegacyRoleThreadState(filePath);
   const store = await runSqliteStateCommand<unknown>({
-    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
     command: { kind: "load-role-threads" },
   });
   if (!isRoleThreadStateStore(store)) {
@@ -47,7 +51,7 @@ export async function saveRoleThreadStateStore(
   }
   await migrateLegacyRoleThreadState(filePath);
   await runSqliteStateCommand({
-    sqlitePath: sqlitePathForLegacyStateFile(filePath),
+    sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
     command: { kind: "save-role-threads", store },
   });
 }
@@ -61,7 +65,7 @@ export async function saveRoleThreadStateEntry(
   await withStateFileLock(filePath, async () => {
     await migrateLegacyRoleThreadState(filePath);
     await runSqliteStateCommand({
-      sqlitePath: sqlitePathForLegacyStateFile(filePath),
+      sqlitePath: githubRunnerSqlitePathForStateFile(filePath),
       command: { kind: "save-role-thread-entry", issueKey, role, state },
     });
   });
@@ -125,7 +129,8 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 async function migrateLegacyRoleThreadState(filePath: string): Promise<void> {
-  const sqlitePath = sqlitePathForLegacyStateFile(filePath);
+  await migrateLegacySharedGitHubState({ filePath, source: "role-threads" });
+  const sqlitePath = githubRunnerSqlitePathForStateFile(filePath);
   const status = await runSqliteStateCommand<{ status: string | null }>({
     sqlitePath,
     command: { kind: "get-migration-status", source: "role-threads" },

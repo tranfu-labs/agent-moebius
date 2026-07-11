@@ -12,10 +12,13 @@ import {
   run,
 } from "../src/codex.js";
 import {
-  CODEX_EXEC_OPTIONS_BASE,
+  DEFAULT_CODEX_MODEL,
   buildCodexExecOptions,
+  buildCodexExecOptionsBase,
+  resolveCodexModel,
   resolveCodexProviderConfig,
 } from "../src/config.js";
+import { parseLocalConfig } from "../src/local-config.js";
 
 describe("extractFinalAssistant", () => {
   it("returns the final assistant text across supported event shapes", () => {
@@ -99,7 +102,7 @@ describe("extractFinalAssistant", () => {
 
   it("builds full and resume codex args without ephemeral mode", () => {
     expect(buildCodexArgs("hello")).toEqual(
-      expect.arrayContaining(["exec", "--json", "-m", "gpt-5.5", "hello"]),
+      expect.arrayContaining(["exec", "--json", "-m", "gpt-5.6-sol", "hello"]),
     );
     expect(buildCodexArgs("hello")).not.toContain("--ephemeral");
 
@@ -223,12 +226,12 @@ setInterval(() => {}, 1000);
 });
 
 describe("codex provider override", () => {
-  it("subscription baseline: null provider returns byte-for-byte equal to base flags", () => {
+  it("subscription baseline: null provider returns byte-for-byte equal to base flags with default model", () => {
     const baseline = [
       "--yolo",
       "--json",
       "-m",
-      "gpt-5.5",
+      "gpt-5.6-sol",
       "-c",
       'service_tier="fast"',
       "-c",
@@ -236,8 +239,8 @@ describe("codex provider override", () => {
       "-c",
       'model_reasoning_effort="xhigh"',
     ];
-    expect([...CODEX_EXEC_OPTIONS_BASE]).toEqual(baseline);
-    expect(buildCodexExecOptions(null)).toEqual(baseline);
+    expect(buildCodexExecOptionsBase(DEFAULT_CODEX_MODEL)).toEqual(baseline);
+    expect(buildCodexExecOptions(null, DEFAULT_CODEX_MODEL)).toEqual(baseline);
     expect(resolveCodexProviderConfig({}, {})).toBeNull();
     expect(resolveCodexProviderConfig({ codex: {} }, {})).toBeNull();
     expect(resolveCodexProviderConfig({ codex: { provider: "" } }, {})).toBeNull();
@@ -251,9 +254,10 @@ describe("codex provider override", () => {
     );
     expect(cfg).toEqual({ provider: "tranfu", baseUrl: "https://api.tranfu.com/v1" });
 
-    const options = buildCodexExecOptions(cfg);
-    expect(options.slice(0, CODEX_EXEC_OPTIONS_BASE.length)).toEqual([...CODEX_EXEC_OPTIONS_BASE]);
-    expect(options.slice(CODEX_EXEC_OPTIONS_BASE.length)).toEqual([
+    const base = buildCodexExecOptionsBase(DEFAULT_CODEX_MODEL);
+    const options = buildCodexExecOptions(cfg, DEFAULT_CODEX_MODEL);
+    expect(options.slice(0, base.length)).toEqual(base);
+    expect(options.slice(base.length)).toEqual([
       "-c",
       "model_provider=tranfu",
       "-c",
@@ -285,6 +289,69 @@ describe("codex provider override", () => {
     expect(() => resolveCodexProviderConfig({ codex: { provider: "derouter" } }, {})).toThrow(
       /DEROUTER_API_KEY.*DEROUTER_BASE_URL/,
     );
+  });
+});
+
+describe("codex model override", () => {
+  it("defaults to gpt-5.6-sol when [codex] is absent or model is unset/blank", () => {
+    expect(DEFAULT_CODEX_MODEL).toBe("gpt-5.6-sol");
+    expect(resolveCodexModel({})).toBe("gpt-5.6-sol");
+    expect(resolveCodexModel({ codex: {} })).toBe("gpt-5.6-sol");
+    expect(resolveCodexModel({ codex: { model: "" } })).toBe("gpt-5.6-sol");
+    expect(resolveCodexModel({ codex: { model: "   " } })).toBe("gpt-5.6-sol");
+  });
+
+  it("uses the trimmed non-empty [codex].model literal as the -m value", () => {
+    expect(resolveCodexModel({ codex: { model: "gpt-5.6-sol-preview" } })).toBe("gpt-5.6-sol-preview");
+    expect(resolveCodexModel({ codex: { model: "  gpt-5.5  " } })).toBe("gpt-5.5");
+    const options = buildCodexExecOptions(null, "gpt-5.6-sol-preview");
+    const mIndex = options.indexOf("-m");
+    expect(mIndex).toBeGreaterThanOrEqual(0);
+    expect(options[mIndex + 1]).toBe("gpt-5.6-sol-preview");
+  });
+
+  it("provider and model are independent: both apply without interaction", () => {
+    const cfg = resolveCodexProviderConfig(
+      { codex: { provider: "tranfu", model: "gpt-5.6-sol-preview" } },
+      { TRANFU_API_KEY: "sk-xxx", TRANFU_BASE_URL: "https://api.tranfu.com/v1" },
+    );
+    const model = resolveCodexModel({ codex: { provider: "tranfu", model: "gpt-5.6-sol-preview" } });
+    expect(model).toBe("gpt-5.6-sol-preview");
+    const options = buildCodexExecOptions(cfg, model);
+    const base = buildCodexExecOptionsBase("gpt-5.6-sol-preview");
+    expect(options.slice(0, base.length)).toEqual(base);
+    expect(options.slice(base.length)).toEqual([
+      "-c",
+      "model_provider=tranfu",
+      "-c",
+      "model_providers.tranfu.name=tranfu",
+      "-c",
+      "model_providers.tranfu.base_url=https://api.tranfu.com/v1",
+      "-c",
+      "model_providers.tranfu.env_key=TRANFU_API_KEY",
+      "-c",
+      "model_providers.tranfu.wire_api=responses",
+    ]);
+  });
+
+  it("parseLocalConfig rejects non-string [codex].model", () => {
+    expect(() => parseLocalConfig(`[codex]\nmodel = 123\n`, "test")).toThrow(/Invalid local config shape/);
+    expect(() => parseLocalConfig(`[codex]\nmodel = true\n`, "test")).toThrow(/Invalid local config shape/);
+  });
+
+  it("parseLocalConfig rejects unknown keys under [codex] (regression on shape whitelist)", () => {
+    expect(() => parseLocalConfig(`[codex]\nextra = "x"\n`, "test")).toThrow(/Invalid local config shape/);
+  });
+
+  it("parseLocalConfig accepts model alone, provider alone, and both together", () => {
+    const modelOnly = parseLocalConfig(`[codex]\nmodel = "gpt-5.6-sol-preview"\n`, "test");
+    expect(modelOnly.codex).toEqual({ model: "gpt-5.6-sol-preview" });
+
+    const providerOnly = parseLocalConfig(`[codex]\nprovider = "tranfu"\n`, "test");
+    expect(providerOnly.codex).toEqual({ provider: "tranfu" });
+
+    const both = parseLocalConfig(`[codex]\nprovider = "tranfu"\nmodel = "gpt-5.6-sol-preview"\n`, "test");
+    expect(both.codex).toEqual({ provider: "tranfu", model: "gpt-5.6-sol-preview" });
   });
 });
 
