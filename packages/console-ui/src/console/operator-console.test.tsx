@@ -11,19 +11,22 @@ import {
 } from "./operator-console";
 
 describe("OperatorConsole", () => {
-  it("renders project/session navigation and live run controls", () => {
+  it("renders composite project/session navigation and live run controls", () => {
     const onInterrupt = vi.fn();
     renderConsole({ activeRun: runSnapshot, onInterrupt });
 
     expect(screen.getByText("agent-moebius")).toBeInTheDocument();
     expect(screen.getAllByText("默认会话").length).toBeGreaterThan(0);
     expect(screen.getByText("验收会话")).toBeInTheDocument();
-    expect(screen.getByText("运行直播")).toBeInTheDocument();
-    expect(screen.getAllByText("进行中").length).toBeGreaterThan(0);
-    expect(screen.getByText("live tail from codex")).toBeInTheDocument();
-    expect(screen.getAllByText(/\/tmp\/agent-moebius-run/).length).toBeGreaterThan(0);
+    expect(screen.getByText("开发")).toBeInTheDocument();
+    expect(screen.getByText("00:12")).toBeInTheDocument();
+    expect(screen.getByText("live tail from codex")).toBeVisible();
+    expect(screen.getByText("/tmp/agent-moebius-run")).not.toBeVisible();
+    for (const rawPath of screen.getAllByText("/tmp/agent-moebius-local-worktree")) {
+      expect(rawPath).not.toBeVisible();
+    }
 
-    fireEvent.click(screen.getByRole("button", { name: /中断/u }));
+    fireEvent.click(screen.getByRole("button", { name: /中断开发运行/u }));
     expect(onInterrupt).toHaveBeenCalledWith("session-a", "run-1");
   });
 
@@ -40,30 +43,65 @@ describe("OperatorConsole", () => {
       ],
     });
 
-    expect(screen.getAllByText("已中断").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("错误").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("卡住").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("等待真人").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("排队中").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("已显示").length).toBeGreaterThan(0);
-    expect(screen.getByText("interrupted:user-interrupted")).toBeInTheDocument();
-    expect(screen.getByText("idle-timeout:10ms")).toBeInTheDocument();
+    expect(screen.getByText("运行已中断")).toBeVisible();
+    expect(screen.getByText("运行失败")).toBeVisible();
+    expect(screen.getByText("运行长时间无响应")).toBeVisible();
+    expect(screen.getAllByText(/等你/u).length).toBeGreaterThan(0);
+    expect(screen.getByText("interrupted:user-interrupted")).not.toBeVisible();
+    expect(screen.getByText("idle-timeout:10ms")).not.toBeVisible();
+
+    fireEvent.click(screen.getAllByText("查看详情")[0]!);
+    expect(screen.getByText("interrupted:user-interrupted")).toBeVisible();
   });
 
-  it("renders child sessions under their parent session", () => {
+  it("shows child sessions and parent context without a sidebar tree", () => {
+    const childSession = { ...sessions[1], parentSessionId: sessions[0].sessionId, title: "实现子任务" };
     renderConsole({
+      selectedSessionId: childSession.sessionId,
+      selectedSession: childSession,
       project: {
         ...project,
         sessions: [
           { ...sessions[0], childCount: 1 },
-          { ...sessions[1], parentSessionId: sessions[0].sessionId, title: "实现子任务" },
+          childSession,
         ],
       },
     });
 
-    expect(screen.getByText("子会话 · 实现子任务")).toBeInTheDocument();
+    expect(screen.getAllByText("实现子任务").length).toBeGreaterThan(0);
+    expect(screen.getByText("属于：默认会话")).toBeInTheDocument();
     expect(screen.getByText(/子会话 1/u)).toBeInTheDocument();
+  });
+
+  it("keeps machine terms out of the default visible surface while preserving details", () => {
+    renderConsole({
+      messages: [
+        message({
+          id: 1,
+          speaker: "system",
+          status: "failed",
+          body: "dead-letter body handoff runDir",
+          error: "cwd=/tmp/project runDir=/tmp/run direct worktree",
+          runDir: "/tmp/agent-moebius-run",
+        }),
+      ],
+      activeRun: {
+        ...runSnapshot,
+        lastOutputSummary: "cwd /tmp/project runDir /tmp/run direct worktree",
+      },
+    });
+
+    for (const text of screen.getAllByText(/worktree|direct|cwd|runDir|dead-letter|handoff/iu)) {
+      expect(text).not.toBeVisible();
+    }
+    expect(screen.queryByText(/^user$/iu)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^agent$/iu)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^system$/iu)).not.toBeInTheDocument();
+
+    expect(screen.getByText("正在运行，等待进展")).toBeVisible();
+    expect(screen.getByText("多次尝试仍失败，已停止自动重试")).toBeVisible();
+    fireEvent.click(screen.getAllByText("查看详情")[0]!);
+    expect(screen.getByText(/dead-letter body handoff runDir/iu)).toBeVisible();
   });
 
   it("keeps corrupt parent chains visible without duplicating sessions", () => {

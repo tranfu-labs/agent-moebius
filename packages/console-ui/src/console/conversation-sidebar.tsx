@@ -23,6 +23,7 @@ export interface ConversationSidebarProps {
   projects: ConversationSidebarProject[];
   selectedSessionId?: string;
   onSelectSession?: (sessionId: string, projectId: string) => void;
+  showProjectPath?: boolean;
   className?: string;
 }
 
@@ -60,6 +61,7 @@ export function ConversationSidebar({
   projects,
   selectedSessionId,
   onSelectSession,
+  showProjectPath = true,
   className
 }: ConversationSidebarProps): JSX.Element {
   const [openCompleted, setOpenCompleted] = React.useState<ReadonlySet<string>>(() => new Set());
@@ -96,7 +98,7 @@ export function ConversationSidebar({
                 <Folder className="h-4 w-4 shrink-0 text-sub" aria-hidden="true" />
                 <div className="min-w-0">
                   <h2 className="truncate text-sm font-semibold leading-5">{projectName}</h2>
-                  <p className="truncate text-xs text-hint">{project.path}</p>
+                  {showProjectPath ? <p className="truncate text-xs text-hint">{project.path}</p> : null}
                 </div>
               </div>
 
