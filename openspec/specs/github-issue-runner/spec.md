@@ -97,7 +97,7 @@
 
 ### Codex provider 覆盖
 - MUST let the local configuration TOML expose an optional `[codex]` table carrying an optional `provider` string, so that a repository can switch its `codex` CLI invocations from the built-in subscription auth to an API gateway without editing the user's `~/.codex/config.toml`.
-- MUST default to the subscription mode when the `[codex]` table is absent or `provider` is missing/empty; in this mode the `codex exec` argv MUST be byte-for-byte equivalent to the baseline (`--yolo`, `--json`, `-m gpt-5.5`, `-c service_tier="fast"`, `-c features.fast_mode=true`, `-c model_reasoning_effort="xhigh"` and no additional `-c` entries).
+- MUST default to the subscription mode when the `[codex]` table is absent or `provider` is missing/empty; in this mode the `codex exec` argv MUST be byte-for-byte equivalent to the baseline (`--yolo`, `--json`, `-m gpt-5.6-sol`, `-c service_tier="fast"`, `-c features.fast_mode=true`, `-c model_reasoning_effort="xhigh"` and no additional `-c` entries).
 - MUST, when `provider = "<name>"` is set, load the API key and base URL from the process environment using the convention `<NAME_UPPERCASE>_API_KEY` and `<NAME_UPPERCASE>_BASE_URL` before spawning `codex`.
 - MUST reject startup with a visible error containing the missing variable name when either `<NAME_UPPERCASE>_API_KEY` or `<NAME_UPPERCASE>_BASE_URL` is absent; MUST NOT spawn `codex` under these conditions.
 - MUST, when a provider is resolved, append exactly five `-c` overrides to the end of the base `codex exec` argv, in this order: `model_provider=<name>`, `model_providers.<name>.name=<name>`, `model_providers.<name>.base_url=<literal-url>`, `model_providers.<name>.env_key=<NAME_UPPERCASE>_API_KEY`, `model_providers.<name>.wire_api=responses`.
@@ -108,6 +108,11 @@
 - MUST tolerate a missing `.env` file or an older Node runtime without `process.loadEnvFile` support without failing.
 - MUST NOT let `.env` loading override variables already present in `process.env` (i.e., an explicit `export TRANFU_API_KEY=...` wins over `.env`).
 - MUST pass the parent process environment explicitly to the `codex` subprocess so that the variable named by `env_key` is guaranteed to reach it.
+- MUST accept an optional `model` string on the same `[codex]` table already carrying `provider`; the two keys are independent and MUST NOT interact with each other.
+- MUST use `gpt-5.6-sol` as the default `-m` value whenever `[codex].model` is absent, an empty string, or whitespace-only after trim.
+- MUST use the trimmed literal string of `[codex].model` as the `-m` value whenever it is a non-empty string; this replaces only the value following `-m` and MUST NOT reorder, remove, or duplicate any other baseline argv element.
+- MUST reject startup with a visible error (via the existing local-config shape validator) when `[codex].model` is present but not a string; MUST NOT spawn `codex` under this condition.
+- MUST keep the five provider `-c` overrides untouched when `provider` and `model` are set together — the model value only affects the base `-m` slot, provider overrides remain byte-for-byte identical to the provider-only case.
 
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
