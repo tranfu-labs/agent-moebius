@@ -4,6 +4,7 @@ import type { RepositoryRef } from "./issue-source.js";
 
 export interface CodexLocalConfig {
   provider?: string;
+  model?: string;
 }
 
 export interface LocalConfig {
@@ -61,8 +62,14 @@ export function parseLocalConfig(raw: string, source = "config.toml"): LocalConf
   };
 
   if (parsed.codex !== undefined) {
-    const provider = parsed.codex.provider;
-    result.codex = provider === undefined ? {} : { provider: provider.trim() };
+    const codex: CodexLocalConfig = {};
+    if (parsed.codex.provider !== undefined) {
+      codex.provider = parsed.codex.provider.trim();
+    }
+    if (parsed.codex.model !== undefined) {
+      codex.model = parsed.codex.model.trim();
+    }
+    result.codex = codex;
   }
 
   return result;
@@ -70,7 +77,7 @@ export function parseLocalConfig(raw: string, source = "config.toml"): LocalConf
 
 function isLocalConfigShape(value: unknown): value is {
   watchRepositories: Array<{ owner: string; repo: string }>;
-  codex?: { provider?: string };
+  codex?: { provider?: string; model?: string };
 } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -96,23 +103,31 @@ function isLocalConfigShape(value: unknown): value is {
   return true;
 }
 
-function isCodexShape(value: unknown): value is { provider?: string } {
+function isCodexShape(value: unknown): value is { provider?: string; model?: string } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
 
   const codex = value as Record<string, unknown>;
   for (const key of Object.keys(codex)) {
-    if (key !== "provider") {
+    if (key !== "provider" && key !== "model") {
       return false;
     }
   }
 
-  if (codex.provider === undefined) {
-    return true;
+  if (codex.provider !== undefined) {
+    if (typeof codex.provider !== "string" || codex.provider.trim().length === 0) {
+      return false;
+    }
   }
 
-  return typeof codex.provider === "string" && codex.provider.trim().length > 0;
+  if (codex.model !== undefined) {
+    if (typeof codex.model !== "string") {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function isRepositoryRefShape(value: unknown): value is RepositoryRef {
