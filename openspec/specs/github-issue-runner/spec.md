@@ -97,7 +97,7 @@
 
 ### Codex provider 覆盖
 - MUST let the local configuration TOML expose an optional `[codex]` table carrying an optional `provider` string, so that a repository can switch its `codex` CLI invocations from the built-in subscription auth to an API gateway without editing the user's `~/.codex/config.toml`.
-- MUST default to the subscription mode when the `[codex]` table is absent or `provider` is missing/empty; in this mode the `codex exec` argv MUST be byte-for-byte equivalent to the baseline (`--yolo`, `--json`, `-m gpt-5.5`, `-c service_tier="fast"`, `-c features.fast_mode=true`, `-c model_reasoning_effort="xhigh"` and no additional `-c` entries).
+- MUST default to the subscription mode when the `[codex]` table is absent or `provider` is missing/empty; in this mode the `codex exec` argv MUST be byte-for-byte equivalent to the baseline (`--yolo`, `--json`, `-m gpt-5.6-sol`, `-c service_tier="fast"`, `-c features.fast_mode=true`, `-c model_reasoning_effort="xhigh"` and no additional `-c` entries).
 - MUST, when `provider = "<name>"` is set, load the API key and base URL from the process environment using the convention `<NAME_UPPERCASE>_API_KEY` and `<NAME_UPPERCASE>_BASE_URL` before spawning `codex`.
 - MUST reject startup with a visible error containing the missing variable name when either `<NAME_UPPERCASE>_API_KEY` or `<NAME_UPPERCASE>_BASE_URL` is absent; MUST NOT spawn `codex` under these conditions.
 - MUST, when a provider is resolved, append exactly five `-c` overrides to the end of the base `codex exec` argv, in this order: `model_provider=<name>`, `model_providers.<name>.name=<name>`, `model_providers.<name>.base_url=<literal-url>`, `model_providers.<name>.env_key=<NAME_UPPERCASE>_API_KEY`, `model_providers.<name>.wire_api=responses`.
@@ -108,6 +108,11 @@
 - MUST tolerate a missing `.env` file or an older Node runtime without `process.loadEnvFile` support without failing.
 - MUST NOT let `.env` loading override variables already present in `process.env` (i.e., an explicit `export TRANFU_API_KEY=...` wins over `.env`).
 - MUST pass the parent process environment explicitly to the `codex` subprocess so that the variable named by `env_key` is guaranteed to reach it.
+- MUST accept an optional `model` string on the same `[codex]` table already carrying `provider`; the two keys are independent and MUST NOT interact with each other.
+- MUST use `gpt-5.6-sol` as the default `-m` value whenever `[codex].model` is absent, an empty string, or whitespace-only after trim.
+- MUST use the trimmed literal string of `[codex].model` as the `-m` value whenever it is a non-empty string; this replaces only the value following `-m` and MUST NOT reorder, remove, or duplicate any other baseline argv element.
+- MUST reject startup with a visible error (via the existing local-config shape validator) when `[codex].model` is present but not a string; MUST NOT spawn `codex` under this condition.
+- MUST keep the five provider `-c` overrides untouched when `provider` and `model` are set together — the model value only affects the base `-m` slot, provider overrides remain byte-for-byte identical to the provider-only case.
 
 - MUST 按 `count = 1 + comments.length` 计算消息总数，用于日志与本地脚本执行目录命名；它不作为 role thread resume 的唯一上下文依据。
 - MUST 支持通过 `agents/*.md` 文件名寻址 agent；`agents/<agent-name>.md` 对应 issue 消息里的普通 `@<agent-name>` mention 触发方式。
@@ -128,12 +133,11 @@
 - MUST 集中定义 stage 枚举于 `src/stages.ts`，供 CEO guardrail 与各 agent persona 契约测试共用；多处 MUST NOT 各自维护副本。
 - MUST 让 `AllStages = ["plan-written", "code-verified", "in-progress"]`。
 - MUST 让 CEO guardrail 承担阶段验收回流入口：当 Codex agent 的 `latestResponse` 尾部 stage marker 为 `plan-written` 或 `code-verified` 时，`agents/ceo.md` MUST 先查可用「验收语句」清单。`plan-written` 有可用清单时，CEO MUST `append as=ceo` mention `@qa` 要求按其测试设计流程审查本轮方案，MUST NOT 直接 mention 发起需求角色；不查历史 qa 结论——dev 每次重出 `plan-written` 都重审（幂等，防止拿旧结论放行新方案），qa 审查通过后由 qa 自行 mention 发起需求角色交棒。`code-verified` 有可用清单且发起本需求者是可达 agent 时，CEO MUST 返回 `append`，默认 `as=ceo`，正文 mention 发起需求角色并要求其按验收语句逐条验收实现证据。缺少可用验收语句时，CEO MUST `append as=ceo` mention `@dev` 要求补齐；`code-verified` 分支下若发起者是真人用户而非 agent，CEO MUST 输出 `no_change`，维持等真人用户验收。
-- MUST 让 `agents/ceo.md` 在 `plan-written` / `code-verified` 阶段验收回流中执行固定分发顺序：先识别 stage 与可用验收语句，再按场景套固定模板，最后只 mention 对应角色；缺验收语句、qa 交棒兜底、协议违规、验收治理违规、PR 冲突、死锁等待、外部无 mention 兜底等非阶段模板场景 MUST 继续按各自既有规则处理。
-- MUST 让 `plan-written` 且验收语句可用的 CEO append 正文套用“方案评审模板”，并保持现有路由：唯一合法 mention 指向 `@qa`，不得直接 mention 发起需求角色，不得复用历史 qa 结论。
-- MUST 让“方案评审模板”固定包含六项清单：对其他模块的影响（依赖边界 / module-map）、可行性（技术路径是否已验证或有先例）、核心目标贴合度（防跑偏）、过度设计（能否更小）、现有规范遵守（OpenSpec / AGENTS.md / GitHub 交互协议 / 验收治理）、周全性与鲁棒性（意外情况 / 失败路径 / 边界条件）。
-- MUST 让 `code-verified` 且历史方案验收语句可用、发起需求者是可触发 agent 的 CEO append 正文套用“执行后复盘模板”，并保持现有路由：唯一合法 mention 指向发起需求角色；若发起者是真人用户而非 agent，仍输出 `no_change`。
-- MUST 让“执行后复盘模板”固定包含三问：实现是否符合方案最初设计且偏差逐条列出；有无方案当时没考虑到且应该调整的新发现，并回流为后续任务或规范修订；本次执行有无值得沉淀到规范、persona 或文档的新经验。
-- MUST 在执行后复盘模板中用裸写 `dev` 指代执行方，MUST NOT 为了“提醒验收方与执行方”而在同一 append 正文中加入第二个 agent mention。
+- MUST 让 `agents/ceo.md` 在 `plan-written` / `code-verified` 阶段验收回流中执行固定分发顺序：先识别 stage 与可用「验收语句」，再输出**一行轻交棒正文**，最后只 mention 对应角色；缺验收语句、qa 交棒兜底、协议违规、验收治理违规、PR 冲突、死锁等待、外部无 mention 兜底等非阶段场景 MUST 继续按各自既有规则处理。
+- MUST 让 `plan-written` 且验收语句可用的 CEO append 正文为一行轻交棒：陈述 stage 事实并请 `@qa` 按其自身测试设计流程审查；路由约束不变——唯一合法 mention 指向 `@qa`，不得直接 mention 发起需求角色，不得复用历史 qa 结论。
+- MUST 让 `code-verified` 且历史方案验收语句可用、发起需求者是可触发 agent 的 CEO append 正文为一行轻交棒：陈述 stage 事实并请发起需求角色按已确认「验收语句」逐条验收实现证据；路由约束不变——唯一合法 mention 指向发起需求角色；发起者是真人用户时仍输出 `no_change`。
+- MUST NOT 让 CEO 阶段回流 append 正文复制目标角色 persona 已有的审查方法或验收方法清单；审查方法的事实源是 `agents/qa.md`，验收走查与复盘的事实源是 `agents/product-manager.md` 等验收角色 persona。
+- MUST 在 `code-verified` 轻交棒正文中用裸写 `dev` 指代执行方，MUST NOT 为了“提醒验收方与执行方”而在同一 append 正文中加入第二个 agent mention。
 - MUST 保留 CEO 对无剧本场景的自由判断能力：当场景不属于 `plan-written` / `code-verified` 固定模板分支时，CEO 仍按 `agents/ceo.md` 的其他 guardrail 场景输出 `no_change` 或 append。
 - MUST 让 CEO 阶段模板测试同时校验 persona 固定模板段落与 fake CEO append body 中的条目标签，避免 `agents/ceo.md` 模板缺项或 fake append body 与模板段落漂移时测试仍通过。
 - MUST 让 `agents/ceo.md` 承载「qa 交棒兜底」识别场景：`agent = qa` 的 `latestResponse` 含固定结论行时，检查交棒 mention 是否完整——结论行为 `QA 结论：通过` 但正文未 mention 发起需求角色时，CEO MUST `append as=ceo` mention 发起需求角色（识别优先级沿用既有规则）要求按含 QA 增补的「验收语句」逐条验收；结论行为 `QA 结论：不通过` 但正文未 mention `@dev` 时，CEO MUST `append as=ceo` mention `@dev` 要求按 qa 列出的缺陷修正方案后重新输出 `plan-written`；交棒 mention 正常时 MUST 输出 `no_change`，不重复催办。
@@ -276,6 +280,8 @@
 - MUST 让验收角色在全部验收语句通过时声明验收通过，并说明下一步等待谁。
 - MUST 让验收角色在任一验收语句不通过时 mention `@dev`，并明确指出未过语句、实际观察与期望差异。
 - MUST 让 `agents/hermes-user.md` 与 `agents/product-manager.md` 的验收响应仍以 `<!-- agent-moebius:stage=in-progress -->` 作为最后一行。
+- MUST 让 `agents/product-manager.md` 在验收方案或代码结果的响应中，于「验收结论」行之后附一段简短复盘：① 有无方案当时未考虑、应回流为后续任务或规范修订的新发现；② 有无值得沉淀到规范、persona 或文档的经验；无则各写「无」。
+- MUST NOT 让复盘附注改变既有逐条走查硬格式（`N. 通过 — 依据` 与 `验收结论：` 行）与 stage marker 契约。
 - MUST 提供 `agents/dev-manager.md` 作为技术负责人 Codex driver agent persona，与 `dev`、`product-manager` 同级、同样以 `agents/*.md` 文件名自动发现加载；核心职责为技术决策、架构选型与质量保证，MUST NOT 亲自写实现代码。
 - MUST 让 `agents/dev-manager.md` 以对话形式给出技术决策，MUST NOT 落 ADR / design 文件；当某决策会打破 `docs/architecture/module-map.md` 的依赖方向时，MUST 要求写码方在实现时补一条 ADR（自身不落盘）。
 - MUST 让 `agents/dev-manager.md` 承载方案评估方法论——一组不分先后的并行判断维度，至少覆盖：优先搜英文网络最佳实践 / 成熟开源框架 / 项目现有能力再决定是否自造；方案可行性与可靠性（失败模式、边界、降级 / 回滚）；对其它模块的影响与新增 BUG / 回归 / 安全漏洞风险；成本与长期演进。
@@ -1229,7 +1235,7 @@ And append body MUST NOT mention 发起需求角色
 And runner 先 post dev 原文，再以 `<ceo>:` 前缀 post CEO 追加评论
 And 日志包含 `event=ceo-guardrail-appended` 与 `as=ceo`
 
-### 场景 38.0：CEO guardrail — plan-written 使用方案评审模板且只移交 qa
+### 场景 38.0：CEO guardrail — plan-written 一行轻交棒且只移交 qa
 Given 最新消息包含 `@dev`
 And dev codex 本轮返回的 `${LAST_RESPONSE}` 末尾含 `<!-- agent-moebius:stage=plan-written -->`
 And `${LAST_RESPONSE}` 的最终 stage marker 前包含「验收语句」小节
@@ -1238,7 +1244,8 @@ And 完整公开 issue context 明确写明发起本需求角色是 `product-man
 When runner 在 `postComment` 之前调用 CEO guardrail
 Then CEO MUST 返回 `append`、`as=ceo`
 And append body MUST mention `@qa`
-And append body MUST 包含方案评审模板六项：对其他模块的影响、可行性、核心目标贴合度、过度设计、现有规范遵守、周全性与鲁棒性
+And append body MUST 为一行轻交棒：陈述本轮方案已输出 `plan-written` 且含「验收语句」清单的事实，并请 qa 按其自身测试设计流程审查给出结论
+And append body MUST NOT 包含六项方案评审清单或其他 qa persona 已有方法的复制
 And append body MUST NOT mention `@product-manager`
 And append body MUST 只有一个合法 agent mention
 
@@ -1300,7 +1307,7 @@ And append body MUST 要求 `@product-manager` 按验收语句逐条验收实现
 And runner 先 post dev 原文，再以 `<ceo>:` 前缀 post CEO 追加评论
 And 日志包含 `event=ceo-guardrail-appended` 与 `as=ceo`
 
-### 场景 39.0：CEO guardrail — code-verified 使用执行后复盘模板且不额外 mention dev
+### 场景 39.0：CEO guardrail — code-verified 一行轻交棒且不额外 mention dev
 Given 最新消息包含 `@dev`
 And dev codex 本轮返回的 `${LAST_RESPONSE}` 末尾含 `<!-- agent-moebius:stage=code-verified -->`
 And 完整公开 issue context 中存在一条历史 dev `plan-written` 方案
@@ -1309,17 +1316,18 @@ And 完整公开 issue context 明确写明发起本需求角色是 `product-man
 When runner 在 `postComment` 之前调用 CEO guardrail
 Then CEO MUST 返回 `append`、`as=ceo`
 And append body MUST mention `@product-manager`
-And append body MUST 包含执行后复盘三问：实现是否符合方案最初设计、有无方案当时没考虑到的新发现、本次执行有无新经验值得沉淀
+And append body MUST 为一行轻交棒：陈述 dev 已输出 `code-verified` 的事实，并请发起需求角色按已确认「验收语句」逐条验收实现证据，任一不通过时指出未过语句、实际观察与期望差异
+And append body MUST NOT 包含三问复盘模板或其他验收角色 persona 已有方法的复制
 And append body MAY 裸写 `dev`
 And append body MUST NOT mention `@dev`
 And append body MUST 只有一个合法 agent mention
 
 ### 场景 39.0.1：CEO guardrail — 阶段模板测试防止模板与 fake 输出漂移
-Given `agents/ceo.md` 包含方案评审模板与执行后复盘模板的固定段落
+Given `agents/ceo.md` 包含 `plan-review` 与 `post-implementation-retro` 剧本的一行轻交棒段落
 And `tests/format-ceo.test.ts` 使用 fake CEO append output 跑 `formatCeoComment`
-When 方案评审模板六项任一项在 `agents/ceo.md` 中缺失
+When 轻交棒关键语句任一在 `agents/ceo.md` 中缺失
 Then `pnpm vitest run tests/format-ceo.test.ts` MUST 失败
-When fake append body 与 `agents/ceo.md` 对应模板段落的条目标签不一致
+When fake append body 与 `agents/ceo.md` 对应轻交棒段落的关键语句不一致
 Then `pnpm vitest run tests/format-ceo.test.ts` MUST 失败
 
 ### 场景 39.1：CEO guardrail — 非 dev 普通 agent 也走 CEO

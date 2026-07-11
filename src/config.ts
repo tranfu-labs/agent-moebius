@@ -91,18 +91,22 @@ export const WORKDIR_ROOT = path.resolve(
   process.env.AGENT_MOEBIUS_WORKDIR_ROOT ?? path.join(PROJECT_ROOT, "..", "agent-moebius-workdir"),
 );
 
-export const CODEX_EXEC_OPTIONS_BASE = [
-  "--yolo",
-  "--json",
-  "-m",
-  "gpt-5.5",
-  "-c",
-  'service_tier="fast"',
-  "-c",
-  "features.fast_mode=true",
-  "-c",
-  'model_reasoning_effort="xhigh"',
-] as const;
+export const DEFAULT_CODEX_MODEL = "gpt-5.6-sol";
+
+export function buildCodexExecOptionsBase(model: string): string[] {
+  return [
+    "--yolo",
+    "--json",
+    "-m",
+    model,
+    "-c",
+    'service_tier="fast"',
+    "-c",
+    "features.fast_mode=true",
+    "-c",
+    'model_reasoning_effort="xhigh"',
+  ];
+}
 
 export interface CodexProviderConfig {
   provider: string;
@@ -110,7 +114,7 @@ export interface CodexProviderConfig {
 }
 
 export function resolveCodexProviderConfig(
-  local: { codex?: { provider?: string } },
+  local: { codex?: { provider?: string; model?: string } },
   env: NodeJS.ProcessEnv = process.env,
 ): CodexProviderConfig | null {
   const rawProvider = local.codex?.provider;
@@ -137,8 +141,17 @@ export function resolveCodexProviderConfig(
   return { provider, baseUrl: baseUrl! };
 }
 
-export function buildCodexExecOptions(cfg: CodexProviderConfig | null): string[] {
-  const base = [...CODEX_EXEC_OPTIONS_BASE];
+export function resolveCodexModel(local: { codex?: { provider?: string; model?: string } }): string {
+  const raw = local.codex?.model;
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  return trimmed.length > 0 ? trimmed : DEFAULT_CODEX_MODEL;
+}
+
+export function buildCodexExecOptions(
+  cfg: CodexProviderConfig | null,
+  model: string,
+): string[] {
+  const base = buildCodexExecOptionsBase(model);
   if (cfg === null) {
     return base;
   }
@@ -160,7 +173,8 @@ export function buildCodexExecOptions(cfg: CodexProviderConfig | null): string[]
 }
 
 export const CODEX_PROVIDER_CONFIG = resolveCodexProviderConfig(LOCAL_CONFIG);
-export const CODEX_EXEC_OPTIONS = buildCodexExecOptions(CODEX_PROVIDER_CONFIG);
+export const CODEX_MODEL = resolveCodexModel(LOCAL_CONFIG);
+export const CODEX_EXEC_OPTIONS = buildCodexExecOptions(CODEX_PROVIDER_CONFIG, CODEX_MODEL);
 
 export const CONFIG_LOG_FIELDS = {
   configPath: CONFIG_PATH,
