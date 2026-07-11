@@ -1,38 +1,8 @@
 # Wireframe Flow Notes
 
-## Observer
+## Local Console
 
-```text
-pnpm observer
-  │
-  ├─ HTTP request / browser refresh
-  │    │
-  │    ├─ read config.toml + config.local.toml
-  │    ├─ read .state/goal-ledger.json
-  │    ├─ read .state/github-response-intake.json
-  │    ├─ read .state/role-threads.json
-  │    ├─ read .state/agent-contexts.json
-  │    └─ read .state/run-manifests.jsonl
-  │
-  ├─ build read-only observer model
-  │    ├─ validate / diagnose ledger without writing it
-  │    ├─ filter ledger goals by watched repository references
-  │    ├─ map goal → milestone → task tree
-  │    ├─ map owner phases, gates, child acceptance, integration events
-  │    ├─ attach only explicit TaskRecord.runManifestRefs evidence
-  │    ├─ keep unrelated run manifests in Unlinked local runs
-  │    └─ preserve legacy issue/run records as secondary diagnostics
-  │
-  └─ render HTML page
-       ├─ ledger-first tree view
-       ├─ ledger read failure does not break legacy issue/run section
-       ├─ no operation buttons
-       ├─ no watcher
-       ├─ no GitHub / Codex / publisher calls
-       └─ no writes to config, .state, manifests, artifacts, releases, or worktrees
-```
-
-## Desktop Console
+The desktop operator console is the default local experience. Its auxiliary status and observer diagnostics share `docs/wireframes/pages/console.md` as the current page fact source.
 
 ```text
 启动桌面应用
@@ -71,7 +41,15 @@ pnpm observer
   │    ├─ 数据目录与更新入口
   │    └─ runner / local console / observer 状态
   │
-  ├─ [打开观察页] → 默认浏览器打开 observer 动态端口地址
+  ├─ [打开观察页] 或独立运行 pnpm observer
+  │    └─ 默认浏览器打开 observer 动态端口地址
+  │         ├─ HTTP request / browser refresh 时读取 config 与 .state
+  │         ├─ 构建只读 ledger-first goal → milestone → task 模型
+  │         ├─ 映射 owner phase、gate、child acceptance、integration event
+  │         ├─ 只把显式 TaskRecord.runManifestRefs 作为 task evidence
+  │         ├─ 保留 Unlinked local runs 与 legacy issue/run diagnostics
+  │         ├─ ledger 失败不影响 legacy issue/run 区域
+  │         └─ 无操作按钮 / watcher / GitHub / Codex / publisher / 状态写入
   ├─ [打开数据目录] → 系统文件管理器打开数据根
   ├─ [检查更新]
   │    ├─ macOS：读取 GitHub latest release，有新版则跳转下载页

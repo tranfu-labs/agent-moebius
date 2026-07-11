@@ -109,8 +109,8 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 
 验收证据（2026-07-05）：
 - 方案与归档：`openspec/changes/archive/2026-07-05-observer-ledger-ui-t7/`
-- 行为事实源：`openspec/specs/github-issue-runner/spec.md`
-- 版式事实源：`docs/wireframes/pages/observer.md`、`docs/wireframes/flow.md`
+- 行为事实源：`openspec/specs/local-console/spec.md`
+- 版式事实源：`docs/wireframes/pages/console.md`、`docs/wireframes/flow.md`
 - 架构事实源：`docs/architecture/module-map.md`
 - 实现：`src/observer/read-state.ts`、`src/observer/model.ts`、`src/observer/render.ts`、`src/observer/server.ts`
 - 测试：`tests/observer.test.ts`

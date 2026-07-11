@@ -2,7 +2,7 @@
 
 ## 域定位
 
-`local-console` 是默认本地对话操作台的数据通道。它复用 GitHub issue runner 已有的 conversation、mention trigger、agent persona 与 Codex driver 能力，但输入输出落在本机 HTTP API 与 `.state/local-console.sqlite`，供 Electron 操作台或本地浏览器客户端使用。
+`local-console` 是默认本地对话操作台的数据通道。它复用 GitHub issue runner 已有的 conversation、mention trigger、agent persona 与 Codex driver 能力，但输入输出落在本机 HTTP API 与 `.state/local-console.sqlite`，供 Electron 操作台或本地浏览器客户端使用。本域同时承载辅助只读 observer 的诊断与呈现事实；observer 运行时仍是独立旁路，不并入本地会话状态机。
 
 本域规定一个本地项目下多会话、运行直播、中断、卡住状态、本地错误记录、agent 接力位点、本地 no-mention 交棒总线、workspace diff 事实、T5 child session orchestration 的本地子会话等价能力、T5 本地验收走查/验收回流切片，以及 dead-letter / recovery 可见收敛；不承载 T5 的完整 CEO 兜底、完整 GitHub child issue 编排、artifact publishing parity，也不承载 T6 的 GitHub/local 互斥启动 flag。
 
@@ -84,7 +84,7 @@
 - MUST keep GitHub runner semantics untouched while allowing the local child session orchestration, local acceptance-loop, and dead-letter/recovery slices in this domain.
 - MUST allow T5 child session orchestration only as local child session creation, `sessions.parent_session_id` persistence, and sidebar parent-child rendering.
 - MUST allow local acceptance-role walkthrough parsing, local acceptance fact recording, parent integration progress, repair routing, and visible format diagnostics in `.state/local-console.sqlite`.
-- MUST NOT modify `conversation`, `triggers`, agent mention parsing, stage parsing, CEO guardrail, goal-ledger business rules, GitHub issue timeline normalization, GitHub issue intake scheduling, GitHub comment publication, reaction targets, release artifact publication, issue media handling, issue worktree behavior, observer behavior, GitHub driver pool semantics, or other GitHub issue runner semantics to satisfy local-console behavior.
+- MUST NOT modify `conversation`, `triggers`, agent mention parsing, stage parsing, CEO guardrail, goal-ledger business rules, GitHub issue timeline normalization, GitHub issue intake scheduling, GitHub comment publication, reaction targets, release artifact publication, issue media handling, issue worktree behavior, GitHub driver pool semantics, or other GitHub issue runner semantics to satisfy local-console behavior.
 - MUST NOT use the local child session, acceptance-loop, or dead-letter/recovery slices to implement unrelated T5 local equivalents such as full CEO no-mention fallback, artifact publishing parity, extra worktree diff return behavior beyond the existing T5 store fact, or unconfirmed cross-mode behavior.
 - MUST NOT implement T6 GitHub/local mutually exclusive startup flag or cross-mode data migration in this domain.
 
@@ -115,7 +115,240 @@
 - MUST keep the original message retryable or visibly diagnosed when format handling fails.
 - MUST ensure format reminders contain no legal agent mention and do not trigger an agent run by themselves.
 
+### 辅助只读 observer 入口
+- MUST 提供本地只读观察页入口 `pnpm observer`。
+- MUST 让观察页进程独立于 runner 进程：observer 启动、崩溃、退出或被强杀不得影响 runner heartbeat、issue processing、driver pool、role thread state、intake state、artifact publishing 或 CEO guardrail 行为。
+- MUST NOT 让 runner import、调用或依赖 `src/observer/` 模块。
+- MUST 让 observer 只读本地 `config.toml`、`config.local.toml`、`.state/goal-ledger.json`、`.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl`。
+- MUST NOT 让 observer 调用 GitHub、Codex、release upload、artifact publisher 或任何状态 save helper。
+- MUST NOT 让 observer 写 `.state/*.json`、`.state/run-manifests.jsonl`、run manifest 副本、release asset、worktree 文件或 runner state。
+- MUST 让 observer 只展示本地 watched repository 白名单内的 repository；非白名单 repository 的本地记录 MUST 被忽略。
+- MUST 在白名单 repository 没有本地 issue 记录时显示独立空态。
+- MUST 在 observer 输入文件存在但不可读、不可解析或 shape 校验失败时显示独立读取失败诊断。
+- MUST 让“没有记录”和“读取失败”在文案与视觉状态上可区分。
+- MUST 从 GitHub response intake state、role thread state、agent context state 与 run manifest records 聚合 issue 记录，且 MUST NOT 新增业务状态机。
+- MUST 标注每个 issue 状态来源，包括 intake mode / failure data、role thread `lastSeenIndex`、agent context worktree data，以及可用时的最新 run manifest stage。
+- MUST 逐行解析 `.state/run-manifests.jsonl`，跳过坏行或不完整 record，并保留被跳过行号的诊断。
+- MUST 把无换行结尾的截断 JSONL 尾行视为坏 manifest line，跳过该行并保留此前完整 records。
+- MUST 诊断 manifest 缺少 `issue` 或 `artifacts` 等必填字段的 record，且不得丢弃其他有效 manifest records。
+- MUST 在 `.state` 文件缺失、JSON state 文件损坏、JSONL 行损坏或 manifest record 不完整时继续渲染观察页。
+- MUST 把缺失 `.state` 文件分类为 missing diagnostic，而不是读取失败。
+- MUST 把损坏的 `config.toml` 或 `config.local.toml` 分类为配置读取失败，而不是空白白名单。
+- MUST 从 run manifest records 展示 artifact；`publishedUrl` 存在时显示链接，且 URL 看起来是图片时渲染图片预览。
+- MUST 在 `publishedUrl = null` 时把 staged artifact `path` 显示为“未发布”；observer MUST NOT 伪造 URL 或发布 artifact。
+- MUST NOT 在 observer UI 提供操作按钮或写动作。
+- MUST 在浏览器刷新或新 HTTP 请求时重新读取本地文件；v0 MUST NOT 要求 file watcher。
+- MUST 在 observer 启动、页面刷新、artifact 区域查看与 observer 停止后，保持 watched config files、`.state/*.json`、`.state/run-manifests.jsonl`、artifact directories 与 release directories 无新增、无修改。
+- MUST 在 `PATH` 前置 fake `gh` 与 fake `codex` 时仍能渲染 observer 页面，且这些 fake command 在 observer request 期间 MUST 没有调用记录。
+
+### Ledger-first 诊断呈现
+- MUST upgrade the local observer main view from issue/run-first to ledger-first when `.state/goal-ledger.json` is available and valid.
+- MUST let observer read `.state/goal-ledger.json` as a local read-only input; observer MUST NOT write the ledger, call ledger save helpers, or expose a ledger write API.
+- MUST bound observer's `.state/goal-ledger.json` read with an observer-local configurable timeout; if the read never settles or exceeds the timeout, observer MUST return an HTTP response with a ledger timeout diagnostic and keep the legacy issue/run section visible.
+- MUST keep observer read-only: no GitHub comment writes, no runner write endpoint, no `gh` / `codex` invocation, no release upload, no file watcher, and no operation or confirmation buttons.
+- MUST continue rendering the existing issue/run observer section when `.state/goal-ledger.json` is missing, malformed, or shape-invalid.
+- MUST render a distinct ledger empty / read-failure state without turning the whole observer page unavailable.
+- MUST display only ledger goals related to the local watched repository whitelist in the primary tree. A goal is related when any goal, milestone, task, or phase provenance or issue reference points to a watched repository.
+- MUST count fully un-watched ledger goals in diagnostics rather than rendering them in the primary tree.
+- MUST display non-whitelisted issue references inside an included goal as disabled or muted references labeled `not watched / no live poll status`; observer MUST NOT hide those references.
+- MUST render ledger hierarchy as goal -> milestone -> task, and MUST place tasks without `milestoneId` under a fixed `未归属里程碑任务` group.
+- MUST render phase summaries under their owner nodes, where owners are goals, milestones, or tasks.
+- MUST highlight the active phase for each owner and keep pending / completed phases collapsed or visually secondary.
+- MUST display `no active phase` when an owner has no active phase and MUST display an owner-level ledger error when an owner has multiple active phases; observer MUST NOT infer a substitute global active phase and MUST NOT turn this owner-local condition into a global ledger read-failure fallback.
+- MUST display task readiness, quality baseline, dependencies, scope summary, acceptance statement count/results, parent issue ref, child issue refs, latest child acceptance fact, integration acceptance event, runManifestRefs, active phase projection, and blocked/waiting reason when present.
+- MUST NOT display full issue/comment bodies, full run manifest JSON records, raw hidden orchestration keys, raw hidden integration keys, raw hidden roundtable keys, tokens, secrets, or unrelated local machine details.
+- MUST render human gate visibility without operation capability: who is expected to act, what they are expected to confirm, which ledger fact / issue ref / integration event is the basis, and which GitHub issue should receive the next human comment.
+- MUST render `闸口不可定位：ledger 缺 parent/child issue reference` when a gate cannot identify the next GitHub issue from ledger parent/child issue references.
+- MUST use only `TaskRecord.runManifestRefs` explicit references as task evidence.
+- MUST place run manifest records not explicitly referenced by a task into an `Unlinked local runs` or equivalent legacy diagnostics section; observer MUST NOT count inferred child-issue runs as task evidence.
+- MUST detect T6 roundtable child references from bounded child ref notes only when the note contains an exact `agent-moebius-roundtable-key:[a-f0-9]{32}` key shape, show a `roundtable child` badge, and MUST NOT reveal the hidden roundtable key.
+- MUST NOT show a roundtable badge for ordinary provenance text or near-miss text that resembles but does not match the exact roundtable key shape.
+- MUST NOT treat roundtable completion as child acceptance pass or integration acceptance pass.
+- MUST keep the existing observer diagnostics for config, intake state, role threads, agent contexts, run manifests, artifact publish links, unpublished artifact paths, missing files, malformed JSON, malformed JSONL lines, and fake `gh` / `codex` zero invocation.
+
 ## 场景
+
+### 场景 LC.OBS.1：白名单 issue 与阶段状态可见
+Given `config.local.toml` 包含 `tranfu-labs/agent-moebius`
+And 本地状态包含 `tranfu-labs/agent-moebius#50` 的记录
+When 用户运行 `pnpm observer` 并打开本地页面
+Then 页面显示 issue `50`
+And 页面按来源标注 intake、role thread、agent context 与 run manifest 中可用的阶段 / 状态数据
+
+### 场景 LC.OBS.2：有发布截图的 issue 显示预览或链接
+Given `.state/run-manifests.jsonl` 包含 `tranfu-labs/agent-moebius#50` 的 record
+And 该 record 包含 `publishedUrl` 非空且看起来是图片 URL 的 artifact
+When observer 页面渲染该 issue
+Then 页面显示该 published URL
+And 页面为该 artifact 渲染图片预览
+
+### 场景 LC.OBS.3：未发布 artifact 显示只读路径
+Given `.state/run-manifests.jsonl` 包含 `path = "output-artifacts/t4.png"` 的 artifact
+And `publishedUrl = null`
+When observer 页面渲染该 run
+Then 页面把该 artifact 标为“未发布”
+And 页面显示 `output-artifacts/t4.png`
+And observer 不尝试发布或 serve 该本地文件
+
+### 场景 LC.OBS.4：坏 JSONL 行不让页面崩溃
+Given `.state/run-manifests.jsonl` 包含一行损坏 JSON
+And 后续行包含有效 manifest records
+When observer 页面渲染
+Then 有效 records 仍被显示
+And 诊断区指出被跳过的损坏行
+
+### 场景 LC.OBS.5：没有记录与读取失败可区分
+Given 一个白名单 repository 没有本地 issue 记录
+And `.state/role-threads.json` 存在但内容损坏
+When observer 页面渲染
+Then 空 repository 显示“没有记录”状态
+And 诊断区单独显示 `role-threads.json` 读取或解析失败
+
+### 场景 LC.OBS.6：观察页进程被强杀不影响 runner
+Given observer server 正在运行
+When observer 进程被强杀
+And 随后触发一轮 runner heartbeat
+Then runner heartbeat 与 issue processing 不 import 或依赖 observer modules
+And runner 日志没有 observer 相关错误
+
+### 场景 LC.OBS.7：缺失状态文件是 missing 而不是读取失败
+Given 本地配置中存在一个白名单 repository
+And `.state/github-response-intake.json`、`.state/role-threads.json`、`.state/agent-contexts.json` 与 `.state/run-manifests.jsonl` 均缺失
+When observer 页面渲染
+Then 页面成功返回
+And 该 repository 显示“没有记录”状态
+And 诊断区把这些 state files 分类为 missing，而不是读取失败
+
+### 场景 LC.OBS.8：损坏状态与缺字段 manifest 保留合法记录
+Given 一个 state JSON 文件损坏
+And `.state/run-manifests.jsonl` 包含一个有效 record、一行损坏 JSON、一个缺少 `issue` 或 `artifacts` 的 record
+When observer 页面渲染
+Then 有效 manifest record 被显示
+And 诊断区指出损坏文件、损坏行与缺失 manifest 字段
+
+### 场景 LC.OBS.9：尾行截断不丢弃此前完整 run
+Given `.state/run-manifests.jsonl` 包含一个完整有效 run record
+And 最后一行是没有结尾换行的截断 JSON
+When observer 页面渲染
+Then 完整 run record 被显示
+And 诊断区指出截断尾行已跳过
+
+### 场景 LC.OBS.10：只读边界无文件修改
+Given observer fixture 目录已记录初始文件列表与内容哈希
+When observer 启动、页面刷新三次、artifact 区域被查看且 observer 停止
+Then watched config files、`.state/*.json`、`.state/run-manifests.jsonl`、artifact directories 与 release directories 没有新增或修改文件
+
+### 场景 LC.OBS.11：不调用 gh 或 codex
+Given fake `gh` 与 fake `codex` commands 被放到 `PATH` 前面
+And 这些 fake commands 会记录调用并在被调用时失败
+When observer 页面渲染
+Then 页面仍可用
+And fake invocation logs 为空
+
+### 场景 LC.OBS.12：配置损坏不是空白白名单
+Given `config.local.toml` 存在但无法解析
+When observer 页面渲染
+Then 诊断区显示配置读取失败
+And 页面不把所有 repository 误报为“没有记录”
+
+### 场景 LC.OBS.T7.1：目标树展示 watched goal
+Given `.state/goal-ledger.json` contains a goal whose task child issue reference points to `tranfu-labs/agent-moebius`
+And `config.local.toml` watches `tranfu-labs/agent-moebius`
+When the observer page renders
+Then the primary view shows that goal as a goal -> milestone -> task tree
+And diagnostics do not classify that goal as filtered out
+
+### 场景 LC.OBS.T7.2：完全无白名单关联 goal 不进主树
+Given `.state/goal-ledger.json` contains one goal with no provenance or issue reference in a watched repository
+When the observer page renders
+Then that goal is not shown in the primary tree
+And diagnostics count it as not watched
+
+### 场景 LC.OBS.T7.3：非白名单 ref 在 included goal 内置灰
+Given a watched goal contains a child issue ref to `other/repo issue 9`
+When the observer page renders the task refs
+Then `other/repo issue 9` is visible
+And it is labeled `not watched / no live poll status`
+
+### 场景 LC.OBS.T7.4：未归属任务固定分组
+Given a task has `goalId` but no `milestoneId`
+When the observer page renders its goal
+Then the task appears under `未归属里程碑任务`
+And it is not attached to the first milestone
+
+### 场景 LC.OBS.T7.5：phase owner 映射可信
+Given a goal, milestone, and task each have phases
+When the observer page renders the tree
+Then each phase summary appears under its owner node
+And active phases are highlighted
+And pending/completed phases are secondary or collapsed
+
+### 场景 LC.OBS.T7.6：无 active 与多个 active 不推断
+Given an otherwise valid ledger has owner A with no active phase
+And owner B with multiple active phases
+When the observer page renders
+Then the primary tree still renders
+And owner A shows `no active phase`
+And owner B shows an owner-level ledger error
+And observer does not infer a replacement active phase
+And the page does not switch to a global ledger read-failure fallback
+
+### 场景 LC.OBS.T7.7：task detail 显示核心状态映射
+Given a task has readiness, quality baseline, dependencies, scope, acceptance statements, parent issue ref, child issue refs, acceptance facts, integration events, and runManifestRefs
+When the observer page renders that task
+Then those fields are visible as summarized task detail
+And full issue/comment bodies, raw hidden keys, and full run manifest JSON are not visible
+
+### 场景 LC.OBS.T7.8：gate 可见但不可操作
+Given a task child ref is missing a passed acceptance fact
+When the observer page renders the task
+Then it shows who is expected to act, what acceptance is waiting, the child issue ref basis, and the next GitHub issue to comment on
+And the page contains no confirmation button or write action
+
+### 场景 LC.OBS.T7.9：闸口无法定位时清晰诊断
+Given a gate condition exists but the ledger lacks a required parent or child issue reference
+When the observer page renders
+Then it shows `闸口不可定位：ledger 缺 parent/child issue reference`
+
+### 场景 LC.OBS.T7.10：roundtable child badge 不计入验收
+Given one task child ref bounded note contains an exact roundtable hidden key
+And another child ref bounded note contains ordinary provenance text
+And another child ref bounded note contains near-miss text that is not an exact roundtable key
+When the observer page renders the child ref
+Then only the exact roundtable child shows a `roundtable child` badge
+And the raw hidden key text is not rendered
+And ordinary or near-miss notes are not mislabeled as roundtable
+And roundtable children are not counted as child acceptance pass or integration acceptance pass
+
+### 场景 LC.OBS.T7.11：explicit runManifestRefs 才是 task evidence
+Given a task has one explicit runManifestRef to `.state/run-manifests.jsonl` line 12
+And another run manifest record exists for the same child issue but is not explicitly referenced by the task
+When the observer page renders
+Then line 12 appears as task evidence
+And the unreferenced run appears under `Unlinked local runs`
+
+### 场景 LC.OBS.T7.12：坏 ledger fallback 保留 legacy observer
+Given `.state/goal-ledger.json` contains malformed JSON
+And existing intake/run manifest state is valid
+When the observer page renders
+Then the ledger tree shows a read-failure empty state
+And the existing issue/run observer section still shows valid records
+
+### 场景 LC.OBS.T7.13：ledger read timeout 保留 legacy observer
+Given `.state/goal-ledger.json` readFile never settles through an injected reader or fake file system
+And existing intake/run manifest state is valid
+When the observer page is requested
+Then the HTTP response returns within the configured timeout
+And the page shows a ledger timeout diagnostic
+And the existing issue/run observer section still shows valid records
+And fake `gh` and fake `codex` invocation logs are empty
+
+### 场景 LC.OBS.T7.14：observer 零写入零外部命令
+Given fixture files are hashed before observer requests
+And fake `gh` and fake `codex` commands record invocations
+When the observer page renders and local details are expanded
+Then watched config files, `.state/*.json`, `.state/run-manifests.jsonl`, artifact directories, and release directories are unchanged
+And fake invocation logs are empty
 
 ### 场景 LC.T4.1：桌面台发起对话后看到运行直播
 Given the desktop operator console is open
@@ -320,3 +553,7 @@ When local startup stale repair marks the run stuck
 Then the local timeline shows a visible stuck record with reason and runDir when available
 And the session no longer reports a running source message
 And a later local message can be accepted and processed.
+
+## 可验证行为
+- `pnpm vitest run tests/observer.test.ts` MUST 通过，覆盖 observer 的白名单聚合、状态来源标注、artifact 发布链接 / 图片预览、未发布 artifact 路径、缺 `.state` 文件、坏 state JSON、坏 JSONL、JSONL 尾行截断、manifest 缺字段、损坏 config 诊断、无写入边界、fake `gh` / `codex` 零调用，以及 observer 被强杀后 runner 测试不受影响。
+- `pnpm test` MUST 通过，确保本域规格归位不引入 GitHub runner 核心语义回归。

@@ -107,7 +107,7 @@ T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packa
 
 ### - [ ] T7 · GitHub 降为互斥 flag 模式 + 收尾（`成品级`）
 
-默认 local；启动参数切纯 GitHub 模式，二选一、运行时不并存、数据不互通。事实源收尾：`github-issue-runner` spec 中观察页 / GitHub 呈现类规格迁移到新业务域（如 `local-console`）；`docs/wireframes/pages/observer.md` → `pages/console.md` + `flow.md` 同步；AGENTS.md 更新启动形态。
+默认 local；启动参数切纯 GitHub 模式，二选一、运行时不并存、数据不互通。事实源收尾中，观察页 / GitHub 呈现类规格已归入 `local-console`，`docs/wireframes/pages/console.md` 与 `docs/wireframes/flow.md` 已成为现行版式事实源；剩余工作是互斥 flag 与 AGENTS.md 启动形态更新。
 
 验收场景（细化时保留）：默认启动 → 走本地不碰 GitHub；带 flag 启动 → 走 GitHub 不碰本地库；两模式数据互不可见。
 
