@@ -112,13 +112,14 @@
     - 首选走 `.mcp.json` 里的 `electron` MCP server；若它列不出窗口，可裸 CDP 兜底：`curl http://localhost:9222/json/version` 探活、`curl http://localhost:9222/json` 拿 target 列表后自建 WebSocket 挂载。
     - 端口冲突（被 Chrome debugger 或其他 CDP 工具占用）会导致 Electron 启动失败，可用 `lsof -iTCP:9222 -sTCP:LISTEN` 定位占用方。
 - 构建桌面主进程 / 操作台 / 状态页：`pnpm --filter @agent-moebius/desktop build`
+  - desktop build 会先构建 `@agent-moebius/console-ui`，renderer 只消费组件库已由 Vite/PostCSS/Tailwind 编译的 `globals.css` package export；构建产物若残留 `@tailwind` / `@apply` 或缺少关键 utility 会直接失败。
 - 打包桌面应用：`pnpm --filter @agent-moebius/desktop dist`
   - 三平台产物通过 electron-builder 生成：macOS dmg/zip、Windows nsis、Linux AppImage。
   - `desktop-v*` tag 会触发 `.github/workflows/release-desktop.yml` 构建并上传 GitHub Releases；Windows/Linux 更新走 electron-updater，macOS 无签名证书期间检查更新只跳转下载页。
 - 运行 React 对话操作台组件库 Storybook：`pnpm --filter @agent-moebius/console-ui storybook`
   - 组件库位于 `packages/console-ui`，使用 shadcn 风格源码组件、Radix 原语与 Tailwind 语义令牌。
   - `src/styles/tokens.css` 是近单色令牌源：灰阶为主、indigo 只用于交互、绿/红只用于裁决与危险；「等你」用中性结构信号，不使用专属色相。
-  - `@agent-moebius/console-ui` 被 desktop renderer 复用；renderer 入口需引入 `@agent-moebius/console-ui/globals.css`。
+  - `@agent-moebius/console-ui` 被 desktop renderer 复用；renderer 入口需引入 `@agent-moebius/console-ui/globals.css`。desktop 的 `console.css` 只负责窗口/root 宿主约束，不得复制组件布局、按钮、输入框或卡片样式。
 - T4 本地操作台验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t4.ts`
   - 会启动 fake local console server 和静态桌面 renderer，生成 `artifacts/acceptance/t4-live.png`、`artifacts/acceptance/t4-interrupted.png`、`artifacts/acceptance/t4-failed.png` 与 `artifacts/acceptance/t4-evidence.json`。
 - T4.5 本地接力循环验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t45.ts`

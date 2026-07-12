@@ -14,9 +14,12 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: resolve(here, "src/index.ts"),
+      entry: {
+        index: resolve(here, "src/index.ts"),
+        styles: resolve(here, "src/style-entry.ts")
+      },
       formats: ["es"],
-      fileName: "index"
+      fileName: (_format, entryName) => `${entryName}.js`
     },
     rollupOptions: {
       external: [
