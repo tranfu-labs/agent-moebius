@@ -33,3 +33,5 @@ desktop/release/
 ### Workspace package build outputs
 packages/*/dist/
 packages/*/storybook-static/
+
+.env
