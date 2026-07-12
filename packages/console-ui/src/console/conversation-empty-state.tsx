@@ -1,41 +1,23 @@
-import { MessageSquarePlus } from "lucide-react";
+import { Braces } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { Card } from "@/ui/card";
-import { RoleComposer } from "./role-composer";
 
 export interface ConversationEmptyStateProps {
-  value: string;
-  onValueChange: (value: string) => void;
-  onSubmit?: (value: string) => void;
+  projectName: string;
   className?: string;
 }
 
-export function ConversationEmptyState({
-  value,
-  onValueChange,
-  onSubmit,
-  className
-}: ConversationEmptyStateProps): JSX.Element {
+export function ConversationEmptyState({ projectName, className }: ConversationEmptyStateProps): JSX.Element {
   return (
-    <Card className={cn("mx-auto flex max-w-[560px] flex-col items-stretch gap-4 p-5", className)}>
-      <div className="flex items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-sunken text-sub">
-          <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
+    <div className={cn("grid min-h-full place-items-center pb-12 text-center", className)}>
+      <div>
+        <span className="mx-auto mb-5 flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-line-strong text-hint">
+          <Braces className="h-5 w-5" aria-hidden="true" />
         </span>
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold leading-6 text-ink">开始一个新会话</h2>
-          <p className="mt-1 text-sm leading-6 text-sub">描述你的目标，@ 一个角色开始</p>
-        </div>
+        <h1 className="text-[26px] font-medium leading-9 tracking-[-0.025em] text-ink">
+          想在 <span className="font-semibold">{projectName}</span> 中完成什么？
+        </h1>
       </div>
-
-      <RoleComposer
-        value={value}
-        onValueChange={onValueChange}
-        onSubmit={onSubmit}
-        placeholder="描述你的目标，@ 一个角色开始…"
-        statusText="发消息会开启一次会话"
-      />
-    </Card>
+    </div>
   );
 }

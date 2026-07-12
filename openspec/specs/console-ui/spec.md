@@ -122,39 +122,28 @@ The operator console MUST render tail-read fallback or diagnostic copy without l
 - **WHEN** the sidebar renders
 - **THEN** it shows the project row, all sessions under the project, and visible state indicators for running, stuck, and failed sessions.
 
-### Requirement: Parent-child session sidebar tree
+### Requirement: Flat session rail with persisted lineage
 
-The operator console MUST render sessions as a project to parent session to child session tree when parent session ids are available.
+The operator console MUST render every session under a project as a flat peer list even when persisted session summaries contain `parentSessionId`.
 
-The operator console MUST keep root session selection and child session selection controlled by the same selected session id.
+Runtime lineage MUST NOT produce indentation, tree connectors, expand/collapse controls, child-count summaries, or parent breadcrumbs in the primary console.
 
-The operator console MUST restore the same parent-child tree after refresh from session summary data alone.
+The operator console MUST keep every session controlled by the same selected session id and MUST restore the selected session after refresh.
 
-The operator console MUST keep child session rows compact, indented, and scannable with title and status visible.
+The operator console MUST render each session at most once even when parent session references are missing, cyclic, self-referential, or otherwise corrupt.
 
-The operator console MUST render child sessions with missing parent summaries as visible root fallback rows rather than dropping them.
+#### Scenario: Derived sessions remain peers
 
-The operator console MUST render each session at most once even when parent session references are cyclic, self-referential, or otherwise corrupt.
-
-The operator console MUST bound parent tree construction so corrupt parent references cannot hang rendering.
-
-#### Scenario: Sidebar renders persisted child sessions
-
-- **GIVEN** a project has a parent session and two child sessions whose `parentSessionId` references the parent
+- **GIVEN** a project has an original session and derived sessions whose `parentSessionId` references the original
 - **WHEN** the operator console sidebar renders
-- **THEN** the two child sessions appear under the parent session and selecting a child session calls the normal session selection callback with that child session id.
+- **THEN** every session uses the same row indentation and selection model
+- **AND** no tree connector, expand control, child summary, or parent breadcrumb is shown.
 
-#### Scenario: Refresh keeps tree hierarchy
+#### Scenario: Corrupt lineage stays bounded and visible
 
-- **GIVEN** the operator console receives the same flat session summaries after a renderer refresh
-- **WHEN** the sidebar renders again
-- **THEN** the child sessions still appear under the same parent session and their order and selected state remain stable.
-
-#### Scenario: Corrupt parent chains stay bounded and visible
-
-- **GIVEN** flat session summaries contain a parent cycle or self-parent reference
+- **GIVEN** flat session summaries contain a parent cycle, self-parent reference, or missing parent reference
 - **WHEN** the operator console sidebar renders
-- **THEN** rendering completes, each session appears at most once, and sessions that cannot be safely attached are shown as root fallback rows.
+- **THEN** rendering completes and each session appears exactly once as a peer row.
 
 ### Requirement: Flat Card and status Badge baseline
 
@@ -176,24 +165,44 @@ The shared `Badge` primitive MUST reserve pass/fail verdict coloring for accepta
 - **WHEN** the Card and Badge stories render
 - **THEN** Card appears as a flat thin-border surface, Badge stories use status semantic variants, and the stories do not show a separate floating component-library visual language.
 
-### Requirement: Operator console reuses Card and Badge
+### Requirement: Codex-native single-stream operator console
 
-The operator console main content MUST render run live blocks and timeline messages through the shared `Card` component.
+The operator console MUST use a Codex-desktop-style two-column frame consisting of an integrated project/session rail and one conversation canvas with a bottom composer.
 
-The operator console main content MUST render session and message status labels through the shared `Badge` component.
+The default conversation surface MUST NOT render a session header toolbar, aggregate passed/running/waiting counters, a persistent diagnostics button, a persistent worktree toggle, or expandable raw machine data.
 
-The operator console main content MUST NOT keep a parallel card or badge implementation using native `article`, native status `span`, or hand-written `border border-line` card/badge containers.
+User, agent, and system records MUST appear in one chronological stream. Agent identity MUST use a compact localized role avatar, name, and inline state metadata rather than separate agent columns or floating message cards.
 
-The operator console MUST keep project and session sidebar rows as navigation controls rather than card surfaces.
+Active runs, waiting-for-human facts, failures, stuck results, and interruptions MUST remain in the chronological stream and MUST preserve interrupt or diagnostic actions.
 
-#### Scenario: Main content has no hand-written card or badge shell
+The bottom composer MUST display the current project and workspace context. Workspace mutation MUST reuse the existing direct/worktree callback without changing runtime workspace semantics.
 
-- **GIVEN** `packages/console-ui/src/console/operator-console.tsx` has been updated
-- **WHEN** the main content region is searched for `border border-line` and `<article`
-- **THEN** the search returns no card or badge shell matches and the project/session sidebar navigation remains compact and selectable.
+Raw project paths, SQLite paths, session ids, run ids, run directories, working directories, machine output, and workspace-unavailable diagnostics MUST NOT be visible on the default conversation surface; failures MAY offer a contextual action that opens auxiliary developer diagnostics.
 
-#### Scenario: Runtime states remain distinguishable
+#### Scenario: Empty session matches the Codex frame
 
-- **GIVEN** the operator console renders running, waiting, failed, stuck, interrupted, idle, completed, pending, and displayed states
-- **WHEN** the user scans the header, live run block, and timeline
-- **THEN** each state has a visible status label, failed or stuck states are visually distinct from interrupted states, and waiting or pending states use neutral structural styling.
+- **GIVEN** the selected session has no messages or active run
+- **WHEN** the operator console renders
+- **THEN** the rail remains visible, the canvas shows a concise project invitation, and the composer stays near the bottom
+- **AND** no session toolbar or aggregate counters are shown.
+
+#### Scenario: Multiple agents share one stream
+
+- **GIVEN** a session contains replies from product-manager, dev, and qa
+- **WHEN** the timeline renders
+- **THEN** replies appear in timestamp order in the same canvas with distinct localized role identities
+- **AND** no per-agent panel or dashboard is created.
+
+#### Scenario: Workspace changes from composer context
+
+- **GIVEN** a project supports worktree mode
+- **WHEN** the user activates the workspace context item
+- **THEN** the existing project workspace mutation callback receives the new mode
+- **AND** the rail has no persistent worktree button.
+
+#### Scenario: Machine details stay out of conversation
+
+- **GIVEN** a run snapshot contains cwd, runDir, workspace mode, raw output, and diagnostics
+- **WHEN** the default console renders
+- **THEN** none of those machine values are visible in the rail, canvas, or composer
+- **AND** a readable failure summary may offer a developer-diagnostics action.

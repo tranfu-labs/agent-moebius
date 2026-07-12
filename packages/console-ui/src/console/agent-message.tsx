@@ -2,7 +2,6 @@ import { ChevronRight } from "lucide-react";
 import { useState, type KeyboardEvent, type MouseEvent } from "react";
 
 import { cn } from "@/lib/utils";
-import { Card } from "@/ui/card";
 
 export type AgentStage = "in-progress" | "plan-written" | "code-verified";
 
@@ -26,6 +25,16 @@ const roleLabels: Record<string, string> = {
   qa: "测试",
   secretary: "秘书",
   user: "你",
+};
+
+const roleAvatars: Record<string, string> = {
+  ceo: "C",
+  dev: "开",
+  "dev-manager": "技",
+  "hermes-user": "用",
+  "product-manager": "产",
+  qa: "测",
+  secretary: "秘",
 };
 
 const stageLabels: Record<AgentStage, string> = {
@@ -59,7 +68,7 @@ export function AgentMessage({
   return (
     <details className={cn("group text-sm text-sub", className)} open={open}>
       <summary
-        className="grid cursor-pointer list-none grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2 gap-y-1 rounded-md px-1 py-1 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden"
+        className="grid cursor-pointer list-none grid-cols-[28px_minmax(0,1fr)_auto] gap-x-3 gap-y-1 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden"
         aria-expanded={open}
         aria-label={open ? `收起${roleLabel}原文` : `展开${roleLabel}原文`}
         tabIndex={0}
@@ -70,28 +79,24 @@ export function AgentMessage({
           }
         }}
       >
-        <ChevronRight
-          className={cn("mt-0.5 h-4 w-4 text-hint transition-transform", open ? "rotate-90" : "")}
-          aria-hidden="true"
-        />
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-sunken text-xs font-semibold text-ava-fg" aria-hidden="true">
+          {roleAvatars[role] ?? "协"}
+        </span>
         <span className="min-w-0">
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="font-semibold text-ink">{roleLabel}</span>
-            <span className="text-hint">·</span>
-            <span>{stageLabel}</span>
+            <span className="text-xs font-normal text-sub">{stageLabel}</span>
             {timestamp ? <span className="text-xs text-hint tnum">{timestamp}</span> : null}
           </span>
-          <span className="mt-1 block min-w-0 text-ink">
-            <span className="text-sub">结论：</span>
-            <span>{conclusionText}</span>
-          </span>
-          <span className="mt-0.5 block min-w-0">{handoffText}</span>
+          <span className="mt-1.5 block min-w-0 leading-6 text-ink">{conclusionText}</span>
+          <span className="mt-1 block min-w-0 text-xs text-sub">{handoffText}</span>
         </span>
-        <span className="self-start whitespace-nowrap pt-0.5 text-xs text-hint">{open ? "收起" : "点开全文"}</span>
+        <ChevronRight
+          className={cn("mt-1 h-4 w-4 text-hint transition-transform", open ? "rotate-90" : "")}
+          aria-hidden="true"
+        />
       </summary>
-      <Card className="ml-6 mt-2 rounded-lg bg-sunken p-3">
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5 text-ink">{rawMarkdown}</pre>
-      </Card>
+      <pre className="ml-10 mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words border-l border-line pl-4 font-mono text-xs leading-5 text-ink">{rawMarkdown}</pre>
     </details>
   );
 }

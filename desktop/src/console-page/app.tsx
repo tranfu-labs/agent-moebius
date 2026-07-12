@@ -270,8 +270,8 @@ function App(): JSX.Element {
     <OperatorConsole
       project={project}
       projects={projects}
-      selectedProjectId={state?.selectedProjectId ?? selectedProjectId}
-      selectedSessionId={state?.selectedSessionId ?? selectedSessionId}
+      selectedProjectId={selectedProjectId}
+      selectedSessionId={selectedSessionId}
       selectedSession={selectedSession}
       messages={messages}
       activeRun={activeRun}

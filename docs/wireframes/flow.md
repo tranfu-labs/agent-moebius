@@ -26,10 +26,10 @@ The desktop operator console is the default local experience. Its auxiliary stat
   │    ├─ runner 状态 / 崩溃重启进度 / 日志路径
   │    ├─ local console URL
   │    ├─ 单本地项目 / 多会话列表
-  │    │    ├─ flat sessions 带 parentSessionId
-  │    │    ├─ renderer 构造 project → parent session → child session 树
-  │    │    ├─ 刷新后仅靠持久化 summaries 恢复层级
-  │    │    └─ missing parent / self-parent / cycle → 每个 session 至多显示一次，无法归属者 root fallback
+  │    │    ├─ flat sessions 可带 parentSessionId 供运行时编排与恢复
+  │    │    ├─ renderer 始终渲染 project → peer session 平铺列表
+  │    │    ├─ 刷新后恢复同级列表与选中会话，不展示父子层级
+  │    │    └─ missing parent / self-parent / cycle → 每个 session 仍只显示一次
   │    ├─ 当前会话时间线
   │    ├─ active run 直播块 / runDir / elapsed / tail
   │    ├─ 中断按钮

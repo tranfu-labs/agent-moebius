@@ -105,7 +105,7 @@
   - 开发态默认数据根为仓库根；打包态默认数据根为 `~/.agent-moebius`；两种形态都可用 `AGENT_MOEBIUS_DATA_ROOT` 覆盖。
   - 首启会把提交版 `agents/` 与示例 `config.toml` 种子拷贝到数据根，已存在的文件一律不覆盖；用户本机仍通过数据根下被忽略的 `config.local.toml` 配置监听仓库。
   - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`；runner child 显式以 GitHub mode 启动，因此不会重复启动 local console server。
-  - 操作台通过本地 HTTP API 创建 / 切换会话、发送消息、订阅运行快照并中断当前 run；状态页和 observer 只保留为辅助诊断入口。
+  - 操作台采用 Codex 桌面端式两栏骨架：macOS 主窗口使用集成标题栏，左侧项目下的所有会话（包括带 `parentSessionId` 的裂变会话）始终平铺为同级列表，右侧为同一条多 agent 时间线，底部输入器承载项目 / 本地或隔离工作区上下文；状态页和 observer 只保留为辅助诊断入口，路径、SQLite、runDir、cwd、内部 id 与原始输出不常驻对话页。
   - 同一台机器上，终端 GitHub-mode 与桌面形态不得同时监听相同 GitHub repository；如确需切换形态，优先让终端 GitHub-mode 也设置同一个 `AGENT_MOEBIUS_DATA_ROOT`，共享 GitHub runner state 与 `config.local.toml`。
   - dev 期 `pnpm desktop` 会打开 Chromium 远程调试端口 `9222`（仅当 `!app.isPackaged`），供 AI agent 通过 CDP attach 已运行的桌面窗口，读渲染进程的 DOM / console / network 并 eval 代码；打包版本永不开放。见 [ADR-0002](docs/adr/0002-electron-cdp-dev-debug-channel.md)，其补充节含实测证据与 Codex Chrome 扩展横向对比。
     - 目前只覆盖渲染进程一路；主进程 Node 的 console 与 IPC 状态若要读，需另开 `--inspect=9229`（尚未落地，见 ADR-0002 补充节）。
@@ -118,7 +118,7 @@
   - `desktop-v*` tag 会触发 `.github/workflows/release-desktop.yml` 构建并上传 GitHub Releases；Windows/Linux 更新走 electron-updater，macOS 无签名证书期间检查更新只跳转下载页。
 - 运行 React 对话操作台组件库 Storybook：`pnpm --filter @agent-moebius/console-ui storybook`
   - 组件库位于 `packages/console-ui`，使用 shadcn 风格源码组件、Radix 原语与 Tailwind 语义令牌。
-  - `src/styles/tokens.css` 是近单色令牌源：灰阶为主、indigo 只用于交互、绿/红只用于裁决与危险；「等你」用中性结构信号，不使用专属色相。
+  - `src/styles/tokens.css` 是 Codex 桌面端式近单色令牌源：白色画布、浅灰侧栏、深色交互为主，绿/红只用于裁决与危险；「等你」用中性结构信号，不使用专属色相。
   - `@agent-moebius/console-ui` 被 desktop renderer 复用；renderer 入口需引入 `@agent-moebius/console-ui/globals.css`。desktop 的 `console.css` 只负责窗口/root 宿主约束，不得复制组件布局、按钮、输入框或卡片样式。
 - T4 本地操作台验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t4.ts`
   - 会启动 fake local console server 和静态桌面 renderer，生成 `artifacts/acceptance/t4-live.png`、`artifacts/acceptance/t4-interrupted.png`、`artifacts/acceptance/t4-failed.png` 与 `artifacts/acceptance/t4-evidence.json`。
@@ -127,7 +127,7 @@
 - T5 本地 dead-letter/recovery 验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t5.ts --case deadletter-recovery-suite`
   - 会启动 fake local console server，覆盖连续失败 dead-letter、防重复刷同一失败、timeout/stale 重启恢复、`recordAgentResponse` 提交前连续失败、dead-letter 可见写失败后 retry、旧 SQLite failure metadata 迁移、dead-letter 不含合法 agent mention，并生成 `artifacts/acceptance/t5-evidence.json`。
 - T5 子会话编排验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t5.ts --case child-session-acceptance`
-  - 覆盖本地 CEO child session orchestration、`sessions.parent_session_id` 写入、侧栏刷新恢复、store timeout、project mismatch、hidden key collision、corrupt parent chain，并生成 `artifacts/acceptance/t5-evidence.json`。
+  - 覆盖本地 CEO child session orchestration、`sessions.parent_session_id` 写入、侧栏刷新后以同级列表恢复全部裂变会话、store timeout、project mismatch、hidden key collision、corrupt parent chain，并生成 `artifacts/acceptance/t5-evidence.json`；`parent_session_id` 只服务运行时编排与恢复，不驱动 UI 树形层级。
 - 测试：`pnpm test`
 - 类型检查：`pnpm typecheck`
 - lint/格式化：TODO: 当前尚未配置 ESLint / Prettier；改代码时至少运行测试与类型检查。

@@ -1,9 +1,8 @@
 import * as React from "react";
-import { Send } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
-import { Input } from "@/ui/input";
 
 export const ROLE_COMPLETIONS = [
   { handle: "ceo", label: "CEO", description: "澄清目标并编排任务", avatar: "C" },
@@ -12,7 +11,7 @@ export const ROLE_COMPLETIONS = [
   { handle: "dev-manager", label: "技术负责人", description: "技术决策与质量把关", avatar: "技" },
   { handle: "product-manager", label: "产品", description: "确认需求与验收范围", avatar: "产" },
   { handle: "hermes-user", label: "用户代表", description: "从用户视角验收体验", avatar: "用" },
-  { handle: "secretary", label: "秘书", description: "维护 CEO 规则与文档", avatar: "秘" }
+  { handle: "secretary", label: "秘书", description: "维护 CEO 规则与文档", avatar: "秘" },
 ] as const;
 
 export type RoleHandle = (typeof ROLE_COMPLETIONS)[number]["handle"];
@@ -25,6 +24,7 @@ export interface RoleComposerProps {
   statusText?: string;
   submitLabel?: string;
   disabled?: boolean;
+  context?: React.ReactNode;
   className?: string;
 }
 
@@ -139,11 +139,12 @@ export function RoleComposer({
   onSubmit,
   placeholder = "描述你的目标，@ 一个角色开始…",
   statusText,
-  submitLabel = "发送",
+  submitLabel = "发送消息",
   disabled = false,
-  className
+  context,
+  className,
 }: RoleComposerProps): JSX.Element {
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const pendingCaretRef = React.useRef<number | null>(null);
   const listboxId = React.useId();
   const [focused, setFocused] = React.useState(false);
@@ -177,7 +178,7 @@ export function RoleComposer({
     inputRef.current.setSelectionRange(nextCaret, nextCaret);
   }, [value]);
 
-  const updateCaretFromInput = (input: HTMLInputElement) => {
+  const updateCaretFromInput = (input: HTMLTextAreaElement) => {
     setCaret(input.selectionStart ?? input.value.length);
   };
 
@@ -195,7 +196,7 @@ export function RoleComposer({
     onValueChange(next.value);
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (panelOpen && event.key === "ArrowDown") {
       event.preventDefault();
       setActiveIndex((current) => (current + 1) % roles.length);
@@ -220,25 +221,62 @@ export function RoleComposer({
       return;
     }
 
-    if (event.key === "Enter" && onSubmit && value.trim() !== "") {
+    if (event.key === "Enter" && !event.shiftKey && onSubmit && value.trim() !== "") {
       event.preventDefault();
       onSubmit(value);
     }
   };
 
   return (
-    <div className={cn("w-full", className)}>
-      <div className="relative">
-        <div className="flex items-center gap-2 rounded-lg border border-line bg-input p-1.5">
-          <Input
+    <div className={cn("relative w-full", className)}>
+      {panelOpen ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute bottom-full left-0 z-30 mb-2 w-full rounded-xl border border-line bg-card p-1.5 shadow-overlay"
+          aria-label="角色补全面板"
+        >
+          {roles.map((role, index) => (
+            <button
+              key={role.handle}
+              type="button"
+              role="option"
+              aria-selected={index === activeIndex}
+              className={cn(
+                "grid w-full grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-hover",
+                index === activeIndex ? "bg-sel" : "bg-transparent",
+              )}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                selectRole(role.handle);
+              }}
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-sunken text-xs font-semibold text-ava-fg">
+                {role.avatar}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium text-ink">{role.label}</span>
+                <span className="block truncate text-xs text-sub">{role.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-[18px] border border-line-strong bg-input shadow-overlay">
+        {context ? <div className="border-b border-line bg-sunken px-3.5 py-2.5">{context}</div> : null}
+        <div className="relative min-h-[76px]">
+          <textarea
             ref={inputRef}
             value={value}
+            rows={2}
             disabled={disabled}
             placeholder={placeholder}
+            aria-label="消息内容"
             aria-autocomplete="list"
             aria-expanded={panelOpen}
             aria-controls={panelOpen ? listboxId : undefined}
-            className="h-8 min-w-0 flex-1 border-0 bg-transparent px-2 py-1 focus-visible:outline-none"
+            className="block min-h-[76px] w-full resize-none bg-transparent px-4 py-3.5 pr-16 text-sm leading-6 text-ink outline-none placeholder:text-hint disabled:cursor-not-allowed"
             onChange={(event) => {
               setClosedTriggerKey(null);
               onValueChange(event.currentTarget.value);
@@ -256,50 +294,17 @@ export function RoleComposer({
           />
           <Button
             type="button"
-            size="sm"
+            size="icon"
+            className="absolute bottom-3 right-3 h-8 w-8 rounded-full p-0"
             disabled={disabled || value.trim() === ""}
+            aria-label={submitLabel}
             onClick={() => onSubmit?.(value)}
           >
-            <Send className="h-3.5 w-3.5" aria-hidden="true" />
-            {submitLabel}
+            <ArrowUp className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
-
-        {panelOpen ? (
-          <div
-            id={listboxId}
-            role="listbox"
-            className="absolute left-0 top-full z-20 mt-1.5 w-full rounded-lg border border-line bg-card p-1 shadow-overlay"
-            aria-label="角色补全面板"
-          >
-            {roles.map((role, index) => (
-              <button
-                key={role.handle}
-                type="button"
-                role="option"
-                aria-selected={index === activeIndex}
-                className={cn(
-                  "grid w-full grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-hover",
-                  index === activeIndex ? "bg-sel" : "bg-transparent"
-                )}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  selectRole(role.handle);
-                }}
-              >
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ava-bg text-xs font-semibold text-ava-fg">
-                  {role.avatar}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-ink">{role.label}</span>
-                  <span className="block truncate text-xs text-sub">{role.description}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        ) : null}
       </div>
-      {statusText ? <p className="mt-1.5 text-xs text-hint">{statusText}</p> : null}
+      {statusText ? <p className="mt-1.5 px-2 text-xs text-hint">{statusText}</p> : null}
     </div>
   );
 }
@@ -320,14 +325,12 @@ function hasBoundaryBefore(text: string, atIndex: number): boolean {
   if (atIndex === 0) {
     return true;
   }
-
-  return !/[A-Za-z0-9_.-]/u.test(text[atIndex - 1]);
+  return /[\s([{，。！？、；：]/u.test(text[atIndex - 1] ?? "");
 }
 
 function hasBoundaryAfter(text: string, endIndex: number): boolean {
   if (endIndex >= text.length) {
     return true;
   }
-
-  return !/[A-Za-z0-9_.-]/u.test(text[endIndex]);
+  return /[\s)\]}，。！？、；：]/u.test(text[endIndex] ?? "");
 }

@@ -8,3 +8,7 @@ body,
 body {
   overflow: hidden;
 }
+
+.window-drag-region {
+  -webkit-app-region: drag;
+}

@@ -26,7 +26,7 @@ const steps: RunBlockStep[] = [
 ];
 
 describe("RunBlock", () => {
-  it("shows role, elapsed time, interrupt button, step statuses, and collapsed step output", () => {
+  it("shows role, elapsed time, interrupt button, and step statuses without machine output", () => {
     render(<RunBlock role="dev" elapsedTime="3分12秒" steps={steps} onInterrupt={vi.fn()} />);
 
     expect(screen.getByText("开发")).toBeVisible();
@@ -37,11 +37,7 @@ describe("RunBlock", () => {
     expect(screen.getByText("未开始")).toBeVisible();
     expect(screen.getByText("2. 运行测试")).toBeVisible();
 
-    const rawOutput = screen.getByText(/exit:42 should stay hidden/u);
-    expect(rawOutput).not.toBeVisible();
-
-    fireEvent.click(screen.getByText("查看第 2 步原始输出"));
-    expect(rawOutput).toBeVisible();
+    expect(screen.queryByText(/exit:42 should stay hidden/u)).not.toBeInTheDocument();
   });
 
   it("degrades to a single useful line when no step data exists", () => {
@@ -60,7 +56,7 @@ describe("RunBlock", () => {
     expect(screen.getByText("12秒")).toBeVisible();
     expect(screen.getByText("正在整理测试设计")).toBeVisible();
     expect(screen.getByRole("button", { name: "中断测试运行" })).toBeVisible();
-    expect(screen.getByText("idle-timeout raw detail")).not.toBeVisible();
+    expect(screen.queryByText("idle-timeout raw detail")).not.toBeInTheDocument();
   });
 
   it("uses deterministic fallbacks when steps, summary, and elapsed time are missing or blank", () => {
@@ -68,20 +64,6 @@ describe("RunBlock", () => {
 
     expect(screen.getByText("耗时未知")).toBeVisible();
     expect(screen.getByText("正在运行，等待进展")).toBeVisible();
-  });
-
-  it("toggles run step disclosure with one Enter or Space activation", () => {
-    render(<RunBlock role="dev" elapsedTime="3分12秒" steps={steps} onInterrupt={vi.fn()} />);
-
-    const summary = screen.getByText("查看第 1 步原始输出").closest("summary");
-    expect(summary).not.toBeNull();
-    const rawOutput = screen.getByText("completed raw output");
-
-    fireEvent.keyDown(summary!, { key: "Enter" });
-    expect(rawOutput).toBeVisible();
-
-    fireEvent.keyDown(summary!, { key: " " });
-    expect(rawOutput).not.toBeVisible();
   });
 
   it("calls onInterrupt once for one mouse activation and once for one keyboard activation", () => {
@@ -97,15 +79,11 @@ describe("RunBlock", () => {
     expect(screen.getByText("开发")).toBeVisible();
   });
 
-  it("preserves special raw output text after expanding details", () => {
+  it("keeps top-level machine output out of the conversation surface", () => {
     const specialRaw = "first line\n<node attr=\"x\"> & exit:42";
     render(<RunBlock role="dev" elapsedTime="3秒" summary="正在运行测试" rawOutput={specialRaw} onInterrupt={vi.fn()} />);
 
-    const rawOutput = screen.getByText((_, element) => element?.tagName === "PRE" && element.textContent === specialRaw);
-    expect(rawOutput).not.toBeVisible();
-
-    fireEvent.click(screen.getByText("查看原始输出"));
-    expect(rawOutput).toBeVisible();
-    expect(rawOutput.textContent).toBe(specialRaw);
+    expect(screen.queryByText(specialRaw)).not.toBeInTheDocument();
+    expect(screen.queryByText("查看原始输出")).not.toBeInTheDocument();
   });
 });

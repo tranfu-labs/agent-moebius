@@ -1,9 +1,8 @@
 import { Check, Circle, Loader2, Square } from "lucide-react";
-import { useState, type KeyboardEvent, type MouseEvent } from "react";
+import type { KeyboardEvent } from "react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
-import { Card } from "@/ui/card";
 
 export type RunBlockStepStatus = "completed" | "running" | "pending";
 
@@ -46,7 +45,7 @@ export function RunBlock({
   role,
   elapsedTime,
   summary,
-  rawOutput,
+  rawOutput: _rawOutput,
   steps,
   onInterrupt,
   className,
@@ -55,7 +54,6 @@ export function RunBlock({
   const elapsed = nonBlank(elapsedTime) ?? "耗时未知";
   const usableSteps = steps?.length ? steps : null;
   const fallbackSummary = nonBlank(summary) ?? "正在运行，等待进展";
-  const runRawOutput = nonBlank(rawOutput);
 
   const handleInterruptKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -65,13 +63,13 @@ export function RunBlock({
   };
 
   return (
-    <Card className={cn("max-w-[680px] rounded-lg p-3", className)}>
+    <div className={cn("max-w-[680px] border-y border-line py-3", className)}>
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold text-ink">{roleLabel}</span>
         <span className="text-xs text-sub tnum">{elapsed}</span>
         <Button
           type="button"
-          variant="danger"
+          variant="outline"
           size="sm"
           className="ml-auto"
           aria-label={`中断${roleLabel}运行`}
@@ -92,15 +90,13 @@ export function RunBlock({
       ) : (
         <div className="mt-3 text-sm text-sub">
           <div>{fallbackSummary}</div>
-          {runRawOutput ? <RawDisclosure label="查看原始输出" rawText={runRawOutput} /> : null}
         </div>
       )}
-    </Card>
+    </div>
   );
 }
 
 function RunStepItem({ step, index }: { step: RunBlockStep; index: number }): JSX.Element {
-  const rawText = nonBlank(step.rawOutput);
   const summary = nonBlank(step.summary);
 
   return (
@@ -119,7 +115,6 @@ function RunStepItem({ step, index }: { step: RunBlockStep; index: number }): JS
           {summary ? <span className="mt-0.5 block text-xs leading-5 text-sub">{summary}</span> : null}
         </span>
       </div>
-      {rawText ? <RawDisclosure className="ml-6" label={`查看第 ${index + 1} 步原始输出`} rawText={rawText} /> : null}
     </div>
   );
 }
@@ -132,35 +127,6 @@ function StepStatusIcon({ status }: { status: RunBlockStepStatus }): JSX.Element
     return <Loader2 className="h-4 w-4 animate-spin text-sub" />;
   }
   return <Circle className="h-3.5 w-3.5 text-hint" />;
-}
-
-function RawDisclosure({ label, rawText, className }: { label: string; rawText: string; className?: string }): JSX.Element {
-  const [open, setOpen] = useState(false);
-  const toggle = (event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>) => {
-    event.preventDefault();
-    setOpen((value) => !value);
-  };
-
-  return (
-    <details className={cn("mt-2", className)} open={open}>
-      <summary
-        className="cursor-pointer list-none rounded-sm text-xs text-hint outline-none hover:text-sub focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden"
-        aria-expanded={open}
-        tabIndex={0}
-        onClick={toggle}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            toggle(event);
-          }
-        }}
-      >
-        {open ? "收起原始输出" : label}
-      </summary>
-      <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-sunken p-3 font-mono text-xs leading-5 text-ink">
-        {rawText}
-      </pre>
-    </details>
-  );
 }
 
 function localizeRole(role: string): string {

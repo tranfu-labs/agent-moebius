@@ -16,7 +16,7 @@
     --destructive: var(--danger);
     --destructive-foreground: var(--accent-fg);
     --ring: var(--accent);
-    --radius: 8px;
+    --radius: 7px;
     color-scheme: light;
   }
 
