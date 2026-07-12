@@ -2,6 +2,7 @@ import { build } from "esbuild";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertCompiledRendererStyles } from "./renderer-style-contract.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -54,6 +55,9 @@ await build({
   format: "esm",
   platform: "browser",
   target: "chrome120",
+  alias: {
+    "@agent-moebius/console-ui/globals.css": path.join(root, "../packages/console-ui/dist/style.css"),
+  },
   sourcemap: true,
   entryPoints: [path.join(root, "src/console-page/app.tsx")],
   outfile: path.join(dist, "console-page/app.js"),
@@ -61,6 +65,10 @@ await build({
     ".css": "css",
   },
 });
+
+const rendererCssPath = path.join(dist, "console-page/app.css");
+const rendererCss = await fs.readFile(rendererCssPath, "utf8");
+assertCompiledRendererStyles(rendererCss);
 
 await fs.copyFile(path.join(root, "src/console-page/index.html"), path.join(dist, "console-page/index.html"));
 await fs.copyFile(path.join(root, "src/console-page/console.css"), path.join(dist, "console-page/console.css"));
