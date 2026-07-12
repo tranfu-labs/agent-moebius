@@ -8,17 +8,18 @@ The console page is the Electron desktop shell's default main window. It is a lo
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ ● ● ●  Moebius                                                               │
 ├──────────────────┬───────────────────────────────────────────────────────────┤
-│ ＋ 新会话         │                                                           │
 │ ▱ 打开项目        │  你 · 14:02                                               │
 │                  │  @dev 帮我验证本地操作台                                  │
 │ 项目             │  ──────────────────────────────────────────────────────   │
-│ ▱ agent-moebius  │  开发 · 正在执行 00:43                         [中断]     │
+│ ▱ agent-moebius ＋│  开发 · 正在执行 00:43                         [中断]     │
 │   本地 T4 验收   │  running tests...                                         │
 │   裂变会话 A     │                                                           │
 │   裂变会话 B     │                                                           │
 │   失败构造验证   │                                                           │
 │   卡住状态验证   │                                                           │
 │   空白会话       │                                                           │
+│ ▱ demo-project  ＋│                                                           │
+│   设计讨论       │                                                           │
 │                  │        ┌──────────────────────────────────────┐           │
 │                  │        │ agent-moebius  本地  当前分支       │           │
 │                  │        ├──────────────────────────────────────┤           │
@@ -29,6 +30,9 @@ The console page is the Electron desktop shell's default main window. It is a lo
 
 Requirements:
 - The macOS titlebar integrates traffic-light controls with the left rail; Windows/Linux retain native controls.
+- The rail renders every persisted project using its real folder title and groups each session under its owning project.
+- Each project row owns its `＋` action; there is no ambiguous global new-session action.
+- `打开项目` delegates folder selection to the desktop shell and project persistence to the loopback local console API.
 - All sessions remain peer rows even when runtime lineage contains `parentSessionId`; no tree connector, indentation, parent breadcrumb, or child count is shown.
 - A renderer refresh restores the same flat list and selected session; corrupt lineage cannot duplicate or hide a session.
 - The single timeline mixes user, localized agent, and readable system records in chronological order.
@@ -36,6 +40,52 @@ Requirements:
 - Project path, SQLite path, runDir, cwd, internal ids, raw output, and worktree diagnostics do not appear on the default surface.
 - Workspace mode moves to the composer context row and keeps the existing direct/worktree mutation semantics.
 - Tail-read timeout, missing files, or unparseable output display a deterministic human summary, never a blank running row.
+
+## Empty Session Project Selection
+
+```text
+┌────────────────────┬───────────────────────────────────────────────────────┐
+│ ▱ 打开项目          │                                                       │
+│                    │                                                       │
+│ 项目               │                    空白新会话                         │
+│ ▱ agent-moebius  ＋ │                                                       │
+│   新会话            │                                                       │
+│   本地 T4 验收      │                                                       │
+│ ▱ demo-project   ＋ │       ┌──────────────────────────────────────┐        │
+│   设计讨论          │       │ [▱ agent-moebius⌄] [本地] [当前分支] │        │
+│                    │       │ 描述你的目标…                    ↑  │        │
+│                    │       └──────────────────────────────────────┘        │
+└────────────────────┴───────────────────────────────────────────────────────┘
+```
+
+Project menu expanded:
+
+```text
+                              ┌────────────────────────┐
+                              │ ✓ agent-moebius        │
+                              │   demo-project         │
+                              └────────────────────────┘
+       ┌──────────────────────────────────────────────┐
+       │ [▱ agent-moebius⌃] [本地] [当前分支]         │
+       │ 未发送的输入草稿                         ↑  │
+       └──────────────────────────────────────────────┘
+```
+
+Locked after history or orchestration relationship:
+
+```text
+       ┌──────────────────────────────────────────────┐
+       │ ▱ agent-moebius  [本地] [当前分支]           │
+       │ 描述你的目标…                            ↑  │
+       └──────────────────────────────────────────────┘
+```
+
+Requirements:
+- Activating a project row's `＋` creates and selects an empty session under that exact project.
+- An empty session with no run or parent/child relationship exposes an accessible project menu in the composer context.
+- Selecting another project keeps the same session selected and preserves its draft while moving it to the target project group.
+- During create/open/rebind, all selection-changing entry points are disabled and handler-guarded; rebind additionally disables first-message submission.
+- A session with messages, an active run, or parent/child relationships keeps its project visible as locked text without a menu.
 
 ## Interrupted
 

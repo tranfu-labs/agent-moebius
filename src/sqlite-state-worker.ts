@@ -8,6 +8,8 @@ import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
   LOCAL_CONSOLE_PROJECT_ID,
   LOCAL_CONSOLE_PROJECT_SOURCE_TYPE,
+  type LocalConsoleSessionSummary,
+  type MoveEmptySessionResult,
 } from "./local-console/types.js";
 import type { SqliteStateCommand, SqliteStateSource } from "./sqlite-state.js";
 
@@ -123,6 +125,8 @@ function runCommand(input: WorkerInput): unknown {
         return recordLocalProjectWorkspaceStatus(database, input.command);
       case "local-create-session":
         return createLocalSession(database, input.command);
+      case "local-move-empty-session":
+        return moveEmptyLocalSession(database, input.command);
       case "local-create-child-session":
         return createLocalChildSession(database, input.command);
       case "local-list-sessions":
@@ -877,6 +881,43 @@ function createLocalSession(
     ensureSession(database, input.sessionId, input.now, input.title, input.projectId);
     ensureLocalCursor(database, input.sessionId, input.now);
     return requireLocalSession(database, input.sessionId);
+  });
+}
+
+function moveEmptyLocalSession(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-move-empty-session" }>,
+): MoveEmptySessionResult {
+  return transaction(database, () => {
+    const session = database
+      .prepare("SELECT session_id, parent_session_id FROM sessions WHERE session_id = ? AND source_type = 'local'")
+      .get(input.sessionId);
+    if (!isRecord(session)) {
+      return { ok: false, code: "LOCAL_SESSION_NOT_FOUND" };
+    }
+
+    const project = database.prepare("SELECT project_id FROM projects WHERE project_id = ?").get(input.projectId);
+    if (!isRecord(project)) {
+      return { ok: false, code: "LOCAL_PROJECT_NOT_FOUND" };
+    }
+
+    const hasMessages = database
+      .prepare("SELECT 1 AS found FROM session_messages WHERE session_id = ? LIMIT 1")
+      .get(input.sessionId);
+    const hasChild = database
+      .prepare("SELECT 1 AS found FROM sessions WHERE parent_session_id = ? LIMIT 1")
+      .get(input.sessionId);
+    const hasEdge = database
+      .prepare("SELECT 1 AS found FROM session_edges WHERE parent_session_id = ? OR child_session_id = ? LIMIT 1")
+      .get(input.sessionId, input.sessionId);
+    if (session.parent_session_id !== null || hasMessages !== undefined || hasChild !== undefined || hasEdge !== undefined) {
+      return { ok: false, code: "SESSION_PROJECT_LOCKED" };
+    }
+
+    database
+      .prepare("UPDATE sessions SET project_id = ?, updated_at = ? WHERE session_id = ?")
+      .run(input.projectId, input.now, input.sessionId);
+    return { ok: true, session: requireLocalSession(database, input.sessionId) as LocalConsoleSessionSummary };
   });
 }
 

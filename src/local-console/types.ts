@@ -67,6 +67,25 @@ export interface LocalConsoleSessionSummary {
   updatedAt: string;
 }
 
+export const LOCAL_SESSION_PROJECT_ERROR_CODES = [
+  "LOCAL_SESSION_NOT_FOUND",
+  "LOCAL_PROJECT_NOT_FOUND",
+  "SESSION_PROJECT_LOCKED",
+] as const;
+
+export type LocalConsoleSessionProjectErrorCode = (typeof LOCAL_SESSION_PROJECT_ERROR_CODES)[number];
+
+export class LocalConsoleSessionProjectError extends Error {
+  constructor(readonly code: LocalConsoleSessionProjectErrorCode) {
+    super(localSessionProjectErrorMessage(code));
+    this.name = "LocalConsoleSessionProjectError";
+  }
+}
+
+export type MoveEmptySessionResult =
+  | { ok: true; session: LocalConsoleSessionSummary }
+  | { ok: false; code: LocalConsoleSessionProjectErrorCode };
+
 export interface LocalConsoleProjectSummary {
   projectId: string;
   sourceType: LocalConsoleProjectSourceType;
@@ -143,6 +162,11 @@ export interface LocalConsoleStore {
     now: string;
   }): Promise<void>;
   createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary>;
+  moveEmptySessionToProject(input: {
+    sessionId: string;
+    projectId: string;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary>;
   listSessions(): Promise<LocalConsoleSessionSummary[]>;
   appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage>;
   listMessages(sessionId: string): Promise<LocalConsoleMessage[]>;
@@ -262,6 +286,17 @@ export interface LocalConsoleStore {
     now: string;
     reason: string;
   }): Promise<number>;
+}
+
+function localSessionProjectErrorMessage(code: LocalConsoleSessionProjectErrorCode): string {
+  switch (code) {
+    case "LOCAL_SESSION_NOT_FOUND":
+      return "Local session not found";
+    case "LOCAL_PROJECT_NOT_FOUND":
+      return "Local project not found";
+    case "SESSION_PROJECT_LOCKED":
+      return "Session project is locked after activity or orchestration";
+  }
 }
 
 export class LocalConsoleStoreTimeoutError extends Error {

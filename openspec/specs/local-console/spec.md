@@ -4,7 +4,7 @@
 
 `local-console` 是默认本地对话操作台的数据通道。它复用 GitHub issue runner 已有的 conversation、mention trigger、agent persona 与 Codex driver 能力，但输入输出落在本机 HTTP API 与 `.state/local-console.sqlite`，供 Electron 操作台或本地浏览器客户端使用。本域同时承载辅助只读 observer 的诊断与呈现事实；observer 运行时仍是独立旁路，不并入本地会话状态机。
 
-本域规定一个本地项目下多会话、运行直播、中断、卡住状态、本地错误记录、agent 接力位点、本地 no-mention 交棒总线、workspace diff 事实、T5 child session orchestration 的本地子会话等价能力、T5 本地验收走查/验收回流切片，以及 dead-letter / recovery 可见收敛；不承载 T5 的完整 CEO 兜底、完整 GitHub child issue 编排、artifact publishing parity，也不承载 T6 的 GitHub/local 互斥启动 flag。
+本域规定持久化本地项目及其多会话、运行直播、中断、卡住状态、本地错误记录、agent 接力位点、本地 no-mention 交棒总线、workspace diff 事实、T5 child session orchestration 的本地子会话等价能力、T5 本地验收走查/验收回流切片，以及 dead-letter / recovery 可见收敛；不承载 T5 的完整 CEO 兜底、完整 GitHub child issue 编排、artifact publishing parity，也不承载 T6 的 GitHub/local 互斥启动 flag。
 
 ## 业务规则
 
@@ -16,10 +16,61 @@
 - MUST release the session after Codex success, failure, timeout, or user interruption so later local messages can be processed.
 
 ### 桌面操作台数据通道
-- MUST expose a local console state API that returns one local project, its sessions, the selected session timeline, global running/waiting/stuck/error counts, active run snapshot, and visible local errors.
-- MUST support creating and selecting multiple local sessions under the single local project; session ids for new local sessions must be stable and persisted in SQLite.
+- MUST expose a local console state API that returns the persisted local project list, the selected project, its sessions, the selected session timeline, global running/waiting/stuck/error counts, active run snapshot, and visible local errors.
+- MUST support creating and selecting multiple local sessions under any persisted local project; session ids for new local sessions must be stable and persisted in SQLite.
+- MUST preserve the project-to-session hierarchy while keeping every session row visually flat within its owning project.
 - MUST expose session-scoped message submission and interrupt operations.
 - MUST keep the local console API loopback-only by default.
+
+### Project 持久化
+- MUST persist local projects in the existing `.state/local-console.sqlite` database.
+- MUST associate local sessions with a persisted project id.
+- MUST enforce project reference integrity for local sessions through SQLite foreign keys plus a local-session non-null constraint or an equivalent transactionally enforced strategy.
+- MUST reject creating a local session for a missing project without writing a partial session or message.
+- MUST migrate pre-existing local sessions into a deterministic default project without losing their messages, role handoff cursor, status, run id, run dir, or errors.
+- MUST expose local project summaries with project id, real directory title, folder path, worktree mode, optional worktree unavailable reason, aggregated session counts, and child sessions.
+- MUST keep `session_messages` as the durable timeline fact source; project rows only describe workspace source and grouping.
+- MUST restore the same local project list after local console server or desktop shell restart when using the same SQLite database.
+
+### Local workspace source
+- MUST model local project workspace source as a folder path plus a worktree mode boolean.
+- MUST resolve local Codex cwd from the session's project workspace source before every Codex run and pass it explicitly to the Codex driver.
+- MUST NOT continue using a single runtime-level project root as the cwd for all local sessions once a session belongs to a folder project.
+- MUST keep the T2 compatibility default session and default local message endpoints working by mapping them to the default project.
+- MUST expose project create/list/update capabilities through the loopback local console API and allow creating a local session under a selected project.
+- MUST NOT call `gh` as part of local project creation, workspace source resolution, or local Codex cwd selection.
+
+### Git folder worktree mode
+- MUST detect whether a local project folder is inside a git repository using bounded local `git` commands.
+- MUST, when the folder is a git repository and worktree mode is enabled, create or reuse a temporary local worktree based on the repository's current `HEAD` and run Codex there.
+- MUST keep changes made by Codex in the temporary worktree from dirtying the original repository directory.
+- MUST use bounded git operations and surface deterministic local errors when worktree preparation fails.
+- MUST release the local session after a bounded git failure, timeout, or missing folder error so later local messages can be processed.
+- MUST preserve the project row and existing session timeline when folder workspace resolution fails.
+- MUST NOT fetch, merge, rebase, delete the original directory, or modify GitHub issue worktree state while resolving a local folder worktree.
+
+### Direct folder mode and non-git folders
+- MUST, when the folder is a git repository and worktree mode is disabled, run Codex directly in the original repository directory.
+- MUST, when the folder is not a git repository, run Codex directly in the original folder.
+- MUST NOT automatically run `git init` for non-git folders or reject them merely because worktree mode is enabled.
+- MUST, when worktree mode is enabled for a non-git folder, record a visible deterministic workspace status reason `not-git-repository`.
+
+### 空白 session 项目重绑
+- MUST allow a local session to change its project only while it has no session messages, no `sessions.parent_session_id` relationship in either direction, and no `session_edges` relationship in either direction.
+- MUST require the target project to exist.
+- MUST reject project rebinding for GitHub sessions, sessions with any message history, or sessions participating in parent/child orchestration according to either persisted relationship source.
+- MUST update session project id and timestamp in one SQLite transaction.
+- MUST leave the original project id, messages, cursor, session edges, and project rows unchanged when validation or update fails.
+- MUST preserve the session id across a successful rebind.
+- MUST keep workspace direct/worktree semantics derived from the newly bound project for the first later run.
+
+### 空白 session 项目重绑 API
+- MUST expose a loopback local-console endpoint that accepts a session id and target project id for the bounded empty-session rebind.
+- MUST reject malformed input without mutation.
+- MUST return HTTP 400 with a stable error code for invalid JSON or malformed rebind fields, HTTP 404 for a missing local session or target project, and HTTP 409 for a session locked by history or relationships.
+- MUST NOT classify expected empty-session rebind rejection as an internal server error or map it by matching human-readable error strings.
+- MUST return the updated local session summary after success.
+- MUST NOT alter GitHub runner state or GitHub issue session behavior.
 
 ### 本地子会话持久化
 - MUST persist parent-child session relationships in `.state/local-console.sqlite` using `sessions.parent_session_id` or an equivalent column on the existing `sessions` table.
@@ -352,7 +403,7 @@ And fake invocation logs are empty
 
 ### 场景 LC.T4.1：桌面台发起对话后看到运行直播
 Given the desktop operator console is open
-And it shows the single local project with multiple sessions support
+And it shows the persisted local project list with each session under its owning project
 When the user creates or selects a local session
 And sends a message that triggers a fake slow Codex run
 Then the session timeline shows the user message
@@ -553,6 +604,88 @@ When local startup stale repair marks the run stuck
 Then the local timeline shows a visible stuck record with reason and runDir when available
 And the session no longer reports a running source message
 And a later local message can be accepted and processed.
+
+### 场景 LC.T4.13：git project 开启 worktree 后不污染原目录
+Given a local project points at a git repository folder
+And worktree mode is enabled
+When the user sends a local message that makes `dev` write a file
+Then Codex runs with cwd inside the temporary local worktree
+And the temporary worktree contains the file written by `dev`
+And `git status --short` in the original repository folder is empty.
+
+### 场景 LC.T4.14：git project 关闭 worktree 后原地运行
+Given a local project points at a git repository folder
+And worktree mode is disabled
+When the user sends a local message that makes `dev` write a file
+Then Codex runs with cwd equal to the original repository folder
+And `git status --short` in the original repository folder shows the file written by `dev`.
+
+### 场景 LC.T4.15：非 git project 开启 worktree 时降级原地跑
+Given a local project points at a folder that is not a git repository
+And worktree mode is enabled
+When the user sends a local message that makes `dev` write a file
+Then Codex runs with cwd equal to the original folder
+And the system does not create a `.git` directory
+And the project state exposes `worktreeUnavailableReason=not-git-repository`
+And no `gh` command is called.
+
+### 场景 LC.T4.16：project 列表重启后一致
+Given the user has opened multiple local folders as projects
+When the local console server or desktop shell restarts with the same SQLite database
+Then the project list is restored
+And each project title reflects the real folder basename
+And each project's worktree mode is restored.
+
+### 场景 LC.T4.17：local session project 引用完整
+Given an old local console SQLite database contains local sessions and messages but no projects table
+When the local console schema migration completes
+Then every local session references an existing default project
+And existing messages, cursor progress, status, runDir, and error fields are preserved.
+
+Given a client tries to create a local session for a missing project id
+When the request is handled
+Then it fails without inserting a partial session or message.
+
+### 场景 LC.T4.18：workspace resolve failure releases the session
+Given a local project folder has been deleted
+Or a bounded local git command times out while resolving a worktree
+When the user sends a local message for that project
+Then the timeline records a visible local failure or stuck record
+And the active run is cleared
+And a later local message in the same session can be processed.
+
+### 场景 LC.NSPS.1：空白 session 原子重绑
+Given a local session has no messages, parent column relationship, child column relationship, or session edges
+And the target project exists
+When the rebind command runs
+Then the same session id references the target project
+And no message, cursor, edge, or project row is created or deleted.
+
+### 场景 LC.NSPS.2：已有历史拒绝重绑
+Given a local session has at least one message, a parent/child relationship in `sessions.parent_session_id`, or a parent/child relationship in `session_edges`
+When a client requests rebinding to another project
+Then the request fails
+And the session project, messages, cursor, and edges remain unchanged.
+
+### 场景 LC.NSPS.3：双事实源失配时 fail closed
+Given a local session relationship exists only in `sessions.parent_session_id`
+Or the relationship exists only in `session_edges`
+When a client requests rebinding either related session
+Then the request fails with the stable relationship-conflict code
+And neither session changes project.
+
+### 场景 LC.NSPS.4：非法目标无部分写入
+Given a local empty session exists
+And the requested target project does not exist
+When the rebind command runs
+Then the command fails
+And the session still references its original project.
+
+### 场景 LC.NSPS.5：API 业务错误分流
+Given the rebind endpoint receives malformed input, a missing local resource, or a locked session
+When the request is handled
+Then it returns 400, 404, or 409 respectively with a stable error code
+And no expected business rejection is returned as 500.
 
 ## Terminal startup isolation
 

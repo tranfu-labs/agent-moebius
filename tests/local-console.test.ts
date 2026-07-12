@@ -210,6 +210,148 @@ describe("local console", () => {
     }
   });
 
+  it("moves only empty unlinked local sessions and fails closed on either lineage source", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const targetFolder = path.join(root, "workspace-target");
+    await fs.mkdir(targetFolder, { recursive: true });
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    const target = await store.createProject({
+      folderPath: targetFolder,
+      worktreeMode: false,
+      now: "2026-07-09T01:00:00.000Z",
+    });
+    const sessionIds = ["movable", "with-message", "parent-column", "reverse-child", "edge-parent", "edge-child"];
+    for (const sessionId of sessionIds) {
+      await store.createSession({
+        sessionId: `local:${sessionId}`,
+        title: sessionId,
+        now: "2026-07-09T01:00:01.000Z",
+      });
+    }
+    await store.appendUserMessage({
+      sessionId: "local:with-message",
+      body: "history locks project",
+      now: "2026-07-09T01:00:02.000Z",
+    });
+
+    const database = new DatabaseSync(sqlitePath);
+    try {
+      database.prepare("UPDATE sessions SET parent_session_id = ? WHERE session_id = ?")
+        .run("local:missing-parent", "local:parent-column");
+      database.prepare(
+        `INSERT INTO sessions
+          (session_id, project_id, source_type, parent_session_id, title, status, created_at, updated_at)
+         VALUES (?, ?, 'local', ?, 'column-only-child', 'idle', ?, ?)`,
+      ).run(
+        "local:column-only-child",
+        LOCAL_CONSOLE_PROJECT_ID,
+        "local:reverse-child",
+        "2026-07-09T01:00:03.000Z",
+        "2026-07-09T01:00:03.000Z",
+      );
+      database.prepare(
+        `INSERT INTO session_edges (parent_session_id, child_session_id, relation, hidden_key, created_at)
+         VALUES (?, ?, 'task', 'edge-only', ?)`,
+      ).run("local:edge-parent", "local:edge-child", "2026-07-09T01:00:04.000Z");
+      database.prepare(
+        `INSERT INTO sessions
+          (session_id, project_id, source_type, title, status, created_at, updated_at)
+         VALUES ('github:foreign', NULL, 'github', 'foreign', 'idle', ?, ?)`,
+      ).run("2026-07-09T01:00:04.000Z", "2026-07-09T01:00:04.000Z");
+    } finally {
+      database.close();
+    }
+
+    await expect(store.moveEmptySessionToProject({
+      sessionId: "local:movable",
+      projectId: target.projectId,
+      now: "2026-07-09T01:00:05.000Z",
+    })).resolves.toMatchObject({ sessionId: "local:movable", projectId: target.projectId });
+
+    for (const sessionId of ["with-message", "parent-column", "reverse-child", "edge-parent", "edge-child"]) {
+      await expect(store.moveEmptySessionToProject({
+        sessionId: `local:${sessionId}`,
+        projectId: target.projectId,
+        now: "2026-07-09T01:00:06.000Z",
+      })).rejects.toMatchObject({ code: "SESSION_PROJECT_LOCKED" });
+    }
+    await expect(store.moveEmptySessionToProject({
+      sessionId: "local:missing",
+      projectId: target.projectId,
+      now: "2026-07-09T01:00:06.000Z",
+    })).rejects.toMatchObject({ code: "LOCAL_SESSION_NOT_FOUND" });
+    await expect(store.moveEmptySessionToProject({
+      sessionId: "github:foreign",
+      projectId: target.projectId,
+      now: "2026-07-09T01:00:06.000Z",
+    })).rejects.toMatchObject({ code: "LOCAL_SESSION_NOT_FOUND" });
+    await expect(store.moveEmptySessionToProject({
+      sessionId: "local:parent-column",
+      projectId: "missing-project",
+      now: "2026-07-09T01:00:06.000Z",
+    })).rejects.toMatchObject({ code: "LOCAL_PROJECT_NOT_FOUND" });
+
+    const unchanged = (await store.listSessions()).filter((session) =>
+      ["local:with-message", "local:parent-column", "local:reverse-child", "local:edge-parent", "local:edge-child"].includes(session.sessionId),
+    );
+    expect(unchanged.every((session) => session.projectId === LOCAL_CONSOLE_PROJECT_ID)).toBe(true);
+    expect(await store.listMessages("local:with-message")).toHaveLength(1);
+    await store.close();
+  });
+
+  it("maps session project rebinding API validation and domain failures to stable status codes", async () => {
+    const root = await makeFixtureRoot();
+    const store = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
+    await store.init();
+    const targetFolder = path.join(root, "api-target");
+    await fs.mkdir(targetFolder, { recursive: true });
+    const target = await store.createProject({ folderPath: targetFolder, worktreeMode: false, now: "2026-07-09T02:00:00.000Z" });
+    await store.createSession({ sessionId: "local:api-empty", title: "api empty", now: "2026-07-09T02:00:01.000Z" });
+    await store.createSession({ sessionId: "local:api-locked", title: "api locked", now: "2026-07-09T02:00:01.000Z" });
+    await store.appendUserMessage({ sessionId: "local:api-locked", body: "locked", now: "2026-07-09T02:00:02.000Z" });
+
+    const started = await startLocalConsoleServer({ projectRoot: root, port: 0, store, storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS });
+    try {
+      const invalidJson = await fetch(new URL("/api/local-console/sessions/local%3Aapi-empty/project", started.url), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: "{",
+      });
+      expect(invalidJson.status).toBe(400);
+      await expect(invalidJson.json()).resolves.toMatchObject({ code: "INVALID_SESSION_PROJECT_REQUEST" });
+
+      const invalidField = await fetch(new URL("/api/local-console/sessions/local%3Aapi-empty/project", started.url), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: "" }),
+      });
+      expect(invalidField.status).toBe(400);
+      await expect(invalidField.json()).resolves.toMatchObject({ code: "INVALID_SESSION_PROJECT_REQUEST" });
+
+      const missingProject = await patchSessionProject(started.url, "local:api-empty", "missing-project");
+      expect(missingProject.status).toBe(404);
+      await expect(missingProject.json()).resolves.toMatchObject({ code: "LOCAL_PROJECT_NOT_FOUND" });
+
+      const missingSession = await patchSessionProject(started.url, "local:missing", target.projectId);
+      expect(missingSession.status).toBe(404);
+      await expect(missingSession.json()).resolves.toMatchObject({ code: "LOCAL_SESSION_NOT_FOUND" });
+
+      const locked = await patchSessionProject(started.url, "local:api-locked", target.projectId);
+      expect(locked.status).toBe(409);
+      await expect(locked.json()).resolves.toMatchObject({ code: "SESSION_PROJECT_LOCKED" });
+
+      const moved = await patchSessionProject(started.url, "local:api-empty", target.projectId);
+      expect(moved.status).toBe(200);
+      await expect(moved.json()).resolves.toMatchObject({
+        session: { sessionId: "local:api-empty", projectId: target.projectId },
+      });
+    } finally {
+      await started.close();
+    }
+  });
+
   it("persists T5 child session and local fact records idempotently", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
@@ -669,7 +811,8 @@ describe("local console", () => {
       await postSessionMessage(started.url, parent.sessionId, "@ceo spawn child sessions");
       const state = await waitForState(started.url, parent.sessionId, (data) => {
         const sessions = data.projects.flatMap((project) => project.sessions);
-        return sessions.filter((session) => session.parentSessionId === parent.sessionId).length === 2;
+        return sessions.filter((session) => session.parentSessionId === parent.sessionId).length === 2 &&
+          data.messages.some((entry) => entry.body.includes("Local child session orchestration completed"));
       });
       const childSessions = state.projects.flatMap((project) => project.sessions).filter((session) => session.parentSessionId === parent.sessionId);
       expect(childSessions.map((session) => session.title).sort()).toEqual(["Task A", "Task B"]);
@@ -2004,6 +2147,14 @@ async function postSessionMessage(url: string, sessionId: string, body: string):
   });
 }
 
+async function patchSessionProject(url: string, sessionId: string, projectId: string): Promise<Response> {
+  return await fetch(new URL(`/api/local-console/sessions/${encodeURIComponent(sessionId)}/project`, url), {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId }),
+  });
+}
+
 async function interruptRun(url: string, sessionId: string, runId: string): Promise<Response> {
   return await fetch(new URL(`/api/local-console/sessions/${encodeURIComponent(sessionId)}/interrupt`, url), {
     method: "POST",
@@ -2248,6 +2399,12 @@ class FastFailAppendStore implements LocalConsoleStore {
     return buildSessionSummary(input.sessionId, input.title);
   }
 
+  async moveEmptySessionToProject(input: { sessionId: string; projectId: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    void input.projectId;
+    void input.now;
+    return buildSessionSummary(input.sessionId);
+  }
+
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {
     return [buildSessionSummary(LOCAL_CONSOLE_DEFAULT_SESSION_ID)];
   }
@@ -2358,6 +2515,10 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
 
   async createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
     return await this.inner.createSession(input);
+  }
+
+  async moveEmptySessionToProject(input: { sessionId: string; projectId: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.moveEmptySessionToProject(input);
   }
 
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {
@@ -2580,6 +2741,10 @@ class FailOnceRecordRouteAppendStore implements LocalConsoleStore {
     return await this.inner.createSession(input);
   }
 
+  async moveEmptySessionToProject(input: { sessionId: string; projectId: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.moveEmptySessionToProject(input);
+  }
+
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {
     return await this.inner.listSessions();
   }
@@ -2794,6 +2959,12 @@ class RecoveringAppendStore implements LocalConsoleStore {
     void input.now;
     this.sessions.set(input.sessionId, input.title);
     return buildSessionSummary(input.sessionId, input.title, this.messages);
+  }
+
+  async moveEmptySessionToProject(input: { sessionId: string; projectId: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    void input.projectId;
+    void input.now;
+    return buildSessionSummary(input.sessionId, this.sessions.get(input.sessionId), this.messages);
   }
 
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {

@@ -182,6 +182,18 @@ export class LocalConsoleRuntime {
     );
   }
 
+  async moveEmptySessionToProject(input: {
+    sessionId: string;
+    projectId: string;
+  }): Promise<LocalConsoleSessionSummary> {
+    return await this.storeCall("local-console-store-move-empty-session", () =>
+      this.options.store.moveEmptySessionToProject({
+        ...input,
+        now: this.nowIso(),
+      }),
+    );
+  }
+
   async createChildSession(input: {
     parentSessionId: string;
     childSessionId: string;

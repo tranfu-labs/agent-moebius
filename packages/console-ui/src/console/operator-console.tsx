@@ -1,4 +1,4 @@
-import { Circle, FolderOpen, GitBranch, Laptop, PanelLeft, Plus, Search, Settings2 } from "lucide-react";
+import { ChevronDown, Circle, FolderOpen, GitBranch, Laptop, PanelLeft, Search, Settings2 } from "lucide-react";
 
 import { AgentMessage } from "@/console/agent-message";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
@@ -12,6 +12,12 @@ import { RunBlock } from "@/console/run-block";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/ui/dropdown-menu";
 
 export type OperatorMessageSpeaker = "user" | "agent" | "system";
 export type OperatorMessageStatus =
@@ -112,14 +118,16 @@ export interface OperatorConsoleProps {
   lastError?: string | null;
   onComposerChange(value: string): void;
   onSend(): void;
-  onCreateSession(): void;
+  onCreateSession(projectId: string): void;
   onOpenProject?: () => void;
-  onSelectProject?: (projectId: string) => void;
   onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
-  onSelectSession(sessionId: string): void;
+  onSelectSession(selection: { sessionId: string; projectId: string }): void;
+  onChangeSessionProject?: (sessionId: string, projectId: string) => void;
   onInterrupt(sessionId: string, runId: string): void;
   onOpenDiagnostics?: () => void;
   isSending?: boolean;
+  isSelectionMutationPending?: boolean;
+  isSessionProjectUpdating?: boolean;
   className?: string;
 }
 
@@ -138,19 +146,21 @@ export function OperatorConsole({
   onSend,
   onCreateSession,
   onOpenProject,
-  onSelectProject,
   onToggleProjectWorktree,
   onSelectSession,
+  onChangeSessionProject,
   onInterrupt,
   onOpenDiagnostics,
   isSending = false,
+  isSelectionMutationPending = false,
+  isSessionProjectUpdating = false,
   className,
 }: OperatorConsoleProps): JSX.Element {
   const visibleProjects = projects ?? [project];
   const activeProjectId = selectedProjectId ?? project.projectId;
   const activeProject = visibleProjects.find((item) => item.projectId === activeProjectId) ?? project;
   const sidebarProjects = visibleProjects.map(toSidebarProject);
-  const canSend = composerValue.trim() !== "" && activeRun === null && !isSending;
+  const canSend = composerValue.trim() !== "" && activeRun === null && !isSending && !isSessionProjectUpdating;
   const emptyConversation = messages.length === 0 && activeRun === null;
 
   const submitComposer = () => {
@@ -172,20 +182,16 @@ export function OperatorConsole({
             </span>
           </div>
 
-          <button
-            type="button"
-            className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-ink hover:bg-hover"
-            onClick={onCreateSession}
-          >
-            <Plus className="h-4 w-4 text-sub" aria-hidden="true" />
-            新会话
-          </button>
-
           {onOpenProject ? (
             <button
               type="button"
               className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-ink hover:bg-hover"
-              onClick={onOpenProject}
+              disabled={isSelectionMutationPending}
+              onClick={() => {
+                if (!isSelectionMutationPending) {
+                  onOpenProject();
+                }
+              }}
             >
               <FolderOpen className="h-4 w-4 text-sub" aria-hidden="true" />
               打开项目
@@ -199,11 +205,16 @@ export function OperatorConsole({
           selectedSessionId={selectedSessionId}
           showProjectPath={false}
           onSelectSession={(sessionId, projectId) => {
-            if (projectId !== activeProjectId) {
-              onSelectProject?.(projectId);
+            if (!isSelectionMutationPending) {
+              onSelectSession({ sessionId, projectId });
             }
-            onSelectSession(sessionId);
           }}
+          onCreateSession={(projectId) => {
+            if (!isSelectionMutationPending) {
+              onCreateSession(projectId);
+            }
+          }}
+          disabled={isSelectionMutationPending}
           className="min-h-0 w-full flex-1 border-0"
         />
 
@@ -272,12 +283,23 @@ export function OperatorConsole({
             value={composerValue}
             onValueChange={onComposerChange}
             onSubmit={submitComposer}
-            disabled={activeRun !== null || isSending}
+            disabled={activeRun !== null || isSending || isSessionProjectUpdating}
             placeholder={activeRun ? "当前 agent 正在执行…" : "描述你的目标，@ 一个角色开始…"}
             statusText={activeRun ? "当前正在执行，完成后可继续发送" : undefined}
             context={
               <ComposerContext
                 project={activeProject}
+                projects={visibleProjects}
+                selectedSession={selectedSession}
+                canChangeProject={
+                  selectedSession !== null &&
+                  messages.length === 0 &&
+                  activeRun === null &&
+                  !selectedSession.parentSessionId &&
+                  (selectedSession.childCount ?? 0) === 0
+                }
+                disabled={isSelectionMutationPending}
+                onChangeSessionProject={onChangeSessionProject}
                 onToggleProjectWorktree={onToggleProjectWorktree}
               />
             }
@@ -291,19 +313,73 @@ export function OperatorConsole({
 
 function ComposerContext({
   project,
+  projects,
+  selectedSession,
+  canChangeProject,
+  disabled,
+  onChangeSessionProject,
   onToggleProjectWorktree,
 }: {
   project: OperatorProject;
+  projects: OperatorProject[];
+  selectedSession: OperatorSession | null;
+  canChangeProject: boolean;
+  disabled: boolean;
+  onChangeSessionProject?: (sessionId: string, projectId: string) => void;
   onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
 }): JSX.Element {
   const workspaceLabel = project.worktreeMode ? "隔离工作区" : "本地";
 
   return (
     <div className="flex min-w-0 items-center gap-3 text-xs text-sub">
-      <span className="inline-flex min-w-0 items-center gap-1.5">
-        <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span className="truncate">{project.title}</span>
-      </span>
+      {canChangeProject && selectedSession && onChangeSessionProject ? (
+        disabled ? (
+          <button
+            type="button"
+            className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 opacity-50"
+            aria-label={`项目：${project.title}，点击切换`}
+            disabled
+          >
+            <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{project.title}</span>
+            <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+          </button>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink"
+                aria-label={`项目：${project.title}，点击切换`}
+              >
+                <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{project.title}</span>
+                <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="min-w-48">
+              {projects.map((candidate) => (
+                <DropdownMenuCheckboxItem
+                  key={candidate.projectId}
+                  checked={candidate.projectId === project.projectId}
+                  onSelect={() => {
+                    if (candidate.projectId !== project.projectId) {
+                      onChangeSessionProject(selectedSession.sessionId, candidate.projectId);
+                    }
+                  }}
+                >
+                  {candidate.title}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )
+      ) : (
+        <span className="inline-flex min-w-0 items-center gap-1.5" aria-label={`项目：${project.title}，已锁定`}>
+          <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">{project.title}</span>
+        </span>
+      )}
       {onToggleProjectWorktree ? (
         <button
           type="button"

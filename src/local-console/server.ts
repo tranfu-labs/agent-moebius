@@ -16,7 +16,11 @@ import { log } from "../log.js";
 import { createSqliteLocalConsoleStore } from "./store.js";
 import { listLocalT5Facts } from "./t5-store.js";
 import type { LocalRouteJudgment } from "./route-bus.js";
-import { LocalConsoleBusyError, type LocalConsoleStore } from "./types.js";
+import {
+  LocalConsoleBusyError,
+  LocalConsoleSessionProjectError,
+  type LocalConsoleStore,
+} from "./types.js";
 import { formatLocalError, LocalConsoleRuntime, type LocalConsoleAgentFile } from "./runtime.js";
 
 export interface LocalConsoleServerOptions {
@@ -211,6 +215,45 @@ async function handleRequest(
         initialRole: readOptionalString(payload.initialRole),
       });
       sendJson(response, 201, { session });
+      return;
+    }
+
+    const sessionProjectMatch = matchSessionRoute(url.pathname, "project");
+    if (request.method === "PATCH" && sessionProjectMatch !== null) {
+      let payload: unknown;
+      try {
+        payload = await readJsonBody(request);
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          sendJson(response, 400, {
+            error: "Expected valid JSON body with a non-empty string projectId field",
+            code: "INVALID_SESSION_PROJECT_REQUEST",
+          });
+          return;
+        }
+        throw error;
+      }
+      if (!isRecord(payload) || typeof payload.projectId !== "string" || payload.projectId.trim() === "") {
+        sendJson(response, 400, {
+          error: "Expected valid JSON body with a non-empty string projectId field",
+          code: "INVALID_SESSION_PROJECT_REQUEST",
+        });
+        return;
+      }
+      try {
+        const session = await runtime.moveEmptySessionToProject({
+          sessionId: sessionProjectMatch.sessionId,
+          projectId: payload.projectId,
+        });
+        sendJson(response, 200, { session });
+      } catch (error) {
+        if (error instanceof LocalConsoleSessionProjectError) {
+          const statusCode = error.code === "SESSION_PROJECT_LOCKED" ? 409 : 404;
+          sendJson(response, statusCode, { error: error.message, code: error.code });
+          return;
+        }
+        throw error;
+      }
       return;
     }
 
@@ -527,7 +570,7 @@ function matchProjectRoute(pathname: string): { projectId: string } | null {
 
 function matchSessionRoute(
   pathname: string,
-  action: "messages" | "interrupt",
+  action: "messages" | "interrupt" | "project",
 ): { sessionId: string } | null {
   const match = new RegExp(`^/api/local-console/sessions/(.+)/${action}$`, "u").exec(pathname);
   if (match === null) {
