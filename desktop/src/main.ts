@@ -16,6 +16,7 @@ import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../../s
 import { startObserverServer, type StartedObserverServer } from "../../src/observer/server.js";
 import { buildSeedCopyPlan, executeSeedCopyPlan, resolveDesktopDataRoot } from "./data-root.js";
 import { checkDesktopEnvironment } from "./env-doctor.js";
+import { integratedMainWindowOptions } from "./main-window-options.js";
 import { RunnerSupervisor, type RunnerProcess } from "./runner-supervisor.js";
 import { DESKTOP_RUNNER_ARGS } from "./runner-launch.js";
 import { resolveShellPath } from "./shell-path.js";
@@ -121,6 +122,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 560,
     title: "agent-moebius",
+    ...integratedMainWindowOptions(process.platform),
     webPreferences: {
       preload: path.join(dirname, "preload.cjs"),
       contextIsolation: true,

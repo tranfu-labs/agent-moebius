@@ -1,28 +1,28 @@
 /* ============================================================
-   Design tokens: near-monochrome Linear baseline.
-   Color budget: neutral first, small indigo interaction layer,
+   Design tokens: Codex desktop light baseline.
+   Color budget: neutral first, dark interaction layer,
    green for pass facts, Linear red for danger/fail facts.
    Waiting-for-you states use neutral structure, never a hue.
    ============================================================ */
 :root {
-  --canvas: #F7F7F8;
-  --rail: #FBFBFC;
+  --canvas: #FFFFFF;
+  --rail: #F1F1F1;
   --card: #FFFFFF;
-  --sunken: #F3F3F4;
+  --sunken: #F5F5F5;
   --input: #FFFFFF;
-  --ink: #1B1B1B;
-  --sub: #5D5D5F;
-  --hint: #8A8F98;
-  --line: rgba(15, 17, 20, 0.09);
-  --line-strong: rgba(15, 17, 20, 0.14);
-  --sel: #ECECED;
-  --hover: rgba(15, 17, 20, 0.045);
-  --accent: #5E6AD2;
+  --ink: #222222;
+  --sub: #6E6E6E;
+  --hint: #999999;
+  --line: rgba(0, 0, 0, 0.10);
+  --line-strong: rgba(0, 0, 0, 0.14);
+  --sel: #DEDEDE;
+  --hover: #E7E7E7;
+  --accent: #222222;
   --accent-fg: #FFFFFF;
   --pass: #2F8F5B;
   --danger: #E5484D;
-  --ava-bg: #EAEAEC;
-  --ava-fg: #55565A;
+  --ava-bg: #F5F5F5;
+  --ava-fg: #555555;
 }
 
 @media (prefers-color-scheme: dark) {

@@ -1,8 +1,7 @@
 import { AlertTriangle, Ban, CirclePause, Clock3 } from "lucide-react";
-import { useState, type KeyboardEvent, type MouseEvent } from "react";
 
 import { cn } from "@/lib/utils";
-import { Card } from "@/ui/card";
+import { Button } from "@/ui/button";
 
 export type RunOutcomeStatus = "failed" | "stuck" | "interrupted" | "dead-letter";
 
@@ -12,6 +11,7 @@ export interface RunOutcomeProps {
   rawReason?: string | null;
   rawOutput?: string | null;
   defaultOpen?: boolean;
+  onOpenDiagnostics?: () => void;
   className?: string;
 }
 
@@ -20,6 +20,13 @@ const outcomeLabels: Record<RunOutcomeStatus, string> = {
   failed: "运行失败",
   interrupted: "运行已中断",
   stuck: "运行长时间无响应",
+};
+
+const outcomeDescriptions: Record<RunOutcomeStatus, string> = {
+  "dead-letter": "自动重试已经停止，可查看日志后决定下一步。",
+  failed: "本轮没有完成，可查看日志后重新尝试。",
+  interrupted: "本轮已停止，当前会话仍然保留。",
+  stuck: "长时间没有新输出，本轮已停止。",
 };
 
 const roleLabels: Record<string, string> = {
@@ -36,62 +43,32 @@ const roleLabels: Record<string, string> = {
 export function RunOutcome({
   status,
   role,
-  rawReason,
-  rawOutput,
-  defaultOpen = false,
+  rawReason: _rawReason,
+  rawOutput: _rawOutput,
+  defaultOpen: _defaultOpen,
+  onOpenDiagnostics,
   className,
 }: RunOutcomeProps): JSX.Element {
-  const [open, setOpen] = useState(defaultOpen);
-  const reason = nonBlank(rawReason);
-  const output = nonBlank(rawOutput);
-  const hasDetails = Boolean(reason || output);
   const roleLabel = role ? localizeRole(role) : null;
-  const toggle = (event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>) => {
-    event.preventDefault();
-    setOpen((value) => !value);
-  };
 
   return (
-    <Card className={cn("max-w-[680px] rounded-lg p-3", className)}>
-      <details open={open}>
-        <summary
-          className={cn(
-            "grid list-none grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden",
-            hasDetails ? "cursor-pointer hover:bg-hover" : "cursor-default",
-          )}
-          aria-expanded={open}
-          tabIndex={hasDetails ? 0 : -1}
-          onClick={(event) => {
-            if (hasDetails) {
-              toggle(event);
-            }
-          }}
-          onKeyDown={(event) => {
-            if (hasDetails && (event.key === "Enter" || event.key === " ")) {
-              toggle(event);
-            }
-          }}
-        >
-          <span className="mt-0.5 flex h-4 w-4 items-center justify-center text-sub" aria-hidden="true">
-            <OutcomeIcon status={status} />
-          </span>
-          <span className="min-w-0">
-            <span className="text-sm font-semibold text-ink">{outcomeLabels[status]}</span>
-            {roleLabel ? <span className="ml-2 text-xs text-sub">{roleLabel}</span> : null}
-          </span>
-          {hasDetails ? (
-            <span className="whitespace-nowrap text-xs text-hint">{open ? "收起详情" : "查看详情"}</span>
-          ) : null}
-        </summary>
-
-        {hasDetails ? (
-          <div className="ml-6 mt-2 space-y-2">
-            {reason ? <MachineText label="机器原因" text={reason} /> : null}
-            {output ? <MachineText label="原始输出" text={output} /> : null}
-          </div>
-        ) : null}
-      </details>
-    </Card>
+    <div className={cn("grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-3", className)}>
+      <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-sunken text-sub" aria-hidden="true">
+        <OutcomeIcon status={status} />
+      </span>
+      <span className="min-w-0">
+        <span className={cn("text-sm font-semibold", status === "interrupted" ? "text-ink" : "text-danger")}>
+          {outcomeLabels[status]}
+        </span>
+        {roleLabel ? <span className="ml-2 text-xs text-sub">{roleLabel}</span> : null}
+        <span className="mt-1 block text-sm leading-6 text-sub">{outcomeDescriptions[status]}</span>
+      </span>
+      {onOpenDiagnostics && status !== "interrupted" ? (
+        <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
+          查看日志
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -108,25 +85,6 @@ function OutcomeIcon({ status }: { status: RunOutcomeStatus }): JSX.Element {
   return <Ban className="h-4 w-4 text-danger" />;
 }
 
-function MachineText({ label, text }: { label: string; text: string }): JSX.Element {
-  return (
-    <div>
-      <div className="mb-1 text-xs text-hint">{label}</div>
-      <pre
-        className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-sunken p-3 font-mono text-xs leading-5 text-ink"
-        aria-label={label}
-      >
-        {text}
-      </pre>
-    </div>
-  );
-}
-
 function localizeRole(role: string): string {
   return roleLabels[role] ?? "协作者";
-}
-
-function nonBlank(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
 }

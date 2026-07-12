@@ -6,34 +6,36 @@ The console page is the Electron desktop shell's default main window. It is a lo
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Moebius                       1 运行中 · 0 等你            [诊断] [新会话] │
-├────────────────────┬──────────────────────────────────────┬────────────────┤
-│ ▾ agent-moebius     │ 会话: 本地 T4 验收                 运行中│ 运行详情       │
-│  »  本地 T4 验收    │                                      │ runDir          │
-│     ├─ 子会话 · 编排│ ┌ 你 · 14:02 ─────────────────────┐ │ /tmp/.../run-1  │
-│     └─ 子会话 · 路由│ │ dev 帮我验证本地操作台直播       │ │                │
-│     失败构造验证    │ └──────────────────────────────────┘ │ 最近输出        │
-│     卡住状态验证    │                                      │ running tests... │
-│     空白会话        │                                      │                │
-│                    │ ┌ 开发 · 运行中 00:43 ─── [中断] ┐ │                │
-│                    │ │ 正在运行 · stdout.jsonl 已更新   │ │ 状态           │
-│                    │ │ runDir: /tmp/agent-moebius...    │ │ running        │
-│                    │ │ 最近输出: running tests...       │ │                │
-│                    │ └──────────────────────────────────┘ │ 错误记录       │
-│                    │                                      │ 无              │
-│                    ├──────────────────────────────────────┤                │
-│                    │ [ 输入消息，选择一个角色交棒... ][发送]│                │
-└────────────────────┴──────────────────────────────────────┴────────────────┘
+│ ● ● ●  Moebius                                                               │
+├──────────────────┬───────────────────────────────────────────────────────────┤
+│ ＋ 新会话         │                                                           │
+│ ▱ 打开项目        │  你 · 14:02                                               │
+│                  │  @dev 帮我验证本地操作台                                  │
+│ 项目             │  ──────────────────────────────────────────────────────   │
+│ ▱ agent-moebius  │  开发 · 正在执行 00:43                         [中断]     │
+│   本地 T4 验收   │  running tests...                                         │
+│   裂变会话 A     │                                                           │
+│   裂变会话 B     │                                                           │
+│   失败构造验证   │                                                           │
+│   卡住状态验证   │                                                           │
+│   空白会话       │                                                           │
+│                  │        ┌──────────────────────────────────────┐           │
+│                  │        │ agent-moebius  本地  当前分支       │           │
+│                  │        ├──────────────────────────────────────┤           │
+│ 开发者诊断       │        │ 当前 agent 正在执行…             ↑ │           │
+│ 本地引擎运行中   │        └──────────────────────────────────────┘           │
+└──────────────────┴───────────────────────────────────────────────────────────┘
 ```
 
 Requirements:
-- The left side keeps project -> parent session -> child session hierarchy when `parentSessionId` is present.
-- Root and child rows use the same selection model; child rows are compact and indented under their parent.
-- A renderer refresh restores the hierarchy from flat session summaries alone.
-- Missing, self-parented, or cyclic parent references do not hang rendering; each session appears at most once and unsafe children fall back as root rows.
-- The middle timeline mixes user, agent, and system records.
-- The active run block always displays a non-empty summary, elapsed time, and runDir when available.
-- Tail-read timeout, missing files, or unparseable output display a deterministic fallback and optional diagnostic text, never a blank running block.
+- The macOS titlebar integrates traffic-light controls with the left rail; Windows/Linux retain native controls.
+- All sessions remain peer rows even when runtime lineage contains `parentSessionId`; no tree connector, indentation, parent breadcrumb, or child count is shown.
+- A renderer refresh restores the same flat list and selected session; corrupt lineage cannot duplicate or hide a session.
+- The single timeline mixes user, localized agent, and readable system records in chronological order.
+- The active run row always displays a non-empty summary, elapsed time, and an interrupt action.
+- Project path, SQLite path, runDir, cwd, internal ids, raw output, and worktree diagnostics do not appear on the default surface.
+- Workspace mode moves to the composer context row and keeps the existing direct/worktree mutation semantics.
+- Tail-read timeout, missing files, or unparseable output display a deterministic human summary, never a blank running row.
 
 ## Interrupted
 
@@ -200,29 +202,28 @@ Requirements:
 - Goal filtering, owner phase states, gate visibility, explicit run evidence, unlinked runs, artifact links, and malformed-state diagnostics remain visible without exposing full issue bodies, hidden keys, secrets, or full run manifest JSON.
 - The observer provides no operation buttons, file watcher, GitHub/Codex/publisher calls, state writes, or runner control capability.
 
-## T6 Flat Component Anchor
+## Codex-native Stream Anchor
 
 ```text
 ┌────────────────────┬─────────────────────────────────────────────────────────┐
-│ Project/session nav│ 会话: 本地 T6 验收                         [running]   │
-│ remains navigation │                                                         │
-│                    │ ┌ 运行直播 [running] 00:43 ─────────────── [中断] ┐    │
-│                    │ │ runDir: /tmp/agent-moebius-t6-run             │    │
-│                    │ │ cwd: /tmp/agent-moebius-local-worktree        │    │
-│                    │ │ live tail from codex                          │    │
-│                    │ └───────────────────────────────────────────────┘    │
-│                    │ ┌ dev [completed] 23:01:00 ─────────────────────┐    │
-│                    │ │ 已完成组件回收。                              │    │
-│                    │ └───────────────────────────────────────────────┘    │
-│                    │ ┌ system [failed] 23:01:00 ─────────────────────┐    │
-│                    │ │ Codex failed: exit:42                         │    │
-│                    │ └───────────────────────────────────────────────┘    │
+│ 项目 / 会话列表    │ 你 · 23:00                                              │
+│ 全部保持同级       │ 请完成组件回收。                                        │
+│                    │ ─────────────────────────────────────────────────────   │
+│ 本地 T6 验收       │ 开发 · 正在执行 00:43                       [中断]       │
+│ 截图走查           │ live tail from codex                                    │
+│ 失败构造           │ ─────────────────────────────────────────────────────   │
+│                    │ 运行失败                                                │
+│                    │ 本轮没有完成，可查看日志后重新尝试。        [查看日志]  │
+│                    │                                                         │
+│                    │      [agent-moebius] [本地] [当前分支]                  │
+│                    │      [描述目标，@ 一个角色…                       ↑]  │
 └────────────────────┴─────────────────────────────────────────────────────────┘
 ```
 
 Requirements:
-- Main-content live run blocks and timeline messages use the shared `Card` primitive: square or near-square corners, thin border, compact padding, neutral surface, and no floating shadow.
-- Session and message status labels use the shared `Badge` primitive with runtime status semantics.
-- Waiting and pending statuses remain neutral structural facts; failed and stuck statuses use danger fact styling; interrupted stays neutral and distinct from failure.
-- Main content does not keep native `article` timeline shells or hand-written `border border-line` card/badge containers.
-- Sidebar project/session rows remain navigation controls, not Card surfaces.
+- The timeline is a flat chronological stream rather than a stack of floating Card surfaces.
+- Agent identity uses a compact localized avatar, name, and inline state metadata in the same stream.
+- Waiting and pending remain neutral structural facts; failed and stuck use danger fact text; interrupted stays neutral and distinct from failure.
+- Raw output, runDir, cwd, SQLite paths, and internal ids remain in developer diagnostics rather than expandable timeline details.
+- The composer is the only floating surface and owns project/workspace context.
+- Sidebar project/session rows remain compact navigation controls and all sessions keep the same indentation.

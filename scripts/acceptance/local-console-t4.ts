@@ -64,7 +64,7 @@ try {
   await page.goto(pageUrl.toString());
   await page.getByLabel("消息内容").fill("@dev T4_LIVE start a slow local console run");
   await page.getByRole("button", { name: "发送消息" }).click();
-  await page.getByText("运行直播").waitFor();
+  await page.getByRole("button", { name: "中断开发运行" }).waitFor();
   await page.getByText("live tail from codex").waitFor();
   await page.screenshot({ path: path.join(projectRoot, artifacts.live), fullPage: true });
 
@@ -77,7 +77,7 @@ try {
   };
 
   await page.getByRole("button", { name: /中断/u }).click();
-  await page.getByText("已中断").first().waitFor();
+  await page.getByText("运行已中断").first().waitFor();
   const interruptedState = await waitForState("default", (state) =>
     state.messages.some((message) => message.status === "interrupted"),
   );
@@ -101,7 +101,7 @@ try {
     state.messages.some((message: any) => message.error === "exit:42"),
   );
   await page.getByRole("button", { name: /failure visible/u }).click();
-  await page.getByText("Codex failed: exit:42").waitFor();
+  await page.getByText("运行失败").first().waitFor();
   await page.screenshot({ path: path.join(projectRoot, artifacts.failed), fullPage: true });
   const failedSessionId = failureSession.sessionId;
   const failedState = await getState(failedSessionId);
@@ -176,7 +176,7 @@ try {
   evidence.acceptance = [
     {
       id: 1,
-      statement: "桌面台发起一次对话 -> 应看到运行直播",
+      statement: "桌面台发起一次对话 -> 应在同一时间线看到运行摘要与中断动作",
       evidence: {
         screenshot: artifacts.live,
         activeRun: liveActiveRun,
@@ -210,7 +210,7 @@ try {
     },
     {
       id: 5,
-      statement: "构造无可解析 JSONL 且 stderr 为空的慢 Codex run -> 显示非空 running 概括、elapsed、runDir",
+      statement: "构造无可解析 JSONL 且 stderr 为空的慢 Codex run -> 显示非空运行概括和 elapsed，runDir 只保留为状态证据",
       evidence: {
         activeRun: emptyActiveRun,
       },
@@ -234,7 +234,7 @@ try {
     },
     {
       id: 8,
-      statement: "刷新 renderer 或重启桌面窗口后查看 interrupted/failed/stuck 记录 -> 状态、reason、runDir 仍恢复可见",
+      statement: "刷新 renderer 或重启桌面窗口后查看 interrupted/failed/stuck 记录 -> 可读状态仍恢复，reason/runDir 保留为诊断证据而不常驻对话",
       evidence: {
         interrupted: restartInterruptedMessages,
         failed: restartFailedMessages,

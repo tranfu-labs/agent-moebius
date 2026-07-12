@@ -25,6 +25,8 @@
 
 ### 操作台主窗口
 - MUST load the desktop operator console as the default BrowserWindow content after application boot.
+- MUST use an integrated hidden-inset titlebar for the macOS main window so traffic-light controls visually belong to the console rail; Windows/Linux MUST keep usable native window controls.
+- MUST provide a safe renderer drag region for the integrated main window while keeping interactive controls usable.
 - MUST keep status and observer diagnostics reachable from the operator console, but they must not be the default main-window experience.
 - MUST expose the local console server URL or equivalent local API capability to the renderer through preload, not through global Node integration.
 - MUST keep context isolation enabled and node integration disabled for renderer windows.
@@ -74,6 +76,18 @@ Given the operator console renderer is loaded
 When it needs to submit messages, interrupt runs, or read state
 Then it uses preload-exposed APIs or loopback HTTP endpoints
 And it does not enable Node integration.
+
+### 场景 DS.T4.4：macOS 主窗口集成标题栏
+Given the desktop application runs on macOS
+When the main BrowserWindow is created
+Then it uses the hidden inset titlebar treatment with traffic-light controls positioned over the console rail
+And the renderer provides a safe draggable region without covering interactive controls.
+
+### 场景 DS.T4.5：其它平台保留原生窗口控制
+Given the desktop application runs on Windows or Linux
+When the main BrowserWindow is created
+Then it retains usable native titlebar behavior
+And project/session navigation and the bottom composer remain available.
 
 ## GitHub-mode runner child
 

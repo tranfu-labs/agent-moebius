@@ -28,7 +28,7 @@ describe("AgentMessage", () => {
     const rawMarker = screen.getByText(/agent-moebius:stage=plan-written/u);
     expect(rawMarker).not.toBeVisible();
 
-    fireEvent.click(screen.getByText("点开全文"));
+    fireEvent.click(screen.getByLabelText("展开开发原文"));
     expect(rawMarker).toBeVisible();
     expect(screen.getByText(/交棒：@qa 请审查方案/u)).toBeVisible();
   });
@@ -50,7 +50,7 @@ describe("AgentMessage", () => {
     expect(screen.getByText("交给「产品」确认")).toBeVisible();
     expect(screen.queryByText("方案已写好")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("点开全文"));
+    fireEvent.click(screen.getByLabelText("展开测试原文"));
     expect(screen.getByText(/已补齐运行块人话化展示/u)).toBeVisible();
   });
 
@@ -66,7 +66,7 @@ describe("AgentMessage", () => {
   it("toggles disclosure with one Enter or Space activation", () => {
     render(<AgentMessage role="dev" rawMarkdown={rawAgentMarkdown} />);
 
-    const summary = screen.getByText("点开全文").closest("summary");
+    const summary = screen.getByLabelText("展开开发原文");
     expect(summary).not.toBeNull();
     const rawMarker = screen.getByText(/agent-moebius:stage=plan-written/u);
 

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { RunOutcome, type RunOutcomeStatus } from "./run-outcome";
 
@@ -11,44 +11,29 @@ const outcomeFixtures: Array<{ status: RunOutcomeStatus; summary: string; reason
 ];
 
 describe("RunOutcome", () => {
-  it("maps terminal outcomes to Chinese summaries while keeping machine reasons collapsed", () => {
+  it("maps terminal outcomes to readable summaries without rendering machine reasons", () => {
     for (const fixture of outcomeFixtures) {
       const { unmount } = render(<RunOutcome status={fixture.status} role="dev" rawReason={fixture.reason} />);
 
       expect(screen.getByText(fixture.summary)).toBeVisible();
-      const reason = screen.getByText(fixture.reason);
-      expect(reason).not.toBeVisible();
-
-      fireEvent.click(screen.getByText("查看详情"));
-      expect(reason).toBeVisible();
-      expect(reason.textContent).toBe(fixture.reason);
+      expect(screen.queryByText(fixture.reason)).not.toBeInTheDocument();
       unmount();
     }
   });
 
-  it("toggles outcome detail with one Enter or Space activation", () => {
-    render(<RunOutcome status="failed" rawReason="exit:42" />);
+  it("routes failed-run diagnostics through the explicit log action", () => {
+    const onOpenDiagnostics = vi.fn();
+    render(<RunOutcome status="failed" rawReason="exit:42" onOpenDiagnostics={onOpenDiagnostics} />);
 
-    const summary = screen.getByText("查看详情").closest("summary");
-    expect(summary).not.toBeNull();
-    const reason = screen.getByText("exit:42");
-
-    fireEvent.keyDown(summary!, { key: "Enter" });
-    expect(reason).toBeVisible();
-
-    fireEvent.keyDown(summary!, { key: " " });
-    expect(reason).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "查看日志" }));
+    expect(onOpenDiagnostics).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("exit:42")).not.toBeInTheDocument();
   });
 
-  it("preserves line breaks, angle brackets, ampersands, and machine strings as text", () => {
-    const rawOutput = "line one\n<run status=\"failed\"> & exit:42";
-    render(<RunOutcome status="failed" rawReason="exit:42" rawOutput={rawOutput} />);
+  it("does not offer a diagnostic action for a user interruption", () => {
+    render(<RunOutcome status="interrupted" onOpenDiagnostics={vi.fn()} />);
 
-    const output = screen.getByLabelText("原始输出");
-    expect(output).not.toBeVisible();
-
-    fireEvent.click(screen.getByText("查看详情"));
-    expect(output).toBeVisible();
-    expect(output.textContent).toBe(rawOutput);
+    expect(screen.getByText("运行已中断")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "查看日志" })).not.toBeInTheDocument();
   });
 });

@@ -80,10 +80,10 @@ export function ConversationSidebar({
 
   return (
     <aside
-      className={cn("flex w-[280px] flex-col border border-line bg-rail text-ink", className)}
+      className={cn("flex w-[248px] flex-col bg-rail text-ink", className)}
       aria-label="项目和会话"
     >
-      <nav className="scroll-thin min-h-0 flex-1 overflow-auto p-2" aria-label="项目列表">
+      <nav className="scroll-thin min-h-0 flex-1 overflow-auto px-2 pb-2" aria-label="项目列表">
         {projects.map((project) => {
           const projectName = projectDirectoryName(project);
           const orderedSessions = sortConversationSessions(project.sessions);
@@ -94,7 +94,7 @@ export function ConversationSidebar({
 
           return (
             <section key={project.id} className="mb-2" aria-label={`${projectName} 项目`}>
-              <div className="mb-1 flex min-w-0 items-center gap-2 px-2 py-1.5">
+              <div className="mb-0.5 flex min-w-0 items-center gap-2 px-2 py-1.5">
                 <Folder className="h-4 w-4 shrink-0 text-sub" aria-hidden="true" />
                 <div className="min-w-0">
                   <h2 className="truncate text-sm font-semibold leading-5">{projectName}</h2>
@@ -170,25 +170,17 @@ function SessionRow({
       data-testid="conversation-sidebar-session"
       data-session-id={session.id}
       className={cn(
-        "grid h-9 w-full grid-cols-[18px_minmax(0,1fr)] items-center gap-1.5 rounded-md px-2 text-left text-sm hover:bg-hover",
+        "grid h-8 w-full grid-cols-[minmax(0,1fr)_18px] items-center gap-1.5 rounded-md px-2 text-left text-sm hover:bg-hover",
         selected ? "bg-sel" : "bg-transparent"
       )}
       aria-current={selected ? "page" : undefined}
       aria-label={`${session.title}，${statusLabel[session.status]}`}
       onClick={() => onSelectSession?.(session.id, projectId)}
     >
-      <StatusIcon status={session.status} />
       <span className="min-w-0">
-        <span className="block truncate text-[13px] font-medium leading-4">{session.title}</span>
-        {session.status === "waiting" || session.status === "running" || session.status === "completed" ? (
-          <span className="block truncate text-xs leading-4 text-sub">
-            {statusLabel[session.status]}
-            {session.summary ? ` · ${session.summary}` : ""}
-          </span>
-        ) : session.summary ? (
-          <span className="block truncate text-xs leading-4 text-sub">{session.summary}</span>
-        ) : null}
+        <span className="block truncate text-[13px] font-normal leading-4">{session.title}</span>
       </span>
+      <StatusIcon status={session.status} />
     </button>
   );
 }

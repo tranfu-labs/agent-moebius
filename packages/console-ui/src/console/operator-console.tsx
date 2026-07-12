@@ -1,24 +1,17 @@
-import {
-  Clock3,
-  FolderOpen,
-  GitBranch,
-  Plus,
-} from "lucide-react";
+import { Circle, FolderOpen, GitBranch, Laptop, PanelLeft, Plus, Search, Settings2 } from "lucide-react";
 
 import { AgentMessage } from "@/console/agent-message";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
-import { ConversationSidebar, type ConversationSidebarProject, type ConversationSessionStatus } from "@/console/conversation-sidebar";
+import {
+  ConversationSidebar,
+  type ConversationSidebarProject,
+  type ConversationSessionStatus,
+} from "@/console/conversation-sidebar";
 import { RoleComposer } from "@/console/role-composer";
 import { RunBlock } from "@/console/run-block";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
-import {
-  SessionContextHeader,
-  type SessionContextStatus,
-} from "@/console/session-context-header";
 import { cn } from "@/lib/utils";
-import { Badge, type BadgeProps } from "@/ui/badge";
 import { Button } from "@/ui/button";
-import { Card } from "@/ui/card";
 
 export type OperatorMessageSpeaker = "user" | "agent" | "system";
 export type OperatorMessageStatus =
@@ -140,7 +133,6 @@ export function OperatorConsole({
   activeRun,
   composerValue,
   runnerStatus = "stopped",
-  sqlitePath,
   lastError,
   onComposerChange,
   onSend,
@@ -158,13 +150,8 @@ export function OperatorConsole({
   const activeProjectId = selectedProjectId ?? project.projectId;
   const activeProject = visibleProjects.find((item) => item.projectId === activeProjectId) ?? project;
   const sidebarProjects = visibleProjects.map(toSidebarProject);
-  const allSessions = visibleProjects.flatMap((item) => item.sessions);
-  const parentSession = selectedSession?.parentSessionId
-    ? allSessions.find((item) => item.sessionId === selectedSession.parentSessionId) ?? null
-    : null;
   const canSend = composerValue.trim() !== "" && activeRun === null && !isSending;
   const emptyConversation = messages.length === 0 && activeRun === null;
-  const contextStatus = toContextStatus(selectedSession, activeRun);
 
   const submitComposer = () => {
     if (canSend) {
@@ -173,140 +160,182 @@ export function OperatorConsole({
   };
 
   return (
-    <div className={cn("flex h-screen min-h-[560px] bg-canvas text-ink", className)}>
-      <aside className="flex w-[300px] shrink-0 flex-col border-r border-line bg-rail">
-        <div className="border-b border-line px-3 py-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">项目</div>
-              <div className="mt-1 flex items-center gap-2 text-xs text-sub">
-                <StatusDot status={runnerStatus === "running" ? "running" : "idle"} />
-                <span className="truncate">本地引擎{runnerStatusLabel(runnerStatus)}</span>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              {onOpenProject ? (
-                <Button type="button" size="icon" variant="ghost" aria-label="打开文件夹" onClick={onOpenProject}>
-                  <FolderOpen className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              ) : null}
-              <Button type="button" size="icon" variant="ghost" aria-label="新建会话" onClick={onCreateSession}>
-                <Plus className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            </div>
+    <div className={cn("flex h-screen min-h-[560px] overflow-hidden bg-canvas text-ink", className)}>
+      <aside className="relative flex w-[248px] shrink-0 flex-col border-r border-line bg-rail">
+        <div className="window-drag-region absolute inset-x-0 top-0 h-9" aria-hidden="true" />
+
+        <div className="px-2 pb-2 pt-10">
+          <div className="flex h-9 items-center justify-between px-2">
+            <div className="text-base font-semibold tracking-[-0.01em]">Moebius</div>
+            <span className="flex h-7 w-7 items-center justify-center text-sub" aria-hidden="true">
+              <Search className="h-4 w-4" />
+            </span>
           </div>
+
+          <button
+            type="button"
+            className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-ink hover:bg-hover"
+            onClick={onCreateSession}
+          >
+            <Plus className="h-4 w-4 text-sub" aria-hidden="true" />
+            新会话
+          </button>
+
+          {onOpenProject ? (
+            <button
+              type="button"
+              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-ink hover:bg-hover"
+              onClick={onOpenProject}
+            >
+              <FolderOpen className="h-4 w-4 text-sub" aria-hidden="true" />
+              打开项目
+            </button>
+          ) : null}
         </div>
 
+        <div className="px-4 pb-1 pt-2 text-xs font-medium text-hint">项目</div>
         <ConversationSidebar
           projects={sidebarProjects}
           selectedSessionId={selectedSessionId}
           showProjectPath={false}
           onSelectSession={(sessionId, projectId) => {
-            onSelectProject?.(projectId);
+            if (projectId !== activeProjectId) {
+              onSelectProject?.(projectId);
+            }
             onSelectSession(sessionId);
           }}
           className="min-h-0 w-full flex-1 border-0"
         />
 
-        <div className="border-t border-line p-3">
-          {onToggleProjectWorktree ? (
-            <Button
+        <div className="border-t border-line p-2">
+          {onOpenDiagnostics ? (
+            <button
               type="button"
-              variant={activeProject.worktreeMode ? "outline" : "ghost"}
-              size="sm"
-              className="w-full justify-start"
-              aria-label={activeProject.worktreeMode ? "关闭隔离工作区" : "开启隔离工作区"}
-              aria-pressed={activeProject.worktreeMode}
-              onClick={() => onToggleProjectWorktree(activeProject.projectId, !activeProject.worktreeMode)}
+              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-sub hover:bg-hover hover:text-ink"
+              onClick={onOpenDiagnostics}
             >
-              <GitBranch className="h-4 w-4" aria-hidden="true" />
-              隔离工作区
-            </Button>
+              <Settings2 className="h-4 w-4" aria-hidden="true" />
+              开发者诊断
+            </button>
           ) : null}
-          <RawInfoDetails
-            className="mt-2"
-            items={projectRawItems(activeProject, sqlitePath)}
-            summary="查看项目原始信息"
-          />
+          <div className="flex h-8 items-center gap-2 px-2 text-xs text-hint">
+            <Circle className={cn("h-2.5 w-2.5", runnerStatus === "running" ? "fill-sub text-sub" : "text-hint")} />
+            本地引擎{runnerStatusLabel(runnerStatus)}
+          </div>
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-line bg-card p-3">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
-            <SessionContextHeader
-              parentTitle={parentSession?.title}
-              taskLabel={selectedSession?.title ?? "未选择会话"}
-              status={contextStatus}
-              progress={sessionProgress(selectedSession, messages, activeRun)}
-              onOpenParent={parentSession ? () => onSelectSession(parentSession.sessionId) : undefined}
-            />
-            <div className="flex items-start gap-2">
-              <Badge variant={statusVariant(contextStatus)}>{contextStatusLabel(contextStatus)}</Badge>
-              {onOpenDiagnostics ? (
-                <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
-                  诊断
-                </Button>
-              ) : null}
-            </div>
-          </div>
-          <RawInfoDetails
-            className="mt-2"
-            items={sessionRawItems(activeProject, selectedSession, activeRun)}
-            summary="查看当前会话原始信息"
-          />
+      <main className="relative flex min-w-0 flex-1 flex-col bg-canvas">
+        <div className="window-drag-region absolute inset-x-0 top-0 z-10 h-9" aria-hidden="true" />
+        <div className="pointer-events-none absolute right-4 top-3 z-20 flex items-center gap-3 text-hint" aria-hidden="true">
+          <PanelLeft className="h-3.5 w-3.5" />
         </div>
 
-        <section className="scroll-thin min-h-0 flex-1 overflow-auto px-4 py-3" aria-label="会话时间线">
-          {activeRun ? (
-            <RunBlock
-              role={activeRun.role ?? "dev"}
-              elapsedTime={formatElapsed(activeRun.elapsedMs)}
-              summary={safeRunSummary(activeRun.lastOutputSummary)}
-              rawOutput={runRawOutput(activeRun)}
-              onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
-              className="mb-3"
-            />
-          ) : null}
-
+        <section className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-44 pt-16" aria-label="会话时间线">
           {emptyConversation ? (
-            <div className="grid h-full place-items-center">
-              <ConversationEmptyState value={composerValue} onValueChange={onComposerChange} onSubmit={submitComposer} />
-            </div>
+            <ConversationEmptyState projectName={activeProject.title} />
           ) : (
-            <div className="space-y-2.5">
-              {messages.map((message) => (
-                <TimelineEntry key={message.id} message={message} />
-              ))}
+            <div className="mx-auto max-w-[760px]">
+              <div className="divide-y divide-line">
+                {messages.map((message) => (
+                  <TimelineEntry key={message.id} message={message} onOpenDiagnostics={onOpenDiagnostics} />
+                ))}
+              </div>
+
+              {activeRun ? (
+                <RunBlock
+                  role={activeRun.role ?? "dev"}
+                  elapsedTime={formatElapsed(activeRun.elapsedMs)}
+                  summary={safeRunSummary(activeRun.lastOutputSummary)}
+                  rawOutput={runRawOutput(activeRun)}
+                  onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
+                  className="mt-3"
+                />
+              ) : null}
+
+              {lastError ? (
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-line py-3 text-sm text-danger">
+                  <span>操作台遇到问题，请打开开发者诊断查看日志。</span>
+                  {onOpenDiagnostics ? (
+                    <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
+                      查看日志
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )}
         </section>
 
-        {lastError ? (
-          <div className="border-t border-line bg-card px-4 py-2 text-xs text-danger">
-            遇到问题，详情可展开。
-            <RawInfoDetails className="mt-1 text-sub" items={[["错误原文", lastError]]} summary="查看错误详情" />
-          </div>
-        ) : null}
-
-        {!emptyConversation ? (
-          <footer className="border-t border-line bg-card p-3">
-            <RoleComposer
-              value={composerValue}
-              onValueChange={onComposerChange}
-              onSubmit={submitComposer}
-              disabled={activeRun !== null || isSending}
-              placeholder="描述你的目标，@ 一个角色开始…"
-              statusText={activeRun ? "当前正在执行，稍后可继续发送" : undefined}
-            />
-          </footer>
-        ) : null}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
+          <RoleComposer
+            value={composerValue}
+            onValueChange={onComposerChange}
+            onSubmit={submitComposer}
+            disabled={activeRun !== null || isSending}
+            placeholder={activeRun ? "当前 agent 正在执行…" : "描述你的目标，@ 一个角色开始…"}
+            statusText={activeRun ? "当前正在执行，完成后可继续发送" : undefined}
+            context={
+              <ComposerContext
+                project={activeProject}
+                onToggleProjectWorktree={onToggleProjectWorktree}
+              />
+            }
+            className="pointer-events-auto mx-auto max-w-[720px]"
+          />
+        </div>
       </main>
     </div>
   );
 }
 
-function TimelineEntry({ message }: { message: OperatorMessage }): JSX.Element {
+function ComposerContext({
+  project,
+  onToggleProjectWorktree,
+}: {
+  project: OperatorProject;
+  onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
+}): JSX.Element {
+  const workspaceLabel = project.worktreeMode ? "隔离工作区" : "本地";
+
+  return (
+    <div className="flex min-w-0 items-center gap-3 text-xs text-sub">
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{project.title}</span>
+      </span>
+      {onToggleProjectWorktree ? (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink"
+          aria-label={`工作区：${workspaceLabel}，点击切换`}
+          aria-pressed={project.worktreeMode}
+          onClick={() => onToggleProjectWorktree(project.projectId, !project.worktreeMode)}
+        >
+          <Laptop className="h-3.5 w-3.5" aria-hidden="true" />
+          {workspaceLabel}
+        </button>
+      ) : (
+        <span className="inline-flex items-center gap-1.5">
+          <Laptop className="h-3.5 w-3.5" aria-hidden="true" />
+          {workspaceLabel}
+        </span>
+      )}
+      <span className="inline-flex items-center gap-1.5">
+        <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
+        {project.worktreeMode ? "会话分支" : "当前分支"}
+      </span>
+    </div>
+  );
+}
+
+function TimelineEntry({
+  message,
+  onOpenDiagnostics,
+}: {
+  message: OperatorMessage;
+  onOpenDiagnostics?: () => void;
+}): JSX.Element {
   const outcome = terminalOutcome(message);
   if (outcome) {
     return (
@@ -315,80 +344,33 @@ function TimelineEntry({ message }: { message: OperatorMessage }): JSX.Element {
         role={message.role}
         rawReason={message.error ?? message.body}
         rawOutput={message.error ? message.body : null}
+        onOpenDiagnostics={onOpenDiagnostics}
+        className="py-4"
       />
     );
   }
 
   if (message.speaker === "agent") {
     return (
-      <Card className="max-w-[760px] p-3">
-        <AgentMessage
-          role={message.role ?? "agent"}
-          rawMarkdown={message.body}
-          timestamp={formatTime(message.updatedAt)}
-        />
-        <MessageRawDetails message={message} />
-      </Card>
+      <AgentMessage
+        role={message.role ?? "agent"}
+        rawMarkdown={message.body}
+        timestamp={formatTime(message.updatedAt)}
+        className="py-4"
+      />
     );
   }
 
   return (
-    <Card className="max-w-[760px] p-3">
-      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-sub">
+    <div className="py-4 pl-10 text-sm">
+      <div className="mb-1.5 flex items-center gap-2 text-xs text-sub">
         <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : "系统提示"}</span>
-        <Badge variant={statusVariant(message.status)}>{statusLabel(message.status)}</Badge>
-        <span className="inline-flex items-center gap-1 tnum">
-          <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-          {formatTime(message.updatedAt)}
-        </span>
+        <span className="tnum text-hint">{formatTime(message.updatedAt)}</span>
       </div>
-      <div className="whitespace-pre-wrap break-words text-sm leading-5 text-ink">
+      <div className="whitespace-pre-wrap break-words leading-6 text-ink">
         {message.speaker === "system" ? systemSummary(message) : message.body}
       </div>
-      <MessageRawDetails message={message} />
-    </Card>
-  );
-}
-
-function MessageRawDetails({ message }: { message: OperatorMessage }): JSX.Element | null {
-  const items: Array<[string, string | null | undefined]> = [
-    ["消息原文", message.body],
-    ["错误原文", message.error],
-    ["运行目录", message.runDir],
-    ["运行编号", message.runId],
-  ];
-  return <RawInfoDetails className="mt-2" items={items} summary="查看原始信息" />;
-}
-
-function RawInfoDetails({
-  items,
-  summary,
-  className,
-}: {
-  items: Array<[string, string | null | undefined]>;
-  summary: string;
-  className?: string;
-}): JSX.Element | null {
-  const visibleItems = items.filter(([, value]) => nonBlank(value));
-  if (visibleItems.length === 0) {
-    return null;
-  }
-  return (
-    <details className={cn("text-xs text-sub", className)}>
-      <summary className="cursor-pointer list-none rounded-sm text-hint outline-none hover:text-sub focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden">
-        {summary}
-      </summary>
-      <div className="mt-2 space-y-2">
-        {visibleItems.map(([label, value]) => (
-          <div key={label}>
-            <div className="mb-1 text-hint">{label}</div>
-            <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-sunken p-3 font-mono leading-5 text-ink">
-              {value}
-            </pre>
-          </div>
-        ))}
-      </div>
-    </details>
+    </div>
   );
 }
 
@@ -419,46 +401,12 @@ function toSidebarStatus(session: OperatorSession): ConversationSessionStatus {
   return "idle";
 }
 
-function toContextStatus(session: OperatorSession | null, activeRun: OperatorRunSnapshot | null): SessionContextStatus {
-  if (activeRun) {
-    return "running";
-  }
-  if (!session) {
-    return "idle";
-  }
-  if (session.status === "completed") {
-    return "completed";
-  }
-  if (session.status === "waiting" || session.waitingCount > 0) {
-    return "waiting";
-  }
-  if (session.status === "running" || session.runningCount > 0) {
-    return "running";
-  }
-  return "idle";
-}
-
-function sessionProgress(
-  session: OperatorSession | null,
-  messages: OperatorMessage[],
-  activeRun: OperatorRunSnapshot | null,
-): { passed: number; running: number; waiting: number } {
-  return {
-    passed: messages.filter((message) => message.status === "completed" || message.status === "displayed").length,
-    running: activeRun ? 1 : session?.runningCount ?? 0,
-    waiting: session?.waitingCount ?? 0,
-  };
-}
-
 function sessionSummary(session: OperatorSession): string | undefined {
   if (session.errorCount > 0) {
     return `错误 ${session.errorCount}`;
   }
   if (session.stuckCount > 0) {
     return `卡住 ${session.stuckCount}`;
-  }
-  if ((session.childCount ?? 0) > 0) {
-    return `子会话 ${session.childCount ?? 0}`;
   }
   if (session.interruptedCount > 0) {
     return `中断 ${session.interruptedCount}`;
@@ -471,14 +419,14 @@ function terminalOutcome(message: OperatorMessage): RunOutcomeStatus | null {
   if (rawText.includes("dead-letter")) {
     return "dead-letter";
   }
-  if (message.status === "failed") {
-    return "failed";
-  }
-  if (message.status === "stuck") {
+  if (message.status === "stuck" || (message.speaker !== "system" && /(?:idle|max-duration)-timeout/u.test(rawText))) {
     return "stuck";
   }
-  if (message.status === "interrupted") {
+  if (message.status === "interrupted" || (message.speaker !== "system" && rawText.includes("interrupted:"))) {
     return "interrupted";
+  }
+  if (message.status === "failed" || (message.speaker !== "system" && nonBlank(message.error))) {
+    return "failed";
   }
   return null;
 }
@@ -493,11 +441,11 @@ function systemSummary(message: OperatorMessage): string {
     case "displayed":
       return "系统消息已记录";
     case "failed":
-      return "运行失败，详情可展开";
+      return "运行失败，请查看日志";
     case "interrupted":
-      return "运行已中断，详情可展开";
+      return "运行已中断";
     case "stuck":
-      return "运行长时间无响应，详情可展开";
+      return "运行长时间无响应，请查看日志";
   }
 }
 
@@ -510,149 +458,41 @@ function safeRunSummary(summary: string | null | undefined): string {
 }
 
 function runRawOutput(activeRun: OperatorRunSnapshot): string {
-  return [
-    ["输出摘要", activeRun.lastOutputSummary],
-    ["标准输出", activeRun.stdoutTail],
-    ["错误输出", activeRun.stderrTail],
-    ["尾部诊断", activeRun.tailDiagnostic],
-    ["运行目录", activeRun.runDir],
-    ["工作目录", activeRun.cwd],
-    ["工作区模式", activeRun.workspaceMode],
-    ["隔离不可用原因", activeRun.worktreeUnavailableReason],
-  ]
-    .filter(([, value]) => nonBlank(value))
-    .map(([label, value]) => `${label}：${value}`)
-    .join("\n");
-}
-
-function projectRawItems(project: OperatorProject, sqlitePath: string | undefined): Array<[string, string | null | undefined]> {
-  return [
-    ["项目路径", project.folderPath],
-    ["工作目录", project.workspaceCwd],
-    ["工作区模式", project.workspaceMode],
-    ["隔离路径", project.worktreePath],
-    ["隔离不可用原因", project.worktreeUnavailableReason],
-    ["状态库", sqlitePath],
-    ["更新时间", project.workspaceUpdatedAt],
-  ];
-}
-
-function sessionRawItems(
-  project: OperatorProject,
-  session: OperatorSession | null,
-  activeRun: OperatorRunSnapshot | null,
-): Array<[string, string | null | undefined]> {
-  return [
-    ["项目原始路径", project.folderPath],
-    ["会话编号", session?.sessionId],
-    ["父会话编号", session?.parentSessionId],
-    ["运行编号", activeRun?.runId],
-    ["运行目录", activeRun?.runDir],
-    ["工作目录", activeRun?.cwd],
-    ["工作区模式", activeRun?.workspaceMode],
-  ];
-}
-
-function StatusDot({ status }: { status: OperatorSessionStatus | "idle" }): JSX.Element {
-  return <span className={cn("h-2 w-2 rounded-full", dotClass(status))} aria-hidden="true" />;
-}
-
-function statusVariant(status: OperatorSessionStatus | OperatorMessageStatus | SessionContextStatus): BadgeProps["variant"] {
-  if (status === "completed" || status === "displayed") {
-    return "completed";
-  }
-  if (status === "failed" || status === "stuck") {
-    return status;
-  }
-  if (status === "interrupted") {
-    return "interrupted";
-  }
-  if (status === "waiting" || status === "pending") {
-    return "waiting";
-  }
-  if (status === "running") {
-    return "running";
-  }
-  return "idle";
-}
-
-function dotClass(status: OperatorSessionStatus | "idle"): string {
-  if (status === "running") {
-    return "bg-accent";
-  }
-  if (status === "failed" || status === "stuck") {
-    return "bg-danger";
-  }
-  if (status === "waiting") {
-    return "bg-ink";
-  }
-  return "bg-hint";
-}
-
-function statusLabel(status: OperatorSessionStatus | OperatorMessageStatus): string {
-  switch (status) {
-    case "pending":
-      return "排队中";
-    case "running":
-      return "进行中";
-    case "completed":
-      return "已完成";
-    case "failed":
-      return "错误";
-    case "interrupted":
-      return "已中断";
-    case "stuck":
-      return "卡住";
-    case "displayed":
-      return "已显示";
-    case "waiting":
-      return "等待真人";
-    case "idle":
-      return "空闲";
-  }
-}
-
-function contextStatusLabel(status: SessionContextStatus): string {
-  switch (status) {
-    case "completed":
-      return "已完成";
-    case "idle":
-      return "静止";
-    case "running":
-      return "执行中";
-    case "waiting":
-      return "等你";
-  }
+  return [activeRun.stdoutTail, activeRun.stderrTail, activeRun.tailDiagnostic].filter(nonBlank).join("\n");
 }
 
 function runnerStatusLabel(status: OperatorRunnerStatus): string {
   switch (status) {
-    case "starting":
-      return "启动中";
     case "running":
       return "运行中";
-    case "stopped":
-      return "已停止";
+    case "starting":
+      return "启动中";
     case "crashed":
       return "已崩溃";
     case "error":
       return "异常";
+    case "stopped":
+      return "已停止";
   }
 }
 
 function formatElapsed(elapsedMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1_000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function formatTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
 }
 
 function nonBlank(value: string | null | undefined): string | null {
@@ -660,4 +500,4 @@ function nonBlank(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-const forbiddenMachineTextPattern = /worktree|direct|cwd|runDir|dead-letter|handoff/iu;
+const forbiddenMachineTextPattern = /\b(?:cwd|runDir|direct|worktree|dead-letter|handoff)\b|(?:^|\s)\/(?:tmp|Users|home)\//iu;
