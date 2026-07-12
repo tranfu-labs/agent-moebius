@@ -25,7 +25,16 @@ The desktop operator console is the default local experience. Its auxiliary stat
   ├─ 操作台主窗口接收主进程快照
   │    ├─ runner 状态 / 崩溃重启进度 / 日志路径
   │    ├─ local console URL
-  │    ├─ 单本地项目 / 多会话列表
+  │    ├─ 持久化本地项目 / 多会话列表
+  │    │    ├─ [打开项目] → preload 原生目录选择 → local console API 持久化 project
+  │    │    ├─ 每个 project 行 [＋] → 在该 project 新建并选中空白 session
+  │    │    ├─ 空白 session 的 composer 项目菜单 → 原 session id 重绑到目标 project
+  │    │    │    ├─ 草稿与选中态保持
+  │    │    │    └─ 有消息 / run / parent / child → 项目锁定，不显示菜单
+  │    │    ├─ create / open / rebind 共用 selection mutation gate
+  │    │    │    ├─ pending 时禁用并二次拦截其它 selection 入口与首条消息
+  │    │    │    ├─ owner refresh 可抢占旧 lease，非 owner refresh 不得提交
+  │    │    │    └─ 周期 refresh single-flight，慢请求不会被下一 tick 饥饿
   │    │    ├─ flat sessions 可带 parentSessionId 供运行时编排与恢复
   │    │    ├─ renderer 始终渲染 project → peer session 平铺列表
   │    │    ├─ 刷新后恢复同级列表与选中会话，不展示父子层级

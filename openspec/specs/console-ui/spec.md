@@ -100,7 +100,13 @@ The operator console MUST render interrupted and stuck runs distinctly from fail
 
 The operator console MUST render failed local errors visibly with reason and runDir when available.
 
-The operator console MUST support a single local project with multiple sessions while preserving the project to session visual hierarchy.
+The operator console MUST support a controlled list of local projects and render sessions under their owning project while preserving the project-to-session hierarchy.
+
+Selecting a project or a session and creating a session for a project MUST flow through callbacks with an explicit project id.
+
+The operator console MUST render each project title from the real directory title supplied by local console state and MUST expose folder opening through a callback rather than filesystem or Electron access.
+
+Workspace mode mutation MUST remain a controlled callback. A `not-git-repository` workspace-unavailable reason MUST remain distinct from running, waiting, stuck, failed, and interrupted session states wherever diagnostics present it.
 
 The operator console MUST render tail-read fallback or diagnostic copy without leaving the run live block blank.
 
@@ -116,11 +122,64 @@ The operator console MUST render tail-read fallback or diagnostic copy without l
 - **WHEN** the timeline renders
 - **THEN** the interrupted record uses neutral status styling, the stuck record is visibly marked as stuck, and the failed record uses danger fact styling.
 
-#### Scenario: Single project supports multiple sessions
+#### Scenario: Multiple projects preserve session ownership
 
-- **GIVEN** a local project has sessions with running, stuck, failed, and idle states
+- **GIVEN** the operator console receives two local projects whose sessions have running, stuck, failed, and idle states
 - **WHEN** the sidebar renders
-- **THEN** it shows the project row, all sessions under the project, and visible state indicators for running, stuck, and failed sessions.
+- **THEN** it shows both real project titles, every session under its owning project, and visible state indicators for running, stuck, and failed sessions
+- **AND** selecting a project or session calls the supplied callback with explicit ownership context.
+
+### Requirement: Project-scoped new sessions and empty-session project switching
+
+The operator console MUST provide a project-specific new-session button on every project folder row and MUST pass that row's project id through a controlled callback.
+
+The operator console MUST NOT depend on an implicitly selected project to decide the destination of a project-row new-session action, and MUST NOT retain a global new-session entry whose project ownership is ambiguous.
+
+For a selected session with no messages, active run, parent, or child relationship, the composer project context MUST expose an accessible menu of opened projects, mark the current project, and pass the session id plus target project id through a controlled callback.
+
+The composer draft MUST remain controlled by the renderer and MUST survive a successful project rebind. Once a session has messages, an active run, a parent, or children, the project context MUST remain visible but MUST NOT expose a project-switch menu.
+
+### Requirement: Selection mutation serialization
+
+While create session, open project, or session project rebind is pending, the operator console MUST disable sidebar session selection, project-row new-session buttons, the open-project button, and the project-switch menu.
+
+The renderer callback/handler boundary MUST reject selection intents that arrive while another selection-changing mutation owns the gate; disabled presentation alone is not a correctness boundary.
+
+At most one selection-changing mutation may open a picker or send an API request at a time, and only its owner may commit the target selection.
+
+During a selection mutation, non-owner refreshes MUST NOT commit state or selection. The owner target refresh MUST be able to replace an older refresh lease, while periodic refresh remains single-flight so a slow request is not starved by the next polling tick.
+
+Mutation cancellation or failure before API success MUST preserve the original selection. If the API succeeds but the following refresh fails, the target selection MUST remain committed so a later refresh can recover from it.
+
+During session project rebind, the project menu and send action MUST be disabled, and the submit handler MUST reject a first-message callback until rebind settles.
+
+#### Scenario: Project row creates a session for that project
+
+- **GIVEN** the sidebar receives two projects
+- **WHEN** the user activates the new-session button on the second project row
+- **THEN** the controlled callback receives the second project id
+- **AND** no callback is emitted for the first project.
+
+#### Scenario: Empty session changes project without losing its draft
+
+- **GIVEN** the selected session has no messages, active run, parent, or children
+- **WHEN** the user selects another project from the composer project menu
+- **THEN** the callback receives the selected session id and target project id
+- **AND** the composer draft remains unchanged.
+
+#### Scenario: Historical or related session keeps project locked
+
+- **GIVEN** the selected session has messages, an active run, a parent, or children
+- **WHEN** the composer context renders
+- **THEN** the current project remains visible
+- **AND** no project-switch menu is available.
+
+#### Scenario: Selection-changing mutations remain serialized
+
+- **GIVEN** a create session, open project, or session project rebind mutation is pending
+- **WHEN** another selection, creation, project opening, project rebind, refresh, or first-message intent arrives
+- **THEN** it cannot commit a second selection or duplicate side effect
+- **AND** only the owner mutation may commit its target selection and refresh result.
 
 ### Requirement: Flat session rail with persisted lineage
 

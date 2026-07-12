@@ -1,0 +1,31 @@
+# 任务：new-session-project-switcher
+
+- [x] 增加空白 session 项目重绑的 SQLite/store/runtime/API 能力
+  - [x] 新增结构化 state command result 与稳定 domain error，事务校验目标 project、消息、`sessions.parent_session_id` 双向关系和 `session_edges` 任一端。
+  - [x] 新增 runtime 方法与 `PATCH /api/local-console/sessions/:sessionId/project`。
+  - [x] 显式映射非法 JSON/字段=400、缺失资源=404、历史/关系冲突=409，不依赖错误字符串。
+  - [x] 覆盖成功、缺失目标、已有消息、非 local session、仅 parent column、仅反向 child column、仅 edge 与原子回滚测试。
+- [x] 调整 console-ui 受控交互
+  - [x] 把新会话按钮移到每个项目文件夹行右侧，并回传 project id。
+  - [x] 空白会话 composer 文件夹使用项目下拉；历史/运行/编排会话保持锁定文本。
+  - [x] 任一 selection mutation pending 时禁用侧栏 session 选择、项目行新建、打开项目和项目菜单；重绑 pending 时额外禁用 composer 发送。
+  - [x] 补项目行、菜单键盘语义、选择回调、锁定态、统一 pending 禁用与 callback 二次拦截测试。
+- [x] 接入 desktop renderer
+  - [x] 按项目 id 创建会话并同步选中 project/session。
+  - [x] 调重绑 API，成功时保持 session id 与输入草稿，失败时显示错误且不丢状态。
+  - [x] 抽取显式 selection + request generation + AbortController 协调器；普通 selection 与 mutation 都使旧轮询失效，mutation pending 期间暂停轮询。
+  - [x] 将周期 refresh 改为 single-flight，慢请求跨过轮询周期时跳过下一 tick 而非取消请求，明确 selection 变化时才使旧 generation 失效。
+  - [x] 为 refresh lease 增加 mutation owner；pending 期间非所有者不得提交，owner 目标 refresh 可抢占并废弃期间插入的旧 lease。
+  - [x] 用同步 coordinator + token 实现 create/open/rebind 统一 mutation gate；侧栏选择使用显式 project/session pair，所有 selection handler 二次拦截，只有持有 token 的 mutation 能释放 pending。
+  - [x] 用真实 renderer actions + deferred fetch 覆盖慢 refresh 最终提交、旧轮询晚到不回跳、新 selection refresh、mutation pending 期间插入的非所有者 refresh 被 owner 目标 refresh 抢占且不得提交、create/open/rebind 各自 pending 时侧栏选择/项目行新建/打开项目/项目菜单不回跳且不重复 mutation、取消/API 失败保留原 selection、API 成功后 refresh 失败保留目标 selection，以及重绑发送互斥。
+- [x] 收敛事实基线
+  - [x] 实现前确认 T4.6 多 project 基座仍存在且接口未漂移。
+  - [x] 归档时优先复核 T4.6 已回流；若仍未回流，按本 change delta 替换 local-console/console-ui 的单 project 冲突规则。
+- [x] 完成验证
+  - [x] 运行 `pnpm --filter @agent-moebius/console-ui test`。
+  - [x] 运行 local console 相关 Vitest。
+  - [x] 运行全量 `pnpm test`。
+  - [x] 运行 `pnpm typecheck`。
+  - [x] 运行 `pnpm --filter @agent-moebius/desktop build`。
+  - [x] 运行可见交互验收并生成项目行新建、项目下拉和锁定态截图。
+  - [x] 运行 `git diff --check`。

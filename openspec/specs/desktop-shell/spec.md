@@ -31,6 +31,9 @@
 - MUST expose the local console server URL or equivalent local API capability to the renderer through preload, not through global Node integration.
 - MUST keep context isolation enabled and node integration disabled for renderer windows.
 - MUST keep the status page available as an auxiliary diagnostic window.
+- MUST expose a narrow preload IPC that opens the native directory picker and returns only the selected folder path or null to the renderer.
+- MUST NOT write project rows, edit configuration, start Codex, call GitHub, or call `gh` inside the folder picker IPC.
+- MUST let the renderer persist the selected folder as a project through the loopback local console API rather than direct filesystem or SQLite access.
 
 ### local console server ownership
 - MUST ensure desktop mode starts exactly one local console server for the operator console.
@@ -88,6 +91,19 @@ Given the desktop application runs on Windows or Linux
 When the main BrowserWindow is created
 Then it retains usable native titlebar behavior
 And project/session navigation and the bottom composer remain available.
+
+### 场景 DS.T4.6：打开文件夹入口只返回路径
+Given the desktop operator console is loaded
+When the user chooses the open-project action
+Then the Electron main process opens a native directory picker
+And preload returns the selected folder path to the renderer
+And the IPC does not write SQLite, configuration, or runner state by itself.
+
+### 场景 DS.T4.7：renderer 仍走安全边界
+Given the renderer has received a selected folder path
+When it creates or updates a local project
+Then it calls the loopback local console API
+And it does not use Node integration or direct filesystem access.
 
 ## GitHub-mode runner child
 

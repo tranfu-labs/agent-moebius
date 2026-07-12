@@ -8,8 +8,16 @@ import {
   type OperatorRunnerStatus,
   type OperatorSession,
 } from "@agent-moebius/console-ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  ConsoleStateActions,
+  ConsoleStateCoordinator,
+  refreshConsoleState,
+  type ConsoleSelection,
+  type SelectionMutationKind,
+  type SelectionMutationToken,
+} from "./state-sync.js";
 
 interface DesktopApi {
   getLocalConsoleUrl?: () => Promise<string | null>;
@@ -51,12 +59,14 @@ declare global {
 
 function App(): JSX.Element {
   const [apiBase, setApiBase] = useState<string | null>(readQueryApiBase());
-  const [selectedProjectId, setSelectedProjectId] = useState("local");
-  const [selectedSessionId, setSelectedSessionId] = useState("default");
+  const [selection, setSelection] = useState<ConsoleSelection>({ projectId: "local", sessionId: "default" });
+  const selectionRef = useRef(selection);
+  const coordinatorRef = useRef(new ConsoleStateCoordinator());
   const [state, setState] = useState<LocalConsoleState | null>(null);
   const [composerValue, setComposerValue] = useState("");
   const [runnerStatus, setRunnerStatus] = useState<OperatorRunnerStatus>("stopped");
   const [isSending, setIsSending] = useState(false);
+  const [selectionMutationKind, setSelectionMutationKind] = useState<SelectionMutationKind | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,35 +103,45 @@ function App(): JSX.Element {
     });
   }, []);
 
-  const refresh = useCallback(async () => {
+  const commitSelection = useCallback((nextSelection: ConsoleSelection) => {
+    selectionRef.current = nextSelection;
+    setSelection(nextSelection);
+  }, []);
+
+  const refresh = useCallback(async (
+    targetSelection: ConsoleSelection,
+    mutationOwner?: SelectionMutationToken,
+  ): Promise<boolean> => {
     if (apiBase === null) {
-      return;
+      return false;
     }
-    try {
-      const url = endpoint(apiBase, "/api/local-console/state");
-      url.searchParams.set("sessionId", selectedSessionId);
-      url.searchParams.set("projectId", selectedProjectId);
-      const response = await fetch(url);
-      const body = await response.json() as LocalConsoleState | { error?: string };
-      if (!response.ok) {
-        throw new Error("error" in body && body.error ? body.error : "state request failed");
-      }
-      const nextState = body as LocalConsoleState;
-      setState(nextState);
-      setSelectedProjectId(nextState.selectedProjectId);
-      setSelectedSessionId(nextState.selectedSessionId);
-      setClientError(null);
-    } catch (error) {
-      setClientError(formatError(error));
-    }
-  }, [apiBase, selectedProjectId, selectedSessionId]);
+    return refreshConsoleState<LocalConsoleState>({
+      apiBase,
+      selection: targetSelection,
+      coordinator: coordinatorRef.current,
+      fetch,
+      readSelection: (nextState) => ({
+        projectId: nextState.selectedProjectId,
+        sessionId: nextState.selectedSessionId,
+      }),
+      commitState: setState,
+      commitSelection,
+      setError: setClientError,
+      mutationOwner,
+    });
+  }, [apiBase, commitSelection]);
 
   useEffect(() => {
-    void refresh();
+    void refresh(selectionRef.current);
     const timer = window.setInterval(() => {
-      void refresh();
+      if (!coordinatorRef.current.isSelectionMutationPending) {
+        void refresh(selectionRef.current);
+      }
     }, 1_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      coordinatorRef.current.invalidateRefresh();
+    };
   }, [refresh]);
 
   const project = state?.project ?? emptyProject;
@@ -132,65 +152,22 @@ function App(): JSX.Element {
   const activeRun = state?.activeRun ?? null;
   const sqlitePath = state?.sqlitePath;
 
-  const createSession = useCallback(async () => {
-    if (apiBase === null) {
-      setClientError("local console server unavailable");
-      return;
-    }
-    try {
-      const response = await fetch(endpoint(apiBase, "/api/local-console/sessions"), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "新会话", projectId: selectedProjectId }),
-      });
-      const body = await response.json() as { session?: OperatorSession; error?: string };
-      if (!response.ok || body.session === undefined) {
-        throw new Error(body.error ?? "create session failed");
-      }
-      setSelectedSessionId(body.session.sessionId);
-      setComposerValue("");
-      await refresh();
-    } catch (error) {
-      setClientError(formatError(error));
-    }
-  }, [apiBase, refresh, selectedProjectId]);
-
-  const openProject = useCallback(async () => {
-    if (apiBase === null) {
-      setClientError("local console server unavailable");
-      return;
-    }
-    if (window.agentMoebius?.selectProjectFolder === undefined) {
-      setClientError("desktop folder picker unavailable");
-      return;
-    }
-    try {
-      const folderPath = await window.agentMoebius.selectProjectFolder();
-      if (folderPath === null) {
-        return;
-      }
-      const response = await fetch(endpoint(apiBase, "/api/local-console/projects"), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ folderPath, worktreeMode: false }),
-      });
-      const body = await response.json() as { project?: OperatorProject; error?: string };
-      if (!response.ok || body.project === undefined) {
-        throw new Error(body.error ?? "open project failed");
-      }
-      setSelectedProjectId(body.project.projectId);
-      setSelectedSessionId(body.project.sessions[0]?.sessionId ?? selectedSessionId);
-      await refresh();
-    } catch (error) {
-      setClientError(formatError(error));
-    }
-  }, [apiBase, refresh, selectedSessionId]);
-
-  const selectProject = useCallback((projectId: string) => {
-    const nextProject = projects.find((candidate) => candidate.projectId === projectId);
-    setSelectedProjectId(projectId);
-    setSelectedSessionId(nextProject?.sessions[0]?.sessionId ?? selectedSessionId);
-  }, [projects, selectedSessionId]);
+  const actions = useMemo(() => new ConsoleStateActions({
+    apiBase,
+    coordinator: coordinatorRef.current,
+    fetch,
+    getSelection: () => selectionRef.current,
+    commitSelection,
+    refresh,
+    composerValue,
+    clearComposer: () => setComposerValue(""),
+    setMutationKind: setSelectionMutationKind,
+    setSending: setIsSending,
+    setError: setClientError,
+    selectProjectFolder: window.agentMoebius?.selectProjectFolder === undefined
+      ? undefined
+      : () => window.agentMoebius!.selectProjectFolder!(),
+  }), [apiBase, commitSelection, composerValue, refresh]);
 
   const toggleProjectWorktree = useCallback(async (projectId: string, worktreeMode: boolean) => {
     if (apiBase === null) {
@@ -207,35 +184,11 @@ function App(): JSX.Element {
       if (!response.ok) {
         throw new Error(body.error ?? "update project failed");
       }
-      await refresh();
+      await refresh(selectionRef.current);
     } catch (error) {
       setClientError(formatError(error));
     }
   }, [apiBase, refresh]);
-
-  const sendMessage = useCallback(async () => {
-    if (apiBase === null || composerValue.trim() === "") {
-      return;
-    }
-    setIsSending(true);
-    try {
-      const response = await fetch(endpoint(apiBase, `/api/local-console/sessions/${encodeURIComponent(selectedSessionId)}/messages`), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ body: composerValue }),
-      });
-      const body = await response.json() as { error?: string };
-      if (!response.ok) {
-        throw new Error(body.error ?? "send failed");
-      }
-      setComposerValue("");
-      await refresh();
-    } catch (error) {
-      setClientError(formatError(error));
-    } finally {
-      setIsSending(false);
-    }
-  }, [apiBase, composerValue, refresh, selectedSessionId]);
 
   const interrupt = useCallback(async (sessionId: string, runId: string) => {
     if (apiBase === null) {
@@ -251,7 +204,7 @@ function App(): JSX.Element {
       if (!response.ok) {
         throw new Error(body.error ?? "interrupt failed");
       }
-      await refresh();
+      await refresh(selectionRef.current);
     } catch (error) {
       setClientError(formatError(error));
     }
@@ -270,8 +223,8 @@ function App(): JSX.Element {
     <OperatorConsole
       project={project}
       projects={projects}
-      selectedProjectId={selectedProjectId}
-      selectedSessionId={selectedSessionId}
+      selectedProjectId={selection.projectId}
+      selectedSessionId={selection.sessionId}
       selectedSession={selectedSession}
       messages={messages}
       activeRun={activeRun}
@@ -280,15 +233,17 @@ function App(): JSX.Element {
       sqlitePath={sqlitePath}
       lastError={lastError}
       onComposerChange={setComposerValue}
-      onSend={sendMessage}
-      onCreateSession={createSession}
-      onOpenProject={openProject}
-      onSelectProject={selectProject}
+      onSend={actions.sendMessage}
+      onCreateSession={actions.createSession}
+      onOpenProject={actions.openProject}
       onToggleProjectWorktree={toggleProjectWorktree}
-      onSelectSession={setSelectedSessionId}
+      onSelectSession={actions.selectSession}
+      onChangeSessionProject={actions.rebindSessionProject}
       onInterrupt={interrupt}
       onOpenDiagnostics={openDiagnostics}
       isSending={isSending}
+      isSelectionMutationPending={selectionMutationKind !== null}
+      isSessionProjectUpdating={selectionMutationKind === "rebind-session"}
     />
   );
 }

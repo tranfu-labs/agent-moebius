@@ -35,6 +35,7 @@ export type SqliteStateCommand =
       now: string;
     }
   | { kind: "local-create-session"; sessionId: string; projectId: string; title: string; now: string }
+  | { kind: "local-move-empty-session"; sessionId: string; projectId: string; now: string }
   | {
       kind: "local-create-child-session";
       parentSessionId: string;

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>二、显示框架 — 桌面本地对话操作台</title>
+<style>
+*{box-sizing:border-box}body{margin:24px;background:#f5f5f5;color:#444;font:14px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}h2{margin-top:32px}.note,.state{background:#fff;border:1px solid #ccc}.note{padding:12px}.state{display:grid;grid-template-columns:minmax(620px,1fr) 300px;gap:18px;padding:18px;margin:12px 0}.app{display:grid;grid-template-columns:210px 1fr;min-height:300px;border:1px solid #888}.rail,.canvas{padding:14px}.rail{border-right:1px solid #ccc;background:#fafafa}.project{display:flex;justify-content:space-between;padding:7px 4px;border-bottom:1px dotted #ccc}.session{padding:5px 20px}.composer{margin:180px auto 0;max-width:520px;border:2px dashed #888;padding:10px}.menu{width:190px;margin-left:8px;border:1px solid #888;background:#fff;padding:5px}.item{padding:6px}.legend{align-self:start;background:#fffbe6;border:1px solid #ccb85b;padding:12px;line-height:1.7}.tag{font-size:12px;color:#666}.error{color:#666;border-top:1px solid #ccc;padding-top:8px}
+</style>
+</head>
+<body>
+<h1>二、显示框架 — 桌面本地对话操作台</h1>
+<p class="note">本页所有内容为模拟数据，仅用于展示信息密度与排版。</p>
+
+<h2>空白新会话态</h2>
+<div class="state"><div class="app"><div class="rail"><strong>项目导航区</strong><div class="project"><span>▱ agent-moebius</span><button>＋</button></div><div class="session">新会话</div><div class="session">本地验收</div><div class="project"><span>▱ demo-project</span><button>＋</button></div><div class="session">设计讨论</div></div><div class="canvas"><strong>会话时间线区</strong><p>开始一个关于 agent-moebius 的对话</p><div class="composer"><div>▱ agent-moebius⌄　 本地　 当前分支</div><div>未发送的输入草稿　　　　　　　　　↑</div></div></div></div><aside class="legend"><strong>图例</strong><ul><li>项目行名称 → 项目名称</li><li>项目行 `＋` → 项目专属新会话动作</li><li>输入器文件夹 → 当前项目标记、会话是否可重绑</li><li>本地、当前分支 → 工作区模式、分支语义</li></ul></aside></div>
+
+<h2>项目菜单展开态</h2>
+<div class="state"><div class="app"><div class="rail"><strong>项目导航区</strong><div class="project"><span>▱ agent-moebius</span><button>＋</button></div><div class="session">新会话</div><div class="project"><span>▱ demo-project</span><button>＋</button></div></div><div class="canvas"><strong>会话时间线区</strong><div class="composer"><div>▱ agent-moebius⌃　 本地　 当前分支</div><div class="menu"><div class="item">✓ agent-moebius</div><div class="item">　demo-project</div></div><div>未发送的输入草稿　　　　　　　　　↑</div></div></div></div><aside class="legend"><strong>图例</strong><ul><li>菜单项目 → 已打开项目选项</li><li>选中标记 → 当前项目标记</li><li>仍可见草稿 → 上层受控输入内容</li></ul></aside></div>
+
+<h2>历史会话锁定态</h2>
+<div class="state"><div class="app"><div class="rail"><strong>项目导航区</strong><div class="project"><span>▱ agent-moebius</span><button>＋</button></div><div class="session">已有实现讨论</div></div><div class="canvas"><strong>会话时间线区</strong><p>你：请修改项目。</p><p>开发：已经开始执行。</p><div class="composer"><div>▱ agent-moebius　 本地　 当前分支</div><div>描述你的目标　　　　　　　　　　　↑</div></div></div></div><aside class="legend"><strong>图例</strong><ul><li>无箭头项目文本 → 会话不可重绑</li><li>时间线消息 → 锁定项目归属的历史事实</li></ul></aside></div>
+
+<h2>重绑失败态</h2>
+<div class="state"><div class="app"><div class="rail"><strong>项目导航区</strong><div class="project"><span>▱ agent-moebius</span><button>＋</button></div><div class="session">新会话</div></div><div class="canvas"><strong>会话时间线区</strong><div class="error">项目切换失败，请重试或打开开发者诊断。</div><div class="composer"><div>▱ agent-moebius⌄　 本地　 当前分支</div><div>未发送的输入草稿　　　　　　　　　↑</div></div></div></div><aside class="legend"><strong>图例</strong><ul><li>原项目仍在 → 重绑无部分写入</li><li>失败提示 → 操作台错误事实</li><li>草稿仍在 → 切换失败不清空输入</li></ul></aside></div>
+</body>
+</html>

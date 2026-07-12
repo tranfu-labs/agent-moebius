@@ -4,8 +4,10 @@ import { LOCAL_CONSOLE_STORE_TIMEOUT_MS } from "../config.js";
 import { runSqliteStateCommand, type SqliteStateCommand } from "../sqlite-state.js";
 import {
   LOCAL_CONSOLE_PROJECT_ID,
+  LocalConsoleSessionProjectError,
   type LocalConsoleMessage,
   type LocalConsoleMessageStatus,
+  type MoveEmptySessionResult,
   type LocalConsoleProjectSummary,
   type LocalRouteDecisionRecord,
   type LocalConsoleSessionStatus,
@@ -74,6 +76,21 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
 
   async createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
     return this.run({ kind: "local-create-session", ...input, projectId: input.projectId ?? LOCAL_CONSOLE_PROJECT_ID });
+  }
+
+  async moveEmptySessionToProject(input: {
+    sessionId: string;
+    projectId: string;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary> {
+    const result = await this.run<MoveEmptySessionResult>({
+      kind: "local-move-empty-session",
+      ...input,
+    });
+    if (!result.ok) {
+      throw new LocalConsoleSessionProjectError(result.code);
+    }
+    return result.session;
   }
 
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {

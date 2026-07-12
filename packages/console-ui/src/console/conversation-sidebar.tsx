@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CheckCircle2, ChevronDown, ChevronRight, Circle, Folder, Hand } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Circle, Folder, Hand, Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,8 @@ export interface ConversationSidebarProps {
   projects: ConversationSidebarProject[];
   selectedSessionId?: string;
   onSelectSession?: (sessionId: string, projectId: string) => void;
+  onCreateSession?: (projectId: string) => void;
+  disabled?: boolean;
   showProjectPath?: boolean;
   className?: string;
 }
@@ -61,6 +63,8 @@ export function ConversationSidebar({
   projects,
   selectedSessionId,
   onSelectSession,
+  onCreateSession,
+  disabled = false,
   showProjectPath = true,
   className
 }: ConversationSidebarProps): JSX.Element {
@@ -96,10 +100,25 @@ export function ConversationSidebar({
             <section key={project.id} className="mb-2" aria-label={`${projectName} 项目`}>
               <div className="mb-0.5 flex min-w-0 items-center gap-2 px-2 py-1.5">
                 <Folder className="h-4 w-4 shrink-0 text-sub" aria-hidden="true" />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h2 className="truncate text-sm font-semibold leading-5">{projectName}</h2>
                   {showProjectPath ? <p className="truncate text-xs text-hint">{project.path}</p> : null}
                 </div>
+                {onCreateSession ? (
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-40"
+                    aria-label={`在 ${projectName} 中新建会话`}
+                    disabled={disabled}
+                    onClick={() => {
+                      if (!disabled) {
+                        onCreateSession(project.id);
+                      }
+                    }}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                ) : null}
               </div>
 
               <div className="space-y-0.5" role="list" aria-label={`${projectName} 活跃会话`}>
@@ -110,6 +129,7 @@ export function ConversationSidebar({
                     session={session}
                     selected={session.id === selectedSessionId}
                     onSelectSession={onSelectSession}
+                    disabled={disabled}
                   />
                 ))}
               </div>
@@ -139,6 +159,7 @@ export function ConversationSidebar({
                           session={session}
                           selected={session.id === selectedSessionId}
                           onSelectSession={onSelectSession}
+                          disabled={disabled}
                         />
                       ))}
                     </div>
@@ -157,12 +178,14 @@ function SessionRow({
   projectId,
   session,
   selected,
-  onSelectSession
+  onSelectSession,
+  disabled
 }: {
   projectId: string;
   session: ConversationSidebarSession;
   selected: boolean;
   onSelectSession?: (sessionId: string, projectId: string) => void;
+  disabled: boolean;
 }): JSX.Element {
   return (
     <button
@@ -175,7 +198,12 @@ function SessionRow({
       )}
       aria-current={selected ? "page" : undefined}
       aria-label={`${session.title}，${statusLabel[session.status]}`}
-      onClick={() => onSelectSession?.(session.id, projectId)}
+      disabled={disabled}
+      onClick={() => {
+        if (!disabled) {
+          onSelectSession?.(session.id, projectId);
+        }
+      }}
     >
       <span className="min-w-0">
         <span className="block truncate text-[13px] font-normal leading-4">{session.title}</span>

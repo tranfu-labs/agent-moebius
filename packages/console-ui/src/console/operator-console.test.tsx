@@ -123,10 +123,87 @@ describe("OperatorConsole", () => {
     expect(screen.getAllByText("Self parent")).toHaveLength(1);
     expect(screen.getAllByText("Missing parent")).toHaveLength(1);
   });
+
+  it("switches an empty session project from the composer dropdown", async () => {
+    const onChangeSessionProject = vi.fn();
+    const otherProject: OperatorProject = {
+      ...project,
+      projectId: "project-b",
+      title: "project-b",
+      folderPath: "/Users/example/project-b",
+      sessions: [],
+    };
+    renderConsole({
+      projects: [project, otherProject],
+      messages: [],
+      activeRun: null,
+      onChangeSessionProject,
+    });
+
+    const trigger = screen.getByRole("button", { name: "项目：agent-moebius，点击切换" });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const target = await screen.findByRole("menuitemcheckbox", { name: "project-b" });
+    fireEvent.click(target);
+    expect(onChangeSessionProject).toHaveBeenCalledWith("session-a", "project-b");
+  });
+
+  it("keeps project context locked when the session has history or lineage", () => {
+    const { rerender } = renderConsole({ onChangeSessionProject: vi.fn() });
+    expect(screen.getByLabelText("项目：agent-moebius，已锁定")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /点击切换/u })).not.toBeInTheDocument();
+
+    const props = baseProps({
+      messages: [],
+      selectedSession: { ...sessions[0], parentSessionId: "parent" },
+      onChangeSessionProject: vi.fn(),
+    });
+    rerender(<OperatorConsole {...props} />);
+    expect(screen.getByLabelText("项目：agent-moebius，已锁定")).toBeVisible();
+
+    rerender(<OperatorConsole {...baseProps({
+      messages: [],
+      selectedSession: { ...sessions[0], childCount: 1 },
+      onChangeSessionProject: vi.fn(),
+    })} />);
+    expect(screen.getByLabelText("项目：agent-moebius，已锁定")).toBeVisible();
+  });
+
+  it("blocks every selection entry while pending and additionally blocks send during rebind", () => {
+    const onCreateSession = vi.fn();
+    const onOpenProject = vi.fn();
+    const onSelectSession = vi.fn();
+    const onSend = vi.fn();
+    renderConsole({
+      messages: [],
+      onCreateSession,
+      onOpenProject,
+      onSelectSession,
+      onChangeSessionProject: vi.fn(),
+      onSend,
+      isSelectionMutationPending: true,
+      isSessionProjectUpdating: true,
+    });
+
+    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "打开项目" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toBeDisabled();
+    expect(screen.getByLabelText("项目：agent-moebius，点击切换")).toBeDisabled();
+    const composer = screen.getByRole("textbox");
+    expect(composer).toBeDisabled();
+    fireEvent.keyDown(composer, { key: "Enter" });
+    expect(onCreateSession).not.toHaveBeenCalled();
+    expect(onOpenProject).not.toHaveBeenCalled();
+    expect(onSelectSession).not.toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+  });
 });
 
 function renderConsole(overrides: Partial<OperatorConsoleProps> = {}) {
-  const props: OperatorConsoleProps = {
+  return render(<OperatorConsole {...baseProps(overrides)} />);
+}
+
+function baseProps(overrides: Partial<OperatorConsoleProps> = {}): OperatorConsoleProps {
+  return {
     project,
     selectedSessionId: "session-a",
     selectedSession: sessions[0],
@@ -143,7 +220,6 @@ function renderConsole(overrides: Partial<OperatorConsoleProps> = {}) {
     onInterrupt: vi.fn(),
     ...overrides,
   };
-  return render(<OperatorConsole {...props} />);
 }
 
 const sessions: OperatorSession[] = [

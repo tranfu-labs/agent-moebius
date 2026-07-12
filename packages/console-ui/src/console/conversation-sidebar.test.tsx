@@ -61,6 +61,42 @@ describe("ConversationSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "进度提示，运行中" }));
     expect(onSelectSession).toHaveBeenCalledWith("running-progress", "agent-moebius");
   });
+
+  it("creates a session for the project row that owns the button", () => {
+    const onCreateSession = vi.fn();
+    const secondProject = {
+      id: "second-project",
+      path: "/Users/example/work/second-project",
+      sessions: [],
+    };
+    render(<ConversationSidebar projects={[project, secondProject]} onCreateSession={onCreateSession} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "在 second-project 中新建会话" }));
+    expect(onCreateSession).toHaveBeenCalledWith("second-project");
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks project creation and session selection while a selection mutation is pending", () => {
+    const onCreateSession = vi.fn();
+    const onSelectSession = vi.fn();
+    render(
+      <ConversationSidebar
+        projects={[project]}
+        onCreateSession={onCreateSession}
+        onSelectSession={onSelectSession}
+        disabled
+      />,
+    );
+
+    const createButton = screen.getByRole("button", { name: "在 agent-moebius 中新建会话" });
+    const sessionButton = screen.getByRole("button", { name: "导出功能重构，静止" });
+    expect(createButton).toBeDisabled();
+    expect(sessionButton).toBeDisabled();
+    fireEvent.click(createButton);
+    fireEvent.click(sessionButton);
+    expect(onCreateSession).not.toHaveBeenCalled();
+    expect(onSelectSession).not.toHaveBeenCalled();
+  });
 });
 
 const project: ConversationSidebarProject = {
