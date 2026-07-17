@@ -1,0 +1,102 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPOSITORY="${GITHUB_REPOSITORY,,}"
+          SHA_TAG="sha-${GITHUB_SHA}"
+          ROLLING_TAG="${{ vars.IMAGE_TAG_ROLLING }}"
+          if [ -z "$ROLLING_TAG" ]; then
+            ROLLING_TAG="latest"
+          fi
+          echo "IMAGE_NAME=ghcr.io/${REPOSITORY}" >> "$GITHUB_ENV"
+          echo "IMAGE_REF=ghcr.io/${REPOSITORY}:${SHA_TAG}" >> "$GITHUB_ENV"
+          echo "ROLLING_REF=ghcr.io/${REPOSITORY}:${ROLLING_TAG}" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_REF }}
+            ${{ env.ROLLING_REF }}
+
+      - name: Update Coolify IMAGE_REF
+        shell: bash
+        env:
+          COOLIFY_APP_UUID: ${{ vars.COOLIFY_APP_UUID }}
+          COOLIFY_BASE_URL: ${{ secrets.COOLIFY_BASE_URL }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          IMAGE_REF: ${{ env.IMAGE_REF }}
+        run: |
+          set -euo pipefail
+          test -n "$COOLIFY_APP_UUID"
+          test -n "$COOLIFY_BASE_URL"
+          test -n "$COOLIFY_API_TOKEN"
+          test -n "$IMAGE_REF"
+          BASE="${COOLIFY_BASE_URL%/}"
+          BODY="$(jq -nc --arg key IMAGE_REF --arg value "$IMAGE_REF" '{key:$key,value:$value,is_literal:true}')"
+          HTTP_CODE=$(curl -sS -o /tmp/coolify-image-ref-response.json -w "%{http_code}" --fail-with-body -X PATCH \
+            --oauth2-bearer "$COOLIFY_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" \
+            "$BASE/api/v1/applications/$COOLIFY_APP_UUID/envs" || true)
+          if [ "$HTTP_CODE" = "404" ]; then
+            HTTP_CODE=$(curl -sS -o /tmp/coolify-image-ref-response.json -w "%{http_code}" --fail-with-body -X POST \
+              --oauth2-bearer "$COOLIFY_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$BODY" \
+              "$BASE/api/v1/applications/$COOLIFY_APP_UUID/envs" || true)
+          fi
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            cat /tmp/coolify-image-ref-response.json
+            exit 1
+          fi
+
+      - name: Trigger Coolify deploy
+        shell: bash
+        env:
+          COOLIFY_APP_UUID: ${{ vars.COOLIFY_APP_UUID }}
+          COOLIFY_BASE_URL: ${{ secrets.COOLIFY_BASE_URL }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$COOLIFY_APP_UUID"
+          test -n "$COOLIFY_BASE_URL"
+          test -n "$COOLIFY_API_TOKEN"
+          BASE="${COOLIFY_BASE_URL%/}"
+          curl -sS --fail-with-body -X POST \
+            --oauth2-bearer "$COOLIFY_API_TOKEN" \
+            "$BASE/api/v1/deploy?uuid=$COOLIFY_APP_UUID&force=false"

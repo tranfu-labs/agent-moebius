@@ -1,0 +1,17 @@
+services:
+  web:
+    image: ${IMAGE_REF:-ghcr.io/tranfu-labs/agent-moebius:latest}
+    pull_policy: always
+    expose:
+      - "80"
+    environment:
+      PORT: "80"
+      SERVICE_FQDN_WEB_80: ''
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= wget --spider -q http://127.0.0.1/ || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
