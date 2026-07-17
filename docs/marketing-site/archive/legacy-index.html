@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Moebius —— 你走开，它们继续</title>
+<meta name="description" content="你合上电脑，起身离开。任务没有停——有人接着写，有人接着核对，有人在等那个只有你能拍板的时刻。Agent Moebius，开源免注册，由本机已安装的 Codex CLI / Claude CLI 驱动。">
+<meta property="og:title" content="Agent Moebius —— 你走开，它们继续">
+<meta property="og:description" content="你合上电脑，起身离开。任务没有停——有人接着写，有人接着核对，有人在等那个只有你能拍板的时刻。">
+<meta property="og:image" content="assets/hero.jpg">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#F6EFE1">
+<style>
+  :root{
+    --paper:    #F6EFE1;
+    --paper-2:  #EFE3CC;
+    --ink:      #2A241D;
+    --ink-2:    #6B5F4E;
+    --ochre:    #C97B3D;
+    --blue:     #6E9FB0;
+    --coral:    #D97D63;
+    --line:     #DED0B4;
+    --font-serif: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
+    --font-sans:  -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body{
+    margin:0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size:17px;
+    line-height:1.9;
+    -webkit-font-smoothing: antialiased;
+  }
+  img{ display:block; max-width:100%; height:auto; }
+
+  a{ color: var(--ochre); text-decoration: none; }
+  a:hover{ text-decoration: underline; text-underline-offset: 4px; }
+
+  :focus-visible{
+    outline: 2px solid var(--ochre);
+    outline-offset: 3px;
+  }
+
+  h1,h2,h3{ font-family: var(--font-serif); margin:0; font-weight:900; }
+
+  .container{
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  .wide{
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ---------- 顶部 wordmark ---------- */
+  .site-header{
+    position:absolute;
+    top:0; left:0; right:0;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding: 20px 28px;
+    z-index: 10;
+    font-family: var(--font-sans);
+  }
+  .wordmark{
+    font-size:14px;
+    letter-spacing:0.06em;
+    color: var(--ink);
+    font-weight:600;
+  }
+  .site-header .gh-link{
+    font-size:13px;
+    letter-spacing:0.06em;
+    color: var(--ink-2);
+  }
+  .site-header .gh-link:hover{ color: var(--ochre); }
+
+  /* ---------- 板块通用 ---------- */
+  section{
+    position:relative;
+    padding: 160px 0;
+  }
+  section:first-of-type{ padding-top:0; }
+  section:nth-of-type(even){ background: #F0E9D8; }
+
+  .eyebrow{
+    display:block;
+    font-size:12px;
+    letter-spacing:0.14em;
+    color: var(--ink-2);
+    margin-bottom:22px;
+    text-transform:none;
+  }
+
+  .headline{
+    font-size: clamp(34px, 6vw, 56px);
+    letter-spacing:0.02em;
+    line-height:1.3;
+  }
+
+  .lede{
+    font-size:18px;
+    color: var(--ink-2);
+    margin-top:22px;
+    max-width: 560px;
+  }
+
+  .quote-line{
+    font-family: var(--font-serif);
+    font-size: clamp(24px, 3.2vw, 30px);
+    line-height:1.7;
+  }
+
+  .transition-line{
+    font-size:15px;
+    color: var(--ink-2);
+    margin-top: 64px;
+    letter-spacing:0.02em;
+  }
+
+  /* ---------- 插画统一容器：细边框 + 轻微圆角，无阴影 ---------- */
+  .illus{
+    border:1px solid var(--line);
+    border-radius:6px;
+    overflow:hidden;
+    background: var(--paper-2);
+  }
+  .illus img{ width:100%; height:100%; display:block; }
+  figcaption{
+    margin-top:12px;
+    font-size:12px;
+    letter-spacing:0.1em;
+    color: var(--ink-2);
+  }
+  figure{ margin:0; }
+
+  /* ---------- 逐段淡入：仅在 JS 可用时生效 ---------- */
+  html.js .reveal{
+    opacity:0;
+    transform: translateY(16px);
+    transition: opacity .7s ease-out, transform .7s ease-out;
+  }
+  html.js .reveal.in-view{
+    opacity:1;
+    transform: translateY(0);
+  }
+  @media (prefers-reduced-motion: reduce){
+    html.js .reveal{
+      opacity:1;
+      transform:none;
+      transition:none;
+    }
+    html{ scroll-behavior:auto; }
+  }
+
+  /* ================= 板块一 · 首屏 ================= */
+  .s1{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    padding: 0;
+    background: var(--paper);
+  }
+  .s1-text{
+    padding: 118px 24px 0;
+    text-align:center;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .s1-text .headline{ font-size: clamp(38px, 7vw, 64px); }
+  .s1-text .lede{
+    margin: 24px auto 0;
+    max-width: 600px;
+    font-size:18px;
+  }
+  .s1-visual{
+    flex: 1 1 auto;
+    min-height: 52vh;
+    position:relative;
+  }
+  .s1-visual .illus{
+    border-radius:0;
+    border-left:none; border-right:none;
+    height:100%;
+  }
+  .s1-visual img{
+    width:100%; height:100%;
+    object-fit: cover;
+    object-position: center 62%;
+  }
+  .s1-whisper{
+    text-align:center;
+    padding: 34px 24px 40px;
+  }
+  .s1-whisper p{
+    margin:0;
+    font-size:13px;
+    color: var(--ink-2);
+    letter-spacing:0.02em;
+  }
+  .s1-arrow{
+    margin: 16px auto 0;
+    width:14px; height:14px;
+    border-right:1px solid var(--ink-2);
+    border-bottom:1px solid var(--ink-2);
+    transform: rotate(45deg);
+    animation: float-arrow 2.4s ease-in-out infinite;
+  }
+  @keyframes float-arrow{
+    0%,100%{ transform: rotate(45deg) translate(0,0); }
+    50%{ transform: rotate(45deg) translate(4px,4px); }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .s1-arrow{ animation:none; }
+  }
+
+  /* ================= 板块二 · 旧世界 ================= */
+  .scenes{
+    display:flex;
+    gap: 48px;
+    /* 突破 640px 版心的 breakout：相对页面居中加宽 */
+    width: min(880px, 92vw);
+    margin: 56px 0 0 50%;
+    transform: translateX(-50%);
+  }
+  .scene{ flex:1; }
+  .scene .illus{ aspect-ratio: 4 / 3; }
+  .scene .illus img{
+    width:100%; height:100%;
+    object-fit: cover;
+  }
+  .scene p{ margin-top:20px; color: var(--ink); font-size:16px; }
+
+  .attribution{
+    margin: 88px auto 0;
+    max-width: 620px;
+    text-align:center;
+    padding: 36px 0;
+    border-top:1px solid var(--line);
+    border-bottom:1px solid var(--line);
+  }
+
+  /* ================= 板块三 · 转折 ================= */
+  .s3{ padding: 200px 0; }
+  .roles{
+    display:flex;
+    justify-content: space-between;
+    gap: 24px;
+    margin: 56px 0 64px;
+    max-width: 640px;
+  }
+  .role{ text-align:center; flex:1; }
+  .role .word{
+    font-family: var(--font-serif);
+    font-size: clamp(20px, 3vw, 26px);
+  }
+  .role .tag{
+    display:block;
+    margin-top:8px;
+    font-size:12px;
+    color: var(--ink-2);
+    letter-spacing:0.08em;
+  }
+  .s3 .body-text{ max-width:640px; }
+  .s3-illus{ margin: 96px auto; max-width: 900px; padding:0 24px; }
+  .flip-line{
+    text-align:center;
+    padding: 96px 24px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .flip-line p{
+    font-family: var(--font-serif);
+    font-size: clamp(28px, 4vw, 38px);
+    line-height:1.5;
+  }
+
+  /* ================= 板块四 · 机制 ================= */
+  .s4-illus{ margin: 64px auto 0; max-width: 900px; padding:0 24px; }
+  .moments{
+    display:flex;
+    gap: 40px;
+    margin-top: 64px;
+    max-width: 900px;
+  }
+  .moment{ flex:1; padding-top: 24px; border-top: 1px solid var(--line); }
+  .moment .num{
+    font-size:12px;
+    letter-spacing:0.12em;
+    color: var(--ink-2);
+    display:block;
+    margin-bottom:12px;
+  }
+  .moment h3{
+    font-family: var(--font-serif);
+    font-size: 21px;
+    font-weight:700;
+    margin-bottom:14px;
+  }
+  .moment p{ font-size:15.5px; color: var(--ink); margin:0; }
+
+  /* ================= 板块五 · 底单 ================= */
+  .receipt-layout{
+    display:flex;
+    gap: 56px;
+    align-items:flex-start;
+    margin-top: 56px;
+  }
+  .receipt-layout .illus-col{ flex: 0 0 34%; max-width:34%; }
+  .receipt-layout .card-col{ flex:1; }
+  .receipt-card{
+    position:relative;
+    background: var(--paper-2);
+    border: 1px dashed var(--line);
+    border-radius:6px;
+    padding: 32px 28px;
+  }
+  .receipt-item{
+    display:flex;
+    gap:12px;
+    padding: 16px 0;
+    border-bottom: 1px dashed var(--line);
+    font-size:15px;
+  }
+  .receipt-item:last-child{ border-bottom:none; }
+  .receipt-item .mark{
+    font-family: var(--font-serif);
+    color: var(--ochre);
+    flex: 0 0 auto;
+  }
+  .receipt-item:first-child{ padding-right: 72px; }
+  .stamp{
+    position:absolute;
+    top: -36px; right: -18px;
+    width: 88px; height:88px;
+    border-radius:50%;
+    border: 2px solid var(--coral);
+    color: var(--coral);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    font-size:13px;
+    letter-spacing:0.08em;
+    transform: rotate(-14deg);
+    font-family: var(--font-serif);
+  }
+
+  /* ================= 板块六 · 行动 ================= */
+  .s6{ text-align:center; }
+  .s6 .lede{ margin-left:auto; margin-right:auto; }
+  .s6-illus{
+    margin: 56px auto;
+    max-width: 480px;
+  }
+  .checklist{
+    list-style:none;
+    padding:0;
+    margin: 40px auto;
+    max-width: 460px;
+    text-align:left;
+  }
+  .checklist li{
+    display:flex;
+    gap:12px;
+    align-items:flex-start;
+    padding: 10px 0;
+    font-size:15.5px;
+  }
+  .checklist .box{
+    flex: 0 0 auto;
+    width:11px; height:11px;
+    border: 1px solid var(--ink-2);
+    margin-top:5px;
+  }
+  .cta-row{
+    display:flex;
+    gap:28px;
+    align-items:center;
+    justify-content:center;
+    margin-top: 40px;
+    flex-wrap:wrap;
+  }
+  .btn-primary{
+    display:inline-block;
+    background: var(--ochre);
+    color: #fff;
+    padding: 14px 34px;
+    border-radius: 4px;
+    font-size:15.5px;
+    letter-spacing:0.02em;
+    text-decoration:none;
+    transition: background-color .2s ease;
+  }
+  .btn-primary:hover{
+    background: #B06A31;
+    text-decoration:none;
+  }
+  .link-secondary{ font-size:15px; }
+  .s6-closing{
+    margin-top: 88px;
+    font-family: var(--font-serif);
+    font-size: clamp(19px, 2.6vw, 23px);
+    color: var(--ink-2);
+    max-width: 560px;
+    margin-left:auto; margin-right:auto;
+  }
+
+  /* ---------- 页脚 ---------- */
+  footer{
+    border-top: 1px solid var(--line);
+    padding: 40px 24px 56px;
+    text-align:center;
+  }
+  footer p{
+    margin: 6px 0;
+    font-size:13px;
+    color: var(--ink-2);
+  }
+  footer .foot-links{
+    margin-top:14px;
+    display:flex;
+    gap:18px;
+    justify-content:center;
+    font-size:13px;
+  }
+
+  /* ---------- 右侧章节刻度 ---------- */
+  .chapter-nav{
+    position: fixed;
+    right: 26px;
+    top: 50%;
+    transform: translateY(-50%);
+    display:flex;
+    flex-direction:column;
+    gap: 16px;
+    z-index: 20;
+  }
+  .chapter-nav a{
+    width: 8px;
+    height: 8px;
+    border-radius:50%;
+    background: transparent;
+    border: 1px solid var(--ink-2);
+    display:block;
+    transition: background-color .2s ease, border-color .2s ease, transform .2s ease;
+  }
+  .chapter-nav a:hover{ border-color: var(--ochre); }
+  .chapter-nav a.active{
+    background: var(--ochre);
+    border-color: var(--ochre);
+    transform: scale(1.2);
+  }
+
+  @media (max-width: 900px){
+    .chapter-nav{ display:none; }
+  }
+
+  /* 手动断行：仅桌面端生效，小屏交还给自然换行 */
+  @media (max-width: 640px){
+    br.mbr{ display:none; }
+  }
+
+  @media (max-width: 768px){
+    section{ padding: 100px 0; }
+    .s3{ padding: 120px 0; }
+    .scenes{ flex-direction:column; gap: 56px; }
+    .roles{ flex-wrap:wrap; }
+    .role{ flex: 0 0 45%; margin-bottom:24px; }
+    .moments{ flex-direction:column; gap:40px; }
+    .receipt-layout{ flex-direction:column; }
+    .receipt-layout .illus-col{ max-width: 60%; margin: 0 auto; }
+    .flip-line{ padding: 56px 24px; }
+    .s1-text{ padding-top: 100px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <span class="wordmark">Agent Moebius</span>
+  <!-- TODO: 替换正式链接 -->
+  <a class="gh-link" href="#github-placeholder">GitHub</a>
+</header>
+
+<main>
+
+  <!-- ===================== 板块一 · 首屏 ===================== -->
+  <section class="s1" id="s1">
+    <div class="s1-text">
+      <h1 class="headline reveal">你走开，它们继续</h1>
+      <p class="lede reveal">你合上电脑，起身离开。任务没有停——<br class="mbr">有人接着写，有人接着核对，有人在等那个只有你能拍板的时刻。</p>
+    </div>
+    <div class="s1-whisper">
+      <p>「真的吗？我上次走开，回来是一坨。」</p>
+      <span class="s1-arrow" aria-hidden="true"></span>
+    </div>
+    <div class="s1-visual">
+      <div class="illus">
+        <picture>
+          <source type="image/webp" srcset="assets/hero.webp">
+          <img src="assets/hero.jpg" width="1536" height="1024" alt="旅人转身走开，营地里的伙伴仍在继续搭建帐篷、照看篝火，工作并未因他离开而停下。" fetchpriority="high" loading="eager">
+        </picture>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 板块二 · 旧世界 ===================== -->
+  <section id="s2">
+    <div class="container">
+      <span class="eyebrow reveal">02 · 旧世界</span>
+      <h2 class="headline reveal">交付像抽卡，<br class="mbr">所以你不敢离场</h2>
+      <p class="lede reveal">你说的那种感觉，我们知道是什么。</p>
+
+      <div class="scenes">
+        <div class="scene reveal">
+          <div class="illus">
+            <picture>
+              <source type="image/webp" srcset="assets/gacha.webp">
+              <img src="assets/gacha.jpg" width="1492" height="1054" alt="一台售货机哐当吐出一堆歪歪扭扭的残次品玩偶，如同开出一堆废品的扭蛋机。" loading="lazy">
+            </picture>
+          </div>
+          <p>你把任务整个交出去，进度条哗哗跑到头。结果拿回来，对不上你想要的，你自己也说不清哪里不对，只能整个重来——像抽卡，抽中算你运气好。</p>
+        </div>
+        <div class="scene reveal">
+          <div class="illus">
+            <picture>
+              <source type="image/webp" srcset="assets/tethered.webp">
+              <img src="assets/tethered.jpg" width="1536" height="1024" alt="一个人被绳子拴在书桌前，绳索延伸出画面外，暗示他无法离开，只能一直盯着电脑。" loading="lazy">
+            </picture>
+          </div>
+          <p>你说一句，它答一句，你再纠正一句。一下午过去了，你没干成别的事，只是一直坐在那儿盯着它。</p>
+        </div>
+      </div>
+
+      <div class="attribution reveal">
+        <p class="quote-line">不怪你，也不怪它。问题是，一群各干各的自动化参与者，本来就不是一个团队。</p>
+      </div>
+
+      <p class="transition-line reveal">一群自动化参与者，离一个团队差什么？</p>
+    </div>
+  </section>
+
+  <!-- ===================== 板块三 · 转折 ===================== -->
+  <section class="s3" id="s3">
+    <div class="container">
+      <span class="eyebrow reveal">03 · 转折</span>
+      <h2 class="headline reveal">缺的角色，<br class="mbr">一直是你在演</h2>
+      <p class="lede reveal">那个团队，从来不缺角色。</p>
+
+      <div class="roles reveal">
+        <div class="role">
+          <span class="word">传话的</span>
+          <span class="tag">——是你</span>
+        </div>
+        <div class="role">
+          <span class="word">对齐的</span>
+          <span class="tag">——是你</span>
+        </div>
+        <div class="role">
+          <span class="word">验收的</span>
+          <span class="tag">——是你</span>
+        </div>
+        <div class="role">
+          <span class="word">打回的</span>
+          <span class="tag">——是你</span>
+        </div>
+      </div>
+
+      <p class="body-text reveal">任务要交代清楚，是你去传话；它理解得对不对，是你去对齐；活干完了，是你去验收；不对的地方，是你去打回、盯着重做。你以为自己在「用」一群自动化参与者，其实是你在给一群工具当团队。</p>
+    </div>
+
+    <div class="s3-illus reveal">
+      <div class="illus">
+        <picture>
+          <source type="image/webp" srcset="assets/masks.webp">
+          <img src="assets/masks.jpg" width="1536" height="1024" alt="一排面具正被逐个从一双手交到另一双手上，象征角色正被逐一接走。" loading="lazy">
+        </picture>
+      </div>
+    </div>
+
+    <div class="flip-line reveal">
+      <p class="quote-line">现在，这几个角色，正被逐个接走。</p>
+    </div>
+
+    <div class="container">
+      <p class="transition-line reveal">接走的角色，靠谱吗？</p>
+    </div>
+  </section>
+
+  <!-- ===================== 板块四 · 机制 ===================== -->
+  <section id="s4">
+    <div class="container">
+      <span class="eyebrow reveal">04 · 章法</span>
+      <h2 class="headline reveal">该问你时问你，<br>该返工时自己返</h2>
+      <p class="lede reveal">它打扰你，是因为那一刻的决定权本来就是你的。</p>
+    </div>
+
+    <div class="s4-illus reveal">
+      <div class="illus">
+        <picture>
+          <source type="image/webp" srcset="assets/moments.webp">
+          <img src="assets/moments.jpg" width="1774" height="887" alt="三联小景并排：递交文件对齐目标、文件被打回重做、有人举手来找你确认，对应三个决定时刻。" loading="lazy">
+        </picture>
+      </div>
+    </div>
+
+    <div class="wide">
+      <div class="moments">
+        <div class="moment reveal">
+          <span class="num">01</span>
+          <h3>对齐时刻</h3>
+          <p>接活之前，先把理解的目标说回给你一遍：做什么，不做什么，边界在哪。对不上，它会先停下来问你，而不是先做一半，等你发现方向错了才收场。这是你以前每次交代任务都要亲自做的事。</p>
+        </div>
+        <div class="moment reveal">
+          <span class="num">02</span>
+          <h3>验收时刻</h3>
+          <p>活干完了，不会直接扔到你面前。先有人核对结果和最初说的是不是一回事，核对不过，不标记完成。这曾是你自己一条条对着检查的活。</p>
+        </div>
+        <div class="moment reveal">
+          <span class="num">03</span>
+          <h3>打回时刻</h3>
+          <p>核对不过的部分，会被打回去重做，并写明白哪里不对、要怎么改——不需要你去发现问题、去解释、去盯着它改。这是你以前最耗神的一步。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="container">
+      <p class="transition-line reveal">说得好听，痕迹呢？</p>
+    </div>
+  </section>
+
+  <!-- ===================== 板块五 · 底单 ===================== -->
+  <section id="s5">
+    <div class="container wide">
+      <span class="eyebrow reveal">05 · 底单</span>
+      <h2 class="headline reveal">每份交付，<br class="mbr">都该带一张过程底单</h2>
+      <p class="lede reveal">我们认为，这是每份 AI 交付都该有的样子——不是已经拍到的记录，是一个标准。</p>
+      <p class="reveal" style="max-width:640px; margin-top:24px;">承诺是嘴上的，痕迹得摆出来。一张底单该写清楚：被打回过几次、为什么、谁在中途介入过、和你对齐过什么。好看的记录不算数，不体面的记录才算数——打回过、返工过，都该留下来，而不是被抹掉。</p>
+
+      <div class="receipt-layout">
+        <div class="illus-col reveal">
+          <div class="illus">
+            <picture>
+              <source type="image/webp" srcset="assets/receipt.webp">
+              <img src="assets/receipt.jpg" width="864" height="1821" alt="一张很长的卷轴状底单垂到地面，上面写满密密麻麻的记录条目。" loading="lazy">
+            </picture>
+          </div>
+        </div>
+        <div class="card-col reveal">
+          <div class="receipt-card">
+            <span class="stamp">标准示意</span>
+            <div class="receipt-item"><span class="mark">✓</span><span>对齐记录 —— 任务开始前的目标确认：做什么，不做什么，一句话写清楚</span></div>
+            <div class="receipt-item"><span class="mark">↺</span><span>打回记录 —— 第一次没通过验收，原因是什么，打回重做一次</span></div>
+            <div class="receipt-item"><span class="mark">✓</span><span>介入记录 —— 进行中遇到需要拍板的选择，暂停，等你决定</span></div>
+            <div class="receipt-item"><span class="mark">✓</span><span>验收记录 —— 最终判定「可以交付」的依据是什么</span></div>
+          </div>
+        </div>
+      </div>
+
+      <p class="transition-line reveal">怎么开始？</p>
+    </div>
+  </section>
+
+  <!-- ===================== 板块六 · 行动 ===================== -->
+  <section class="s6" id="s6">
+    <div class="container">
+      <span class="eyebrow reveal">06 · 开始</span>
+      <h2 class="headline reveal">开源免注册，<br>交出你的第一个任务</h2>
+      <p class="lede reveal">你已经有 Codex CLI 或 Claude CLI 了。<br class="mbr">剩下的，只是给它们一个章法。</p>
+    </div>
+
+    <div class="s6-illus reveal">
+      <div class="illus">
+        <picture>
+          <source type="image/webp" srcset="assets/door.webp">
+          <img src="assets/door.jpg" width="1536" height="1024" alt="荒漠中孤零零立着一扇敞开的木门，门后透出光亮，门框之外是空旷的沙地。" loading="lazy">
+        </picture>
+      </div>
+    </div>
+
+    <div class="container">
+      <ul class="checklist reveal">
+        <li><span class="box" aria-hidden="true"></span><span>目前支持 macOS</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>需要本机已安装并登录 Codex CLI 或 Claude CLI（任一即可，也可以混用）</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>完全开源，免注册，不收 key</span></li>
+      </ul>
+
+      <div class="cta-row reveal">
+        <!-- TODO: 替换正式链接 -->
+        <a class="btn-primary" href="#">交出你的第一个任务</a>
+        <!-- TODO: 替换正式链接 -->
+        <a class="link-secondary" href="#">查看 GitHub 仓库 →</a>
+      </div>
+
+      <p class="s6-closing reveal">门是开的。剩下那个问题，只有你自己知道——<br class="mbr">第一个任务，交什么？</p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>Agent Moebius · 开源项目</p>
+  <p>由本机已安装的 Codex CLI / Claude CLI 驱动</p>
+  <div class="foot-links">
+    <!-- TODO: 替换正式链接 -->
+    <a href="#">GitHub</a>
+    <!-- TODO: 替换正式链接 -->
+    <a href="#">使用前提</a>
+    <!-- TODO: 替换正式链接 -->
+    <a href="#">联系方式</a>
+  </div>
+</footer>
+
+<nav class="chapter-nav" aria-label="章节导航">
+  <a href="#s1" data-target="s1" aria-label="01 首屏"></a>
+  <a href="#s2" data-target="s2" aria-label="02 旧世界"></a>
+  <a href="#s3" data-target="s3" aria-label="03 转折"></a>
+  <a href="#s4" data-target="s4" aria-label="04 章法"></a>
+  <a href="#s5" data-target="s5" aria-label="05 底单"></a>
+  <a href="#s6" data-target="s6" aria-label="06 开始"></a>
+</nav>
+
+<script>
+  document.documentElement.classList.add('js');
+
+  // 逐段淡入
+  (function(){
+    var items = document.querySelectorAll('.reveal');
+    if(!('IntersectionObserver' in window)){
+      items.forEach(function(el){ el.classList.add('in-view'); });
+      return;
+    }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(entry.isIntersecting){
+          entry.target.classList.add('in-view');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { rootMargin: '-10% 0px -10% 0px', threshold: 0.05 });
+    items.forEach(function(el){ io.observe(el); });
+  })();
+
+  // 章节刻度高亮
+  (function(){
+    var sections = document.querySelectorAll('main > section[id]');
+    var ticks = document.querySelectorAll('.chapter-nav a');
+    if(!sections.length || !ticks.length || !('IntersectionObserver' in window)) return;
+    var map = {};
+    ticks.forEach(function(t){ map[t.getAttribute('data-target')] = t; });
+
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(entry.isIntersecting){
+          ticks.forEach(function(t){ t.classList.remove('active'); });
+          var current = map[entry.target.id];
+          if(current) current.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
+
+    sections.forEach(function(s){ io.observe(s); });
+  })();
+</script>
+
+</body>
+</html>

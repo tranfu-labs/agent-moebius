@@ -1,2096 +1,980 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>agent-moebius — @mention a role. Your AI team ships it.</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Moebius：把你在用的 AI，变成一个会自己推进、会验收、会返工的团队。">
+  <meta name="theme-color" content="#F2EDE4">
+  <title>Moebius · 让一件事自己往前走</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=Noto+Sans+SC:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+  <script>document.documentElement.classList.add('js');</script>
+  <style>
+    :root {
+      --cream: #F2EDE4;
+      --ink: #1A1A1A;
+      --pink: #FF006E;
+      --orange: #FF9500;
+      --lime: #CCFF00;
+      --blue: #00D9FF;
+      --white: #FFFFFF;
+      --radius-sm: 6px;
+      --radius: 10px;
+      --radius-lg: 12px;
+      --border-thin: 3px solid var(--ink);
+      --border-thick: 4px solid var(--ink);
+      --shadow-sm: 4px 4px 0 var(--ink);
+      --shadow-md: 6px 6px 0 var(--ink);
+      --shadow-lg: 8px 8px 0 var(--ink);
+      --sans: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+      --header-height: 72px;
+    }
 
-<!-- 唯一外链：Google Fonts（Inter 400/500/600/700 + Urbanist 600/700）。离线则回退系统字体，版式不塌。 -->
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link
-  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Urbanist:wght@600;700&display=swap"
-  rel="stylesheet"
-/>
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--cream);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    main section[id] { scroll-margin-top: calc(var(--header-height) + 18px); }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    ::selection { color: var(--ink); background: var(--lime); }
+    .wrap { width: min(1120px, calc(100% - 48px)); margin-inline: auto; }
+    .skip-link {
+      position: fixed; top: 10px; left: 10px; z-index: 1000;
+      transform: translateY(-160%); padding: 10px 14px;
+      border: var(--border-thin); border-radius: var(--radius-sm);
+      background: var(--lime); box-shadow: var(--shadow-sm); font-weight: 900;
+    }
+    .skip-link:focus { transform: translateY(0); }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+    :focus-visible { outline: 4px solid var(--pink); outline-offset: 4px; }
 
-<style>
-/* =========================================================================
-   变量：关键色 + @property 旋转描边角
-   ========================================================================= */
-:root {
-  --violet: #A068FF;      /* 主强调 */
-  --deep1: #060218;       /* 深底 */
-  --deep2: #070319;       /* 深底（描边缝隙色） */
-  --ink: #000000;         /* 深字 */
-  --paper: #ffffff;       /* 浅字 */
-  --fallback: #0a0a0a;    /* 兜底底 */
-  --hair: rgba(160, 104, 255, 0.22);  /* hairline 描边 */
-}
+    .site-header {
+      position: sticky; top: 0; z-index: 100; min-height: var(--header-height);
+      background: var(--cream); border-bottom: var(--border-thick);
+    }
+    .header-inner {
+      min-height: var(--header-height); display: flex; align-items: center;
+      justify-content: space-between; gap: 24px;
+    }
+    .brand { display: inline-flex; align-items: center; gap: 11px; text-decoration: none; font-weight: 900; }
+    .brand-mark {
+      position: relative; width: 32px; height: 32px; flex: 0 0 auto;
+      border: var(--border-thin); border-radius: 8px; background: var(--blue); box-shadow: 3px 3px 0 var(--ink);
+    }
+    .brand-mark::after {
+      content: ''; position: absolute; inset: 6px; border: 3px solid var(--ink); border-radius: 50%;
+      border-left-color: transparent;
+    }
+    .brand-word { letter-spacing: .03em; }
+    .top-nav { display: flex; align-items: center; gap: 7px; }
+    .top-nav a {
+      padding: 7px 10px; border: 2px solid var(--ink); border-radius: var(--radius-sm);
+      background: var(--white); box-shadow: 2px 2px 0 var(--ink); text-decoration: none;
+      font: 700 .72rem/1 var(--mono); letter-spacing: .04em;
+    }
 
-/* @property 让全息 tilt 角度可被平滑过渡（不支持时回退为普通 var） */
-@property --rx { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
-@property --ry { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+    main > section { scroll-margin-top: calc(var(--header-height) + 16px); }
+    .standard-section { padding: clamp(76px, 10vw, 136px) 0; border-bottom: 3px dashed rgb(26 26 26 / 25%); }
+    .eyebrow, .chip {
+      display: inline-flex; align-items: center; gap: .45em; width: fit-content;
+      padding: .36em .68em; border: 2px solid var(--ink); border-radius: var(--radius-sm);
+      background: var(--ink); color: var(--white); font: 700 .72rem/1.2 var(--mono);
+      letter-spacing: .06em; text-transform: uppercase;
+    }
+    .chip-blue { background: var(--blue); color: var(--ink); }
+    .chip-lime { background: var(--lime); color: var(--ink); }
+    .chip-orange { background: var(--orange); color: var(--ink); }
+    .chip-pink { background: var(--pink); }
+    .chip-white { background: var(--white); color: var(--ink); }
+    .section-head { max-width: 810px; margin-bottom: clamp(34px, 6vw, 66px); }
+    .section-kicker { margin: 0 0 14px; font: 700 .78rem/1.2 var(--mono); letter-spacing: .08em; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2, h3 { line-height: 1.14; font-weight: 900; }
+    h1 { max-width: 770px; margin-bottom: 24px; font-size: clamp(2.7rem, 6.4vw, 5.75rem); letter-spacing: -.055em; }
+    h2 { margin-bottom: 20px; font-size: clamp(2rem, 4.5vw, 4.25rem); letter-spacing: -.045em; }
+    h3 { font-size: clamp(1.28rem, 2.2vw, 1.8rem); }
+    .lead { max-width: 760px; font-size: clamp(1.08rem, 1.7vw, 1.25rem); color: var(--ink); }
+    .em-line {
+      display: inline; padding: 0 .08em; background: var(--lime);
+      box-decoration-break: clone; -webkit-box-decoration-break: clone;
+    }
+    .note { font: 500 .75rem/1.55 var(--mono); }
 
-/* @property 让 conic 描边角可被 @keyframes 平滑插值 */
-@property --border-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
+    .hero { min-height: calc(100svh - var(--header-height)); display: grid; align-items: center; padding: 54px 0 42px; border-bottom: var(--border-thick); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(390px, .92fr); gap: 48px; align-items: center; }
+    .hero .eyebrow { margin-bottom: 20px; background: var(--white); color: var(--ink); }
+    .hero-copy p { max-width: 720px; margin-bottom: 10px; font-size: clamp(1.02rem, 1.6vw, 1.18rem); }
+    .scroll-cue {
+      display: inline-flex; align-items: center; gap: 10px; margin-top: 28px;
+      text-decoration: none; font: 700 .76rem/1.5 var(--mono);
+    }
+    .scroll-cue span {
+      display: inline-grid; place-items: center; width: 30px; height: 30px;
+      border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--blue); box-shadow: 2px 2px 0 var(--ink);
+    }
+    .hero-board {
+      position: relative; background: var(--white); border: var(--border-thick);
+      border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 14px;
+      transform: rotate(1deg);
+    }
+    .board-label { position: absolute; top: -18px; right: 18px; z-index: 2; transform: rotate(3deg); }
+    .hero-task { animation: hero-task 16s linear infinite; }
+    .hero-redo { animation: hero-redo 16s ease-in-out infinite; }
+    .hero-stamp { animation: hero-stamp 16s ease-in-out infinite; transform-origin: center; }
+    @keyframes hero-task {
+      0%, 5% { transform: translate(var(--hero-x0, 0), var(--hero-y0, 0)); opacity: 0; }
+      7%, 14% { transform: translate(var(--hero-x0, 0), var(--hero-y0, 0)); opacity: 1; }
+      23%, 30% { transform: translate(var(--hero-x1, 130px), var(--hero-y1, 0)); opacity: 1; }
+      40%, 49% { transform: translate(var(--hero-x2, 260px), var(--hero-y2, 0)); opacity: 1; }
+      51% { transform: translate(var(--hero-x2, 260px), var(--hero-y2, 0)) rotate(-3deg); }
+      53% { transform: translate(var(--hero-x2, 260px), var(--hero-y2, 0)) rotate(3deg); }
+      56% { transform: translate(var(--hero-return-x2, 260px), var(--hero-return-y2, 110px)); opacity: 1; }
+      64% { transform: translate(var(--hero-return-x1, 130px), var(--hero-return-y1, 110px)); opacity: 1; }
+      68%, 72% { transform: translate(var(--hero-x1, 130px), var(--hero-y1, 0)); opacity: 1; }
+      80%, 85% { transform: translate(var(--hero-x2, 260px), var(--hero-y2, 0)); opacity: 1; }
+      92%, 96% { transform: translate(var(--hero-x3, 390px), var(--hero-y3, 0)); opacity: 1; }
+      98%, 100% { transform: translate(var(--hero-x3, 390px), var(--hero-y3, 0)); opacity: 0; }
+    }
+    @keyframes hero-redo { 0%, 43%, 68%, 100% { opacity: 0; transform: translate(-50%, 7px); } 48%, 64% { opacity: 1; transform: translate(-50%, 0); } }
+    @keyframes hero-stamp { 0%, 77%, 97%, 100% { opacity: 0; transform: scale(.65) rotate(-5deg); } 82%, 94% { opacity: 1; transform: scale(1) rotate(-5deg); } }
 
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
+    .old-world { border-bottom: var(--border-thick); }
+    .old-scroll { position: relative; height: 400svh; }
+    .old-sticky {
+      position: sticky; top: var(--header-height); height: calc(100svh - var(--header-height));
+      display: grid; place-items: center; overflow: clip;
+    }
+    .old-stage {
+      position: relative; width: min(1120px, calc(100% - 48px)); height: min(720px, calc(100svh - var(--header-height) - 48px));
+      container-type: inline-size; border: var(--border-thick); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-lg); overflow: hidden;
+    }
+    .beat-copy { position: absolute; z-index: 3; top: 42px; left: 48px; width: calc(100% - 96px); pointer-events: none; }
+    .beat {
+      position: absolute; inset: 0; opacity: 0; visibility: hidden;
+      transition: opacity .72s ease, visibility 0s linear .72s;
+    }
+    .beat.is-active { opacity: 1; visibility: visible; transition-delay: 0s; }
+    .beat > * { opacity: 0; transform: translateY(12px); transition: opacity .62s ease, transform .62s ease; }
+    .beat.is-active > * { opacity: 1; transform: translateY(0); }
+    .beat.is-active .eyebrow { transition-delay: .05s; }
+    .beat.is-active h2 { transition-delay: .16s; }
+    .beat.is-active p { transition-delay: .28s; }
+    .beat .eyebrow { margin-bottom: 12px; }
+    .beat h2 { max-width: none; margin-bottom: 12px; font-size: clamp(1.75rem, 4.6cqw, 3.7rem); letter-spacing: -.035em; white-space: nowrap; }
+    .beat p { max-width: 660px; font-size: clamp(1rem, 1.6vw, 1.18rem); }
+    .beat-3 h2 { font-size: clamp(1.65rem, 4cqw, 3.25rem); }
+    .beat-3 p { max-width: 730px; }
+    .old-scene { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 58%; }
+    .scene-layer { opacity: 0; visibility: hidden; transform: translateY(10px); transition: opacity .72s ease, transform .72s ease, visibility 0s linear .72s; }
+    .scene-layer.is-active { opacity: 1; visibility: visible; transform: translateY(0); transition-delay: 0s; }
+    .old-sensors { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+    .old-sensor { height: 100svh; }
+    .old-progress { position: absolute; right: 22px; top: 50%; z-index: 4; display: grid; gap: 8px; transform: translateY(-50%); }
+    .old-progress span { width: 12px; height: 12px; border: 2px solid var(--ink); border-radius: 3px; background: var(--white); }
+    .old-progress span.is-active { background: var(--pink); }
+    .old-mobile { display: none; }
 
-body {
-  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  background: var(--fallback);
-  color: var(--paper);
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
-}
+    .role-stack { display: grid; gap: 42px; }
+    .role-story {
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 42px; align-items: center;
+      padding: clamp(26px, 4vw, 44px); border: var(--border-thick); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-lg);
+    }
+    .role-story:nth-child(2) { grid-template-columns: minmax(360px, .9fr) minmax(0, 1fr); }
+    .role-story:nth-child(2) .role-copy { order: 2; }
+    .role-copy p { margin-bottom: 16px; }
+    .role-copy .big-truth { margin: 26px 0 0; font-size: clamp(1.45rem, 2.9vw, 2.4rem); font-weight: 900; line-height: 1.3; }
+    .chair-scene { position: relative; min-height: 290px; border: var(--border-thin); border-radius: var(--radius); background: var(--cream); overflow: hidden; }
+    .chairs { position: absolute; left: 7%; right: 7%; bottom: 34px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .chair { position: relative; height: 92px; border: var(--border-thin); border-top-width: 18px; border-radius: var(--radius-sm); background: var(--white); }
+    .chair::after { content: ''; position: absolute; left: 13px; right: 13px; bottom: -31px; height: 29px; border-left: 4px solid var(--ink); border-right: 4px solid var(--ink); }
+    .person { position: absolute; z-index: 3; width: 54px; height: 72px; }
+    .person::before { content: ''; position: absolute; top: 0; left: 14px; width: 28px; height: 28px; border: var(--border-thin); border-radius: 50%; background: currentColor; }
+    .person::after { content: ''; position: absolute; left: 5px; bottom: 0; width: 46px; height: 44px; border: var(--border-thin); border-radius: var(--radius); background: currentColor; }
+    .runner { left: 0; bottom: 83px; color: var(--pink); }
+    .runner-ghost { bottom: 83px; color: var(--pink); opacity: 0; }
+    .ghost-a { left: var(--role-x1, 142px); }
+    .ghost-b { left: var(--role-x2, 282px); }
+    .role-story.is-started .runner { animation: role-run 4s ease-in-out forwards; }
+    .role-story.is-started .ghost-a { animation: ghost-show 4s ease-in-out forwards; }
+    .role-story.is-started .ghost-b { animation: ghost-show-b 4s ease-in-out forwards; }
+    @keyframes role-run { 0%, 12% { transform: translateX(var(--role-x0, 30px)); } 32%, 43% { transform: translateX(var(--role-x1, 170px)); } 63%, 74% { transform: translateX(var(--role-x2, 310px)); } 92%, 100% { transform: translateX(var(--role-x3, 450px)); } }
+    @keyframes ghost-show { 0%, 25%, 100% { opacity: 0; } 34%, 72% { opacity: .26; } }
+    @keyframes ghost-show-b { 0%, 56%, 100% { opacity: 0; } 65%, 88% { opacity: .2; } }
+    .handoff-person { bottom: 83px; opacity: 0; transform: translateY(-24px); }
+    .handoff-person.p1 { left: var(--role-x0, 11%); color: var(--blue); }
+    .handoff-person.p2 { left: var(--role-x1, 35%); color: var(--lime); }
+    .handoff-person.p3 { left: var(--role-x2, 60%); color: var(--orange); }
+    .handoff-person.p4 { left: var(--role-x3, 83%); color: var(--pink); }
+    .role-story.is-started .handoff-person { animation: take-seat .65s cubic-bezier(.2, .8, .2, 1) forwards; }
+    .role-story.is-started .p1 { animation-delay: .25s; }
+    .role-story.is-started .p2 { animation-delay: .7s; }
+    .role-story.is-started .p3 { animation-delay: 1.15s; }
+    .role-story.is-started .p4 { animation-delay: 1.6s; }
+    @keyframes take-seat { to { opacity: 1; transform: translateY(0); } }
+    .seat-labels { position: absolute; z-index: 4; left: 7%; right: 7%; bottom: 4px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; text-align: center; font: 700 .62rem/1 var(--mono); }
+    .seat-labels span { width: fit-content; margin-inline: auto; padding: 2px 3px; background: var(--cream); }
 
-/* =========================================================================
-   .app —— 全视口容器 + CSS mesh 渐变背景（复刻氛围，NEVER 热链外图）
-   深底 #060218 + 紫粉径向光晕若干层；左上偏亮以承载黑色标题字。
-   ========================================================================= */
-.app {
-  position: relative;
-  min-height: 100vh;
-  background-color: var(--deep1);
-  background-image:
-    radial-gradient(1300px 1000px at 18% 26%, rgba(214, 178, 255, 0.72), rgba(214, 178, 255, 0) 62%),
-    radial-gradient(760px 640px at 42% 72%,  rgba(160, 104, 255, 0.45), rgba(160, 104, 255, 0) 60%),
-    radial-gradient(1000px 1000px at 90% 42%, rgba(160, 104, 255, 0.30), rgba(160, 104, 255, 0) 55%),
-    radial-gradient(760px 760px at 80% 92%,  rgba(255, 111, 181, 0.22), rgba(255, 111, 181, 0) 55%);
-  overflow: hidden;
-}
+    .relay-strip {
+      position: relative; margin-bottom: 34px; padding: 24px; border: var(--border-thick); border-radius: var(--radius-lg);
+      background: var(--ink); color: var(--white); overflow: hidden;
+    }
+    .relay-line { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; position: relative; }
+    .relay-line::before { content: ''; position: absolute; left: 10%; right: 10%; top: 26px; border-top: 3px dashed var(--white); opacity: .48; }
+    .relay-step { position: relative; z-index: 1; display: grid; place-items: center; gap: 8px; font: 700 .72rem/1 var(--mono); }
+    .relay-dot { width: 52px; height: 52px; display: grid; place-items: center; border: var(--border-thin); border-radius: var(--radius); background: var(--white); color: var(--ink); }
+    .relay-baton { position: absolute; z-index: 2; left: 0; top: 20px; width: 38px; height: 22px; border: 3px solid var(--ink); border-radius: var(--radius-sm); background: var(--pink); animation: relay-run 11s ease-in-out infinite; }
+    @keyframes relay-run { 0%, 8% { transform: translateX(var(--relay-x0, 26px)); } 28%, 35% { transform: translateX(var(--relay-x1, 280px)); } 55%, 62% { transform: translateX(var(--relay-x2, 540px)); } 82%, 92% { transform: translateX(var(--relay-x3, 800px)); } 96%, 100% { transform: translateX(var(--relay-x3, 800px)); opacity: 0; } }
+    .mechanism-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+    .mechanism-card {
+      min-height: 510px; display: flex; flex-direction: column; padding: 25px;
+      border: var(--border-thick); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-md);
+    }
+    .mechanism-card .chip { margin-bottom: 18px; }
+    .mechanism-card p { margin-bottom: 24px; }
+    .mini-scene { position: relative; min-height: 210px; margin-top: auto; border: var(--border-thin); border-radius: var(--radius); background: var(--cream); overflow: hidden; }
+    .align-orbit { position: absolute; left: 28px; bottom: 34px; width: 90px; height: 90px; border: var(--border-thin); border-style: dashed; border-radius: 50%; animation: orbit-turn 9s linear infinite; }
+    .align-core { position: absolute; left: 44px; bottom: 50px; width: 58px; height: 58px; display: grid; place-items: center; border: var(--border-thin); border-radius: 50%; background: var(--blue); font-weight: 900; }
+    .question-box { position: absolute; top: 22px; right: 18px; width: 175px; padding: 13px; border: var(--border-thin); border-radius: var(--radius); background: var(--white); box-shadow: var(--shadow-sm); font-size: .82rem; animation: bubble-breathe 6s ease-in-out infinite; }
+    @keyframes orbit-turn { to { transform: rotate(360deg); } }
+    @keyframes bubble-breathe { 0%, 15%, 85%, 100% { opacity: .35; transform: translateY(5px); } 28%, 72% { opacity: 1; transform: translateY(0); } }
+    .check-sheet { position: absolute; inset: 22px; padding: 17px; border: var(--border-thin); border-radius: var(--radius); background: var(--white); box-shadow: var(--shadow-sm); }
+    .check-row { display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: center; margin: 13px 0; }
+    .check-box { width: 22px; height: 22px; border: 2px solid var(--ink); border-radius: 4px; background: var(--white); animation: check-pass 7s ease-in-out infinite; }
+    .check-row:nth-child(2) .check-box { animation-delay: 1s; }
+    .check-row:nth-child(3) .check-box { animation-delay: 2s; }
+    .check-line { height: 10px; background: var(--ink); border-radius: 0; }
+    .check-row:nth-child(2) .check-line { width: 82%; }
+    .check-row:nth-child(3) .check-line { width: 64%; }
+    @keyframes check-pass { 0%, 18%, 92%, 100% { background: var(--white); transform: scale(.9); } 28%, 82% { background: var(--lime); transform: scale(1); } }
+    .redo-track { position: absolute; left: 22px; right: 22px; top: 102px; border-top: 3px dashed var(--ink); }
+    .redo-card { position: absolute; top: 70px; left: 26px; width: 78px; height: 58px; display: grid; place-items: center; border: var(--border-thin); border-radius: var(--radius-sm); background: var(--orange); font: 700 .7rem/1 var(--mono); animation: redo-trip 8s ease-in-out infinite; }
+    .decision-flag { position: absolute; right: 18px; top: 22px; padding: 8px 10px; border: var(--border-thin); border-radius: var(--radius-sm); background: var(--pink); color: var(--white); font: 700 .65rem/1 var(--mono); animation: flag-show 8s ease-in-out infinite; }
+    @keyframes redo-trip { 0%, 10% { transform: translateX(0); } 34%, 42% { transform: translateX(145px); } 57%, 67% { transform: translateX(44px); } 83%, 95% { transform: translateX(145px); } 100% { transform: translateX(145px); opacity: 0; } }
+    @keyframes flag-show { 0%, 60%, 100% { opacity: 0; transform: scale(.8) rotate(-3deg); } 70%, 94% { opacity: 1; transform: scale(1) rotate(-3deg); } }
+    .mechanism-close { max-width: 870px; margin: 52px auto 0; text-align: center; font-size: clamp(1.45rem, 3vw, 2.4rem); font-weight: 900; line-height: 1.4; }
 
-/* 内容居中容器 */
-.container {
-  max-width: 1920px;
-  margin: 0 auto;
-}
+    .receipt-layout { display: grid; grid-template-columns: minmax(0, .82fr) minmax(480px, 1.18fr); gap: 62px; align-items: center; }
+    .receipt-copy .honesty { margin-top: 28px; padding: 18px; border: var(--border-thin); border-radius: var(--radius); background: var(--orange); font-weight: 700; }
+    .receipt {
+      position: relative; padding: 30px; border: var(--border-thick); border-radius: var(--radius); background: var(--white); box-shadow: none; transform: none;
+    }
+    .receipt-head { display: flex; justify-content: space-between; align-items: end; gap: 16px; padding-bottom: 18px; border-bottom: var(--border-thin); }
+    .receipt-title { font-size: 1.45rem; font-weight: 900; }
+    .receipt-id { font: 500 .7rem/1.4 var(--mono); }
+    .receipt-row {
+      display: grid; grid-template-columns: 34px 82px 1fr; gap: 12px; align-items: start;
+      padding: 14px 0; border-bottom: 2px dashed var(--ink); font-size: .93rem;
+    }
+    .receipt-icon { width: 26px; height: 26px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 5px; font-weight: 900; }
+    .receipt-kind { font: 700 .72rem/1.7 var(--mono); }
+    .receipt-row[data-kind="redo"] .receipt-icon { background: var(--orange); }
+    .receipt-row[data-kind="you"] .receipt-icon { background: var(--pink); color: var(--white); }
+    .receipt-row[data-kind="pass"] .receipt-icon { background: var(--lime); }
+    .receipt-row[data-kind="align"] .receipt-icon { background: var(--blue); }
+    .receipt-stamp { width: fit-content; margin: 22px 0 0 auto; padding: 7px 10px; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--cream); color: var(--ink); font: 700 .68rem/1 var(--mono); transform: none; }
+    .js .receipt-story:not(.is-started) .receipt-row, .js .receipt-story:not(.is-started) .receipt-stamp { opacity: 0; }
+    .receipt-story.is-started .receipt-row { animation: receipt-row .45s ease forwards; animation-delay: calc(var(--i) * .27s); }
+    .receipt-story.is-started .receipt-stamp { animation: stamp-in .5s ease forwards; animation-delay: 2.7s; }
+    @keyframes receipt-row { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes stamp-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-/* =========================================================================
-   Header
-   ========================================================================= */
-.site-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 24px 64px;
-  animation: headerIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
+    .start-section { padding-bottom: 90px; border-bottom: 0; }
+    .terminal-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 42px 0; }
+    .terminal-card { position: relative; padding: 24px; border: var(--border-thick); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-md); }
+    .terminal-card h3 { margin-bottom: 18px; }
+    .terminal-window { position: relative; min-height: 205px; padding: 22px; border: var(--border-thin); border-radius: var(--radius); background: var(--ink); color: var(--white); font: 500 .76rem/1.9 var(--mono); }
+    .terminal-window p { margin: 0; }
+    .cursor { display: inline-block; width: 9px; height: 1.1em; margin-left: 4px; vertical-align: -.17em; background: var(--lime); animation: cursor-blink 1.1s steps(1) infinite; }
+    @keyframes cursor-blink { 50% { opacity: 0; } }
+    .chat-window { background: var(--cream); color: var(--ink); }
+    .fake-appbar { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; }
+    .fake-icon { width: 25px; height: 25px; border: 2px solid var(--ink); border-radius: 50%; background: var(--pink); }
+    .fake-button { width: 46px; height: 22px; margin-left: auto; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--white); }
+    .chat-bubble { width: 78%; margin: 10px 0; padding: 10px 12px; border: 2px solid var(--ink); border-radius: var(--radius); background: var(--white); }
+    .chat-bubble:nth-of-type(2) { margin-left: auto; background: var(--blue); }
+    .verdict { position: absolute; top: 16px; right: 16px; z-index: 2; width: 48px; height: 48px; display: grid; place-items: center; border: var(--border-thin); border-radius: var(--radius); font-size: 1.7rem; font-weight: 900; transform: rotate(6deg); }
+    .verdict-yes { background: var(--lime); } .verdict-no { background: var(--pink); color: var(--white); }
+    .js .terminal-compare:not(.is-started) .verdict { opacity: 0; }
+    .terminal-compare.is-started .verdict { animation: verdict-pop .5s cubic-bezier(.2, .9, .3, 1.35) forwards; }
+    .terminal-compare.is-started .terminal-card:nth-child(2) .verdict { animation-delay: .22s; }
+    @keyframes verdict-pop { from { opacity: 0; transform: scale(.4) rotate(-10deg); } to { opacity: 1; transform: scale(1) rotate(6deg); } }
+    .promise-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 0; margin: 38px 0 46px; list-style: none; }
+    .promise-list li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 15px; border: var(--border-thin); border-radius: var(--radius); background: var(--white); font-weight: 700; }
+    .promise-list li::before { content: '✓'; display: grid; place-items: center; width: 26px; height: 26px; border: 2px solid var(--ink); border-radius: 5px; background: var(--lime); line-height: 1; }
+    .actions { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+    .button {
+      display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 52px;
+      padding: 12px 22px; border: var(--border-thick); border-radius: var(--radius); background: var(--white); box-shadow: var(--shadow-md);
+      text-decoration: none; font-weight: 900; cursor: pointer; transition: transform .12s ease;
+    }
+    .button-primary { background: var(--blue); }
+    .button-accent { background: var(--lime); }
+    .button[disabled] { opacity: .72; cursor: not-allowed; }
+    .install-links { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0; }
+    .install-links a { font: 700 .76rem/1.4 var(--mono); text-underline-offset: 4px; }
+    .cta-note { margin-top: 16px; max-width: 670px; font-size: .88rem; }
+    .final-question { margin: 86px auto 0; max-width: 930px; text-align: center; font-size: clamp(2rem, 4.4vw, 4rem); font-weight: 900; line-height: 1.2; }
+    .final-question span { display: block; margin-top: 18px; color: var(--pink); }
+    footer { padding: 34px 0 62px; border-top: var(--border-thick); font: 500 .72rem/1.6 var(--mono); }
+    .footer-inner { display: flex; justify-content: space-between; gap: 22px; align-items: center; }
 
-.header-left { display: flex; align-items: center; gap: 40px; }
+    /* Semantic diagrams: learned from workflow graphs, approval gates and event histories. */
+    .lucide { width: 1.25em; height: 1.25em; display: block; }
+    .workflow-graph { position: relative; padding: 52px 22px 22px; }
+    .workflow-primary { display: grid; grid-template-columns: repeat(7, auto); gap: 10px; align-items: center; justify-content: space-between; }
+    .flow-step { min-width: 88px; display: grid; justify-items: center; gap: 7px; text-align: center; }
+    .flow-step strong { font-size: .95rem; }
+    .flow-step small { font: 500 .66rem/1.35 var(--mono); white-space: nowrap; }
+    .flow-icon { width: 58px; height: 58px; display: grid; place-items: center; border: var(--border-thin); border-radius: var(--radius); background: var(--white); box-shadow: var(--shadow-sm); }
+    .flow-icon .lucide { width: 27px; height: 27px; }
+    .flow-arrow { font: 900 1.25rem/1 var(--mono); }
+    .flow-step[data-anim] { animation: flow-node-pulse 12s ease-in-out infinite; animation-delay: var(--flow-delay, 0s); }
+    .flow-step-1 { --flow-delay: 0s; } .flow-step-2 { --flow-delay: 2s; } .flow-step-3 { --flow-delay: 4s; } .flow-step-4 { --flow-delay: 8s; }
+    @keyframes flow-node-pulse { 0%, 13%, 100% { transform: translateY(0); } 4%, 9% { transform: translateY(-5px); } }
+    .workflow-retry { display: grid; grid-template-columns: auto auto 1fr; gap: 10px; align-items: center; margin: 28px auto 0; padding: 12px 14px; border: var(--border-thin); border-radius: var(--radius); background: var(--orange); max-width: 450px; font-size: .82rem; }
+    .workflow-retry[data-anim] { animation: retry-emphasis 12s ease-in-out infinite; }
+    @keyframes retry-emphasis { 0%, 37%, 64%, 100% { transform: translateY(0); box-shadow: none; } 43%, 58% { transform: translateY(-3px); box-shadow: 0 5px 0 var(--ink); } }
+    .workflow-caption { margin: 18px auto 0; max-width: 470px; text-align: center; font: 500 .7rem/1.55 var(--mono); }
+    .hero-task-card {
+      position: absolute; z-index: 5; left: 0; top: 0; width: 72px; height: 46px;
+      display: grid; align-content: center; gap: 3px; padding: 6px 8px;
+      border: 3px solid var(--ink); border-radius: var(--radius-sm); background: var(--pink); color: var(--white);
+      box-shadow: 3px 3px 0 var(--ink); pointer-events: none; will-change: transform, opacity;
+    }
+    .hero-task-card strong { font: 700 .61rem/1.1 var(--mono); white-space: nowrap; }
+    .hero-task-card span { width: 75%; height: 4px; background: var(--white); opacity: .9; }
+    .hero-redo, .hero-stamp {
+      position: absolute; z-index: 6; pointer-events: none; border: 2px solid var(--ink); border-radius: var(--radius-sm);
+      box-shadow: 2px 2px 0 var(--ink); font: 700 .63rem/1 var(--mono);
+    }
+    .hero-redo { left: 50%; top: 50%; padding: 7px 9px; background: var(--orange); transform: translateX(-50%); }
+    .hero-stamp { right: 18px; top: 36px; padding: 7px 9px; background: var(--lime); }
 
-.brand { display: inline-flex; align-items: center; text-decoration: none; }
-.brand svg { height: 32px; width: auto; display: block; }
+    .old-scene-ui { position: absolute; left: 48px; right: 48px; bottom: 28px; height: clamp(240px, 48%, 360px); }
+    .old-scene-ui .scene-layer { position: absolute; inset: 0; display: grid; place-items: center; }
+    .old-scene-ui .scene-layer[data-scene="3"] { place-items: end center; }
+    .scene-callout { width: min(620px, 100%); display: grid; grid-template-columns: auto 1fr; gap: 10px 14px; align-items: center; padding: 28px; border: var(--border-thick); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-md); }
+    .scene-callout .lucide { width: 44px; height: 44px; grid-row: 1 / 3; }
+    .scene-callout strong { font-size: 1.25rem; line-height: 1.3; }
+    .scene-callout span { font-size: .9rem; }
+    .scene-callout-lime { width: min(620px, 100%); padding: 14px 18px; background: var(--lime); }
+    .scene-callout-lime .lucide { width: 28px; height: 28px; grid-row: auto; }
+    .scene-grid { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .scene-grid > div { min-height: 145px; display: grid; place-items: center; align-content: center; gap: 7px; padding: 16px 10px; border: var(--border-thin); border-radius: var(--radius); background: var(--white); box-shadow: var(--shadow-sm); text-align: center; }
+    .scene-grid .lucide { width: 30px; height: 30px; color: var(--pink); }
+    .scene-grid span { font: 700 .68rem/1.3 var(--mono); }
+    .scene-grid-errors > div { background: var(--orange); }
+    .scene-grid-errors .lucide { color: var(--ink); }
+    .scene-layer.is-active .scene-grid:not(.scene-grid-errors) > div { animation: waiting-card 4.8s ease-in-out infinite; }
+    .scene-layer.is-active .scene-grid-errors > div { animation: error-card 4.4s ease-in-out infinite; }
+    .scene-layer.is-active .scene-grid > div:nth-child(2) { animation-delay: .55s; }
+    .scene-layer.is-active .scene-grid > div:nth-child(3) { animation-delay: 1.1s; }
+    .scene-layer.is-active .scene-grid > div:nth-child(4) { animation-delay: 1.65s; }
+    @keyframes waiting-card { 0%, 14%, 100% { transform: translateY(0); box-shadow: var(--shadow-sm); } 5%, 10% { transform: translateY(-5px); box-shadow: 4px 7px 0 var(--pink); } }
+    @keyframes error-card { 0%, 14%, 100% { transform: translateX(0) rotate(0); } 5% { transform: translateX(-2px) rotate(-.7deg); } 8% { transform: translateX(3px) rotate(.7deg); } 11% { transform: translateX(-1px) rotate(-.35deg); } }
+    .missing-role { width: min(760px, 100%); display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 26px; border: var(--border-thick); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-md); }
+    .missing-role .chip { grid-column: 1 / -1; }
+    .missing-role > div { display: flex; align-items: center; gap: 8px; padding: 13px; border: var(--border-thin); border-radius: var(--radius); font-weight: 900; }
 
-.nav { display: flex; align-items: center; gap: 28px; }
-.nav-link {
-  position: relative;
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 400;
-  text-decoration: none;
-  padding: 2px 0;
-}
-.nav-link::after {
-  content: '';
-  position: absolute;
-  left: 0; bottom: -2px;
-  width: 100%; height: 1px;
-  background: currentColor;
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 0.3s ease;
-}
-.nav-link:hover::after { transform: scaleX(1); }
+    .handoff-board { min-height: 290px; display: grid; align-content: center; gap: 11px; padding: 20px; border: var(--border-thin); border-radius: var(--radius); background: var(--cream); }
+    .handoff-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px; border: var(--border-thin); border-radius: var(--radius); background: var(--white); }
+    .handoff-icon { width: 38px; height: 38px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--blue); }
+    .handoff-row:nth-child(3) .handoff-icon { background: var(--lime); }
+    .handoff-row:nth-child(4) .handoff-icon { background: var(--orange); }
+    .owner { min-width: 72px; padding: 7px 9px; border: 2px solid var(--ink); border-radius: var(--radius-sm); text-align: center; font: 700 .68rem/1 var(--mono); }
+    .owner-you { background: var(--pink); color: var(--white); }
+    .owner-system { background: var(--lime); color: var(--ink); }
+    .js .role-story:not(.is-started) .handoff-row { opacity: 0; }
+    .role-story.is-started .handoff-row { animation: handoff-row-in .5s ease forwards; }
+    .role-story.is-started .handoff-row:nth-child(2) { animation-delay: .2s; }
+    .role-story.is-started .handoff-row:nth-child(3) { animation-delay: .4s; }
+    .role-story.is-started .handoff-row:nth-child(4) { animation-delay: .6s; }
+    .role-story.is-complete .handoff-row { opacity: 1; transform: none; }
+    @keyframes handoff-row-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
 
-.header-right { display: flex; align-items: center; gap: 24px; }
+    .relay-step span:last-child { display: flex; gap: 7px; align-items: baseline; }
+    .relay-step b { color: var(--blue); font: 700 .66rem/1 var(--mono); }
+    .relay-dot[data-anim] { animation: relay-node-pulse 10s ease-in-out infinite; }
+    .relay-step:nth-child(2) .relay-dot { animation-delay: 1.7s; }
+    .relay-step:nth-child(3) .relay-dot { animation-delay: 3.4s; }
+    .relay-step:nth-child(4) .relay-dot { animation-delay: 5.1s; }
+    @keyframes relay-node-pulse { 0%, 16%, 100% { background: var(--white); transform: translateY(0); } 5%, 11% { background: var(--blue); transform: translateY(-4px); } }
 
-.login {
-  position: relative;
-  color: var(--paper);
-  font-size: 15px;
-  font-weight: 500;
-  text-decoration: none;
-  padding: 2px 0;
-}
-.login::after {
-  content: '';
-  position: absolute;
-  left: 0; bottom: -2px;
-  width: 100%; height: 1px;
-  background: var(--paper);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 0.3s ease;
-}
-.login:hover::after { transform: scaleX(1); }
+    .decision-panel, .verify-panel, .redo-panel { min-height: 250px; display: flex; flex-direction: column; gap: 11px; padding: 18px; }
+    .decision-title { display: flex; align-items: center; gap: 9px; margin-bottom: 3px; }
+    .decision-option { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: center; padding: 11px; border: var(--border-thin); border-radius: var(--radius); background: var(--white); }
+    .decision-option span { width: 28px; height: 28px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--blue); font: 700 .72rem/1 var(--mono); }
+    .decision-option[data-anim] { animation: option-focus 7s ease-in-out infinite; }
+    .decision-option:nth-child(3) { animation-delay: 3.3s; }
+    @keyframes option-focus { 0%, 24%, 100% { transform: translateX(0); } 8%, 17% { transform: translateX(5px); } }
+    .decision-note { margin-top: auto; padding-top: 10px; border-top: 2px dashed var(--ink); font: 700 .7rem/1.4 var(--mono); }
+    .verify-panel > strong { margin-bottom: 2px; }
+    .verify-row { display: grid; grid-template-columns: 24px 1fr auto; gap: 9px; align-items: center; padding: 11px; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--white); }
+    .verify-row .lucide { color: var(--ink); }
+    .verify-row b { padding: 5px 7px; border: 2px solid var(--ink); border-radius: 5px; background: var(--lime); font: 700 .62rem/1 var(--mono); }
+    .verify-row-fail { background: var(--orange); }
+    .verify-row-fail b { background: var(--orange); }
+    .verify-row[data-anim] { animation: row-check 7s ease-in-out infinite; }
+    .verify-row:nth-child(3) { animation-delay: 1.4s; } .verify-row:nth-child(4) { animation-delay: 2.8s; }
+    @keyframes row-check { 0%, 15%, 100% { transform: translateX(0); } 5%, 10% { transform: translateX(4px); } }
+    .redo-event { display: grid; grid-template-columns: 42px 1fr; gap: 11px; align-items: center; padding: 10px; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--white); }
+    .redo-event strong, .redo-event small { display: block; }
+    .redo-event small { margin-top: 2px; font-size: .72rem; }
+    .event-icon { width: 40px; height: 40px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--blue); }
+    .event-orange { background: var(--orange); } .event-lime { background: var(--lime); }
+    .redo-event[data-anim] { animation: event-step 8s ease-in-out infinite; }
+    .redo-event:nth-child(2) { animation-delay: 1.8s; } .redo-event:nth-child(3) { animation-delay: 3.6s; }
+    @keyframes event-step { 0%, 18%, 100% { transform: translateY(0); box-shadow: none; } 6%, 13% { transform: translateY(-3px); box-shadow: 0 4px 0 var(--ink); } }
+    .receipt-icon .lucide { width: 16px; height: 16px; }
+    .terminal-card h3 { padding-right: 64px; }
 
-/* =========================================================================
-   药丸按钮 + 旋转 conic 描边包裹
-   ========================================================================= */
-.btn-border-wrap {
-  position: relative;
-  display: inline-block;
-  border-radius: 50px;
-}
-/* 仅描边：inset -3px + padding 3px + mask exclude，露出 3px 旋转 conic 边框 */
-.btn-border-wrap::before {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: 52px;
-  padding: 3px;
-  background: conic-gradient(
-    from var(--border-angle),
-    var(--violet), var(--deep2), var(--violet), var(--deep2), var(--violet)
-  );
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-          mask-composite: exclude;
-  animation: borderRotate 3s linear infinite;
-  pointer-events: none;
-}
+    [data-motion="loop"] [data-anim] { animation-play-state: paused !important; }
+    [data-motion="loop"].is-inview [data-anim] { animation-play-state: running !important; will-change: transform, opacity; }
+    [data-motion="once"].is-started:not(.is-complete) .once-part { animation-play-state: paused; }
+    [data-motion="once"].is-started.is-inview:not(.is-complete) .once-part { animation-play-state: running; }
+    [data-motion="once"].is-complete .once-part { animation: none !important; }
+    .role-story.is-complete .runner { transform: translateX(var(--role-x3, 450px)); }
+    .role-story.is-complete .handoff-person { opacity: 1; transform: translateY(0); }
+    html.page-hidden [data-anim], html.page-hidden .once-part { animation-play-state: paused !important; }
 
-.pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: none;
-  cursor: pointer;
-  overflow: hidden;                 /* 滑入填充裁切 */
-  background: var(--ink);
-  color: var(--paper);
-  border-radius: 50px;
-  font-family: inherit;
-  font-size: 15px;
-  font-weight: 500;
-  padding: 12px 26px;
-  line-height: 1;
-}
-.pill > span,
-.pill > svg { position: relative; z-index: 1; }
+    @media (hover: hover) and (pointer: fine) {
+      .top-nav a:hover { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--ink); }
+      .button:not([disabled]):hover, .scroll-cue:hover span { transform: translate(2px, 2px); box-shadow: var(--shadow-sm); }
+      .button:not([disabled]):active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+    }
 
-/* Join Now：填充从左滑入 */
-.pill-join::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: var(--violet);
-  transform: translateX(-100%);
-  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.pill-join:hover::after { transform: translateX(0); }
+    @media (max-width: 900px) {
+      :root { --header-height: 68px; }
+      .hero-grid, .role-story, .role-story:nth-child(2), .receipt-layout { grid-template-columns: 1fr; }
+      .role-story:nth-child(2) .role-copy { order: 0; }
+      .hero { min-height: auto; }
+      .hero-board { width: min(620px, 100%); margin: 16px auto 0; transform: none; }
+      .mechanism-grid { grid-template-columns: 1fr; }
+      .mechanism-card { min-height: auto; }
+      .mini-scene { min-height: 230px; }
+      .receipt-layout { gap: 38px; }
+      .receipt { width: min(650px, 100%); margin: 0 auto; transform: none; }
+    }
 
-/* Start Project：略大 + 填充从右滑入 + 底色 #060218 */
-.pill-start {
-  background: var(--deep1);
-  padding: 14px 28px;
-  font-size: 16px;
-}
-.pill-start::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: var(--violet);
-  transform: translateX(100%);
-  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.pill-start:hover::after { transform: translateX(0); }
-.pill-start svg { width: 18px; height: 18px; }
+    @media (max-width: 760px) {
+      .wrap { width: min(100% - 32px, 680px); }
+      .brand-word { font-size: .88rem; }
+      .top-nav { max-width: 54vw; overflow-x: auto; padding: 6px 2px; scrollbar-width: none; }
+      .top-nav::-webkit-scrollbar { display: none; }
+      .top-nav a { flex: 0 0 auto; }
+      .standard-section { padding: 76px 0; }
+      .hero { padding-top: 42px; }
+      h1 { font-size: clamp(2.5rem, 13vw, 4.4rem); }
+      .old-scroll { height: auto; }
+      .old-sticky, .old-sensors { display: none; }
+      .old-mobile { display: grid; gap: 22px; padding: 76px 0; }
+      .old-card { padding: 25px; border: var(--border-thick); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-md); }
+      .old-card:nth-child(2) { background: var(--blue); }
+      .old-card:nth-child(3) { background: var(--orange); }
+      .old-card:nth-child(4) { background: var(--lime); }
+      .old-card:nth-child(5) { background: var(--white); }
+      .old-card h2 { font-size: clamp(2rem, 10vw, 3.2rem); }
+      .role-story { padding: 22px; }
+      .chair-scene { min-height: 250px; }
+      .chairs, .seat-labels { grid-template-columns: repeat(4, 1fr); }
+      .relay-strip { padding: 20px 14px; }
+      .relay-line { grid-template-columns: 1fr; }
+      .relay-line::before { left: 25px; right: auto; top: 10%; bottom: 10%; border-top: 0; border-left: 3px dashed var(--white); }
+      .relay-step { grid-template-columns: 52px 1fr; justify-items: start; }
+      .relay-baton { display: none; }
+      .terminal-compare, .promise-list { grid-template-columns: 1fr; }
+      .actions .button { width: 100%; }
+      .footer-inner { align-items: flex-start; flex-direction: column; }
+    }
 
-/* =========================================================================
-   Hero
-   ========================================================================= */
-.hero {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 40px;
-  padding: 0 64px 40px;
-  min-height: calc(100vh - 230px);
-}
+    @media (max-width: 480px) {
+      .top-nav a:not(:last-child) { display: none; }
+      .hero-board { padding: 8px; }
+      .workflow-graph { padding: 52px 14px 18px; }
+      .workflow-primary { grid-template-columns: 1fr; justify-items: stretch; gap: 8px; }
+      .flow-step { min-width: 0; grid-template-columns: 58px 1fr; justify-items: start; align-items: center; gap: 4px 12px; text-align: left; }
+      .flow-step strong { font-size: 1rem; }
+      .flow-step small { grid-column: 2; white-space: normal; }
+      .flow-arrow { justify-self: center; transform: rotate(90deg); }
+      .workflow-retry { grid-template-columns: auto 1fr; }
+      .workflow-retry span { grid-column: 1 / -1; }
+      .handoff-board { padding: 12px; }
+      .handoff-row { grid-template-columns: 38px minmax(0, 1fr); }
+      .handoff-row .owner { grid-column: 2; justify-self: start; }
+      .receipt { padding: 20px; }
+      .receipt-row { grid-template-columns: 30px 62px 1fr; gap: 8px; font-size: .8rem; }
+      .question-box { width: 145px; font-size: .74rem; }
+      .mechanism-card { padding: 20px; }
+      .final-question { text-align: left; }
+    }
 
-/* Hero 左 */
-.hero-left {
-  flex: 0 1 600px;
-  padding-top: 40px;
-  animation: heroLeftIn 1s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.hero-title {
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-size: 64px;
-  line-height: 64px;
-  font-weight: 600;
-  letter-spacing: -1.5px;
-  margin: 0 0 36px;
-  min-height: 200px;           /* 打字期间占位，避免布局跳动 */
-}
-.t-black { color: var(--ink); }
-.t-white { color: var(--paper); }
-
-/* Hero 副文（打字机下方一行） */
-.hero-sub {
-  font-size: 18px;
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.72);
-  max-width: 540px;
-  margin: 0 0 32px;
-  animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: 2.6s;
-}
-
-/* 打字机紫光标（闪烁） */
-.caret {
-  display: inline-block;
-  width: 3px;
-  height: 0.86em;
-  margin-left: 2px;
-  vertical-align: -0.06em;
-  background: var(--violet);
-  animation: blink 1s steps(1) infinite;
-}
-
-.hero-cta { display: flex; }
-.start-wrap {
-  animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: 3.2s;        /* 打字完后出现 */
-}
-
-/* @ceo mention 芯片（沿用光标徽章位与入场） */
-.david-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 290px;
-  margin-top: 40px;
-  cursor: pointer;
-  animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: 3.6s;
-}
-.cursor-arrow { width: 24px; height: 24px; display: block; }
-.david-pill {
-  background: var(--violet);
-  color: var(--paper);
-  font-size: 16px;
-  font-weight: 500;
-  padding: 8px 16px;
-  border-radius: 20px;
-  line-height: 1;
-}
-
-/* =========================================================================
-   Hero 右 —— 圆环可视化
-   .orbit-scale（响应式缩放）> .orbit-wrap（入场 scale-in）> .orbits（720 舞台）
-   ========================================================================= */
-.orbit-scale { flex: 0 0 auto; }
-.orbit-wrap {
-  animation: scaleIn 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: 0.3s;
-}
-.orbits {
-  position: relative;
-  width: 720px;
-  height: 720px;
-}
-
-/* 4 条同心轨：绝对居中（用负 margin 居中，把 transform 留给旋转动画） */
-.orbit {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  border-radius: 50%;
-}
-/* 1px 渐变描边（mask exclude）——顶部亮、上下渐隐，旋转时如光带流转 */
-.orbit::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  padding: 1px;
-  background: linear-gradient(
-    180deg,
-    rgba(217, 161, 255, 0) 0%,
-    rgba(217, 161, 255, 1) 43%,
-    rgba(217, 161, 255, 0) 100%
-  );
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-          mask-composite: exclude;
-}
-
-.orbit1 { width: 353px; height: 353px; margin: -176.5px 0 0 -176.5px; animation: spinCCW 30s linear infinite; }
-.orbit2 { width: 501px; height: 501px; margin: -250.5px 0 0 -250.5px; animation: spinCW  40s linear infinite; }
-.orbit3 { width: 649px; height: 649px; margin: -324.5px 0 0 -324.5px; animation: spinCW  50s linear infinite; }
-.orbit4 { width: 797px; height: 797px; margin: -398.5px 0 0 -398.5px; animation: spinCCW 60s linear infinite; }
-
-/* 中心块：orbit1 内，反向自转抵消轨旋转保持正立 */
-.center {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-.center-spin {
-  animation: spinCW 30s linear infinite;   /* 抵消 orbit1 的 CCW */
-  text-align: center;
-}
-/* 中心 CEO 放大版工牌（同简化版风格：细边框 + 卡槽 + 缩写色卡），取代 20k+ count-up */
-.ceo-card {
-  width: 132px;
-  height: 132px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  padding: 15px 13px;
-  border-radius: 26px;
-  cursor: pointer;
-  background: linear-gradient(180deg, #1d1138, #160c2e);
-  border: 1px solid rgba(160, 104, 255, 0.3);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 12px 38px -8px rgba(160, 104, 255, 0.6);
-}
-.ceo-card:hover { filter: brightness(1.06); }
-.ceo-slot {
-  flex: 0 0 auto;
-  width: 46px;
-  height: 5px;
-  border-radius: 5px;
-  background: #0a0715;
-  border: 1px solid var(--hair);
-}
-.ceo-chip {
-  flex: 1 1 auto;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 62%),
-    linear-gradient(150deg, #B98CFF 0%, #7C40F0 100%);
-  box-shadow: 0 0 26px -4px rgba(160, 104, 255, 0.8);
-}
-.ceo-badge {
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-weight: 700;
-  font-size: 34px;
-  letter-spacing: 1px;
-  color: var(--paper);
-  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
-  user-select: none;
-}
-.ceo-label {
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--paper);
-  margin-top: 12px;
-  text-align: center;
-  white-space: nowrap;
-}
-
-/* 头像定位层：静态 translate + 极坐标；rotate(-deg) 抵消角度让其正立 */
-.avatar {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: var(--sz);
-  height: var(--sz);
-  transform:
-    translate(-50%, -50%)
-    rotate(var(--deg))
-    translate(var(--r))
-    rotate(calc(-1 * var(--deg)));
-}
-/* 反向自转层：抵消所在轨的旋转，让人脸卡始终正立 */
-.avatar-counter { width: 100%; height: 100%; }
-.counter1 { animation: spinCW  30s linear infinite; }  /* 轨1 CCW */
-.counter2 { animation: spinCCW 40s linear infinite; }  /* 轨2 CW */
-.counter3 { animation: spinCCW 50s linear infinite; }  /* 轨3 CW */
-.counter4 { animation: spinCW  60s linear infinite; }  /* 轨4 CCW */
-
-/* 简化版工牌：深紫玻璃细边框 + 顶部小卡槽 + 缩写色卡；错峰 fly-in
-   （圆环里保持小体量、不塞条形码/公司标，旋转中不过重） */
-.avatar-card {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: calc(var(--sz) * 0.07);
-  padding: calc(var(--sz) * 0.12) calc(var(--sz) * 0.11);
-  cursor: pointer;
-  background: linear-gradient(180deg, #1d1138, #160c2e);
-  border: 1px solid var(--hair);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 8px 24px -8px var(--glow);
-  animation: flyIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: var(--delay);
-}
-.avatar-card:hover { filter: brightness(1.08); }
-.shape-round { border-radius: calc(var(--sz) * 0.26); }
-.shape-sq20  { border-radius: calc(var(--sz) * 0.2); }
-.shape-sq24  { border-radius: calc(var(--sz) * 0.22); }
-
-/* 顶部小卡槽 */
-.mini-slot {
-  flex: 0 0 auto;
-  width: 42%;
-  height: 4px;
-  border-radius: 4px;
-  background: #0a0715;
-  border: 1px solid var(--hair);
-}
-/* 缩写色卡（底色=光晕色） */
-.mini-chip {
-  flex: 1 1 auto;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: calc(var(--sz) * 0.16);
-  background:
-    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 55%),
-    var(--glow);
-  box-shadow: 0 0 18px -4px var(--glow);
-}
-
-.ava-initials {
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-weight: 700;
-  font-size: calc(var(--sz) * 0.3);
-  color: var(--paper);
-  letter-spacing: 0.5px;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-  user-select: none;
-}
-
-/* =========================================================================
-   头像 hover 标注框（占位即交接物）——全局单例，position:fixed，JS 定位夹在视口内
-   ========================================================================= */
-.avatar-tooltip {
-  position: fixed;
-  z-index: 100;
-  width: 360px;
-  max-width: calc(100vw - 24px);
-  background: rgba(12, 6, 30, 0.96);
-  border: 1px solid rgba(160, 104, 255, 0.5);
-  border-radius: 14px;
-  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.7);
-  padding: 16px 16px 18px;
-  color: var(--paper);
-  backdrop-filter: blur(6px);
-}
-.avatar-tooltip[hidden] { display: none; }
-.tt-head { font-size: 15px; font-weight: 600; }
-.tt-head .tt-role { color: var(--violet); }
-.tt-divider { height: 1px; background: rgba(160, 104, 255, 0.28); margin: 12px 0; }
-.tt-sub {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.7);
-  margin-bottom: 8px;
-}
-.tt-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px; height: 18px;
-  border-radius: 6px;
-  background: var(--violet);
-  color: var(--paper);
-  font-size: 11px;
-  font-weight: 700;
-}
-.tt-copy {
-  margin-left: auto;
-  border: 1px solid rgba(160, 104, 255, 0.6);
-  background: transparent;
-  color: var(--violet);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
-}
-.tt-copy:hover { background: rgba(160, 104, 255, 0.16); }
-.tt-copy.copied { background: var(--violet); color: var(--paper); border-color: var(--violet); }
-.tt-prompt {
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.86);
-  word-break: break-word;
-}
-
-/* =========================================================================
-   @keyframes
-   ========================================================================= */
-@keyframes headerIn   { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes heroLeftIn { from { opacity: 0; transform: translateY(40px);  } to { opacity: 1; transform: translateY(0); } }
-@keyframes tickerIn   { from { opacity: 0; transform: translateY(20px);  } to { opacity: 1; transform: translateY(0); } }
-@keyframes fadeUp     { from { opacity: 0; transform: translateY(16px);  } to { opacity: 1; transform: translateY(0); } }
-@keyframes scaleIn    { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
-
-@keyframes flyIn {
-  from { opacity: 0; transform: scale(0.3) rotate(-180deg); filter: blur(8px); }
-  to   { opacity: 1; transform: scale(1)   rotate(0deg);    filter: blur(0); }
-}
-@keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
-
-@keyframes spinCW  { to { transform: rotate(360deg); } }
-@keyframes spinCCW { to { transform: rotate(-360deg); } }
-
-@keyframes borderRotate { to { --border-angle: 360deg; } }
-
-/* =========================================================================
-   响应式断点：1280 / 1024 / 768 / 480
-   ========================================================================= */
-@media (max-width: 1280px) {
-  .orbit-scale { transform: scale(0.85); }
-}
-@media (max-width: 1024px) {
-  .hero {
-    flex-direction: column;
-    align-items: flex-start;
-    min-height: auto;
-    padding: 0 40px 40px;
-  }
-  .hero-left { flex: 1 1 auto; }
-  .hero-title { font-size: 48px; line-height: 50px; min-height: 160px; }
-  .orbit-scale { transform: scale(0.7); align-self: center; margin-top: -40px; }
-  .site-header { padding: 24px 40px; }
-  .nav { gap: 18px; }
-  .david-badge { margin-left: 180px; }
-}
-@media (max-width: 768px) {
-  .nav { display: none; }
-  .hero-title { font-size: 36px; line-height: 40px; min-height: 130px; letter-spacing: -1px; }
-  .orbit-scale { transform: scale(0.5); margin-top: -120px; margin-bottom: -120px; }
-  .david-badge { margin-left: 120px; }
-  .site-header { padding: 20px 24px; }
-  .hero { padding: 0 24px 32px; }
-}
-@media (max-width: 480px) {
-  .hero-title { font-size: 28px; line-height: 32px; min-height: 110px; }
-  .orbit-scale { transform: scale(0.4); margin-top: -180px; margin-bottom: -170px; }
-  .pill { padding: 10px 20px; font-size: 14px; }
-  .pill-start { padding: 12px 22px; font-size: 15px; }
-  .david-badge { margin-left: 70px; }
-}
-</style>
-
-<!-- =========================================================================
-     追加：hero 之后正文 4 节样式（不改动上方任何 hero 规则；复用同一批设计令牌）
-     ========================================================================= -->
-<style>
-/* ---- 正文容器：延续深底 #060218 + 紫粉光晕，与首屏一页连贯 ---- */
-.lp {
-  position: relative;
-  background-color: var(--deep1);
-  color: var(--paper);
-  overflow: hidden;                 /* 裁掉光晕外溢，杜绝横向滚动 */
-  background-image:
-    radial-gradient(900px 720px at 82% 2%,  rgba(160, 104, 255, 0.20), rgba(160, 104, 255, 0) 60%),
-    radial-gradient(760px 700px at 6% 46%,  rgba(255, 111, 181, 0.12), rgba(255, 111, 181, 0) 60%),
-    radial-gradient(1000px 900px at 94% 98%, rgba(160, 104, 255, 0.18), rgba(160, 104, 255, 0) 60%);
-}
-.lp-inner {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 112px 64px;
-}
-
-/* ---- 通用排版 ---- */
-.lp-head { max-width: 760px; }
-.lp-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 18px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 1.6px;
-  text-transform: uppercase;
-  color: var(--violet);
-}
-.lp-eyebrow::before {
-  content: '';
-  width: 22px; height: 1px;
-  background: var(--violet);
-  opacity: 0.7;
-}
-.lp-h2 {
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-size: 44px;
-  line-height: 1.1;
-  font-weight: 700;
-  letter-spacing: -1px;
-  margin: 0 0 20px;
-  color: var(--paper);
-}
-.lp-lead {
-  font-size: 18px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.72);
-  max-width: 640px;
-  margin: 0 0 40px;
-}
-
-/* ---- 概念/事实芯片（① 与 ④ 复用） ---- */
-.lp-chips { display: flex; flex-wrap: wrap; gap: 14px; }
-.lp-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  border: 1px solid rgba(160, 104, 255, 0.28);
-  border-radius: 999px;
-  background: rgba(160, 104, 255, 0.06);
-  font-size: 15px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.9);
-}
-.lp-chip svg { width: 18px; height: 18px; color: var(--violet); flex: 0 0 auto; }
-
-/* ---- ② How it works —— 5 步横向流水（窄屏纵向堆叠） ---- */
-.lp-flow {
-  display: flex;
-  align-items: flex-start;
-  margin-top: 8px;
-}
-.lp-step {
-  position: relative;
-  flex: 1;
-  text-align: center;
-  padding: 0 12px;
-}
-/* 步与步之间的连接线（横向，穿过序号徽章中线） */
-.lp-step:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  top: 21px;
-  left: 50%;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, rgba(160, 104, 255, 0.5) 0%, rgba(160, 104, 255, 0.12) 100%);
-  z-index: 0;
-}
-.lp-step-num {
-  position: relative;
-  z-index: 1;
-  width: 44px; height: 44px;
-  margin: 0 auto 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  border: 1px solid rgba(160, 104, 255, 0.55);
-  background: #120a2a;              /* 实底盖住连接线 */
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--paper);
-  box-shadow: 0 6px 20px -8px rgba(160, 104, 255, 0.7);
-}
-.lp-step-title { font-size: 17px; font-weight: 600; margin-bottom: 8px; color: var(--paper); }
-.lp-step-desc { font-size: 14px; line-height: 1.55; color: rgba(255, 255, 255, 0.62); }
-
-/* =========================================================================
-   员工工牌（全息档）—— ③ 网格完整工牌 + 底部工牌架弹窗正面工牌 共用组件
-   ========================================================================= */
-.badge {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 16px 16px 15px;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #1d1138, #160c2e);
-  border: 1px solid rgba(160, 104, 255, 0.20);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  overflow: hidden;
-  cursor: pointer;
-  font-family: inherit;
-  color: inherit;
-  transform: perspective(760px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-  transform-style: preserve-3d;
-  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
-}
-.badge:hover,
-.badge:focus-visible {
-  border-color: rgba(160, 104, 255, 0.42);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 42px -18px var(--glow);
-  outline: none;
-}
-/* 斜向高光带：hover 扫过 */
-.badge::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  background: linear-gradient(105deg, transparent 32%, rgba(255, 255, 255, 0.22) 48%, transparent 64%);
-  transform: translateX(-120%);
-  transition: transform 0.6s ease;
-  pointer-events: none;
-}
-.badge:hover::before,
-.badge:focus-visible::before { transform: translateX(120%); }
-/* 全息 foil：默认透明，hover 随鼠标流动显形 */
-.badge-foil {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  border-radius: inherit;
-  background: conic-gradient(from calc(var(--mx, 50) * 1deg) at 30% 30%,
-    #ff6ec4, #7873f5, #4ade80, #facc15, #ff6ec4);
-  mix-blend-mode: color-dodge;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  -webkit-mask: radial-gradient(120% 120% at calc(var(--mx, 50) * 1%) calc(var(--my, 50) * 1%), #000, transparent 62%);
-          mask: radial-gradient(120% 120% at calc(var(--mx, 50) * 1%) calc(var(--my, 50) * 1%), #000, transparent 62%);
-  pointer-events: none;
-}
-.badge:hover .badge-foil,
-.badge:focus-visible .badge-foil { opacity: 0.32; }
-/* 卡面内容压在 foil/高光之上 */
-.badge-slot, .badge-ava, .badge-name, .badge-role, .badge-div, .badge-foot {
-  position: relative;
-  z-index: 1;
-}
-/* 卡槽（无长挂绳） */
-.badge-slot {
-  width: 46px; height: 7px;
-  border-radius: 6px;
-  background: #0a0715;
-  border: 1px solid var(--hair);
-  margin: 0 auto 14px;
-}
-/* 头像（缩写色卡，底色=光晕色） */
-.badge-ava {
-  width: 52px; height: 52px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 14px;
-  background:
-    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 55%),
-    var(--glow);
-  box-shadow: 0 0 22px -2px var(--glow);
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.5px;
-  color: var(--paper);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-  margin-bottom: 12px;
-}
-.badge-name { font-size: 15.5px; font-weight: 700; color: var(--paper); margin-bottom: 5px; }
-.badge-role { font-size: 12.5px; line-height: 1.5; color: rgba(255, 255, 255, 0.6); }
-.badge-div { width: 100%; height: 1px; background: rgba(160, 104, 255, 0.18); margin: 14px 0 10px; }
-.badge-foot {
-  width: 100%;
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-}
-.badge-co { font-size: 10px; font-weight: 600; letter-spacing: 0.3px; color: rgba(255, 255, 255, 0.5); white-space: nowrap; }
-.badge-bars {
-  flex: 1 1 auto;
-  height: 15px;
-  max-width: 74px;
-  opacity: 0.6;
-  background: repeating-linear-gradient(90deg,
-    #d9d2ee 0 1px, transparent 1px 2px,
-    #d9d2ee 2px 4px, transparent 4px 6px,
-    #d9d2ee 6px 7px, transparent 7px 10px);
-}
-
-/* ---- ③ Your AI team —— 7 张完整工牌网格 ---- */
-.lp-badges {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 8px;
-}
-
-/* =========================================================================
-   底部工牌架（替代原技术栈滚动条）—— 侧立斜插、hover 只上抬、点击弹正面
-   ========================================================================= */
-/* 独立成节：置于 .app 之外，深底 + 紫光晕与首屏/正文连贯（避免 overflow:hidden 压平 3D） */
-.rack-section {
-  position: relative;
-  background-color: var(--deep1);
-  background-image:
-    radial-gradient(900px 500px at 50% -10%, rgba(160, 104, 255, 0.16), rgba(160, 104, 255, 0) 62%);
-  /* 不设 overflow:hidden——非 visible 的 overflow 会压平内部 rack 的 3D；
-     横向溢出由 body{overflow-x:hidden} 兜底，rack 自身用 mask 两端渐隐 */
-}
-.rack {
-  position: relative;
-  padding: 44px 0 56px;
-  perspective: 1500px;
-  -webkit-mask: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
-          mask: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
-  animation: tickerIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: 0.6s;
-}
-.rack-inner {
-  display: flex;
-  justify-content: center;
-  align-items: flex-end;
-  transform-style: preserve-3d;
-  min-height: 236px;
-}
-.rack-item {
-  flex: 0 0 auto;
-  width: 150px;
-  height: 206px;
-  margin-left: -90px;      /* 叠放：像文件/唱片斜插 */
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-family: inherit;
-  cursor: pointer;
-  transform: rotateY(44deg);        /* 侧立 */
-  transform-origin: center center;
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), filter 0.35s ease;
-}
-.rack-item:first-child { margin-left: 0; }
-/* hover：只做垂直位移，绝不转正、不放大 */
-.rack-item:hover,
-.rack-item:focus-visible {
-  transform: rotateY(44deg) translateY(-26px);
-  filter: brightness(1.08);
-  z-index: 5;
-  outline: none;
-}
-.rack-face {
-  width: 100%; height: 100%;
-  display: flex; flex-direction: column; align-items: center;
-  padding: 16px 12px 14px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #1d1138, #160c2e);
-  border: 1px solid rgba(160, 104, 255, 0.22);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 44px -20px #000;
-  overflow: hidden;
-}
-.rack-item:focus-visible .rack-face {
-  border-color: rgba(160, 104, 255, 0.6);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 2px rgba(160, 104, 255, 0.5);
-}
-.rack-ava {
-  width: 62px; height: 62px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 15px;
-  background:
-    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 55%),
-    var(--glow);
-  box-shadow: 0 0 22px -2px var(--glow);
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-weight: 700; font-size: 18px; letter-spacing: 0.5px;
-  color: var(--paper); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-  margin: 4px 0 12px;
-}
-.rack-name { font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.82); }
-
-/* ---- 工牌架点击弹窗：此时才显示正面放大工牌 + 详情。
-        3D 由无缝飞卡（.fly-layer 幽灵卡）承担，弹窗容器只做淡入淡出 ---- */
-.rack-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-.rack-modal[hidden] { display: none; }
-.rack-modal-overlay {
-  position: absolute; inset: 0;
-  background: rgba(6, 2, 20, 0.72);
-  animation: rmFade 0.25s ease both;
-  /* blur 每帧重合成整个背景，动画期间是掉帧源——落定后（.is-settled）才渐入 */
-  transition: -webkit-backdrop-filter 0.25s ease, backdrop-filter 0.25s ease;
-}
-.rack-modal.is-settled .rack-modal-overlay {
-  -webkit-backdrop-filter: blur(6px);
-          backdrop-filter: blur(6px);
-}
-.rack-modal-sheet {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 34px;
-  width: 100%;
-  max-width: 640px;
-  padding: 32px;
-  border-radius: 22px;
-  background: rgba(14, 8, 32, 0.97);
-  border: 1px solid rgba(160, 104, 255, 0.35);
-  box-shadow: 0 40px 90px -30px #000;
-  animation: rmIn 0.42s ease both;
-}
-.rack-modal-close {
-  position: absolute; top: 14px; right: 14px;
-  width: 32px; height: 32px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 8px;
-  border: 1px solid var(--hair);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 15px; line-height: 1; cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
-}
-.rack-modal-close:hover { background: rgba(160, 104, 255, 0.16); color: var(--paper); }
-.rack-modal .badge { flex: 0 0 196px; width: 196px; cursor: default; }
-.rack-modal-info { flex: 1 1 auto; min-width: 0; }
-.rm-role { color: var(--violet); font-size: 12px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }
-.rm-name { font-family: 'Urbanist', system-ui, sans-serif; font-size: 26px; font-weight: 700; color: var(--paper); margin: 8px 0 12px; }
-.rm-charter { font-size: 14.5px; line-height: 1.6; color: rgba(255, 255, 255, 0.8); margin: 0 0 20px; }
-.rm-mention { display: flex; align-items: center; gap: 8px; font-size: 13px; color: rgba(255, 255, 255, 0.7); flex-wrap: wrap; }
-.rm-mention code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: rgba(160, 104, 255, 0.14);
-  border: 1px solid rgba(160, 104, 255, 0.3);
-  color: var(--violet);
-  padding: 4px 10px; border-radius: 8px;
-  font-size: 12.5px;
-}
-@keyframes rmFade { from { opacity: 0; } to { opacity: 1; } }
-/* 纯 opacity 入场：入场动画不得含位移/缩放/旋转，否则飞卡终点坐标量不准 */
-@keyframes rmIn { from { opacity: 0; } to { opacity: 1; } }
-
-/* ---- 容器变形转场（标准三层）：
-        幽灵卡=共享元素（双内容交叉淡化，飞向真工牌位，全程不淡出）；
-        变形面=容器连续（无内容空面，卡片足迹→面板矩形，层序在遮罩与面板之间）；
-        真面板=内容层（不再 transform，就位后内容淡入）。关闭逆向且更快 ---- */
-.fly-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 240;              /* 幽灵卡永远在最上：眼睛追踪的主体不被遮挡 */
-  pointer-events: none;
-  perspective: 1500px;       /* 与 .rack 的透视值一致；origin 由脚本按 .rack 实测设置 */
-}
-/* 幽灵三层 wrapper 分轴驱动：ghost=X（连续不停）、mg-y=Y（抛物弧）、mg-spin=转正缩放；
-   preserve-3d 链让内层 rotateY 吃到 fly-layer 的透视 */
-.morph-ghost { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
-.mg-y, .mg-spin { position: absolute; inset: 0; transform-style: preserve-3d; }
-.morph-ghost .rack-face,
-.morph-ghost .badge { position: absolute; left: 0; top: 0; margin: 0; cursor: default; }
-/* 变形面：面板同款空面（无内容 → 缩放不产生可见拉伸） */
-.morph-surface {
-  position: absolute;
-  border-radius: 22px;
-  background: rgba(14, 8, 32, 0.97);
-  border: 1px solid rgba(160, 104, 255, 0.35);
-  box-shadow: 0 40px 90px -30px #000;
-  pointer-events: none;
-}
-.rack-item.is-away { visibility: hidden; }   /* 变形期间架上原卡隐位，占位保留 */
-.rack-modal.is-morphing .badge { visibility: hidden; }   /* 真工牌待落定换装才现身 */
-.rack-modal.is-closing .rack-modal-overlay { animation: rmOut 0.3s ease both; }
-@keyframes rmOut { to { opacity: 0; } }
-
-/* 全息/工牌架 —— 尊重 prefers-reduced-motion：关 tilt/foil/高光/大位移 */
-@media (prefers-reduced-motion: reduce) {
-  .badge { transform: none !important; transition: none !important; }
-  .badge::before { display: none; }
-  .badge-foil { display: none; }
-  .rack-item { transition: none !important; }
-  .rack-modal-overlay, .rack-modal-sheet { animation: none !important; }
-}
-
-/* ---- ④ Goal ledger —— goal → milestone → task → phase 链路小图 ---- */
-.lp-chain {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin: 4px 0 36px;
-}
-.lp-node {
-  padding: 14px 22px;
-  border-radius: 12px;
-  border: 1px solid rgba(160, 104, 255, 0.42);
-  background: rgba(160, 104, 255, 0.08);
-  font-family: 'Urbanist', system-ui, sans-serif;
-  font-weight: 600;
-  font-size: 16px;
-  color: var(--paper);
-}
-.lp-arrow { width: 22px; height: 22px; color: var(--violet); flex: 0 0 auto; }
-.lp-cta { margin-top: 8px; }
-
-/* ---- Footer ---- */
-.lp-footer { border-top: 1px solid rgba(255, 255, 255, 0.08); }
-.lp-footer .lp-inner { padding-top: 56px; padding-bottom: 48px; }
-.lp-foot-top {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 40px;
-}
-.lp-foot-brand svg { height: 26px; width: auto; display: block; }
-.lp-foot-brand p {
-  margin: 16px 0 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.55);
-  max-width: 300px;
-}
-.lp-foot-cols { display: flex; gap: 64px; flex-wrap: wrap; }
-.lp-foot-col h4 {
-  margin: 0 0 14px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  color: var(--paper);
-}
-.lp-foot-col a {
-  display: block;
-  margin-bottom: 10px;
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.6);
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-.lp-foot-col a:hover { color: var(--violet); }
-.lp-foot-copy {
-  margin-top: 44px;
-  padding-top: 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-/* ---- 角色 hover 弹框：复用 .avatar-tooltip 视觉，charter 段落 ---- */
-.role-tooltip .tt-charter {
-  font-size: 13px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.88);
-  word-break: break-word;
-}
-
-/* ---- 唯一新增机制：滚动进场（尊重 prefers-reduced-motion） ---- */
-[data-reveal] {
-  opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
-  transition-delay: calc(var(--i, 0) * 80ms);
-  will-change: opacity, transform;
-}
-[data-reveal].is-visible { opacity: 1; transform: translateY(0); }
-@media (prefers-reduced-motion: reduce) {
-  [data-reveal] { opacity: 1 !important; transform: none !important; transition: none !important; }
-}
-
-/* ---- 响应式：沿用 1280 / 1024 / 768 / 480 断点 ---- */
-@media (max-width: 1024px) {
-  .lp-inner { padding: 96px 40px; }
-  .lp-h2 { font-size: 38px; }
-  .lp-badges { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .rack-inner { transform: scale(0.85); }
-}
-@media (max-width: 768px) {
-  .lp-inner { padding: 80px 24px; }
-  .lp-h2 { font-size: 32px; }
-  .lp-lead { font-size: 16px; }
-  .lp-badges { grid-template-columns: repeat(2, minmax(0, 1fr)); }   /* 工牌网格 ≤768 双列 */
-  .rack-inner { transform: scale(0.72); }
-  .rack-modal-sheet { flex-direction: column; gap: 22px; text-align: center; }
-  .rm-mention { justify-content: center; }
-  /* ② 窄屏纵向堆叠：序号在左、文案在右，连接线转竖向 */
-  .lp-flow { flex-direction: column; }
-  .lp-step {
-    display: flex;
-    text-align: left;
-    gap: 18px;
-    padding: 0 0 26px;
-  }
-  .lp-step:last-child { padding-bottom: 0; }
-  .lp-step-num { margin: 0; flex: 0 0 44px; }
-  .lp-step:not(:last-child)::after {
-    top: 44px;
-    left: 21px;
-    width: 2px;
-    height: calc(100% - 44px);
-    background: linear-gradient(180deg, rgba(160, 104, 255, 0.5), rgba(160, 104, 255, 0.12));
-  }
-  .lp-foot-cols { gap: 40px; }
-}
-@media (max-width: 480px) {
-  .lp-inner { padding: 64px 20px; }
-  .lp-h2 { font-size: 27px; }
-  .lp-badges { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .rack-inner { transform: scale(0.56); }
-  /* ④ 链路小图窄屏转纵向，箭头旋转指下 */
-  .lp-chain { flex-direction: column; align-items: flex-start; }
-  .lp-arrow { transform: rotate(90deg); margin-left: 22px; }
-  .lp-node { width: 100%; }
-  .lp-foot-top { gap: 28px; }
-  .lp-foot-cols { gap: 32px; }
-}
-</style>
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      .old-scroll { display: none; }
+      .old-mobile { display: grid; gap: 22px; padding: 76px 0; }
+      .old-card { padding: 25px; border: var(--border-thick); border-radius: var(--radius-lg); background: var(--white); box-shadow: var(--shadow-md); }
+      .old-card:nth-child(2) { background: var(--blue); }
+      .old-card:nth-child(3) { background: var(--orange); }
+      .old-card:nth-child(4) { background: var(--lime); }
+      .hero-task { transform: translate(var(--hero-x3, 390px), var(--hero-y3, 0)); opacity: 1; }
+      .hero-node-a, .hero-node-b, .hero-node-c, .hero-node-d { fill: var(--lime); }
+      .hero-redo { opacity: 0; }
+      .hero-stamp { opacity: 1; transform: scale(1) rotate(-12deg); }
+      .runner { transform: translateX(var(--role-x3, 450px)); }
+      .relay-baton { transform: translateX(var(--relay-x3, 800px)); }
+      .handoff-person, .handoff-row, .receipt-row, .receipt-stamp, .verdict { opacity: 1 !important; transform: none !important; }
+    }
+  </style>
 </head>
-
 <body>
-<div class="app">
-  <div class="container">
+  <a class="skip-link" href="#main">跳到正文</a>
 
-    <!-- ============================== Header ============================== -->
-    <header class="site-header">
-      <div class="header-left">
-        <a class="brand" href="#" aria-label="agent-moebius">
-          <!-- 内联 SVG wordmark + 菱形小标（高 32px），复用页脚 agent-moebius 标 -->
-          <svg width="212" height="32" viewBox="0 0 212 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agent-moebius">
-            <rect x="6" y="6" width="20" height="20" rx="4" transform="rotate(45 16 16)" fill="#A068FF"/>
-            <text x="40" y="23" font-family="Urbanist, sans-serif" font-size="21" font-weight="700" fill="#150033">agent-moebius</text>
-          </svg>
-        </a>
-        <nav class="nav">
-          <a class="nav-link" href="#lp-about-h">Overview</a>
-          <a class="nav-link" href="#lp-how-h">How it works</a>
-          <a class="nav-link" href="#">Docs</a>
-          <a class="nav-link" href="#">GitHub</a>
-        </nav>
-      </div>
-      <div class="header-right">
-        <a class="login" href="#">GitHub</a>
-        <div class="btn-border-wrap">
-          <button class="pill pill-join" type="button"><span>Get started</span></button>
-        </div>
-      </div>
-    </header>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="回到 Moebius 首页顶部">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-word">MOEBIUS</span>
+      </a>
+      <nav class="top-nav" aria-label="页面导航">
+        <a href="#why">为什么</a>
+        <a href="#how">怎么做</a>
+        <a href="#trace">过程底单</a>
+        <a href="#start">开始</a>
+      </nav>
+    </div>
+  </header>
 
-    <!-- =============================== Hero =============================== -->
-    <section class="hero">
-
-      <!-- Hero 左 -->
-      <div class="hero-left">
-        <h1 class="hero-title" id="hero-title"></h1>
-
-        <p class="hero-sub">Runs Codex on your machine, guarded by a CEO, tracked to acceptance.</p>
-
-        <div class="hero-cta">
-          <div class="btn-border-wrap start-wrap">
-            <button class="pill pill-start" type="button">
-              <span>Get started</span>
-              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-            </button>
-          </div>
+  <main id="main">
+    <section class="hero motion-loop" id="top" data-motion="loop">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <span class="eyebrow">免费开源的 macOS 应用</span>
+          <h1>把你在用的 AI，变成一个会自己推进的团队。</h1>
+          <p>你交出一件事，它一个环节接一个环节往前推。</p>
+          <p>团队里有盯进度的，有验质量的——不合格，当场打回重做。</p>
+          <p><strong>只有该你拍板的事，才会到你面前。</strong></p>
+          <a class="scroll-cue" href="#why">往下看：你现在是怎么过的，交出去之后会变成什么样 <span aria-hidden="true">↓</span></a>
         </div>
 
-        <!-- @ceo mention 芯片（紫底白字药丸 + 紫光标箭头，hover 出 CEO charter，复用 role-tooltip） -->
-        <div class="david-badge role-card"
-             data-role="CEO"
-             data-label="orchestrates &amp; guards"
-             data-charter="Reviews and corrects every agent's reply, routes handoffs, and enforces the process gates.">
-          <svg class="cursor-arrow" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M4 2 L4 20 L9 15 L12.5 22 L15.5 20.5 L12 14 L19 14 Z" fill="#A068FF" stroke="#fff" stroke-width="1"/>
-          </svg>
-          <span class="david-pill">@ceo</span>
-        </div>
-      </div>
-
-      <!-- Hero 右 —— 圆环可视化 -->
-      <div class="orbit-scale">
-        <div class="orbit-wrap">
-          <div class="orbits">
-
-            <!-- 轨1（内 353，左旋 30s）：中心 CEO 角色卡 + secretary -->
-            <div class="orbit orbit1">
-              <div class="center">
-                <div class="center-spin">
-                  <div class="ceo-card role-card"
-                       data-role="CEO" data-label="orchestrates &amp; guards"
-                       data-charter="Reviews and corrects every agent's reply, routes handoffs, and enforces the process gates.">
-                    <span class="ceo-slot"></span>
-                    <span class="ceo-chip"><span class="ceo-badge">CEO</span></span>
-                  </div>
-                  <div class="ceo-label">orchestrates &amp; guards</div>
-                </div>
-              </div>
-              <div class="avatar" style="--r:177px; --deg:270deg; --sz:58px; --glow:#5B9BFF; --delay:0.6s;">
-                <div class="avatar-counter counter1">
-                  <div class="avatar-card shape-sq20 role-card"
-                       data-role="secretary" data-label="Keeps the rules"
-                       data-charter="Maintains and evolves the CEO's guardrail rules.">
-                    <span class="mini-slot"></span>
-                    <span class="mini-chip"><span class="ava-initials">SEC</span></span>
-                  </div>
-                </div>
-              </div>
+        <div class="hero-board">
+          <span class="chip chip-pink board-label">一件事正在往前走</span>
+          <div class="workflow-graph" role="img" aria-label="任务依次经过接手、处理、复核与交付；复核未通过时带原因回到处理，修改后再次提交。">
+            <div class="hero-task hero-task-card" data-anim aria-hidden="true"><strong>任务 001</strong><span></span></div>
+            <div class="hero-redo" data-anim aria-hidden="true">复核未过 · 带原因退回</div>
+            <div class="hero-stamp" data-anim aria-hidden="true">✓ 重做后通过</div>
+            <div class="workflow-primary">
+              <div class="flow-step flow-step-1" data-anim><span class="flow-icon"><i data-lucide="inbox"></i></span><strong>接手</strong><small>目标已确认</small></div>
+              <span class="flow-arrow" aria-hidden="true">→</span>
+              <div class="flow-step flow-step-2" data-anim><span class="flow-icon"><i data-lucide="file-pen-line"></i></span><strong>处理</strong><small>产出进行中</small></div>
+              <span class="flow-arrow" aria-hidden="true">→</span>
+              <div class="flow-step flow-step-3" data-anim><span class="flow-icon"><i data-lucide="clipboard-check"></i></span><strong>复核</strong><small>逐条检查</small></div>
+              <span class="flow-arrow" aria-hidden="true">→</span>
+              <div class="flow-step flow-step-4" data-anim><span class="flow-icon"><i data-lucide="package-check"></i></span><strong>交付</strong><small>通过后到你</small></div>
             </div>
-
-            <!-- 轨2（501，右旋 40s）：dev / product-manager -->
-            <div class="orbit orbit2">
-              <div class="avatar" style="--r:251px; --deg:60deg; --sz:58px; --glow:#34D399; --delay:0.8s;">
-                <div class="avatar-counter counter2">
-                  <div class="avatar-card shape-round role-card"
-                       data-role="dev" data-label="Writes the code"
-                       data-charter="The only role with write access to the issue worktree; implements and verifies changes.">
-                    <span class="mini-slot"></span>
-                    <span class="mini-chip"><span class="ava-initials">DEV</span></span>
-                  </div>
-                </div>
-              </div>
-              <div class="avatar" style="--r:251px; --deg:180deg; --sz:78px; --glow:#F472B6; --delay:1.0s;">
-                <div class="avatar-counter counter2">
-                  <div class="avatar-card shape-round role-card"
-                       data-role="product-manager" data-label="Shapes the ask"
-                       data-charter="Turns intent into clear product requirements.">
-                    <span class="mini-slot"></span>
-                    <span class="mini-chip"><span class="ava-initials">PM</span></span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 轨3（649，右旋 50s）：qa -->
-            <div class="orbit orbit3">
-              <div class="avatar" style="--r:325px; --deg:130deg; --sz:88px; --glow:#FBBF24; --delay:1.4s;">
-                <div class="avatar-counter counter3">
-                  <div class="avatar-card shape-round role-card"
-                       data-role="qa" data-label="Breaks the plan"
-                       data-charter="Adversarially reviews the plan before any code is written, against the invariants oracle.">
-                    <span class="mini-slot"></span>
-                    <span class="mini-chip"><span class="ava-initials">QA</span></span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 轨4（外 797，左旋 60s）：dev-manager / hermes-user -->
-            <div class="orbit orbit4">
-              <div class="avatar" style="--r:399px; --deg:95deg; --sz:88px; --glow:#FB923C; --delay:1.8s;">
-                <div class="avatar-counter counter4">
-                  <div class="avatar-card shape-sq24 role-card"
-                       data-role="dev-manager" data-label="Tech lead"
-                       data-charter="Owns technical decisions, architecture choices and quality — without writing code.">
-                    <span class="mini-slot"></span>
-                    <span class="mini-chip"><span class="ava-initials">DM</span></span>
-                  </div>
-                </div>
-              </div>
-              <div class="avatar" style="--r:399px; --deg:320deg; --sz:58px; --glow:#2DD4BF; --delay:2.2s;">
-                <div class="avatar-counter counter4">
-                  <div class="avatar-card shape-round role-card"
-                       data-role="hermes-user" data-label="The user's voice"
-                       data-charter="Stands in for the end user — the Hermes persona.">
-                    <span class="mini-slot"></span>
-                    <span class="mini-chip"><span class="ava-initials">HU</span></span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
+            <div class="workflow-retry" data-anim><i data-lucide="rotate-ccw"></i><strong>未通过</strong><span>带着具体原因回到“处理”，修改后再复核</span></div>
+            <p class="workflow-caption">直线表示向前推进；橙色退回条只表示一件事：没过，就带着原因回到“处理”。</p>
           </div>
         </div>
       </div>
     </section>
 
-  </div>
-</div>
+    <section class="old-world" id="why" aria-labelledby="old-world-title">
+      <h2 class="sr-only" id="old-world-title">为什么你现在走不开</h2>
+      <div class="old-scroll" data-beat="0">
+        <div class="old-sticky">
+          <div class="old-stage">
+            <div class="beat-copy">
+              <article class="beat beat-0 is-active" data-beat-copy="0">
+                <span class="eyebrow">01 / 为什么总要你盯</span>
+                <h2>任务交出去了，为什么还总要你盯？</h2>
+                <p>任务能做，不等于会自己推进。</p>
+              </article>
+              <article class="beat beat-1" data-beat-copy="1">
+                <span class="eyebrow chip-blue">反复确认</span>
+                <h2>你得反复确认，它有没有理解对。</h2>
+                <p>每个关键节点都在等你继续说明，一下午过去，比自己干活还累。</p>
+              </article>
+              <article class="beat beat-2" data-beat-copy="2">
+                <span class="eyebrow chip-orange">任务变多</span>
+                <h2>任务一多，检查和返工也一起变多。</h2>
+                <p>开得越多，需要你逐项确认、重新收尾的地方也越多。</p>
+              </article>
+              <article class="beat beat-3" data-beat-copy="3">
+                <span class="eyebrow chip-pink">真正缺少的</span>
+                <h2>缺的不是能力，是一套能自己推进的流程。</h2>
+                <p>对齐、交接、验收、退回，都应该有明确位置，而不是每一步都等你来推动。</p>
+              </article>
+            </div>
 
-<!-- ===================== 工牌架（原技术栈条 → 侧立斜插的角色工牌） =====================
-     独立成节置于 .app 之外（.app 的 overflow:hidden 会压平 3D 工牌），自带深底/渐隐。
-     默认侧立斜插叠放，露缩写色卡；hover 只上抬不转正；点击/Enter 弹正面详情。 -->
-<section class="rack-section" aria-label="AI team badge rack">
-  <div class="rack">
-    <div class="rack-inner">
-        <button type="button" class="rack-item" style="--glow:#A068FF"
-                data-role="CEO" data-abbr="CEO" data-name="CEO"
-                data-charter="Reviews and corrects every agent's reply, routes handoffs, and enforces the process gates."
-                aria-label="Open CEO badge">
-          <span class="rack-face"><span class="badge-slot"></span><span class="rack-ava">CEO</span><span class="rack-name">CEO</span></span>
-        </button>
-        <button type="button" class="rack-item" style="--glow:#5B9BFF"
-                data-role="secretary" data-abbr="SEC" data-name="secretary"
-                data-charter="Maintains and evolves the CEO's guardrail rules."
-                aria-label="Open secretary badge">
-          <span class="rack-face"><span class="badge-slot"></span><span class="rack-ava">SEC</span><span class="rack-name">secretary</span></span>
-        </button>
-        <button type="button" class="rack-item" style="--glow:#34D399"
-                data-role="dev" data-abbr="DEV" data-name="dev"
-                data-charter="The only role with write access to the issue worktree; implements and verifies changes."
-                aria-label="Open dev badge">
-          <span class="rack-face"><span class="badge-slot"></span><span class="rack-ava">DEV</span><span class="rack-name">dev</span></span>
-        </button>
-        <button type="button" class="rack-item" style="--glow:#FB923C"
-                data-role="dev-manager" data-abbr="DM" data-name="dev-manager"
-                data-charter="Owns technical decisions, architecture choices and quality — without writing code."
-                aria-label="Open dev-manager badge">
-          <span class="rack-face"><span class="badge-slot"></span><span class="rack-ava">DM</span><span class="rack-name">dev-manager</span></span>
-        </button>
-        <button type="button" class="rack-item" style="--glow:#F472B6"
-                data-role="product-manager" data-abbr="PM" data-name="product-manager"
-                data-charter="Turns intent into clear product requirements."
-                aria-label="Open product-manager badge">
-          <span class="rack-face"><span class="badge-slot"></span><span class="rack-ava">PM</span><span class="rack-name">product-manager</span></span>
-        </button>
-        <button type="button" class="rack-item" style="--glow:#FBBF24"
-                data-role="qa" data-abbr="QA" data-name="qa"
-                data-charter="Adversarially reviews the plan before any code is written, against the invariants oracle."
-                aria-label="Open qa badge">
-          <span class="rack-face"><span class="badge-slot"></span><span class="rack-ava">QA</span><span class="rack-name">qa</span></span>
-        </button>
-        <button type="button" class="rack-item" style="--glow:#2DD4BF"
-                data-role="hermes-user" data-abbr="HU" data-name="hermes-user"
-                data-charter="Stands in for the end user — the Hermes persona."
-                aria-label="Open hermes-user badge">
-          <span class="rack-face"><span class="badge-slot"></span><span class="rack-ava">HU</span><span class="rack-name">hermes-user</span></span>
-        </button>
-    </div>
-  </div>
-</section>
+            <div class="old-scene-ui" aria-hidden="true">
+              <div class="scene-layer is-active" data-scene="0"><div class="scene-callout"><i data-lucide="circle-help"></i><strong>任务能做，但没人负责下一步</strong><span>交接、检查、退回，全都没有明确位置</span></div></div>
+              <div class="scene-layer" data-scene="1"><div class="scene-grid"><div><i data-lucide="eye"></i><strong>任务 A</strong><span>等你确认</span></div><div><i data-lucide="eye"></i><strong>任务 B</strong><span>等你确认</span></div><div><i data-lucide="eye"></i><strong>任务 C</strong><span>等你确认</span></div><div><i data-lucide="eye"></i><strong>任务 D</strong><span>等你确认</span></div></div></div>
+              <div class="scene-layer" data-scene="2"><div class="scene-grid scene-grid-errors"><div><i data-lucide="triangle-alert"></i><strong>缺少说明</strong><span>待返工</span></div><div><i data-lucide="triangle-alert"></i><strong>方向跑偏</strong><span>待返工</span></div><div><i data-lucide="triangle-alert"></i><strong>未经检查</strong><span>待确认</span></div><div><i data-lucide="triangle-alert"></i><strong>交付不全</strong><span>待补齐</span></div></div></div>
+              <div class="scene-layer" data-scene="3"><div class="missing-role"><span class="chip chip-pink">推进流程需要这些环节</span><div><i data-lucide="messages-square"></i>对齐</div><div><i data-lucide="arrow-right-left"></i>交接</div><div><i data-lucide="clipboard-check"></i>验收</div><div><i data-lucide="rotate-ccw"></i>退回</div></div></div>
+            </div>
+            <div class="old-progress" aria-hidden="true"><span class="is-active"></span><span></span><span></span><span></span></div>
+          </div>
+        </div>
+        <div class="old-sensors" aria-hidden="true">
+          <div class="old-sensor" data-beat-sensor="0"></div><div class="old-sensor" data-beat-sensor="1"></div>
+          <div class="old-sensor" data-beat-sensor="2"></div><div class="old-sensor" data-beat-sensor="3"></div>
+        </div>
+      </div>
+      <div class="wrap old-mobile">
+        <article class="old-card"><span class="eyebrow">01 / 为什么总要你盯</span><h2>任务交出去了，为什么还总要你盯？</h2><p>任务能做，不等于会自己推进。</p></article>
+        <article class="old-card"><span class="chip">反复确认</span><h2>你得反复确认，它有没有理解对。</h2><p>每个关键节点都在等你继续说明。</p></article>
+        <article class="old-card"><span class="chip">任务变多</span><h2>检查和返工也一起变多。</h2><p>开得越多，需要你重新收尾的地方也越多。</p></article>
+        <article class="old-card"><span class="chip chip-pink">真正缺少的</span><h2>一套能自己推进的流程。</h2><p>对齐、交接、验收、退回，都应该有明确位置。</p></article>
+      </div>
+    </section>
 
-<!-- ==========================================================================
-     追加：hero 之后的正文 4 节（首屏一字未改；内容/charter 逐字来自 design.md）
-     ========================================================================== -->
-<main class="lp">
+    <section class="standard-section" id="roles">
+      <div class="wrap">
+        <header class="section-head">
+          <p class="section-kicker">02 / 责任</p>
+          <h2>这些推进工作，一直都落在你身上。</h2>
+          <p class="lead">回想你“亲自上”的那些时候。把任务讲清楚、把上一步递给下一步、发现跑偏拽回来、一遍遍检查能不能用——都是你。</p>
+        </header>
+        <div class="role-stack">
+          <article class="role-story motion-once" data-motion="once">
+            <div class="role-copy">
+              <span class="chip chip-pink">当前 · 都由你负责</span>
+              <h3>对齐、交接、验收、返工。</h3>
+              <p>这些推进工作一直有人在做。现在，那个人就是你。</p>
+              <p class="big-truth">你以为自己在使用工具。<br>其实还在亲手维持整条流程。</p>
+            </div>
+            <div class="handoff-board" aria-label="四项工作当前都由你负责">
+              <div class="handoff-row once-part"><span class="handoff-icon"><i data-lucide="messages-square"></i></span><strong>对齐目标</strong><span class="owner owner-you">你</span></div>
+              <div class="handoff-row once-part"><span class="handoff-icon"><i data-lucide="arrow-right-left"></i></span><strong>交接上下文</strong><span class="owner owner-you">你</span></div>
+              <div class="handoff-row once-part"><span class="handoff-icon"><i data-lucide="clipboard-check"></i></span><strong>逐条把关</strong><span class="owner owner-you">你</span></div>
+              <div class="handoff-row once-part" data-once-end><span class="handoff-icon"><i data-lucide="rotate-ccw"></i></span><strong>退回重做</strong><span class="owner owner-you">你</span></div>
+            </div>
+          </article>
+          <article class="role-story motion-once" data-motion="once">
+            <div class="role-copy">
+              <span class="chip chip-blue">交给 Moebius · 自动推进</span>
+              <h3>推进交给 Moebius，你只保留必须拍板的事。</h3>
+              <p>任务交出后，各环节自行接续；只有超出约定边界时才来找你。<strong>不靠你推也往前走。</strong></p>
+              <p><span class="em-line">其余时候，它负责向前推进，也负责在交付前把关。</span></p>
+            </div>
+            <div class="handoff-board" aria-label="Moebius 接手推进工作，你只保留拍板职责">
+              <div class="handoff-row once-part"><span class="handoff-icon"><i data-lucide="messages-square"></i></span><strong>对齐目标</strong><span class="owner owner-system">Moebius</span></div>
+              <div class="handoff-row once-part"><span class="handoff-icon"><i data-lucide="arrow-right-left"></i></span><strong>交接上下文</strong><span class="owner owner-system">Moebius</span></div>
+              <div class="handoff-row once-part"><span class="handoff-icon"><i data-lucide="clipboard-check"></i></span><strong>验收与返工</strong><span class="owner owner-system">Moebius</span></div>
+              <div class="handoff-row once-part" data-once-end><span class="handoff-icon"><i data-lucide="user-check"></i></span><strong>只有必须决定的事</strong><span class="owner owner-you">你拍板</span></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
 
-  <!-- ① What is agent-moebius -->
-  <section class="lp-section" aria-labelledby="lp-about-h">
-    <div class="lp-inner">
-      <div class="lp-head" data-reveal>
-        <p class="lp-eyebrow">Meet agent-moebius</p>
-        <h2 class="lp-h2" id="lp-about-h">An AI team that ships from your own machine.</h2>
-        <p class="lp-lead">It watches your GitHub issues. @mention a role and it runs Codex locally to do the work — while a CEO guards quality and a goal ledger tracks every task through to acceptance.</p>
+    <section class="standard-section" id="how">
+      <div class="wrap">
+        <header class="section-head">
+          <p class="section-kicker">03 / 三个时刻</p>
+          <h2>该问你时问你，<br>该返工时自己返。</h2>
+          <p class="lead">交出去之后，一个环节干完，下一个环节自己接上。<strong>那根接力棒，不在你手里了。</strong> <strong>盯进度这活，归它了。</strong></p>
+        </header>
+        <div class="relay-strip motion-loop" data-motion="loop" aria-label="接手、处理、复核、交付持续接力">
+          <div class="relay-line">
+            <div class="relay-step"><span class="relay-dot" data-anim><i data-lucide="inbox"></i></span><span><b>01</b> 接手</span></div>
+            <div class="relay-step"><span class="relay-dot" data-anim><i data-lucide="file-pen-line"></i></span><span><b>02</b> 处理</span></div>
+            <div class="relay-step"><span class="relay-dot" data-anim><i data-lucide="clipboard-check"></i></span><span><b>03</b> 复核</span></div>
+            <div class="relay-step"><span class="relay-dot" data-anim><i data-lucide="package-check"></i></span><span><b>04</b> 交付</span></div>
+            <span class="relay-baton" data-anim aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="mechanism-grid">
+          <article class="mechanism-card motion-loop" data-motion="loop">
+            <span class="chip chip-blue">01 · ALIGN</span>
+            <h3>先对齐：只问“你要什么”。</h3>
+            <p>含糊的地方，宁可多问一句，也不闷头做错。怎么做，是它自己的事；哪些事必须由你拍板，在开工前说好。</p>
+            <div class="mini-scene decision-panel" aria-label="目标选择示例"><div class="decision-title"><i data-lucide="circle-help"></i><strong>目标有两种，请你选结果</strong></div><div class="decision-option" data-anim><span>A</span>本周可上线的最小范围</div><div class="decision-option" data-anim><span>B</span>供内部评审的完整方案</div><div class="decision-note">它问目标，不把做法丢给你。</div></div>
+          </article>
+          <article class="mechanism-card motion-loop" data-motion="loop">
+            <span class="chip chip-lime">02 · VERIFY</span>
+            <h3>再验收：按开工时说好的，一条一条查。</h3>
+            <p>每份产出送到你手上之前，至少被验收一次。以前逐字逐行检查的是你；现在这个位置，由它顶上。</p>
+            <div class="mini-scene verify-panel" aria-label="逐条验收示例"><strong>按开工要求检查</strong><div class="verify-row" data-anim><i data-lucide="circle-check"></i><span>目标范围一致</span><b>通过</b></div><div class="verify-row" data-anim><i data-lucide="circle-check"></i><span>必要内容齐全</span><b>通过</b></div><div class="verify-row verify-row-fail" data-anim><i data-lucide="circle-x"></i><span>交付说明缺失</span><b>退回</b></div></div>
+          </article>
+          <article class="mechanism-card motion-loop" data-motion="loop">
+            <span class="chip chip-orange">03 · REDO</span>
+            <h3>没通过：打回，重做，再验。</h3>
+            <p>这一整圈它自己跑完。打回几圈还过不了，它不硬跑——带着卡住的地方，再来找你拍板。</p>
+            <div class="mini-scene redo-panel" aria-label="未通过后带原因退回并再次提交"><div class="redo-event" data-anim><span class="event-icon event-orange"><i data-lucide="circle-x"></i></span><div><strong>复核未通过</strong><small>缺少必要说明</small></div></div><div class="redo-event" data-anim><span class="event-icon"><i data-lucide="rotate-ccw"></i></span><div><strong>带原因退回处理</strong><small>只重做未通过的部分</small></div></div><div class="redo-event" data-anim><span class="event-icon event-lime"><i data-lucide="send"></i></span><div><strong>修改后再次提交</strong><small>重新进入复核</small></div></div></div>
+          </article>
+        </div>
+        <p class="mechanism-close">能自己定的，它不来烦你；<br>只有你有权定的，才来找你。<br><span class="em-line">其余的时间，它不出声，只干活。</span></p>
       </div>
-      <div class="lp-chips">
-        <span class="lp-chip" data-reveal style="--i:0">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M2 21h20"/><path d="M7 9l3 2.5L7 14"/><path d="M12.5 14H16"/></svg>
-          <span>Runs locally · codex + gh</span>
-        </span>
-        <span class="lp-chip" data-reveal style="--i:1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></svg>
-          <span>Driven by GitHub issues</span>
-        </span>
-        <span class="lp-chip" data-reveal style="--i:2">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="3"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5"/><path d="M16 7a3 3 0 0 1 0 6"/><path d="M18.5 20c0-2.3-.8-3.9-2-4.8"/></svg>
-          <span>A whole AI team, not one bot</span>
-        </span>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ② How it works —— Watch → Normalize → Trigger → Guard → Track -->
-  <section class="lp-section" aria-labelledby="lp-how-h">
-    <div class="lp-inner">
-      <div class="lp-head" data-reveal>
-        <h2 class="lp-h2" id="lp-how-h">How it works</h2>
-      </div>
-      <div class="lp-flow">
-        <div class="lp-step" data-reveal style="--i:0">
-          <div class="lp-step-num">1</div>
-          <div class="lp-step-body">
-            <div class="lp-step-title">Watch</div>
-            <div class="lp-step-desc">Scans open issues across your whitelisted repos.</div>
-          </div>
+    <section class="standard-section receipt-story motion-once" id="trace" data-motion="once">
+      <div class="wrap receipt-layout">
+        <div class="receipt-copy">
+          <p class="section-kicker">04 / 痕迹</p>
+          <h2>每份交付，都该带一张过程底单。</h2>
+          <p class="lead">今天任何一个 AI 交回来的东西，你要么凭感觉决定信不信，要么自己从头再看一遍。过程刷过去就没了，手边没有一张能对着查的单子。</p>
+          <p>底单上会有不体面的记录——被打回、返工、重来。但恰恰是这些记录让你看得见：<strong>验收真的发生过。</strong></p>
+          <p class="honesty">完整的底单，我们还在做——标准先立在这里。这套标准，先管我们自己。</p>
         </div>
-        <div class="lp-step" data-reveal style="--i:1">
-          <div class="lp-step-num">2</div>
-          <div class="lp-step-body">
-            <div class="lp-step-title">Normalize</div>
-            <div class="lp-step-desc">Folds issue body + comments into one speaker-tagged timeline.</div>
-          </div>
-        </div>
-        <div class="lp-step" data-reveal style="--i:2">
-          <div class="lp-step-num">3</div>
-          <div class="lp-step-body">
-            <div class="lp-step-title">Trigger</div>
-            <div class="lp-step-desc">An @mention decides whether to run local Codex — and drops a 👀 as instant feedback.</div>
-          </div>
-        </div>
-        <div class="lp-step" data-reveal style="--i:3">
-          <div class="lp-step-num">4</div>
-          <div class="lp-step-body">
-            <div class="lp-step-title">Guard</div>
-            <div class="lp-step-desc">The CEO reviews and corrects every agent reply before it's posted via gh.</div>
-          </div>
-        </div>
-        <div class="lp-step" data-reveal style="--i:4">
-          <div class="lp-step-num">5</div>
-          <div class="lp-step-body">
-            <div class="lp-step-title">Track</div>
-            <div class="lp-step-desc">Handoffs (plan-written → code-verified) carry the work through the goal ledger to acceptance.</div>
-          </div>
+        <div class="receipt" aria-label="过程底单标准图解">
+          <div class="receipt-head"><span class="receipt-title">过程底单</span><span class="receipt-id">任务 / 001<br>状态 / 已通过</span></div>
+          <div class="receipt-row once-part" data-kind="align" style="--i:1"><span class="receipt-icon"><i data-lucide="messages-square"></i></span><span class="receipt-kind">对齐</span><span>开工前确认目标与拍板边界</span></div>
+          <div class="receipt-row once-part" style="--i:2"><span class="receipt-icon"><i data-lucide="arrow-right-left"></i></span><span class="receipt-kind">接手</span><span>接手时带上目标、上下文和验收标准</span></div>
+          <div class="receipt-row once-part" data-kind="redo" style="--i:3"><span class="receipt-icon"><i data-lucide="rotate-ccw"></i></span><span class="receipt-kind">打回</span><span>首次验收未过：缺少必要说明</span></div>
+          <div class="receipt-row once-part" style="--i:4"><span class="receipt-icon"><i data-lucide="file-pen-line"></i></span><span class="receipt-kind">重做</span><span>按退回原因补齐后再次交出</span></div>
+          <div class="receipt-row once-part" data-kind="you" style="--i:5"><span class="receipt-icon"><i data-lucide="user-check"></i></span><span class="receipt-kind">拍板</span><span>本次触发：需要你决定的边界在这里确认</span></div>
+          <div class="receipt-row once-part" data-kind="pass" style="--i:6"><span class="receipt-icon"><i data-lucide="circle-check"></i></span><span class="receipt-kind">验收</span><span>逐项核对通过，进入交付</span></div>
+          <div class="receipt-stamp once-part" data-once-end>示例记录 · 非产品实拍</div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ③ Your AI team —— 7 张完整员工工牌（全息 hover），charter 进职位位；hover 仍复用 tooltip 带短标签 -->
-  <section class="lp-section" aria-labelledby="lp-team-h">
-    <div class="lp-inner">
-      <div class="lp-head" data-reveal>
-        <h2 class="lp-h2" id="lp-team-h">Your AI team</h2>
-        <p class="lp-lead">Address any of them by @mention inside an issue.</p>
+    <section class="standard-section start-section" id="start">
+      <div class="wrap">
+        <header class="section-head">
+          <p class="section-kicker">05 / 第一个任务</p>
+          <h2>开源免注册，<br>交出你的第一个任务。</h2>
+          <p class="lead">你需要的只有两样：一台 Mac，以及可用的 Codex CLI 或 Claude CLI。打开“终端”，任选一条版本命令；能返回版本号，就可以开始。</p>
+        </header>
+        <div class="terminal-compare motion-once" data-motion="once">
+          <article class="terminal-card">
+            <span class="verdict verdict-yes once-part">✓</span>
+            <h3>这样确认：命令能返回版本号</h3>
+            <div class="terminal-window motion-loop" data-motion="loop"><p>$ codex --version</p><p>› 返回版本号 = 可以使用</p><p>$ claude --version<span class="cursor" data-anim></span></p></div>
+          </article>
+          <article class="terminal-card">
+            <span class="verdict verdict-no once-part" data-once-end>×</span>
+            <h3>不能这样确认：只看图标或窗口样式</h3>
+            <div class="terminal-window chat-window"><div class="fake-appbar"><span class="fake-icon"></span><span>聊天窗口</span><span class="fake-button"></span></div><div class="chat-bubble">请帮我做件事。</div><div class="chat-bubble">当然，请继续输入。</div></div>
+          </article>
+        </div>
+        <p class="lead">不确定自己有没有装？不要凭图标或界面猜。打开“终端”，运行 <code>codex --version</code> 或 <code>claude --version</code>；任一命令能返回版本号，就说明已经可用。</p>
+        <ul class="promise-list">
+          <li>免费开源，代码公开可查</li><li>不用注册，不填密码，也不收任何密钥</li>
+          <li>Codex CLI 或 Claude CLI，任一即可</li><li>任务在你的电脑上跑，用的是本机 CLI</li>
+          <li>额度就是你平时用的那一笔，不另算</li><li>Moebius 本身不收费，也不加价</li>
+          <li>对齐、验收和打回，都会出现在第一个任务里</li>
+        </ul>
+        <div class="actions" id="download-note">
+          <button class="button button-primary" type="button" disabled aria-describedby="release-note">macOS 版即将开放 <span aria-hidden="true">…</span></button>
+          <button class="button" type="button" disabled aria-describedby="release-note">GitHub 源码即将开放 <span aria-hidden="true">…</span></button>
+        </div>
+        <div class="install-links">
+          <a href="https://developers.openai.com/codex/cli/" target="_blank" rel="noreferrer">Codex CLI 官方安装指引 ↗</a>
+          <a href="https://docs.anthropic.com/en/docs/claude-code/setup" target="_blank" rel="noreferrer">Claude CLI 官方安装指引 ↗</a>
+        </div>
+        <p class="cta-note" id="release-note">目前只有 macOS 版；下载与源码地址公布后会更新在这里。</p>
+        <p class="final-question">第一个任务交什么？<span>想想你今天本来打算盯着干完的那件事。</span></p>
       </div>
-      <div class="lp-badges">
-        <div class="badge role-card" tabindex="0" data-reveal style="--i:0; --glow:#A068FF"
-             data-role="CEO" data-label="Orchestrates &amp; guards"
-             data-charter="Reviews and corrects every agent's reply, routes handoffs, and enforces the process gates.">
-          <span class="badge-foil"></span>
-          <span class="badge-slot"></span>
-          <span class="badge-ava">CEO</span>
-          <span class="badge-name">CEO</span>
-          <span class="badge-role">Reviews and corrects every agent's reply, routes handoffs, and enforces the process gates.</span>
-          <span class="badge-div"></span>
-          <span class="badge-foot"><span class="badge-co">◆ agent-moebius</span><span class="badge-bars"></span></span>
-        </div>
-        <div class="badge role-card" tabindex="0" data-reveal style="--i:1; --glow:#5B9BFF"
-             data-role="secretary" data-label="Keeps the rules"
-             data-charter="Maintains and evolves the CEO's guardrail rules.">
-          <span class="badge-foil"></span>
-          <span class="badge-slot"></span>
-          <span class="badge-ava">SEC</span>
-          <span class="badge-name">secretary</span>
-          <span class="badge-role">Maintains and evolves the CEO's guardrail rules.</span>
-          <span class="badge-div"></span>
-          <span class="badge-foot"><span class="badge-co">◆ agent-moebius</span><span class="badge-bars"></span></span>
-        </div>
-        <div class="badge role-card" tabindex="0" data-reveal style="--i:2; --glow:#34D399"
-             data-role="dev" data-label="Writes the code"
-             data-charter="The only role with write access to the issue worktree; implements and verifies changes.">
-          <span class="badge-foil"></span>
-          <span class="badge-slot"></span>
-          <span class="badge-ava">DEV</span>
-          <span class="badge-name">dev</span>
-          <span class="badge-role">The only role with write access to the issue worktree; implements and verifies changes.</span>
-          <span class="badge-div"></span>
-          <span class="badge-foot"><span class="badge-co">◆ agent-moebius</span><span class="badge-bars"></span></span>
-        </div>
-        <div class="badge role-card" tabindex="0" data-reveal style="--i:3; --glow:#FB923C"
-             data-role="dev-manager" data-label="Tech lead"
-             data-charter="Owns technical decisions, architecture choices and quality — without writing code.">
-          <span class="badge-foil"></span>
-          <span class="badge-slot"></span>
-          <span class="badge-ava">DM</span>
-          <span class="badge-name">dev-manager</span>
-          <span class="badge-role">Owns technical decisions, architecture choices and quality — without writing code.</span>
-          <span class="badge-div"></span>
-          <span class="badge-foot"><span class="badge-co">◆ agent-moebius</span><span class="badge-bars"></span></span>
-        </div>
-        <div class="badge role-card" tabindex="0" data-reveal style="--i:0; --glow:#F472B6"
-             data-role="product-manager" data-label="Shapes the ask"
-             data-charter="Turns intent into clear product requirements.">
-          <span class="badge-foil"></span>
-          <span class="badge-slot"></span>
-          <span class="badge-ava">PM</span>
-          <span class="badge-name">product-manager</span>
-          <span class="badge-role">Turns intent into clear product requirements.</span>
-          <span class="badge-div"></span>
-          <span class="badge-foot"><span class="badge-co">◆ agent-moebius</span><span class="badge-bars"></span></span>
-        </div>
-        <div class="badge role-card" tabindex="0" data-reveal style="--i:1; --glow:#FBBF24"
-             data-role="qa" data-label="Breaks the plan"
-             data-charter="Adversarially reviews the plan before any code is written, against the invariants oracle.">
-          <span class="badge-foil"></span>
-          <span class="badge-slot"></span>
-          <span class="badge-ava">QA</span>
-          <span class="badge-name">qa</span>
-          <span class="badge-role">Adversarially reviews the plan before any code is written, against the invariants oracle.</span>
-          <span class="badge-div"></span>
-          <span class="badge-foot"><span class="badge-co">◆ agent-moebius</span><span class="badge-bars"></span></span>
-        </div>
-        <div class="badge role-card" tabindex="0" data-reveal style="--i:2; --glow:#2DD4BF"
-             data-role="hermes-user" data-label="The user's voice"
-             data-charter="Stands in for the end user — the Hermes persona.">
-          <span class="badge-foil"></span>
-          <span class="badge-slot"></span>
-          <span class="badge-ava">HU</span>
-          <span class="badge-name">hermes-user</span>
-          <span class="badge-role">Stands in for the end user — the Hermes persona.</span>
-          <span class="badge-div"></span>
-          <span class="badge-foot"><span class="badge-co">◆ agent-moebius</span><span class="badge-bars"></span></span>
-        </div>
-      </div>
-    </div>
-  </section>
+    </section>
+  </main>
 
-  <!-- ④ Goal ledger + CTA -->
-  <section class="lp-section" aria-labelledby="lp-ledger-h">
-    <div class="lp-inner">
-      <div class="lp-head" data-reveal>
-        <h2 class="lp-h2" id="lp-ledger-h">From goal to acceptance — tracked end to end</h2>
-        <p class="lp-lead">A goal ledger records every goal → milestone → task → phase, with plan-before-code and explicit acceptance gates.</p>
-      </div>
-      <div class="lp-chain" data-reveal>
-        <span class="lp-node">goal</span>
-        <svg class="lp-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13"/><path d="M12 6l6 6-6 6"/></svg>
-        <span class="lp-node">milestone</span>
-        <svg class="lp-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13"/><path d="M12 6l6 6-6 6"/></svg>
-        <span class="lp-node">task</span>
-        <svg class="lp-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13"/><path d="M12 6l6 6-6 6"/></svg>
-        <span class="lp-node">phase</span>
-      </div>
-      <div class="lp-chips" style="margin-bottom: 40px;">
-        <span class="lp-chip" data-reveal style="--i:0">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
-          <span>plan-written → code-verified</span>
-        </span>
-        <span class="lp-chip" data-reveal style="--i:1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
-          <span>explicit acceptance gates</span>
-        </span>
-        <span class="lp-chip" data-reveal style="--i:2">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
-          <span>runs on your machine</span>
-        </span>
-      </div>
-      <div class="lp-cta" data-reveal>
-        <div class="btn-border-wrap">
-          <button class="pill pill-start" type="button">
-            <span>Get started</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer class="lp-footer">
-    <div class="lp-inner" data-reveal>
-      <div class="lp-foot-top">
-        <div class="lp-foot-brand">
-          <svg width="176" height="26" viewBox="0 0 176 26" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agent-moebius">
-            <rect x="4" y="4" width="17" height="17" rx="3" transform="rotate(45 12.5 12.5)" fill="#A068FF"/>
-            <text x="32" y="18" font-family="Urbanist, sans-serif" font-size="17" font-weight="700" fill="#ffffff">agent-moebius</text>
-          </svg>
-          <p>An AI team that watches your GitHub issues and ships from your own machine.</p>
-        </div>
-        <nav class="lp-foot-cols" aria-label="Footer">
-          <div class="lp-foot-col">
-            <h4>Product</h4>
-            <a href="#">Overview</a>
-            <a href="#">How it works</a>
-          </div>
-          <div class="lp-foot-col">
-            <h4>Docs</h4>
-            <a href="#">Getting started</a>
-            <a href="#">Guardrails</a>
-          </div>
-          <div class="lp-foot-col">
-            <h4>GitHub</h4>
-            <a href="#">Repository</a>
-            <a href="#">Issues</a>
-          </div>
-        </nav>
-      </div>
-      <div class="lp-foot-copy">© 2026 agent-moebius</div>
-    </div>
+  <footer>
+    <div class="wrap footer-inner"><span>MOEBIUS · 免费开源的 macOS 应用</span><span>一件事，一路推进，一张底单。</span></div>
   </footer>
 
-</main>
+  <script src="https://unpkg.com/lucide@1.0.0/dist/umd/lucide.min.js"></script>
+  <script>
+    (() => {
+      if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 2.4 } });
+      const root = document.documentElement;
+      const reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const loopItems = [...document.querySelectorAll('[data-motion="loop"]')];
+      const onceItems = [...document.querySelectorAll('[data-motion="once"]')];
+      const chairScenes = [...document.querySelectorAll('.chair-scene')];
+      let reduced = reducedQuery.matches;
 
-<!-- ③ 角色 hover 弹框：复用 .avatar-tooltip 视觉，去掉复制按钮，内容换为 角色名·短标签 + charter -->
-<div class="avatar-tooltip role-tooltip" id="role-tooltip" hidden>
-  <div class="tt-head"><span class="tt-role rtt-role"></span> · <span class="rtt-label"></span></div>
-  <div class="tt-divider"></div>
-  <div class="tt-charter rtt-charter"></div>
-</div>
+      const visibilityRatio = (item) => {
+        const rect = item.getBoundingClientRect();
+        const visible = Math.max(0, Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0));
+        return visible / Math.max(1, Math.min(rect.height, innerHeight));
+      };
 
-<!-- 工牌架点击弹窗：点击某张工牌才显示正面放大工牌 + 详情（JS 填充正面工牌内容） -->
-<div class="rack-modal" id="rack-modal" hidden>
-  <div class="rack-modal-overlay" data-rm-close></div>
-  <div class="rack-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="rm-name">
-    <button type="button" class="rack-modal-close" data-rm-close aria-label="Close">✕</button>
-    <div class="badge" id="rm-badge" style="--glow:#A068FF">
-      <span class="badge-foil"></span>
-      <span class="badge-slot"></span>
-      <span class="badge-ava" id="rm-ava">CEO</span>
-      <span class="badge-name" id="rm-badge-name">CEO</span>
-      <span class="badge-role" id="rm-badge-role"></span>
-      <span class="badge-div"></span>
-      <span class="badge-foot"><span class="badge-co">◆ agent-moebius</span><span class="badge-bars"></span></span>
-    </div>
-    <div class="rack-modal-info">
-      <div class="rm-role" id="rm-role">CEO</div>
-      <div class="rm-name" id="rm-name">CEO</div>
-      <p class="rm-charter" id="rm-charter"></p>
-      <div class="rm-mention"><code id="rm-mention-code">@ceo</code><span>→ mention it in an issue</span></div>
-    </div>
-  </div>
-</div>
+      const syncMotionVisibility = () => {
+        const locked = reduced || document.hidden;
+        loopItems.forEach((item) => item.classList.toggle('is-inview', !locked && visibilityRatio(item) >= .05));
+        onceItems.forEach((item) => {
+          if (item.classList.contains('is-complete')) return;
+          const inView = !locked && visibilityRatio(item) >= .1;
+          item.classList.toggle('is-inview', inView);
+          if (inView) item.classList.add('is-started');
+        });
+      };
 
-<script>
-/* =========================================================================
-   1) 打字机标题（逐字 setTimeout：35ms/字，延迟 400ms 起）
-      前 16 字 "@mention a role." #000，其余 " Your AI team ships it." #fff，尾随闪烁紫光标。
-   ========================================================================= */
-(function () {
-  var el = document.getElementById('hero-title');
-  var full = '@mention a role. Your AI team ships it.';
-  var BLACK = 16;
-  var i = 0;
+      const loopObserver = new IntersectionObserver((entries) => {
+        if (reduced || document.hidden) return;
+        for (const entry of entries) entry.target.classList.toggle('is-inview', entry.isIntersecting && entry.intersectionRatio >= .05);
+      }, { threshold: [0, .05, .28] });
 
-  function esc(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-  function render() {
-    var black = full.slice(0, Math.min(i, BLACK));
-    var white = i > BLACK ? full.slice(BLACK, i) : '';
-    el.innerHTML =
-      '<span class="t-black">' + esc(black) + '</span>' +
-      '<span class="t-white">' + esc(white) + '</span>' +
-      '<span class="caret"></span>';
-  }
-  function step() {
-    i++;
-    render();
-    if (i < full.length) setTimeout(step, 35);
-  }
-  render();                 // 起始：仅光标
-  setTimeout(step, 400);
-})();
+      const finishOnce = (item) => {
+        item.classList.add('is-complete');
+        item.classList.remove('is-inview');
+        onceObserver.unobserve(item);
+      };
 
-/* =========================================================================
-   2) 全息 tilt/foil：pointermove 写 --mx/--my(0-100) 与 --rx/--ry（±6° 内），
-      指针离开复位。尊重 prefers-reduced-motion（此时不绑定）。作用于所有 .badge。
-   ========================================================================= */
-(function () {
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce) return;
-  var badges = document.querySelectorAll('.badge');
-  for (var i = 0; i < badges.length; i++) {
-    (function (el) {
-      el.addEventListener('pointermove', function (e) {
-        var r = el.getBoundingClientRect();
-        var px = (e.clientX - r.left) / r.width;   // 0..1
-        var py = (e.clientY - r.top) / r.height;   // 0..1
-        el.style.setProperty('--mx', (px * 100).toFixed(1));
-        el.style.setProperty('--my', (py * 100).toFixed(1));
-        el.style.setProperty('--ry', ((px - 0.5) * 12).toFixed(2) + 'deg');   // ±6°
-        el.style.setProperty('--rx', ((0.5 - py) * 12).toFixed(2) + 'deg');   // ±6°
+      const onceObserver = new IntersectionObserver((entries) => {
+        if (reduced || document.hidden) return;
+        for (const entry of entries) {
+          if (entry.target.classList.contains('is-complete')) continue;
+          const inView = entry.isIntersecting && entry.intersectionRatio >= .1;
+          entry.target.classList.toggle('is-inview', inView);
+          if (inView) entry.target.classList.add('is-started');
+        }
+      }, { threshold: [0, .1, .3], rootMargin: '0px 0px -8% 0px' });
+
+      loopItems.forEach((item) => loopObserver.observe(item));
+      onceItems.forEach((item) => {
+        const ending = item.querySelector('[data-once-end]') || item.querySelector('.once-part:last-child');
+        if (ending) ending.addEventListener('animationend', () => finishOnce(item), { once: true });
+        onceObserver.observe(item);
       });
-      el.addEventListener('pointerleave', function () {
-        el.style.setProperty('--rx', '0deg');
-        el.style.setProperty('--ry', '0deg');
-      });
-    })(badges[i]);
-  }
-})();
 
-/* =========================================================================
-   3) 底部工牌架点击/Enter → 标准三层容器变形后显示详情弹窗，弹簧驱动：
-      ① 幽灵卡（共享元素）：X/Y 由同一条主弹簧（linear() 烘焙）驱动——
-         快攻到位、~2% 微过冲一次收束咬合，NEVER 贝塞尔式渐近死尾；
-         微过冲天然给出「掠过卡位落下」的弧感。转正+缩放走快弹簧，
-         前半程完成（拿起读感）。途中双内容交叉淡化，落定像素级换装，
-         全程不淡出。任何运动分量 NEVER 中途刹停再重启（顿挫本身）。
-      ② 变形面（容器连续）：无内容空面 40ms 延迟后同弹簧从足迹长成面板，
-         层序在遮罩之上、面板之下；
-      ③ 真面板（内容层）：不做 transform，内容在容器就位后淡入。
-      遮罩 blur 在落定后（.is-settled）才渐入，动画期不做每帧背景重合成。
-      关闭（Esc / 遮罩 / 按钮）逆向弹簧且更快（280ms vs 460ms），转回延迟至
-      临近插槽。转场期间防重入；
-      prefers-reduced-motion 或无 WAAPI 时降级为直接开合（仅淡入淡出）。
-   ========================================================================= */
-(function () {
-  var modal = document.getElementById('rack-modal');
-  if (!modal) return;
-  var sheet = modal.querySelector('.rack-modal-sheet');
-  var mBadge = document.getElementById('rm-badge');
-  var mAva = document.getElementById('rm-ava');
-  var mBadgeName = document.getElementById('rm-badge-name');
-  var mBadgeRole = document.getElementById('rm-badge-role');
-  var mRole = document.getElementById('rm-role');
-  var mName = document.getElementById('rm-name');
-  var mCharter = document.getElementById('rm-charter');
-  var mMention = document.getElementById('rm-mention-code');
-  var closeBtn = modal.querySelector('.rack-modal-close');
-  var lastTrigger = null;
-  var animating = false;
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var canFly = !reduce && typeof sheet.animate === 'function';
-  var OPEN_MS = 460;    // 弹簧收束时长（~42% 时点已到位，其余是过冲与咬合）
-  var CLOSE_MS = 280;   // 关闭快于打开
-  // 弹簧曲线：欠阻尼弹簧解析解采样 48 点烘焙为 linear()，零依赖拿到弹簧手感。
-  // 贝塞尔的渐近死尾（落定前长段低速爬行）是「拖泥带水」感的来源；
-  // 弹簧快攻到位、以 ~2% 微过冲一次收束咬合。
-  // SPRING_OPEN: k=380 c=30 (ζ≈0.77)，过冲 2.3%
-  var SPRING_OPEN = 'linear(0, 0.0158, 0.0575, 0.1172, 0.1888, 0.2669, 0.3478, 0.4281, 0.5057, 0.5788, 0.6464, 0.7078, 0.7627, 0.8111, 0.8531, 0.889, 0.9193, 0.9445, 0.9651, 0.9815, 0.9945, 1.0043, 1.0116, 1.0167, 1.02, 1.0219, 1.0227, 1.0225, 1.0218, 1.0205, 1.019, 1.0172, 1.0154, 1.0136, 1.0118, 1.0101, 1.0085, 1.0071, 1.0058, 1.0046, 1.0036, 1.0028, 1.002, 1.0014, 1.0009, 1.0005, 1.0002, 1, 1)';
-  // SPRING_SPIN: k=807 c=51 (ζ≈0.9)，同窗口 ~50% 处收平——转正前置完成（拿起读感），几乎无过冲
-  var SPRING_SPIN = 'linear(0, 0.0315, 0.1073, 0.2057, 0.3124, 0.4179, 0.5166, 0.6052, 0.6826, 0.7486, 0.8037, 0.8489, 0.8855, 0.9146, 0.9374, 0.9551, 0.9685, 0.9786, 0.986, 0.9914, 0.9952, 0.9978, 0.9995, 1.0006, 1.0012, 1.0016, 1.0017, 1.0016, 1.0015, 1.0014, 1.0012, 1.001, 1.0008, 1.0007, 1.0006, 1.0004, 1.0003, 1.0003, 1.0002, 1.0002, 1.0001, 1.0001, 1.0001, 1, 1, 1, 1, 1, 1)';
-  // SPRING_CLOSE: k=807 c=51，280ms 干净收束
-  var SPRING_CLOSE = 'linear(0, 0.0124, 0.0451, 0.0919, 0.1483, 0.2103, 0.2751, 0.3404, 0.4045, 0.4662, 0.5247, 0.5794, 0.63, 0.6763, 0.7184, 0.7564, 0.7903, 0.8205, 0.8472, 0.8706, 0.891, 0.9088, 0.9242, 0.9374, 0.9487, 0.9583, 0.9664, 0.9732, 0.9789, 0.9837, 0.9876, 0.9908, 0.9934, 0.9955, 0.9971, 0.9984, 0.9994, 1.0002, 1.0007, 1.0011, 1.0014, 1.0016, 1.0016, 1.0017, 1.0016, 1.0016, 1.0015, 1.0014, 1)';
-  var RACK_DEG = 44;   // 与 .rack-item 的侧立角保持一致
+      const oldScroll = document.querySelector('.old-scroll');
+      const heroWorkflow = document.querySelector('.workflow-graph');
+      const heroTask = document.querySelector('.hero-task-card');
+      const heroNodes = heroWorkflow ? [...heroWorkflow.querySelectorAll('.flow-icon')] : [];
+      const heroRetry = heroWorkflow?.querySelector('.workflow-retry');
+      const relayLine = document.querySelector('.relay-line');
+      const relayBaton = document.querySelector('.relay-baton');
+      const relayDots = relayLine ? [...relayLine.querySelectorAll('.relay-dot')] : [];
+      const sensors = [...document.querySelectorAll('[data-beat-sensor]')];
+      const beatCopies = [...document.querySelectorAll('[data-beat-copy]')];
+      const scenes = [...document.querySelectorAll('[data-scene]')];
+      const progressDots = [...document.querySelectorAll('.old-progress span')];
+      let beatFrame = 0;
 
-  /* 架上卡姿态：rotateY 投影不移动中心点 → 定位用投影 rect 中心；
-     幽灵缩放不能用投影宽（被 rotateY 压缩），取未旋转 offset 尺寸 × rack 累积缩放；
-     面板的起始足迹（projW/projH）用投影宽高——面板要从卡片实际占的屏幕区域长出来 */
-  function rackPose(item) {
-    var face = item.querySelector('.rack-face') || item;
-    var r = face.getBoundingClientRect();
-    var inner = item.parentNode;   // .rack-inner（断点下有 scale 缩放）
-    var scale = inner.getBoundingClientRect().width / (inner.offsetWidth || 1);
-    return {
-      x: r.left + r.width / 2,
-      y: r.top + r.height / 2,
-      projW: r.width,
-      projH: r.height,
-      w: face.offsetWidth * scale
-    };
-  }
+      const setBeat = (index) => {
+        if (!oldScroll || String(index) === oldScroll.dataset.beat) return;
+        oldScroll.dataset.beat = String(index);
+        beatCopies.forEach((item, i) => item.classList.toggle('is-active', i === index));
+        scenes.forEach((item, i) => item.classList.toggle('is-active', i === index));
+        progressDots.forEach((item, i) => item.classList.toggle('is-active', i === index));
+      };
 
-  /* 幽灵卡：容器=真工牌矩形尺寸，内叠 B（完整工牌克隆，铺满）与 A（架上简化
-     卡面克隆，按宽度对齐缩放后垂直居中——数学上保证起飞帧与原卡像素一致）。
-     fly-layer 的透视原点按 .rack 实测设置，让 44° 投影与架上渲染一致 */
-  function makeGhost(item, badgeRect) {
-    var face = item.querySelector('.rack-face');
-    var layer = document.createElement('div');
-    layer.className = 'fly-layer';
-    var rackBox = document.querySelector('.rack').getBoundingClientRect();
-    layer.style.perspectiveOrigin =
-      (rackBox.left + rackBox.width / 2) + 'px ' + (rackBox.top + rackBox.height / 2) + 'px';
+      const syncBeat = () => {
+        cancelAnimationFrame(beatFrame);
+        beatFrame = requestAnimationFrame(() => {
+          if (!oldScroll || window.innerWidth <= 760) return;
+          const center = window.innerHeight * .52;
+          let bestIndex = 0;
+          let bestDistance = Infinity;
+          sensors.forEach((sensor, index) => {
+            const rect = sensor.getBoundingClientRect();
+            const distance = Math.abs((rect.top + rect.bottom) / 2 - center);
+            if (distance < bestDistance) { bestDistance = distance; bestIndex = index; }
+          });
+          setBeat(bestIndex);
+        });
+      };
 
-    var ghost = document.createElement('div');
-    ghost.className = 'morph-ghost';
-    ghost.style.width = badgeRect.width + 'px';
-    ghost.style.height = badgeRect.height + 'px';
-    var yWrap = document.createElement('div');
-    yWrap.className = 'mg-y';
-    var spin = document.createElement('div');
-    spin.className = 'mg-spin';
+      const syncRelay = () => {
+        if (!relayLine || !relayBaton || relayDots.length !== 4) return;
+        const lineRect = relayLine.getBoundingClientRect();
+        const halfBaton = relayBaton.getBoundingClientRect().width / 2;
+        relayDots.forEach((dot, index) => {
+          const dotRect = dot.getBoundingClientRect();
+          const x = dotRect.left + dotRect.width / 2 - lineRect.left - halfBaton;
+          relayBaton.style.setProperty(`--relay-x${index}`, `${Math.round(x)}px`);
+        });
+      };
 
-    var b = mBadge.cloneNode(true);
-    b.removeAttribute('id');
-    var ids = b.querySelectorAll('[id]');
-    for (var i = 0; i < ids.length; i++) ids[i].removeAttribute('id');
-    b.style.width = badgeRect.width + 'px';
+      const syncHeroPath = () => {
+        if (!heroWorkflow || !heroTask || heroNodes.length !== 4) return;
+        const graphRect = heroWorkflow.getBoundingClientRect();
+        const taskRect = heroTask.getBoundingClientRect();
+        heroNodes.forEach((node, index) => {
+          const nodeRect = node.getBoundingClientRect();
+          const x = nodeRect.left + nodeRect.width / 2 - graphRect.left - taskRect.width / 2;
+          const y = nodeRect.top + nodeRect.height / 2 - graphRect.top - taskRect.height / 2;
+          heroTask.style.setProperty(`--hero-x${index}`, `${Math.round(x)}px`);
+          heroTask.style.setProperty(`--hero-y${index}`, `${Math.round(y)}px`);
+        });
+        if (heroRetry) {
+          const retryRect = heroRetry.getBoundingClientRect();
+          const retryY = retryRect.top + retryRect.height / 2 - graphRect.top - taskRect.height / 2;
+          if (window.innerWidth <= 480) {
+            const reviewRect = heroNodes[2].getBoundingClientRect();
+            const processRect = heroNodes[1].getBoundingClientRect();
+            const routeX = Math.min(graphRect.width - taskRect.width - 4, reviewRect.right - graphRect.left + 14);
+            const reviewY = reviewRect.top + reviewRect.height / 2 - graphRect.top - taskRect.height / 2;
+            const processY = processRect.top + processRect.height / 2 - graphRect.top - taskRect.height / 2;
+            heroTask.style.setProperty('--hero-return-x2', `${Math.round(routeX)}px`);
+            heroTask.style.setProperty('--hero-return-y2', `${Math.round(reviewY)}px`);
+            heroTask.style.setProperty('--hero-return-x1', `${Math.round(routeX)}px`);
+            heroTask.style.setProperty('--hero-return-y1', `${Math.round(processY)}px`);
+          } else {
+            heroTask.style.setProperty('--hero-return-x2', heroTask.style.getPropertyValue('--hero-x2'));
+            heroTask.style.setProperty('--hero-return-y2', `${Math.round(retryY)}px`);
+            heroTask.style.setProperty('--hero-return-x1', heroTask.style.getPropertyValue('--hero-x1'));
+            heroTask.style.setProperty('--hero-return-y1', `${Math.round(retryY)}px`);
+          }
+        }
+      };
 
-    var a = face.cloneNode(true);
-    var k = badgeRect.width / (face.offsetWidth || 1);
-    a.style.width = face.offsetWidth + 'px';
-    a.style.height = face.offsetHeight + 'px';
-    a.style.transform = 'scale(' + k + ')';
-    a.style.transformOrigin = 'top left';
-    a.style.top = ((badgeRect.height - face.offsetHeight * k) / 2) + 'px';
-    var glow = item.style.getPropertyValue('--glow');
-    if (glow) a.style.setProperty('--glow', glow.trim());
+      const syncRolePaths = () => {
+        chairScenes.forEach((scene) => {
+          const sceneRect = scene.getBoundingClientRect();
+          const personWidth = scene.querySelector('.person')?.getBoundingClientRect().width || 54;
+          [...scene.querySelectorAll('.chair')].forEach((chair, index) => {
+            const chairRect = chair.getBoundingClientRect();
+            const x = chairRect.left + chairRect.width / 2 - sceneRect.left - personWidth / 2;
+            scene.style.setProperty(`--role-x${index}`, `${Math.round(x)}px`);
+          });
+        });
+      };
 
-    spin.appendChild(b);    // B 在下
-    spin.appendChild(a);    // A 在上（起飞帧可见的是架上卡面）
-    yWrap.appendChild(spin);
-    ghost.appendChild(yWrap);
-    layer.appendChild(ghost);
-    document.body.appendChild(layer);
+      const beatObserver = new IntersectionObserver(syncBeat, { threshold: [0, .2, .5, .8, 1] });
+      sensors.forEach((sensor) => beatObserver.observe(sensor));
 
-    // A/B 头像中心的纵向差：交叉淡化时让 A 滑向 B 的头像位，避免最亮元素双重曝光
-    var dAva = 0;
-    var avaA = a.querySelector('.rack-ava');
-    var avaB = b.querySelector('.badge-ava');
-    if (avaA && avaB) {
-      var ra = avaA.getBoundingClientRect();
-      var rb = avaB.getBoundingClientRect();
-      dAva = (rb.top + rb.height / 2) - (ra.top + ra.height / 2);
-    }
-    return { layer: layer, ghost: ghost, y: yWrap, spin: spin, a: a, b: b, k: k, dAva: dAva };
-  }
+      const setVisibility = () => {
+        if (document.hidden) {
+          root.classList.add('page-hidden');
+          loopItems.forEach((item) => item.classList.remove('is-inview'));
+          onceItems.forEach((item) => item.classList.remove('is-inview'));
+          return;
+        }
+        root.classList.add('page-hidden');
+        syncMotionVisibility();
+        root.classList.remove('page-hidden');
+      };
+      const pauseMotionVisibility = () => {
+        loopItems.forEach((item) => item.classList.remove('is-inview'));
+        onceItems.forEach((item) => item.classList.remove('is-inview'));
+      };
+      const setReduced = (event) => {
+        reduced = event.matches;
+        root.classList.toggle('reduced-motion', reduced);
+        syncMotionVisibility();
+      };
 
-  /* 分轴姿态：X/Y 各带 -50% 居中修正（分别相对幽灵盒宽/高），spin 只管转正缩放 */
-  function tx(x) { return 'translateX(' + x + 'px) translateX(-50%)'; }
-  function ty(y) { return 'translateY(' + y + 'px) translateY(-50%)'; }
-  function spinAt(deg, s) { return 'rotateY(' + deg + 'deg) scale(' + s + ')'; }
-
-  /* .rack 两端 7% 渐隐 mask 下，横坐标 x 处的近似透明度（对齐边缘卡起飞帧） */
-  function maskAlpha(x) {
-    var r = document.querySelector('.rack').getBoundingClientRect();
-    var t = (x - r.left) / (r.width || 1);
-    return Math.max(0, Math.min(1, Math.min(t / 0.07, (1 - t) / 0.07)));
-  }
-
-  /* 三层容器变形：backwards=false 打开（工牌→弹窗），true 关闭（弹窗→工牌）。
-     开/关节奏不对称（关闭更快、缓动相反），关键帧各写各的，不做数组反转。
-     transform 与 opacity 保持拆分动画（缓动诉求不同；混写稀疏关键帧在部分
-     渲染环境会被错误解析成全程插值） */
-  function morph(item, backwards, done) {
-    var badgeRect = mBadge.getBoundingClientRect();   // 真工牌矩形 = 幽灵落点
-    var sheetRect = sheet.getBoundingClientRect();    // 面板矩形 = 变形面终点
-    var p = rackPose(item);
-    var bX = badgeRect.left + badgeRect.width / 2;
-    var bY = badgeRect.top + badgeRect.height / 2;
-    var shX = sheetRect.left + sheetRect.width / 2;
-    var shY = sheetRect.top + sheetRect.height / 2;
-    var s0 = p.w / (badgeRect.width || 1);
-    var alpha = maskAlpha(p.x);
-    var hovered = !backwards && item.matches && item.matches(':hover');
-
-    // 变形面：DOM 上插在遮罩与面板之间（层序：遮罩 < 面 < 面板）
-    var surface = document.createElement('div');
-    surface.className = 'morph-surface';
-    surface.style.left = sheetRect.left + 'px';
-    surface.style.top = sheetRect.top + 'px';
-    surface.style.width = sheetRect.width + 'px';
-    surface.style.height = sheetRect.height + 'px';
-    modal.insertBefore(surface, sheet);
-
-    var g = makeGhost(item, badgeRect);
-
-    var surFrom = 'translate(' + (p.x - shX) + 'px,' + (p.y - shY) + 'px) scale(' +
-        (p.projW / sheetRect.width) + ',' + (p.projH / sheetRect.height) + ')';
-
-    var dur = backwards ? CLOSE_MS : OPEN_MS;
-    var spring = backwards ? SPRING_CLOSE : SPRING_OPEN;
-    var move = { duration: dur, easing: spring, fill: 'both' };
-    var fade = { duration: dur, easing: 'ease-in-out', fill: 'both' };  // 淡化变化率始末为零，无突变
-    var anims = [];
-    function run(el, frames, opts) { anims.push(el.animate(frames, opts)); }
-
-    if (!backwards) {
-      // X/Y/变形面同一条主弹簧——一只手移动一个刚体；弹簧对 X/Y 的 ~2% 微过冲
-      // （掠过卡位再收回）自带弧感与落定咬合，不再手拼抛物线关键帧。
-      // onfinish 锚定在 X 上。
-      run(g.ghost, [{ transform: tx(p.x) }, { transform: tx(bX) }], move);
-      run(g.y, [{ transform: ty(p.y) }, { transform: ty(bY) }], move);
-      // 转正+放大：快弹簧，前半程完成（拿起读感）
-      run(g.spin, [{ transform: spinAt(RACK_DEG, s0) }, { transform: spinAt(0, 1) }],
-          { duration: dur, easing: SPRING_SPIN, fill: 'both' });
-      run(g.a, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.15 },
-                { opacity: 0, offset: 0.5 }, { opacity: 0, offset: 1 }], fade);
-      run(g.b, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.15 },
-                { opacity: 1, offset: 0.5 }, { opacity: 1, offset: 1 }], fade);
-      run(g.a, [{ transform: 'translateY(0px) scale(' + g.k + ')', offset: 0 },
-                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 0.15 },
-                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0.5 },
-                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 1 }], fade);
-      // 变形面：40ms 延迟后同曲线长成（起步自静止是自然的；要消灭的是中途刹停）
-      run(surface, [{ transform: surFrom }, { transform: 'none' }],
-          { delay: 40, duration: dur - 40, easing: spring, fill: 'both' });
-      run(surface, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.08 },
-                    { opacity: 1, offset: 0.4 }, { opacity: 1, offset: 1 }], fade);
-      run(sheet, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.4 },
-                  { opacity: 1, offset: 0.85 }, { opacity: 1, offset: 1 }], fade);
-      run(g.ghost, [{ filter: 'brightness(' + (hovered ? 1.08 : 1) + ')', offset: 0 },
-                    { filter: 'brightness(1.05)', offset: 0.35 },
-                    { filter: 'brightness(1)', offset: 0.75 },
-                    { filter: 'brightness(1)', offset: 1 }], fade);
-      if (alpha < 1)
-        run(g.ghost, [{ opacity: alpha, offset: 0 }, { opacity: 1, offset: 0.12 },
-                      { opacity: 1, offset: 1 }], fade);
-    } else {
-      run(g.ghost, [{ transform: tx(bX) }, { transform: tx(p.x) }], move);
-      run(g.y, [{ transform: ty(bY) }, { transform: ty(p.y) }], move);
-      // 转回：延迟 30% 后转（离窗保持正面、临近插槽才侧立；起步自静止，非中途刹停）
-      run(g.spin, [{ transform: spinAt(0, 1) }, { transform: spinAt(RACK_DEG, s0) }],
-          { delay: Math.round(dur * 0.3), duration: Math.round(dur * 0.7),
-            easing: SPRING_CLOSE, fill: 'both' });
-      run(g.b, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.3 },
-                { opacity: 0, offset: 0.65 }, { opacity: 0, offset: 1 }], fade);
-      run(g.a, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.3 },
-                { opacity: 1, offset: 0.65 }, { opacity: 1, offset: 1 }], fade);
-      run(g.a, [{ transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0 },
-                { transform: 'translateY(' + g.dAva + 'px) scale(' + g.k + ')', offset: 0.3 },
-                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 0.65 },
-                { transform: 'translateY(0px) scale(' + g.k + ')', offset: 1 }], fade);
-      run(surface, [{ transform: 'none' }, { transform: surFrom }],
-          { duration: Math.round(dur * 0.9), easing: spring, fill: 'both' });
-      run(surface, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.55 },
-                    { opacity: 0, offset: 0.85 }, { opacity: 0, offset: 1 }], fade);
-      run(sheet, [{ opacity: 1, offset: 0 }, { opacity: 0, offset: 0.25 },
-                  { opacity: 0, offset: 1 }], fade);
-      run(g.ghost, [{ filter: 'brightness(1)', offset: 0 },
-                    { filter: 'brightness(1.04)', offset: 0.55 },
-                    { filter: 'brightness(1)', offset: 1 }], fade);
-      if (alpha < 1)
-        run(g.ghost, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.88 },
-                      { opacity: alpha, offset: 1 }], fade);
-    }
-
-    anims[0].onfinish = function () {
-      done();   // 先落定状态（换装/隐藏），再拆层释放填充，避免闪帧
-      g.layer.parentNode && g.layer.parentNode.removeChild(g.layer);
-      surface.parentNode && surface.parentNode.removeChild(surface);
-      for (var i = 0; i < anims.length; i++) anims[i].cancel();
-    };
-  }
-
-  function open(item) {
-    if (animating || !modal.hidden) return;
-    lastTrigger = item;
-    var role = item.getAttribute('data-role') || '';
-    var abbr = item.getAttribute('data-abbr') || '';
-    var name = item.getAttribute('data-name') || role;
-    var charter = item.getAttribute('data-charter') || '';
-    var glow = item.style.getPropertyValue('--glow') || '#A068FF';
-    mBadge.style.setProperty('--glow', glow.trim());
-    mAva.textContent = abbr;
-    mBadgeName.textContent = name;
-    mBadgeRole.textContent = charter;
-    mRole.textContent = role;
-    mName.textContent = name;
-    mCharter.textContent = charter;
-    mMention.textContent = '@' + role;
-    // 复位正面工牌 tilt
-    mBadge.style.setProperty('--rx', '0deg');
-    mBadge.style.setProperty('--ry', '0deg');
-    if (!canFly) {
-      modal.hidden = false;
-      modal.classList.add('is-settled');   // 降级路径：blur 直接就位
-      closeBtn.focus();
-      document.addEventListener('keydown', onKey);
-      return;
-    }
-    animating = true;
-    modal.classList.add('is-morphing'); // 真工牌隐位，等幽灵落定换装
-    modal.hidden = false;               // 布局此刻定型，变形终点可测
-    item.classList.add('is-away');
-    morph(item, false, function () {
-      modal.classList.remove('is-morphing');   // 与拆幽灵同帧 → 像素级换装
-      modal.classList.add('is-settled');       // 落定后遮罩 blur 才渐入（动画期不背这个合成开销）
-      animating = false;
-      closeBtn.focus();
-      document.addEventListener('keydown', onKey);
-    });
-  }
-
-  function close() {
-    if (animating || modal.hidden) return;
-    document.removeEventListener('keydown', onKey);
-    modal.classList.remove('is-settled');   // 起手先撤 blur
-    if (!canFly || !lastTrigger) { finishClose(); return; }
-    animating = true;
-    modal.classList.add('is-morphing'); // 真工牌隐位，与同帧出现的幽灵像素级换装
-    modal.classList.add('is-closing');  // 遮罩淡出
-    morph(lastTrigger, true, function () {
-      animating = false;
-      finishClose();
-    });
-  }
-
-  function finishClose() {
-    modal.hidden = true;
-    modal.classList.remove('is-morphing');
-    modal.classList.remove('is-closing');
-    modal.classList.remove('is-settled');
-    if (lastTrigger) {
-      lastTrigger.classList.remove('is-away');
-      lastTrigger.focus();
-      lastTrigger = null;
-    }
-  }
-
-  function onKey(e) {
-    if (e.key === 'Escape') { e.preventDefault(); close(); }
-  }
-
-  var items = document.querySelectorAll('.rack-item');
-  for (var i = 0; i < items.length; i++) {
-    items[i].addEventListener('click', function () { open(this); });
-  }
-  var closers = modal.querySelectorAll('[data-rm-close]');
-  for (var k = 0; k < closers.length; k++) {
-    closers[k].addEventListener('click', close);
-  }
-})();
-</script>
-
-<!-- =========================================================================
-     追加脚本：滚动进场 + ③ 角色 hover 弹框（不改动上方 hero 脚本）
-     ========================================================================= -->
-<script>
-/* -------------------------------------------------------------------------
-   5) 滚动进场：IntersectionObserver 给 [data-reveal] 加 .is-visible（只触发一次）。
-      prefers-reduced-motion 或无 IO 支持时，直接显示、无位移。
-   ------------------------------------------------------------------------- */
-(function () {
-  var els = document.querySelectorAll('[data-reveal]');
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce || !('IntersectionObserver' in window)) {
-    for (var i = 0; i < els.length; i++) els[i].classList.add('is-visible');
-    return;
-  }
-  var io = new IntersectionObserver(function (entries) {
-    for (var k = 0; k < entries.length; k++) {
-      var e = entries[k];
-      if (e.isIntersecting) {
-        e.target.classList.add('is-visible');
-        io.unobserve(e.target);
-      }
-    }
-  }, { threshold: 0.15, rootMargin: '0px 0px -8% 0px' });
-  for (var j = 0; j < els.length; j++) io.observe(els[j]);
-})();
-
-/* -------------------------------------------------------------------------
-   6) ③ 角色卡 hover 弹框：复用 .avatar-tooltip 视觉与视口内夹取逻辑，
-      内容为 角色名·短标签 + charter（无复制按钮）。独立单例，不碰 hero tooltip。
-   ------------------------------------------------------------------------- */
-(function () {
-  var tt = document.getElementById('role-tooltip');
-  if (!tt) return;
-  var ttRole = tt.querySelector('.rtt-role');
-  var ttLabel = tt.querySelector('.rtt-label');
-  var ttCharter = tt.querySelector('.rtt-charter');
-  var hideTimer = null;
-
-  function place(el) {
-    var r = el.getBoundingClientRect();
-    var box = tt.getBoundingClientRect();
-    var pad = 12;
-    var left = r.left + r.width / 2 - box.width / 2;
-    left = Math.max(pad, Math.min(left, window.innerWidth - box.width - pad));
-    var top = r.bottom + 10;
-    if (top + box.height > window.innerHeight - pad) {
-      var up = r.top - box.height - 10;
-      top = up >= pad ? up : pad;
-    }
-    tt.style.left = left + 'px';
-    tt.style.top = top + 'px';
-  }
-
-  function show(el) {
-    clearTimeout(hideTimer);
-    ttRole.textContent = el.getAttribute('data-role') || '';
-    ttLabel.textContent = el.getAttribute('data-label') || '';
-    ttCharter.textContent = el.getAttribute('data-charter') || '';
-    tt.hidden = false;          // 先显示再测量尺寸
-    place(el);
-  }
-  function scheduleHide() {
-    hideTimer = setTimeout(function () { tt.hidden = true; }, 160);
-  }
-
-  var cards = document.querySelectorAll('.role-card');
-  for (var i = 0; i < cards.length; i++) {
-    (function (el) {
-      el.addEventListener('mouseenter', function () { show(el); });
-      el.addEventListener('mouseleave', scheduleHide);
-      el.addEventListener('focus', function () { show(el); });
-      el.addEventListener('blur', scheduleHide);
-    })(cards[i]);
-  }
-  tt.addEventListener('mouseenter', function () { clearTimeout(hideTimer); });
-  tt.addEventListener('mouseleave', scheduleHide);
-  // fixed 弹框在滚动时会脱离目标，滚动即隐藏
-  window.addEventListener('scroll', function () { if (!tt.hidden) tt.hidden = true; }, { passive: true });
-})();
-</script>
+      document.addEventListener('visibilitychange', setVisibility);
+      window.addEventListener('pagehide', () => { root.classList.add('page-hidden'); pauseMotionVisibility(); });
+      window.addEventListener('pageshow', () => { setVisibility(); syncBeat(); syncHeroPath(); syncRelay(); syncRolePaths(); });
+      window.addEventListener('resize', () => { syncBeat(); syncHeroPath(); syncRelay(); syncRolePaths(); syncMotionVisibility(); }, { passive: true });
+      reducedQuery.addEventListener?.('change', setReduced);
+      syncHeroPath();
+      syncRelay();
+      syncRolePaths();
+      setReduced(reducedQuery);
+      setVisibility();
+      syncBeat();
+    })();
+  </script>
 </body>
 </html>
