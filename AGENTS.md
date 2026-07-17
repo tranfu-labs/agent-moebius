@@ -62,7 +62,7 @@
 ├── packages/
 │   └── console-ui/             # shadcn/Radix + Tailwind 的 React 对话操作台组件库与 Storybook
 ├── sites/                      # 面向公众的自包含静态营销站点（与产品运行时零耦合）
-│   └── marketeam/              # agent-moebius 营销落地页单文件（首屏+正文均如实呈现；目录名 marketeam 为历史遗留；marketing-site 域，见 openspec/specs/marketing-site）
+│   └── marketeam/              # 当前唯一官网：自包含 index.html + 同目录 DEPLOY.md（目录名 marketeam 为历史遗留；marketing-site 域）
 ├── tests/                      # Vitest 单元测试
 ├── docs/
 │   ├── adr/                    # 架构决策记录
