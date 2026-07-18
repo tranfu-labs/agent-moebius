@@ -24,6 +24,7 @@ node_modules/
 .state/
 config.local.toml
 .loop-logs/
+logs/
 
 ### Desktop build outputs
 desktop/dist/

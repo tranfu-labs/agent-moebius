@@ -1,0 +1,531 @@
+<!doctype html>
+<!--
+  PURPOSE: Relay Atlas 方向的独立视觉样张；抽取可复用规则，不复制营销页叙事。
+  SOURCE: index-field-atlas-a31f.html
+  VISUAL THESIS: 用坐标说明任务在哪里，用路线说明责任如何转移，用底单说明为什么值得交付。
+  SIGNATURE: HANDOFF COORDINATES —— 所有强调都必须回答“当前站、经手人、下一站或退回原因”。
+  VARIANCE: MEDIUM-HIGH / MOTION: LOW-MEDIUM / DENSITY: MEDIUM
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Moebius Relay Atlas 独立视觉样张：令牌、坐标语法、证据对象与动效边界。">
+  <meta name="theme-color" content="#F4F0E7">
+  <title>Moebius · Relay Atlas 视觉样张 A31F</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #F4F0E7;
+      --panel: #FFFCF5;
+      --ink: #172026;
+      --ink-2: #505A5C;
+      --ink-3: #7D8583;
+      --hairline: #CFC7B8;
+      --align: #2852C7;
+      --pass: #267653;
+      --redo: #B94E2E;
+      --align-bg: #E7ECFA;
+      --pass-bg: #E6F0E9;
+      --redo-bg: #F7E8DF;
+      --atlas-yellow: #E4B84E;
+      --atlas-coral: #E57B5C;
+      --atlas-blue-soft: #DCE4F7;
+      --atlas-grid: rgb(23 32 38 / 6.5%);
+      --atlas-fine: rgb(23 32 38 / 13%);
+      --serif: 'Noto Serif SC', 'Songti SC', 'STSong', Georgia, serif;
+      --sans: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+      --header-height: 68px;
+      --read: 0;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0; max-width: 100%; overflow-x: clip;
+      background-color: var(--paper);
+      background-image:
+        linear-gradient(var(--atlas-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--atlas-grid) 1px, transparent 1px);
+      background-size: 48px 48px;
+      color: var(--ink); font: 16px/1.72 var(--sans);
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    }
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background:
+        radial-gradient(circle at 15% 6%, rgb(228 184 78 / 18%), transparent 25rem),
+        radial-gradient(circle at 91% 18%, rgb(40 82 199 / 9%), transparent 28rem);
+    }
+    ::selection { background: var(--atlas-yellow); color: var(--ink); }
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 2.5px solid var(--align); outline-offset: 4px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2 { font-family: var(--serif); letter-spacing: -.045em; text-wrap: balance; }
+    h1 { margin-bottom: 26px; font-size: clamp(3.4rem, 8vw, 7.5rem); line-height: .91; }
+    h2 { margin-bottom: 18px; font-size: clamp(2rem, 4.8vw, 4.35rem); line-height: 1.04; }
+    h3 { margin-bottom: 10px; font-size: 1.12rem; line-height: 1.35; }
+    .wrap { width: min(1180px, calc(100% - 72px)); margin-inline: auto; }
+    .trace {
+      color: var(--ink-2); font: 500 .72rem/1.55 var(--mono);
+      letter-spacing: .055em; font-variant-numeric: tabular-nums;
+    }
+    .lead { max-width: 700px; color: var(--ink-2); font-size: clamp(1rem, 1.6vw, 1.18rem); }
+
+    .skip-link {
+      position: fixed; top: 10px; left: 10px; z-index: 1000; transform: translateY(-180%);
+      padding: 7px 12px; border: 1px solid var(--ink); background: var(--panel);
+      font: 700 .72rem/1 var(--mono); text-decoration: none;
+    }
+    .skip-link:focus { transform: none; }
+
+    .read-progress {
+      position: fixed; inset: 0 0 auto; z-index: 300; height: 4px;
+      background: rgb(23 32 38 / 10%); pointer-events: none;
+    }
+    .read-progress span {
+      display: block; width: 100%; height: 100%; transform: scaleX(var(--read)); transform-origin: left;
+      background: linear-gradient(90deg, var(--atlas-yellow) 0 18%, var(--align) 18% 82%, var(--pass) 82%);
+    }
+
+    .site-header {
+      position: sticky; top: 0; z-index: 100; min-height: var(--header-height);
+      border-bottom: 1px solid var(--ink); background: rgb(244 240 231 / 93%);
+      backdrop-filter: blur(12px);
+    }
+    .header-inner {
+      min-height: var(--header-height); display: flex; align-items: center; justify-content: space-between; gap: 28px;
+    }
+    .brand {
+      flex: 0 0 auto; color: var(--ink); font: 700 .9rem/1 var(--mono); letter-spacing: .14em;
+      text-decoration: none;
+    }
+    .brand::before { content: '⌖'; margin-right: 9px; color: var(--align); font-size: 1.08rem; }
+    .nav { display: flex; border-right: 1px solid var(--atlas-fine); }
+    .nav a {
+      padding: 10px 13px 9px; border-left: 1px solid var(--atlas-fine);
+      font: 500 .68rem/1 var(--mono); text-decoration: none;
+    }
+    .nav a:hover, .nav a[aria-current="true"] { background: var(--panel); box-shadow: inset 0 -2px var(--align); }
+
+    .cover {
+      min-height: calc(100svh - var(--header-height)); display: grid; align-items: center;
+      padding: clamp(70px, 9vw, 126px) 0;
+      background: linear-gradient(118deg, rgb(255 252 245 / 70%) 0 58%, rgb(220 228 247 / 54%) 58% 100%);
+    }
+    .cover-grid {
+      display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 0 20px; align-items: center;
+    }
+    .cover-copy { grid-column: 1 / 8; position: relative; z-index: 2; }
+    .cover-index {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 30px;
+      color: var(--ink-3); font: 600 .65rem/1 var(--mono); letter-spacing: .1em;
+    }
+    .cover-index::before { content: ''; width: 44px; height: 1px; background: var(--align); }
+    .cover h1 span { display: block; margin-top: 12px; color: var(--align); font-size: .47em; letter-spacing: -.02em; }
+    .cover-copy .lead { max-width: 630px; }
+    .cover-rule {
+      margin-top: 34px; padding: 14px 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink);
+      display: flex; flex-wrap: wrap; gap: 10px 24px;
+    }
+    .cover-rule span { display: inline-flex; align-items: center; gap: 8px; }
+    .cover-rule span::before { content: ''; width: 7px; height: 7px; background: var(--ink); transform: rotate(45deg); }
+    .cover-rule span:nth-child(2)::before { background: var(--redo); }
+    .cover-rule span:nth-child(3)::before { background: var(--pass); }
+
+    .thesis-sheet {
+      grid-column: 7 / 13; position: relative; z-index: 3; margin: 54px -8px 0 -28px;
+      padding: 25px 28px 28px; border: 1px solid var(--ink); background: rgb(255 252 245 / 93%);
+      box-shadow: 15px 18px 0 rgb(23 32 38 / 11%); transform: rotate(.55deg);
+    }
+    .thesis-sheet::before {
+      content: ''; position: absolute; top: -11px; left: 34%; width: 108px; height: 22px;
+      background: rgb(228 184 78 / 76%); transform: rotate(-2deg); mix-blend-mode: multiply;
+    }
+    .sheet-head {
+      display: flex; justify-content: space-between; gap: 18px; margin-bottom: 26px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--ink); color: var(--ink-2); font: 700 .64rem/1 var(--mono); letter-spacing: .08em;
+    }
+    .sheet-head span:first-child { color: var(--align); }
+    .principle-list { margin: 0; padding: 0; list-style: none; }
+    .principle-list li {
+      display: grid; grid-template-columns: 52px 1fr; gap: 16px; padding: 14px 2px;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .principle-list li:last-child { border-bottom: 0; }
+    .principle-list b { font-size: .92rem; }
+
+    .spec { position: relative; padding: clamp(88px, 11vw, 148px) 0; border-top: 1px solid var(--ink); }
+    .spec::before {
+      content: attr(data-coordinate); position: absolute; top: 30px; right: max(36px, calc(50% - 590px));
+      padding: 6px 8px; border: 1px solid var(--atlas-fine); background: var(--paper);
+      color: var(--ink-2); font: 700 .6rem/1 var(--mono); letter-spacing: .08em;
+    }
+    .spec-head { max-width: 880px; margin-bottom: clamp(44px, 7vw, 78px); }
+    .kicker { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; color: var(--align); }
+    .kicker::before { content: ''; width: 44px; height: 1px; background: var(--align); }
+
+    .swatches { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--ink); }
+    .swatch { min-height: 178px; padding: 18px; background: var(--panel); }
+    .swatch + .swatch { border-left: 1px solid var(--ink); }
+    .swatch-color { height: 72px; margin-bottom: 18px; border: 1px solid var(--atlas-fine); }
+    .swatch strong { display: block; margin-bottom: 4px; }
+
+    .voice-grid { display: grid; grid-template-columns: 1.2fr 1fr .8fr; margin-top: 56px; border-top: 1px solid var(--ink); }
+    .voice { min-height: 236px; padding: 24px 26px 28px 0; border-bottom: 1px solid var(--ink); }
+    .voice + .voice { padding-left: 26px; border-left: 1px solid var(--ink); }
+    .voice-serif { font: 900 clamp(2rem, 4vw, 3.65rem)/1.08 var(--serif); letter-spacing: -.045em; }
+    .voice-sans { max-width: 36ch; color: var(--ink-2); }
+
+    .coordinate-demo {
+      padding: 34px 0 46px; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink);
+      background: rgb(255 252 245 / 45%);
+    }
+    .axis-label { margin-bottom: 28px; color: var(--align); }
+    .route {
+      position: relative; display: grid; grid-template-columns: repeat(5, 1fr); align-items: start;
+      margin: 0 36px;
+    }
+    .route::before { content: ''; position: absolute; top: 10px; left: 10%; right: 10%; height: 2px; background: var(--ink); }
+    .station { position: relative; z-index: 1; display: grid; justify-items: center; gap: 7px; text-align: center; }
+    .station-mark { width: 21px; height: 21px; border: 2px solid var(--ink); border-radius: 50%; background: var(--panel); }
+    .station-you .station-mark { border-radius: 0; transform: rotate(45deg); }
+    .station-current .station-mark { background: var(--atlas-yellow); box-shadow: 0 0 0 8px var(--paper); }
+    .station strong { font-size: .92rem; }
+    .station small { color: var(--ink-3); font: .65rem/1 var(--mono); }
+
+    .grammar-grid { display: grid; grid-template-columns: .9fr 1.1fr; gap: 54px; margin-top: 64px; }
+    .grammar-copy { max-width: 440px; }
+    .grammar-copy ol { padding-left: 20px; color: var(--ink-2); }
+    .grammar-copy li { margin-bottom: 12px; padding-left: 8px; }
+    .zones { position: relative; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); }
+    .zone { min-height: 290px; padding: 24px; background: #E5DED0; }
+    .zone + .zone { border-left: 1px solid var(--ink); background: var(--ink); color: var(--panel); }
+    .zone-label { display: block; margin-bottom: 54px; color: var(--ink-3); }
+    .zone + .zone .zone-label { color: rgb(255 252 245 / 56%); }
+    .zone p { margin-bottom: 0; color: var(--ink-2); }
+    .zone + .zone p { color: rgb(255 252 245 / 66%); }
+    .border-label {
+      position: absolute; z-index: 2; top: 50%; left: 50%; padding: 5px 8px;
+      background: var(--atlas-yellow); color: var(--ink); font: 700 .58rem/1 var(--mono);
+      transform: translate(-50%, -50%) rotate(-90deg); letter-spacing: .08em;
+    }
+
+    .states { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 44px; }
+    .state {
+      display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px;
+      border: 1px solid currentColor; background: var(--panel);
+      font: 500 .7rem/1 var(--mono); letter-spacing: .035em;
+    }
+    .state::before { content: ''; width: 7px; height: 7px; background: currentColor; border-radius: 50%; }
+    .state-align { color: var(--align); background: var(--align-bg); }
+    .state-pass { color: var(--pass); background: var(--pass-bg); }
+    .state-redo { color: var(--redo); background: var(--redo-bg); }
+    .state-idle { color: var(--ink-2); }
+    .state-you { color: var(--ink); font-weight: 700; }
+    .state-you::before { border-radius: 0; transform: rotate(45deg); }
+
+    #objects { background: rgb(255 252 245 / 74%); }
+    .object-grid { display: grid; grid-template-columns: .78fr 1.22fr; gap: 70px; align-items: start; }
+    .object-copy { position: sticky; top: calc(var(--header-height) + 42px); }
+    .object-copy ul { padding-left: 20px; color: var(--ink-2); }
+    .object-copy li { margin-bottom: 10px; }
+
+    .evidence-sheet {
+      position: relative; border: 1px solid var(--ink); background: var(--panel);
+      box-shadow: 14px 16px 0 rgb(23 32 38 / 10%); transform: rotate(-.25deg);
+    }
+    .evidence-sheet::before {
+      content: 'EVIDENCE SHEET / E-04'; position: absolute; top: -28px; left: 0;
+      color: var(--align); font: 700 .6rem/1 var(--mono); letter-spacing: .08em;
+    }
+    .evidence-head {
+      display: flex; justify-content: space-between; gap: 16px; padding: 14px 18px 14px 26px;
+      border-bottom: 2px solid var(--ink); background: linear-gradient(90deg, var(--atlas-yellow) 0 9px, #F3F1E9 9px);
+    }
+    .evidence-row { border-bottom: 1px solid var(--hairline); }
+    .evidence-row:last-child { border-bottom: 0; }
+    .evidence-line {
+      display: grid; grid-template-columns: 42px 58px 76px 1fr 20px; gap: 10px; align-items: center;
+      width: 100%; min-height: 54px; padding: 9px 15px; border: 0; border-left: 8px solid transparent;
+      background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+    }
+    .evidence-line:hover { background: var(--paper); }
+    .evidence-row[data-kind="redo"] .evidence-line { border-left-color: var(--redo); }
+    .evidence-row[data-kind="you"] .evidence-line { border-left-color: var(--atlas-yellow); }
+    .evidence-row[data-kind="pass"] .evidence-line { border-left-color: var(--pass); }
+    .chev { color: var(--ink-3); font-family: var(--mono); transition: transform .2s ease; }
+    .evidence-detail { display: none; padding: 2px 18px 15px 205px; color: var(--ink-2); font-size: .84rem; }
+    .evidence-row.open .evidence-detail { display: block; }
+    .evidence-row.open .chev { transform: rotate(90deg); }
+
+    .dispatch {
+      position: relative; margin-top: 92px; padding: 34px 38px; border: 1px solid var(--ink);
+      background: var(--panel); box-shadow: 12px 12px 0 var(--atlas-yellow);
+    }
+    .dispatch::before {
+      content: 'START COORDINATE / 05.0'; position: absolute; top: -10px; right: 18px;
+      padding: 4px 8px; border: 1px solid var(--ink); background: var(--atlas-yellow);
+      font: 700 .57rem/1 var(--mono); letter-spacing: .06em;
+    }
+    .dispatch h3 { max-width: 700px; font: 900 clamp(1.8rem, 3.8vw, 3.4rem)/1.1 var(--serif); letter-spacing: -.04em; }
+    .dispatch-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    .button {
+      display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 17px;
+      border: 1px solid var(--ink); background: var(--panel); color: var(--ink);
+      font: 700 .78rem/1 var(--mono); text-decoration: none; cursor: pointer;
+    }
+    .button-primary { background: var(--atlas-yellow); }
+    .button:hover { transform: translateY(-2px); box-shadow: 4px 4px 0 var(--ink); }
+
+    #motion { background: #EEF0EB; }
+    .motion-grid { display: grid; grid-template-columns: 1fr .8fr; gap: 64px; align-items: center; }
+    .motion-stage { padding: 36px 30px; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+    .motion-stage .route { margin-inline: 0; }
+    .motion-stage .station-mark { transition: background .24s ease, transform .24s ease, box-shadow .24s ease; }
+    .motion-stage .station.active .station-mark { background: var(--atlas-yellow); transform: scale(1.14); box-shadow: 0 0 0 8px #EEF0EB; }
+    .motion-status { min-height: 24px; margin: 30px 0 0; color: var(--align); }
+    .motion-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+    .motion-table th, .motion-table td { padding: 11px 10px; border-bottom: 1px solid var(--atlas-fine); text-align: left; }
+    .motion-table th { color: var(--ink-3); font: 500 .67rem/1 var(--mono); }
+    .motion-controls { margin-top: 24px; }
+
+    .rules { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--ink); }
+    .rule-column { padding: 28px 36px 24px 0; }
+    .rule-column + .rule-column { padding-left: 36px; border-left: 1px solid var(--ink); }
+    .rule-title { display: flex; align-items: center; gap: 9px; margin-bottom: 28px; }
+    .rule-title::before { content: ''; width: 9px; height: 9px; background: var(--pass); transform: rotate(45deg); }
+    .rule-column:last-child .rule-title::before { background: var(--redo); }
+    .rule-column ul { margin: 0; padding-left: 20px; color: var(--ink-2); }
+    .rule-column li { margin-bottom: 14px; padding-left: 6px; }
+
+    footer { padding: 28px 0 72px; border-top: 2px solid var(--ink); background: var(--paper); }
+    .footer-inner { display: flex; justify-content: space-between; gap: 30px; }
+
+    @media (max-width: 920px) {
+      .cover-grid { display: block; }
+      .cover-copy { max-width: 760px; }
+      .thesis-sheet { width: min(720px, 94%); margin: 80px 0 0 auto; }
+      .swatches { grid-template-columns: repeat(2, 1fr); }
+      .swatch:nth-child(3) { border-left: 0; border-top: 1px solid var(--ink); }
+      .swatch:nth-child(4) { border-top: 1px solid var(--ink); }
+      .voice-grid, .grammar-grid, .object-grid, .motion-grid { grid-template-columns: 1fr; }
+      .grammar-grid, .object-grid, .motion-grid { gap: 58px; }
+      .object-copy { position: static; }
+    }
+
+    @media (max-width: 680px) {
+      :root { --header-height: 62px; }
+      .wrap { width: min(100% - 30px, 640px); }
+      h1 { font-size: clamp(3.1rem, 18vw, 5.2rem); }
+      h2 { font-size: clamp(2.15rem, 11vw, 3.3rem); }
+      .header-inner { gap: 12px; }
+      .brand { font-size: .76rem; }
+      .nav { max-width: calc(100vw - 136px); overflow-x: auto; scrollbar-width: none; }
+      .nav::-webkit-scrollbar { display: none; }
+      .nav a { flex: 0 0 auto; padding-inline: 10px; }
+      .cover { min-height: auto; padding-block: 74px 88px; }
+      .cover h1 span { font-size: .38em; }
+      .thesis-sheet { width: calc(100% - 7px); margin-top: 64px; padding: 22px 18px; box-shadow: 8px 9px 0 rgb(23 32 38 / 11%); }
+      .cover-rule { display: grid; }
+      .spec { padding-block: 82px; }
+      .spec::before { top: 22px; right: 15px; }
+      .swatches { grid-template-columns: 1fr; }
+      .swatch + .swatch { border-left: 0; border-top: 1px solid var(--ink); }
+      .voice-grid { display: block; }
+      .voice, .voice + .voice { min-height: 0; padding: 28px 0; border-left: 0; }
+      .route { margin-inline: 0; }
+      .station strong { font-size: .72rem; }
+      .station small { font-size: .56rem; }
+      .grammar-grid { margin-top: 52px; }
+      .zones { display: block; }
+      .zone + .zone { border-top: 1px solid var(--ink); border-left: 0; }
+      .border-label { transform: translate(-50%, -50%); }
+      .object-grid { gap: 66px; }
+      .evidence-sheet { box-shadow: 8px 9px 0 rgb(23 32 38 / 10%); }
+      .evidence-head { display: grid; }
+      .evidence-line { grid-template-columns: 34px 50px 64px minmax(0, 1fr) 14px; gap: 6px; padding-inline: 9px; font-size: .72rem; }
+      .evidence-line .trace { font-size: .58rem; }
+      .evidence-detail { padding: 4px 14px 14px 28px; }
+      .dispatch { padding: 30px 22px; box-shadow: 8px 8px 0 var(--atlas-yellow); }
+      .motion-stage { padding-inline: 0; }
+      .rules { display: block; }
+      .rule-column, .rule-column + .rule-column { padding: 28px 0; border-left: 0; border-bottom: 1px solid var(--ink); }
+      .footer-inner { display: block; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      .button:hover { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <div class="read-progress" aria-hidden="true"><span></span></div>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="回到视觉样张顶部">MOEBIUS / ATLAS</a>
+      <nav class="nav" aria-label="样张导航">
+        <a href="#tokens">令牌</a><a href="#grammar">语法</a><a href="#objects">对象</a><a href="#motion">动效</a><a href="#rules">规则</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="cover" id="top">
+      <div class="wrap cover-grid">
+        <div class="cover-copy">
+          <div class="cover-index">FIELD 00 · VISUAL SYSTEM / A31F</div>
+          <h1>Relay Atlas<span>接力地图视觉样张</span></h1>
+          <p class="lead">不是把页面做成地图，而是让每一个视觉强调都能回答：任务现在在哪一站、谁刚接手、下一站是什么、退回时为什么。</p>
+          <div class="cover-rule trace"><span>坐标给位置</span><span>路线给责任</span><span>底单给证据</span></div>
+        </div>
+
+        <aside class="thesis-sheet" aria-label="Relay Atlas 设计主张">
+          <div class="sheet-head"><span>HANDOFF COORDINATES</span><span>X 00—05 / Y 01</span></div>
+          <ol class="principle-list">
+            <li><span class="trace">01 / 结构</span><div><b>先表达关系，再决定形状。</b><br><span class="trace">编号、坐标、分界线必须承载真实流程。</span></div></li>
+            <li><span class="trace">02 / 物件</span><div><b>闭合边界只属于真实对象。</b><br><span class="trace">底单、终端、派工单可以成框；普通内容不成卡。</span></div></li>
+            <li><span class="trace">03 / 动效</span><div><b>静态阅读完整，动效只报告状态。</b><br><span class="trace">不得依赖入场动画显露正文。</span></div></li>
+            <li><span class="trace">04 / 记忆</span><div><b>每页只花一次大胆预算。</b><br><span class="trace">signature 之外保持安静和精确。</span></div></li>
+          </ol>
+        </aside>
+      </div>
+    </section>
+
+    <section class="spec" id="tokens" data-coordinate="Y-01 / FOUNDATIONS">
+      <div class="wrap">
+        <div class="spec-head"><p class="kicker trace">01 / FOUNDATIONS</p><h2>纸、墨、坐标蓝与一次黄色提醒。</h2><p class="lead">大面积使用带温度的纸色与深墨；蓝色负责坐标和导航，黄色只标记当前站或需要人注意的边界，红绿仍只表达退回与通过。</p></div>
+        <div class="swatches" aria-label="Atlas 颜色令牌">
+          <article class="swatch"><div class="swatch-color" style="background:#F4F0E7"></div><strong>纸 / PAPER</strong><span class="trace">#F4F0E7 · 页面背景</span></article>
+          <article class="swatch"><div class="swatch-color" style="background:#172026"></div><strong>墨 / INK</strong><span class="trace">#172026 · 文字与结构线</span></article>
+          <article class="swatch"><div class="swatch-color" style="background:#2852C7"></div><strong>坐标蓝 / ALIGN</strong><span class="trace">#2852C7 · 导航与定位</span></article>
+          <article class="swatch"><div class="swatch-color" style="background:#E4B84E"></div><strong>当前站 / SIGNAL</strong><span class="trace">#E4B84E · 人类边界与当前点</span></article>
+        </div>
+
+        <div class="voice-grid" aria-label="Atlas 三种文字声部">
+          <article class="voice"><span class="trace">VOICE A / 判断</span><p class="voice-serif">该问你时问你，<br>该返工时自己返。</p></article>
+          <article class="voice"><span class="trace">VOICE B / 解释</span><p class="voice-sans">无衬线负责说明产品如何工作。行长保持克制，先给结论，再补必要依据。</p></article>
+          <article class="voice"><span class="trace">VOICE C / 记录</span><p class="trace">10:41 / REVIEW<br>复核未过<br>OWNER → 执行</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="spec" id="grammar" data-coordinate="Y-02 / GRAMMAR">
+      <div class="wrap">
+        <div class="spec-head"><p class="kicker trace">02 / COORDINATE GRAMMAR</p><h2>路线不是装饰，是责任转移的句法。</h2><p class="lead">路线始终从左到右表达任务推进；菱形只代表必须由人决定的站点，当前站同时使用文字、形状和颜色，不靠颜色单独传意。</p></div>
+
+        <div class="coordinate-demo">
+          <p class="axis-label trace">ROUTE X / 接手 → 处理 → 复核 → 拍板 → 交付</p>
+          <div class="route" aria-label="接力路线示例">
+            <div class="station"><span class="station-mark"></span><strong>接手</strong><small>01</small></div>
+            <div class="station"><span class="station-mark"></span><strong>处理</strong><small>02</small></div>
+            <div class="station station-current"><span class="station-mark"></span><strong>复核</strong><small>03 · 当前</small></div>
+            <div class="station station-you"><span class="station-mark"></span><strong>拍板</strong><small>04 · 你</small></div>
+            <div class="station"><span class="station-mark"></span><strong>交付</strong><small>05</small></div>
+          </div>
+        </div>
+
+        <div class="grammar-grid">
+          <div class="grammar-copy"><p class="trace">RESPONSIBILITY BORDER</p><h3>责任变化需要一条真实边界。</h3><ol><li>边界两侧必须是不同经手主体。</li><li>变化前后必须能读出谁负责什么。</li><li>黄色标签只标记交棒点，不装饰普通分隔线。</li></ol></div>
+          <div class="zones" aria-label="责任领地示例"><span class="border-label">HANDOFF</span><article class="zone"><span class="zone-label trace">ZONE 02.A / MANUAL</span><h3>你维持整条流程</h3><p>对齐、交接、验收、退回都由你推进。</p></article><article class="zone"><span class="zone-label trace">ZONE 02.B / RELAY</span><h3>Moebius 接手推进</h3><p>你只保留必须拍板的决定。</p></article></div>
+        </div>
+
+        <div class="states" aria-label="状态标签示例"><span class="state state-align">对齐</span><span class="state state-idle">处理</span><span class="state state-redo">退回</span><span class="state state-pass">通过</span><span class="state state-you">拍板</span></div>
+      </div>
+    </section>
+
+    <section class="spec" id="objects" data-coordinate="Y-03 / OBJECTS">
+      <div class="wrap object-grid">
+        <div class="object-copy"><p class="kicker trace">03 / REAL OBJECTS</p><h2>只有真实对象，才拥有完整边界。</h2><p class="lead">底单回答“发生过什么”，派工单回答“现在怎么开始”。普通章节继续依靠排版、留白和路线组织，不套卡片。</p><ul><li>底单必须允许逐行展开原因与经手。</li><li>退回记录照登，不抹去不体面的过程。</li><li>派工单先给明确行动，再列必要前提。</li></ul></div>
+        <div>
+          <div class="evidence-sheet">
+            <div class="evidence-head"><span class="trace"><b>过程底单</b> · T-001</span><span class="trace">退回 1 次 · 全程可回查</span></div>
+            <div class="evidence-row"><button class="evidence-line" type="button" aria-expanded="false"><span class="trace">01</span><span class="trace">09:58</span><span class="state state-align">对齐</span><span>目标与边界已确认</span><span class="chev">›</span></button><div class="evidence-detail">问了 1 个必须由你决定的问题；确认后，任务继续向前。</div></div>
+            <div class="evidence-row" data-kind="redo"><button class="evidence-line" type="button" aria-expanded="false"><span class="trace">02</span><span class="trace">10:41</span><span class="state state-redo">退回</span><span>缺少必要说明，带原因返回</span><span class="chev">›</span></button><div class="evidence-detail">经手：复核 → 执行。只重做未通过部分，没有打扰你。</div></div>
+            <div class="evidence-row" data-kind="you"><button class="evidence-line" type="button" aria-expanded="false"><span class="trace">03</span><span class="trace">11:05</span><span class="state state-you">拍板</span><span>超出约定边界，请你决定</span><span class="chev">›</span></button><div class="evidence-detail">只有你有权决定的发布范围，在这一站来到你面前。</div></div>
+            <div class="evidence-row" data-kind="pass"><button class="evidence-line" type="button" aria-expanded="false"><span class="trace">04</span><span class="trace">11:06</span><span class="state state-pass">交付</span><span>逐条复核通过，附完整底单</span><span class="chev">›</span></button><div class="evidence-detail">交付与证据一起出现；结论、经手和原因都可回查。</div></div>
+          </div>
+
+          <div class="dispatch"><p class="trace">DISPATCH TICKET / READY</p><h3>开源免注册，交出你的第一个任务。</h3><p class="lead">一台 Mac，加上可用的 Codex CLI 或 Claude CLI；命令能返回版本号，就可以开始。</p><div class="dispatch-actions"><a class="button button-primary" href="#motion">查看动效边界</a><a class="button" href="index-field-atlas-a31f.html?t=.92">返回采用页面</a></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="spec" id="motion" data-coordinate="Y-04 / MOTION">
+      <div class="wrap">
+        <div class="spec-head"><p class="kicker trace">04 / MOTION BUDGET</p><h2>动效报告状态，不负责制造气氛。</h2><p class="lead">一次动画只表达一次责任变化。正文默认可见；用户选择 reduced motion 时，路线直接显示最终状态。</p></div>
+        <div class="motion-grid">
+          <div class="motion-stage"><div class="route" id="motionRoute" aria-label="可重播的接力路线"><div class="station"><span class="station-mark"></span><strong>接手</strong><small>01</small></div><div class="station"><span class="station-mark"></span><strong>处理</strong><small>02</small></div><div class="station"><span class="station-mark"></span><strong>复核</strong><small>03</small></div><div class="station station-you"><span class="station-mark"></span><strong>拍板</strong><small>04</small></div><div class="station"><span class="station-mark"></span><strong>交付</strong><small>05</small></div></div><p class="motion-status trace" id="motionStatus" aria-live="polite">准备演示：责任从接手推进到交付。</p><div class="motion-controls"><button class="button button-primary" type="button" id="motionPlay">运行一次</button></div></div>
+          <table class="motion-table"><thead><tr><th>用途</th><th>允许</th><th>禁止</th></tr></thead><tbody><tr><td>责任变化</td><td>当前站 240ms 强调</td><td>常驻脉冲</td></tr><tr><td>路线推进</td><td>transform / opacity</td><td>布局属性动画</td></tr><tr><td>证据展开</td><td>即时展开、可中断</td><td>长延迟与弹跳</td></tr><tr><td>正文阅读</td><td>默认可见</td><td>依赖滚动显露</td></tr></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="spec" id="rules" data-coordinate="Y-05 / GOVERNANCE">
+      <div class="wrap">
+        <div class="spec-head"><p class="kicker trace">05 / GOVERNANCE</p><h2>能复述 signature，才算沿用了 Atlas。</h2><p class="lead">网格、黄色、衬线字体都不是充分条件。只有页面清楚表达了任务位置和责任转移，才属于这套视觉语言。</p></div>
+        <div class="rules"><article class="rule-column"><h3 class="rule-title">应该这样做</h3><ul><li>先写出当前站、经手人、下一站，再设计组件。</li><li>用路线、领地和底单表达真实业务关系。</li><li>状态同时使用文字、形状与颜色。</li><li>让桌面和移动端共享同一阅读顺序。</li></ul></article><article class="rule-column"><h3 class="rule-title">不要这样做</h3><ul><li>不要给每个区块加坐标标签，只为显得精密。</li><li>不要把网格、胶带或黄色当作复古装饰。</li><li>不要把普通文案重新塞进一组卡片。</li><li>不要让动效成为看见内容的必要条件。</li></ul></article></div>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="wrap footer-inner"><p class="trace"><b>RELAY ATLAS / A31F</b><br>独立视觉样张 · 不覆盖 style.html</p><p class="trace">SOURCE / index-field-atlas-a31f.html<br>STATIC FIRST / MOTION ENHANCES</p></div></footer>
+
+  <script>
+    (() => {
+      'use strict';
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const sections = [...document.querySelectorAll('main section[id]')];
+      const navLinks = [...document.querySelectorAll('.nav a')];
+
+      const syncProgress = () => {
+        const max = Math.max(1, document.documentElement.scrollHeight - innerHeight);
+        document.documentElement.style.setProperty('--read', Math.min(1, Math.max(0, scrollY / max)).toFixed(4));
+      };
+      syncProgress();
+      addEventListener('scroll', syncProgress, { passive: true });
+
+      if ('IntersectionObserver' in window) {
+        const sectionIO = new IntersectionObserver(entries => entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          navLinks.forEach(link => link.setAttribute('aria-current', String(link.hash === `#${entry.target.id}`)));
+        }), { rootMargin: '-25% 0px -65% 0px' });
+        sections.forEach(section => sectionIO.observe(section));
+      }
+
+      document.querySelectorAll('.evidence-line').forEach(button => {
+        button.addEventListener('click', () => {
+          const row = button.closest('.evidence-row');
+          const open = !row.classList.contains('open');
+          row.classList.toggle('open', open);
+          button.setAttribute('aria-expanded', String(open));
+        });
+      });
+
+      const stations = [...document.querySelectorAll('#motionRoute .station')];
+      const status = document.getElementById('motionStatus');
+      const play = document.getElementById('motionPlay');
+      const messages = ['接手：任务与目标已进入路线。', '处理：执行接过责任。', '复核：按验收语句逐条检查。', '拍板：只有人类边界来到你面前。', '交付：通过复核，附完整底单。'];
+      let timers = [];
+      const show = index => {
+        stations.forEach((station, i) => station.classList.toggle('active', i === index));
+        status.textContent = messages[index];
+      };
+      play.addEventListener('click', () => {
+        timers.forEach(clearTimeout); timers = [];
+        if (reduced) { show(stations.length - 1); return; }
+        stations.forEach((_, index) => timers.push(setTimeout(() => show(index), index * 520)));
+      });
+    })();
+  </script>
+</body>
+</html>
