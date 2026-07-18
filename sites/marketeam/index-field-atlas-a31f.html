@@ -982,7 +982,8 @@
 
     /* 章节轨道以坐标胶囊常驻左侧，当前站既有文字也有形状。 */
     .chapter-rail {
-      left: 14px; gap: 3px; padding: 9px 7px 9px 0; border-left: 0;
+      left: max(14px, calc((100vw - 1180px) / 2 - 86px));
+      gap: 3px; padding: 9px 7px 9px 0; border-left: 0;
       border-radius: 0; background: rgba(244,240,231,.84); backdrop-filter: blur(8px);
     }
     .chapter-rail::before {
@@ -1310,6 +1311,11 @@
       .receipt-layout { grid-template-columns: 1fr; }
       .receipt-copy { position: static; }
       #trace .receipt { transform: none; }
+    }
+
+    /* 目录需要完整落在正文左侧留白中；空间不足时由页头导航承担章节跳转。 */
+    @media (max-width: 1367px) {
+      .chapter-rail { display: none; }
     }
 
     @media (max-width: 760px) {
