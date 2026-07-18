@@ -1,0 +1,1190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Moebius：把你在用的 AI，变成一个会自己推进、会验收、会返工的团队。">
+  <meta name="theme-color" content="#FAF9F5">
+  <title>Moebius · 让一件事自己往前走</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <script>document.documentElement.classList.add('js');</script>
+  <style>
+    /* ═══ 令牌（依据 docs/marketing-site/视觉宪法.md · 样张 style.html）═══ */
+    :root {
+      --paper: #FAF9F5;
+      --panel: #FFFFFF;
+      --ink: #1C1E21;
+      --ink-2: #5A5E63;
+      --ink-3: #9A9EA3;
+      --hairline: #DEDAD1;
+      --rule: #1C1E21;
+      --align: #2456E6;
+      --pass: #1E7A4F;
+      --redo: #C2571B;
+      --align-bg: #EEF2FE;
+      --pass-bg: #EBF4EF;
+      --redo-bg: #FAF0E8;
+      --sans: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+      --header-height: 64px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0; background: var(--paper); color: var(--ink);
+      font-family: var(--sans); line-height: 1.75; font-size: 16px;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    }
+    main section[id] { scroll-margin-top: calc(var(--header-height) + 18px); }
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    ::selection { color: var(--paper); background: var(--ink); }
+    :focus-visible { outline: 2.5px solid var(--align); outline-offset: 3px; }
+    .wrap { width: min(1080px, calc(100% - 48px)); margin-inline: auto; }
+    .skip-link {
+      position: fixed; top: 10px; left: 10px; z-index: 1000;
+      transform: translateY(-160%); padding: 8px 14px;
+      border: 1.5px solid var(--ink); border-radius: 4px;
+      background: var(--panel); font-weight: 700; text-decoration: none;
+    }
+    .skip-link:focus { transform: translateY(0); }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2 { font-weight: 900; line-height: 1.22; letter-spacing: -.02em; }
+    h1 { max-width: 720px; margin-bottom: 22px; font-size: clamp(2.1rem, 5vw, 3.6rem); }
+    h2 { margin-bottom: 18px; font-size: clamp(1.6rem, 3.4vw, 2.6rem); }
+    h3 { font-size: 1.08rem; font-weight: 700; margin-bottom: 10px; }
+    .lead { max-width: 700px; font-size: clamp(1.02rem, 1.5vw, 1.15rem); }
+
+    /* 文字双轨：过程痕迹一律等宽 */
+    .trace { font-family: var(--mono); font-size: .78rem; letter-spacing: .02em; color: var(--ink-2); }
+    .trace b { font-weight: 700; color: var(--ink); }
+
+    /* 状态标签：细线框 + 语义色，仅用于过程发生处 */
+    .state {
+      display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px;
+      border: 1px solid currentColor; border-radius: 3px;
+      font-family: var(--mono); font-size: .72rem; font-weight: 500; letter-spacing: .04em;
+      background: var(--panel); white-space: nowrap;
+    }
+    .state::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+    .state-align { color: var(--align); background: var(--align-bg); }
+    .state-pass  { color: var(--pass);  background: var(--pass-bg); }
+    .state-redo  { color: var(--redo);  background: var(--redo-bg); }
+    .state-idle  { color: var(--ink-2); }
+    .state-you   { color: var(--ink); font-weight: 700; }
+    .state-you::before { border-radius: 0; transform: rotate(45deg); background: var(--ink); }
+
+    /* 示例容器：数字纪律 */
+    .exhibit {
+      background: var(--panel); border: 1.5px solid var(--ink); border-radius: 4px;
+      padding: 24px 26px 20px; position: relative;
+    }
+    .exhibit-tag {
+      position: absolute; top: -9px; right: 14px; padding: 1px 8px;
+      background: var(--paper); border: 1px solid var(--hairline); border-radius: 3px;
+      font-family: var(--mono); font-size: .66rem; color: var(--ink-3); letter-spacing: .05em;
+    }
+
+    /* 台账式分节 */
+    section.band { border-top: 2px solid var(--rule); padding: clamp(60px, 8vw, 104px) 0; }
+    .band-head { max-width: 780px; margin-bottom: clamp(30px, 5vw, 54px); }
+    .band-kicker { margin: 0 0 12px; font-family: var(--mono); font-size: .76rem; font-weight: 700; letter-spacing: .08em; color: var(--ink-3); }
+
+    /* ═══ 页头 ═══ */
+    .site-header {
+      position: sticky; top: 0; z-index: 100; min-height: var(--header-height);
+      background: var(--paper); border-bottom: 2px solid var(--rule);
+    }
+    .header-inner {
+      min-height: var(--header-height); display: flex; align-items: center;
+      justify-content: space-between; gap: 24px;
+    }
+    .brand { display: inline-flex; align-items: baseline; gap: 10px; text-decoration: none; }
+    .brand-word { font-weight: 900; letter-spacing: .04em; }
+    .brand-note { font-family: var(--mono); font-size: .64rem; color: var(--ink-3); }
+    .top-nav { display: flex; align-items: center; gap: 4px; }
+    .top-nav a {
+      padding: 7px 11px; border-radius: 4px; text-decoration: none;
+      font: 500 .8rem/1 var(--sans); color: var(--ink-2);
+    }
+    .top-nav a:hover { color: var(--ink); background: var(--panel); box-shadow: inset 0 0 0 1px var(--hairline); }
+
+    /* ═══ 首屏 ═══ */
+    .hero { padding: clamp(48px, 7vw, 88px) 0 clamp(56px, 8vw, 96px); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, .92fr) minmax(420px, 1.08fr); gap: clamp(36px, 5vw, 64px); align-items: center; }
+    .hero-copy p { max-width: 640px; margin-bottom: 10px; font-size: clamp(1rem, 1.5vw, 1.14rem); }
+    .hero-eyebrow { display: block; margin-bottom: 18px; }
+    .scroll-cue {
+      display: inline-block; margin-top: 26px; text-decoration: none;
+      font-family: var(--mono); font-size: .76rem; color: var(--ink-2);
+      border-bottom: 1px solid var(--hairline); padding-bottom: 3px;
+    }
+    .scroll-cue:hover { color: var(--ink); border-color: var(--ink); }
+
+    /* hero 跟踪板：render(t) 纯函数驱动，见脚本 */
+    .track-svg { width: 100%; height: auto; display: block; }
+    .track-svg text { font-family: var(--sans); }
+    .track-svg .t-mono { font-family: var(--mono); }
+    .hero-log { margin: 14px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--hairline); min-height: 218px; }
+    .hero-log li {
+      display: grid; grid-template-columns: 52px 72px 1fr; gap: 12px; align-items: center; padding: 7px 2px;
+      border-bottom: 1px solid var(--hairline);
+      opacity: 0; transform: translateY(5px); transition: opacity .45s ease, transform .45s ease;
+    }
+    .hero-log li.on { opacity: 1; transform: none; }
+
+    /* ═══ 板块一 · 旧世界（scroll 驱动分镜）═══ */
+    .old-world { border-top: 2px solid var(--rule); }
+    .old-scroll { position: relative; height: 400svh; }
+    .old-sticky {
+      position: sticky; top: var(--header-height); height: calc(100svh - var(--header-height));
+      display: grid; place-items: center; overflow: clip;
+    }
+    .old-stage {
+      position: relative; width: min(1080px, calc(100% - 48px)); height: min(680px, calc(100svh - var(--header-height) - 48px));
+      container-type: inline-size; border: 1.5px solid var(--ink); border-radius: 4px; background: var(--panel); overflow: hidden;
+    }
+    .beat-copy { position: absolute; z-index: 3; top: 40px; left: 46px; width: calc(100% - 92px); pointer-events: none; }
+    .beat {
+      position: absolute; inset: 0; opacity: 0; visibility: hidden;
+      transition: opacity .6s ease, visibility 0s linear .6s;
+    }
+    .beat.is-active { opacity: 1; visibility: visible; transition-delay: 0s; }
+    .beat > * { opacity: 0; transform: translateY(10px); transition: opacity .5s ease, transform .5s ease; }
+    .beat.is-active > * { opacity: 1; transform: translateY(0); }
+    .beat.is-active .band-kicker { transition-delay: .05s; }
+    .beat.is-active h2 { transition-delay: .14s; }
+    .beat.is-active p { transition-delay: .26s; }
+    .beat h2 { max-width: none; margin-bottom: 10px; font-size: clamp(1.5rem, 4cqw, 2.7rem); }
+    .beat p { max-width: 640px; color: var(--ink-2); }
+    .old-scene { position: absolute; left: 46px; right: 46px; bottom: 30px; height: clamp(220px, 46%, 330px); }
+    .scene-layer {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      opacity: 0; visibility: hidden; transform: translateY(8px);
+      transition: opacity .6s ease, transform .6s ease, visibility 0s linear .6s;
+    }
+    .scene-layer.is-active { opacity: 1; visibility: visible; transform: translateY(0); transition-delay: 0s; }
+    .old-progress { position: absolute; right: 20px; top: 50%; z-index: 4; display: grid; gap: 7px; transform: translateY(-50%); }
+    .old-progress span { width: 8px; height: 8px; border: 1.5px solid var(--ink-3); border-radius: 50%; background: var(--panel); }
+    .old-progress span.is-active { border-color: var(--ink); background: var(--ink); }
+    .old-mobile { display: none; }
+
+    /* 场景词汇：台账行（不用图标盒子） */
+    .ledger { width: min(640px, 100%); border: 1px solid var(--hairline); border-radius: 4px; background: var(--panel); overflow: hidden; }
+    .ledger-row {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center;
+      padding: 11px 16px; border-bottom: 1px solid var(--hairline);
+    }
+    .ledger-row:last-child { border-bottom: 0; }
+    .ledger-row .l-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+    .ledger-row .l-main strong { font-size: .92rem; }
+    .ledger-row .l-main .trace { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .scene-note {
+      width: min(640px, 100%); padding: 18px 22px; border: 1.5px solid var(--ink); border-radius: 4px; background: var(--panel);
+    }
+    .scene-note strong { display: block; font-size: 1.12rem; margin-bottom: 4px; }
+    .scene-note span { color: var(--ink-2); font-size: .9rem; }
+    /* 空轨道：环节应有明确位置（结构表达，无占用者） */
+    .empty-track { width: min(640px, 100%); }
+
+    /* ═══ 板块二 · 责任（角色台账）═══ */
+    .role-stack { display: grid; gap: clamp(28px, 4vw, 44px); }
+    .role-story { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, .95fr); gap: clamp(26px, 4vw, 48px); align-items: center; }
+    .role-story:nth-child(2) .role-copy { order: 2; }
+    .role-copy p { margin-bottom: 14px; max-width: 520px; }
+    .role-copy .big-truth { margin: 22px 0 0; font-size: clamp(1.25rem, 2.4vw, 1.75rem); font-weight: 900; line-height: 1.4; }
+    .roster { border: 1px solid var(--hairline); border-radius: 4px; background: var(--panel); overflow: hidden; }
+    .roster-head {
+      display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 12px; padding: 8px 16px;
+      border-bottom: 1px solid var(--hairline); background: var(--paper);
+      font-family: var(--mono); font-size: .68rem; color: var(--ink-3); letter-spacing: .05em;
+    }
+    .roster-row {
+      display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 12px; align-items: center;
+      padding: 12px 16px; border-bottom: 1px solid var(--hairline);
+      opacity: 0; transform: translateY(6px); transition: opacity .4s ease, transform .4s ease;
+    }
+    .roster-row:last-child { border-bottom: 0; }
+    .roster-row.on { opacity: 1; transform: none; }
+    .roster-row:nth-child(3).on { transition-delay: .12s; }
+    .roster-row:nth-child(4).on { transition-delay: .24s; }
+    .roster-row:nth-child(5).on { transition-delay: .36s; }
+    .roster-row strong { font-size: .95rem; font-weight: 700; }
+    .roster-row small { display: block; font-size: .78rem; color: var(--ink-2); }
+
+    /* ═══ 板块三 · 三个时刻 ═══ */
+    .flow-track { margin: 0 0 clamp(30px, 4vw, 46px); }
+    .mechanism-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .mechanism-card {
+      display: flex; flex-direction: column; padding: 22px 22px 18px;
+      border: 1px solid var(--hairline); border-radius: 4px; background: var(--panel);
+    }
+    .mechanism-card > .trace { margin-bottom: 14px; }
+    .mechanism-card p { margin-bottom: 20px; color: var(--ink-2); font-size: .95rem; }
+    .mini-scene { margin-top: auto; border-top: 1px solid var(--hairline); padding-top: 14px; display: grid; gap: 8px; }
+    .mini-row {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center;
+      padding: 9px 12px; border: 1px solid var(--hairline); border-radius: 4px; background: var(--paper);
+      font-size: .85rem;
+      opacity: 0; transform: translateY(6px); transition: opacity .4s ease, transform .4s ease;
+    }
+    .mini-row.on { opacity: 1; transform: none; }
+    .mini-row:nth-child(2).on { transition-delay: .12s; }
+    .mini-row:nth-child(3).on { transition-delay: .24s; }
+    .mini-row .opt { font-family: var(--mono); font-weight: 700; color: var(--align); margin-right: 8px; }
+    .mini-note { padding-top: 6px; font-family: var(--mono); font-size: .7rem; color: var(--ink-3); }
+    .mechanism-close {
+      max-width: 780px; margin: clamp(38px, 5vw, 56px) auto 0; text-align: center;
+      font-size: clamp(1.3rem, 2.6vw, 1.9rem); font-weight: 900; line-height: 1.5;
+    }
+
+    /* ═══ 板块四 · 底单（可下钻）═══ */
+    .receipt-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(440px, 1.1fr); gap: clamp(36px, 5vw, 62px); align-items: start; }
+    .receipt-copy p { max-width: 520px; margin-bottom: 14px; }
+    .honesty {
+      margin-top: 24px; padding: 14px 18px; border: 1px solid var(--hairline); border-left: 2px solid var(--ink);
+      border-radius: 0 4px 4px 0; background: var(--panel); font-size: .9rem;
+    }
+    .receipt { border: 1px solid var(--hairline); border-radius: 4px; overflow: hidden; background: var(--panel); }
+    .receipt-head {
+      display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px;
+      border-bottom: 1px solid var(--hairline); background: var(--paper);
+    }
+    .receipt-row { border-bottom: 1px solid var(--hairline); }
+    .receipt-row:last-child { border-bottom: 0; }
+    .receipt-line {
+      display: grid; grid-template-columns: 52px 76px 1fr 20px; gap: 12px; align-items: center;
+      width: 100%; padding: 10px 16px; cursor: pointer; text-align: left;
+      background: none; border: 0; font: inherit; color: inherit; font-size: .92rem;
+    }
+    .receipt-line:hover { background: var(--paper); }
+    .receipt-line .chev { font-family: var(--mono); color: var(--ink-3); transition: transform .25s ease; }
+    .receipt-row.open .chev { transform: rotate(90deg); }
+    .receipt-detail { display: none; padding: 2px 16px 14px 156px; color: var(--ink-2); font-size: .85rem; }
+    .receipt-row.open .receipt-detail { display: block; }
+    .receipt-row.open .receipt-line { background: var(--paper); }
+    .receipt-hint { padding: 8px 16px; border-top: 1px solid var(--hairline); background: var(--paper); }
+
+    /* ═══ 板块五 · 开始 ═══ */
+    .terminal-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: clamp(30px, 4vw, 44px) 0; }
+    .terminal-card { display: flex; flex-direction: column; gap: 12px; }
+    .terminal-card h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: .98rem; }
+    .term {
+      flex: 1; background: #17191C; color: #D6D9DC; border-radius: 5px; border: 1.5px solid var(--ink);
+      font-family: var(--mono); font-size: .78rem; line-height: 2; padding: 16px 18px; min-height: 168px;
+    }
+    .term p { margin: 0; }
+    .term .dim { color: #7C8187; }
+    .term .ok { color: #7FC8A2; }
+    .caret { display: inline-block; width: 7px; height: 13px; background: #D6D9DC; vertical-align: -2px; margin-left: 4px; animation: caret 1.1s steps(1) infinite; }
+    @keyframes caret { 50% { opacity: 0; } }
+    .chat-mock {
+      flex: 1; border: 1px solid var(--hairline); border-radius: 5px; background: var(--paper);
+      padding: 16px 18px; min-height: 168px;
+    }
+    .chat-mock .appbar { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--hairline); margin-bottom: 12px; }
+    .chat-mock .appdot { width: 18px; height: 18px; border: 1.5px solid var(--ink-3); border-radius: 50%; }
+    .chat-bubble { width: 78%; margin: 8px 0; padding: 8px 12px; border: 1px solid var(--hairline); border-radius: 4px; background: var(--panel); font-size: .85rem; }
+    .chat-bubble:nth-of-type(2) { margin-left: auto; }
+    .promise-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 32px; padding: 0; margin: clamp(28px, 4vw, 40px) 0; list-style: none; }
+    .promise-list li {
+      display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 10px 2px;
+      border-bottom: 1px solid var(--hairline); font-size: .95rem; font-weight: 500;
+    }
+    .promise-list li::before { content: '✓'; font-family: var(--mono); font-weight: 700; }
+    .actions { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+    .button {
+      display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px;
+      padding: 11px 24px; border: 1.5px solid var(--ink); border-radius: 4px; background: var(--panel);
+      text-decoration: none; font-weight: 700; font-size: .95rem; cursor: pointer;
+      transition: background .15s ease, color .15s ease;
+    }
+    .button-primary { background: var(--ink); color: var(--paper); }
+    .button[disabled] { opacity: .55; cursor: not-allowed; }
+    .button:not([disabled]):hover { background: var(--ink); color: var(--paper); }
+    .button-primary:not([disabled]):hover { background: var(--panel); color: var(--ink); }
+    .install-links { display: flex; flex-wrap: wrap; gap: 18px; margin: 18px 0 0; }
+    .install-links a { font-family: var(--mono); font-size: .76rem; text-underline-offset: 4px; }
+    .cta-note { margin-top: 14px; max-width: 640px; font-size: .85rem; color: var(--ink-2); }
+    .final-question {
+      margin: clamp(56px, 8vw, 88px) auto 0; max-width: 860px; text-align: center;
+      font-size: clamp(1.6rem, 3.6vw, 2.8rem); font-weight: 900; line-height: 1.3;
+    }
+    .final-question span { display: block; margin-top: 14px; font-size: clamp(1rem, 1.8vw, 1.3rem); font-weight: 500; color: var(--ink-2); }
+
+    footer { padding: 26px 0 60px; border-top: 2px solid var(--rule); }
+    .footer-inner { display: flex; justify-content: space-between; gap: 22px; align-items: center; }
+
+    /* 浮现原语（P1）：非 hero 区块的入场 */
+    .js .rise { opacity: 0; transform: translateY(10px); }
+    .js .rise.on { opacity: 1; transform: none; transition: opacity .55s ease, transform .55s ease; }
+
+    @media (max-width: 900px) {
+      .hero-grid, .role-story, .receipt-layout { grid-template-columns: 1fr; }
+      .role-story:nth-child(2) .role-copy { order: 0; }
+      .mechanism-grid { grid-template-columns: 1fr; }
+      .receipt-detail { padding-left: 16px; }
+    }
+    @media (max-width: 760px) {
+      .wrap { width: min(100% - 32px, 680px); }
+      .top-nav { max-width: 60vw; overflow-x: auto; padding: 6px 0; scrollbar-width: none; }
+      .top-nav::-webkit-scrollbar { display: none; }
+      .top-nav a { flex: 0 0 auto; }
+      .old-scroll { height: auto; }
+      .old-sticky { display: none; }
+      .old-mobile { display: grid; gap: 18px; padding: clamp(56px, 10vw, 76px) 0; }
+      .old-card { padding: 22px; border: 1px solid var(--hairline); border-radius: 4px; background: var(--panel); }
+      .old-card h2 { font-size: clamp(1.4rem, 6.4vw, 1.9rem); }
+      .terminal-compare, .promise-list { grid-template-columns: 1fr; }
+      .actions .button { width: 100%; }
+      .footer-inner { align-items: flex-start; flex-direction: column; }
+      .hero-log li { grid-template-columns: 48px 66px 1fr; gap: 8px; }
+      .receipt-line { grid-template-columns: 48px 68px 1fr 18px; gap: 8px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      .old-scroll { height: auto; }
+      .old-sticky { display: none; }
+      .old-mobile { display: grid; gap: 18px; padding: 56px 0; }
+      .old-card { padding: 22px; border: 1px solid var(--hairline); border-radius: 4px; background: var(--panel); }
+      .js .rise, .roster-row, .mini-row, .hero-log li { opacity: 1 !important; transform: none !important; }
+    }
+
+    /* ═══ Handoff Field / 空间场实验 ═══
+       保持原文案、DOM、脚本与状态语义，只重写空间关系：
+       宽幅色场负责分节，留白与排版负责分组，闭合轮廓只留给真实对象。 */
+    :root {
+      --field-warm: #EEECE5;
+      --field-cool: #EEF2F6;
+      --field-blue: #E8EEFC;
+      --field-ink: #20242A;
+    }
+
+    html,
+    body { overflow-x: hidden; overflow-x: clip; }
+
+    .wrap { width: min(1160px, calc(100% - 64px)); }
+    h1 { max-width: 760px; }
+    h2 { font-size: clamp(1.8rem, 3.8vw, 3rem); }
+    h3 { line-height: 1.35; }
+
+    /* 状态仍由颜色、圆点和文案共同表达，不再额外描一圈边框。 */
+    .state {
+      border: 0;
+      border-radius: 999px;
+      padding: 3px 9px;
+    }
+    .state-idle { background: #E9E8E3; }
+    .state-you { background: #E5E5E2; }
+
+    .site-header {
+      border-bottom: 1px solid rgba(28, 30, 33, .18);
+      background: color-mix(in srgb, var(--paper) 92%, transparent);
+      backdrop-filter: blur(14px);
+    }
+
+    .hero {
+      padding-block: clamp(70px, 9vw, 124px);
+      background:
+        linear-gradient(110deg, transparent 0 54%, rgba(36, 86, 230, .045) 54% 100%);
+    }
+    .hero-grid {
+      grid-template-columns: minmax(0, .96fr) minmax(430px, 1.04fr);
+      gap: clamp(54px, 7vw, 92px);
+    }
+    #hero-board { padding: 28px 30px 24px; }
+    .exhibit-tag { border: 0; background: var(--paper); }
+
+    /* 旧世界是一个叙事场，不再在舞台里面继续摆台账盒与提示盒。 */
+    .old-world { border-top: 0; background: var(--field-warm); }
+    .old-stage {
+      width: min(1160px, calc(100% - 64px));
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+    .ledger { border: 0; border-radius: 0; background: transparent; }
+    .ledger-row { padding-inline: 2px; }
+    .scene-note {
+      border: 0;
+      border-left: 3px solid var(--ink);
+      border-radius: 0;
+      background: transparent;
+      padding: 8px 0 8px 24px;
+    }
+
+    /* 通用分节只靠垂直节奏，不再默认给每节画顶边。 */
+    section.band {
+      border-top: 0;
+      padding-block: clamp(86px, 11vw, 150px);
+    }
+    .band-head { margin-bottom: clamp(48px, 7vw, 84px); }
+    .band-kicker { margin-bottom: 16px; }
+
+    /* 责任：两个横向色场直接铺到视口边缘，内部是文字与清单的对照。 */
+    #roles { background: var(--panel); }
+    #roles .band-head { max-width: 890px; }
+    .role-stack { gap: clamp(46px, 7vw, 82px); }
+    .role-story {
+      --role-field: var(--field-warm);
+      position: relative;
+      grid-template-columns: minmax(0, .82fr) minmax(390px, 1.18fr);
+      gap: clamp(54px, 8vw, 112px);
+      min-height: 420px;
+      padding-block: clamp(58px, 7vw, 92px);
+      background: var(--role-field);
+      box-shadow: 0 0 0 100vmax var(--role-field);
+      clip-path: inset(0 -100vmax);
+    }
+    .role-story:nth-child(2) {
+      --role-field: var(--field-blue);
+      grid-template-columns: minmax(390px, 1.12fr) minmax(0, .88fr);
+    }
+    .role-copy { align-self: center; }
+    .role-copy p { max-width: 600px; }
+    .role-copy .big-truth {
+      max-width: 610px;
+      font-size: clamp(1.45rem, 2.8vw, 2.15rem);
+    }
+    .roster {
+      align-self: center;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      overflow: visible;
+    }
+    .roster-head {
+      padding: 8px 2px 13px;
+      border-bottom-color: rgba(28, 30, 33, .28);
+      background: transparent;
+    }
+    .roster-row {
+      padding: 16px 2px;
+      border-bottom-color: rgba(28, 30, 33, .18);
+    }
+
+    /* 三个时刻：一条连续接力场。阶段之间只有横向节奏线，没有卡片轮廓。 */
+    #how { background: var(--field-cool); }
+    #how .band-head { max-width: 900px; }
+    .flow-track {
+      width: min(760px, 72%);
+      margin: 0 0 clamp(24px, 4vw, 48px) auto;
+    }
+    .mechanism-grid {
+      display: block;
+      position: relative;
+    }
+    .mechanism-card {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(220px, .72fr) minmax(360px, 1.28fr);
+      grid-template-areas:
+        "label scene"
+        "title scene"
+        "copy scene";
+      column-gap: clamp(54px, 8vw, 116px);
+      width: 96%;
+      min-height: 390px;
+      margin: 0;
+      padding: clamp(58px, 7vw, 86px) 0;
+      border: 0;
+      border-top: 1px solid rgba(28, 30, 33, .24);
+      border-radius: 0;
+      background: transparent;
+    }
+    .mechanism-card:nth-child(2) { width: 90%; margin-left: auto; }
+    .mechanism-card:nth-child(3) { width: 94%; }
+    .mechanism-card:last-child { border-bottom: 1px solid rgba(28, 30, 33, .24); }
+    .mechanism-card::before {
+      position: absolute;
+      top: clamp(40px, 5vw, 62px);
+      left: -.03em;
+      z-index: 0;
+      color: rgba(28, 30, 33, .055);
+      font: 900 clamp(6.5rem, 14vw, 11rem)/.75 var(--sans);
+      letter-spacing: -.08em;
+      pointer-events: none;
+    }
+    .mechanism-card:nth-child(1)::before { content: '01'; }
+    .mechanism-card:nth-child(2)::before { content: '02'; }
+    .mechanism-card:nth-child(3)::before { content: '03'; }
+    .mechanism-card > .trace {
+      grid-area: label;
+      position: relative;
+      z-index: 1;
+      align-self: end;
+      margin: 0 0 18px;
+    }
+    .mechanism-card > h3 {
+      grid-area: title;
+      position: relative;
+      z-index: 1;
+      max-width: 520px;
+      margin-bottom: 18px;
+      font-size: clamp(1.45rem, 2.7vw, 2.2rem);
+    }
+    .mechanism-card > p {
+      grid-area: copy;
+      position: relative;
+      z-index: 1;
+      max-width: 520px;
+      margin: 0;
+      font-size: 1rem;
+    }
+    .mini-scene {
+      grid-area: scene;
+      align-self: center;
+      margin: 0;
+      padding: 0 0 0 clamp(24px, 4vw, 54px);
+      border-top: 0;
+      border-left: 1px solid rgba(28, 30, 33, .2);
+      gap: 0;
+    }
+    .mini-row {
+      min-height: 64px;
+      padding: 14px 0;
+      border: 0;
+      border-bottom: 1px solid rgba(28, 30, 33, .16);
+      border-radius: 0;
+      background: transparent;
+    }
+    .mini-row:last-of-type { border-bottom: 0; }
+    .mini-note { padding-top: 14px; }
+    .mechanism-close {
+      max-width: 800px;
+      margin: clamp(70px, 9vw, 116px) 0 0 28%;
+      text-align: left;
+      font-size: clamp(1.55rem, 3.1vw, 2.45rem);
+    }
+
+    /* 底单：去掉 exhibit 外壳，只保留可展开底单自身这一层对象边界。 */
+    #trace { background: var(--panel); }
+    .receipt-layout {
+      grid-template-columns: minmax(0, .82fr) minmax(470px, 1.18fr);
+      gap: clamp(70px, 10vw, 138px);
+    }
+    .honesty {
+      margin-top: 30px;
+      padding: 7px 0 7px 20px;
+      border: 0;
+      border-left: 2px solid var(--ink);
+      border-radius: 0;
+      background: transparent;
+    }
+    #trace .exhibit {
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+    #trace .exhibit-tag {
+      top: -28px;
+      right: 0;
+      padding: 0;
+      background: transparent;
+    }
+    .receipt { border-color: rgba(28, 30, 33, .42); border-radius: 2px; }
+    .receipt-head,
+    .receipt-hint { background: #F3F4F1; }
+
+    #start {
+      background: linear-gradient(180deg, var(--paper) 0%, var(--field-warm) 100%);
+    }
+    footer { border-top: 1px solid rgba(28, 30, 33, .24); background: var(--field-warm); }
+
+    @media (max-width: 900px) {
+      .wrap { width: min(100% - 40px, 760px); }
+      .hero-grid,
+      .role-story,
+      .receipt-layout { grid-template-columns: 1fr; }
+      .hero-grid { gap: 58px; }
+      .hero { background: linear-gradient(180deg, transparent 0 46%, rgba(36, 86, 230, .045) 46% 100%); }
+      .old-stage { width: min(100% - 40px, 760px); }
+      .role-story {
+        min-height: 0;
+        gap: 42px;
+        padding-block: 64px;
+      }
+      .role-story:nth-child(2) { grid-template-columns: 1fr; }
+      .flow-track { width: 100%; }
+      .mechanism-card,
+      .mechanism-card:nth-child(2),
+      .mechanism-card:nth-child(3) {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "label"
+          "title"
+          "copy"
+          "scene";
+        width: 100%;
+        min-height: 0;
+        margin-left: 0;
+      }
+      .mechanism-card > p { margin-bottom: 36px; }
+      .mini-scene {
+        padding: 22px 0 0;
+        border-left: 0;
+        border-top: 1px solid rgba(28, 30, 33, .2);
+      }
+      .mechanism-close { margin-left: 0; }
+      .receipt-layout { gap: 64px; }
+    }
+
+    @media (max-width: 760px) {
+      .wrap { width: min(100% - 32px, 680px); }
+      section.band { padding-block: 76px; }
+      .hero { padding-block: 58px 76px; }
+      .hero-grid { gap: 46px; }
+      #hero-board { padding: 24px 18px 18px; }
+      .old-mobile { gap: 0; }
+      .old-card {
+        padding: 34px 0;
+        border: 0;
+        border-top: 1px solid rgba(28, 30, 33, .2);
+        border-radius: 0;
+        background: transparent;
+      }
+      .old-card:last-child { border-bottom: 1px solid rgba(28, 30, 33, .2); }
+      .role-stack { gap: 34px; }
+      .role-story { padding-block: 52px; }
+      .mechanism-card { padding-block: 54px; }
+      .mechanism-card::before { top: 38px; font-size: clamp(5.5rem, 29vw, 8rem); }
+      .mechanism-card > h3 { font-size: clamp(1.45rem, 7vw, 1.9rem); }
+      .mechanism-close { margin-top: 72px; font-size: clamp(1.45rem, 7vw, 2rem); }
+      #trace .exhibit-tag {
+        position: static;
+        display: block;
+        margin: 0 0 12px;
+        text-align: right;
+      }
+      .receipt-head { flex-wrap: wrap; }
+      .receipt-line {
+        grid-template-columns: 42px 62px minmax(0, 1fr) 14px;
+        gap: 7px;
+        padding-inline: 12px;
+      }
+      .receipt-detail { padding-inline: 12px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .old-card {
+        padding: 34px 0;
+        border: 0;
+        border-top: 1px solid rgba(28, 30, 33, .2);
+        border-radius: 0;
+        background: transparent;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="回到 Moebius 首页顶部">
+        <span class="brand-word">MOEBIUS</span>
+        <span class="brand-note">开源 · macOS</span>
+      </a>
+      <nav class="top-nav" aria-label="页面导航">
+        <a href="#why">为什么</a>
+        <a href="#roles">责任</a>
+        <a href="#how">怎么做</a>
+        <a href="#trace">过程底单</a>
+        <a href="#start">开始</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ═══ 首屏：一次目击，写下一张底单 ═══ -->
+    <section class="hero" id="top">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <span class="hero-eyebrow trace"><b>免费开源的 macOS 应用</b> · 驱动你本机的 Codex CLI / Claude CLI</span>
+          <h1>把你在用的 AI，变成一个会自己推进的团队。</h1>
+          <p>你交出一件事，它一个环节接一个环节往前推。</p>
+          <p>团队里有盯进度的，有验质量的——不合格，当场打回重做。</p>
+          <p><strong>只有该你拍板的事，才会到你面前。</strong></p>
+          <a class="scroll-cue" href="#why">往下看：你现在是怎么过的，交出去之后会变成什么样 ↓</a>
+        </div>
+
+        <div class="exhibit" id="hero-board" role="img"
+             aria-label="任务依次经过接手、处理、复核与交付；复核未通过时带原因回到处理，修改后再次提交；轨道下方同步写下过程记录。">
+          <span class="exhibit-tag">示例记录 · 非产品实拍</span>
+          <svg class="track-svg" viewBox="0 0 720 118" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <line x1="60" y1="46" x2="660" y2="46" stroke="var(--hairline)" stroke-width="2"/>
+            <line id="tk-progress" x1="60" y1="46" x2="660" y2="46" stroke="var(--ink)" stroke-width="2" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/>
+            <g id="tk-stations"></g>
+            <g id="tk-chip" opacity="0">
+              <rect x="-46" y="-40" width="92" height="24" rx="4" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.5"/>
+              <text x="0" y="-23" text-anchor="middle" class="t-mono" font-size="11" fill="var(--ink)">任务 · 示例</text>
+            </g>
+            <g id="tk-verdict" opacity="0">
+              <text x="330" y="86" text-anchor="middle" class="t-mono" font-size="11" fill="var(--redo)">未过 · 带原因退回处理</text>
+            </g>
+            <g id="tk-sign" opacity="0">
+              <text x="660" y="86" text-anchor="middle" class="t-mono" font-size="11" fill="var(--pass)">已签收 · 附完整底单</text>
+            </g>
+          </svg>
+          <ul class="hero-log" id="hero-log">
+            <li data-at="0.08"><span class="trace">09:58</span><span class="state state-align">对齐</span><span class="trace">目标已确认 · 问了 1 个该你定的问题</span></li>
+            <li data-at="0.24"><span class="trace">10:12</span><span class="state state-idle">处理</span><span class="trace">产出初稿 · 经手：执行</span></li>
+            <li data-at="0.46"><span class="trace">10:41</span><span class="state state-redo">退回</span><span class="trace">复核未过 · 带原因退回处理</span></li>
+            <li data-at="0.76"><span class="trace">11:05</span><span class="state state-pass">通过</span><span class="trace">复核通过 · 逐条检查</span></li>
+            <li data-at="0.84"><span class="trace">11:05</span><span class="state state-you">拍板</span><span class="trace">该你决定的边界，在这一站确认</span></li>
+            <li data-at="0.90"><span class="trace">11:06</span><span class="state state-pass">交付</span><span class="trace">送到你面前 · 附完整过程记录</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 01 旧世界 ═══ -->
+    <section class="old-world" id="why" aria-labelledby="old-world-title">
+      <h2 class="sr-only" id="old-world-title">为什么你现在走不开</h2>
+      <div class="old-scroll" data-beat="0">
+        <div class="old-sticky">
+          <div class="old-stage">
+            <div class="beat-copy">
+              <article class="beat beat-0 is-active" data-beat-copy="0">
+                <p class="band-kicker">01 / 为什么总要你盯</p>
+                <h2>任务交出去了，为什么还总要你盯？</h2>
+                <p>任务能做，不等于会自己推进。</p>
+              </article>
+              <article class="beat beat-1" data-beat-copy="1">
+                <p class="band-kicker">01 / 反复确认</p>
+                <h2>你得反复确认，它有没有理解对。</h2>
+                <p>每个关键节点都在等你继续说明，一下午过去，比自己干活还累。</p>
+              </article>
+              <article class="beat beat-2" data-beat-copy="2">
+                <p class="band-kicker">01 / 任务变多</p>
+                <h2>任务一多，检查和返工也一起变多。</h2>
+                <p>开得越多，需要你逐项确认、重新收尾的地方也越多。</p>
+              </article>
+              <article class="beat beat-3" data-beat-copy="3">
+                <p class="band-kicker">01 / 真正缺少的</p>
+                <h2>缺的不是能力，是一套能自己推进的流程。</h2>
+                <p>对齐、交接、验收、退回，都应该有明确位置，而不是每一步都等你来推动。</p>
+              </article>
+            </div>
+
+            <div class="old-scene" aria-hidden="true">
+              <div class="scene-layer is-active" data-scene="0">
+                <div class="scene-note"><strong>任务能做，但没人负责下一步</strong><span>交接、检查、退回，全都没有明确位置</span></div>
+              </div>
+              <div class="scene-layer" data-scene="1">
+                <div class="ledger">
+                  <div class="ledger-row"><span class="l-main"><strong>任务 A</strong><span class="trace">停在原地</span></span><span class="state state-idle">等你确认</span></div>
+                  <div class="ledger-row"><span class="l-main"><strong>任务 B</strong><span class="trace">停在原地</span></span><span class="state state-idle">等你确认</span></div>
+                  <div class="ledger-row"><span class="l-main"><strong>任务 C</strong><span class="trace">停在原地</span></span><span class="state state-idle">等你确认</span></div>
+                  <div class="ledger-row"><span class="l-main"><strong>任务 D</strong><span class="trace">停在原地</span></span><span class="state state-idle">等你确认</span></div>
+                </div>
+              </div>
+              <div class="scene-layer" data-scene="2">
+                <div class="ledger">
+                  <div class="ledger-row"><span class="l-main"><strong>缺少说明</strong></span><span class="state state-redo">待返工</span></div>
+                  <div class="ledger-row"><span class="l-main"><strong>方向跑偏</strong></span><span class="state state-redo">待返工</span></div>
+                  <div class="ledger-row"><span class="l-main"><strong>未经检查</strong></span><span class="state state-idle">待确认</span></div>
+                  <div class="ledger-row"><span class="l-main"><strong>交付不全</strong></span><span class="state state-redo">待补齐</span></div>
+                </div>
+              </div>
+              <div class="scene-layer" data-scene="3">
+                <!-- 空轨道：位置存在，但每一站都没人 -->
+                <svg class="empty-track" viewBox="0 0 640 92" xmlns="http://www.w3.org/2000/svg">
+                  <line x1="52" y1="38" x2="588" y2="38" stroke="var(--hairline)" stroke-width="2"/>
+                  <g fill="var(--panel)" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="3 3">
+                    <circle cx="52" cy="38" r="7"/><circle cx="231" cy="38" r="7"/><circle cx="410" cy="38" r="7"/><circle cx="588" cy="38" r="7"/>
+                  </g>
+                  <g font-size="12" fill="var(--ink-2)" text-anchor="middle" font-family="'Noto Sans SC', sans-serif">
+                    <text x="52" y="62">对齐</text><text x="231" y="62">交接</text><text x="410" y="62">验收</text><text x="588" y="62">退回</text>
+                  </g>
+                  <g font-size="10" fill="var(--ink-3)" text-anchor="middle" font-family="'JetBrains Mono', monospace">
+                    <text x="52" y="80">空缺</text><text x="231" y="80">空缺</text><text x="410" y="80">空缺</text><text x="588" y="80">空缺</text>
+                  </g>
+                </svg>
+              </div>
+            </div>
+            <div class="old-progress" aria-hidden="true"><span class="is-active"></span><span></span><span></span><span></span></div>
+          </div>
+        </div>
+        <div class="old-sensors" aria-hidden="true">
+          <div class="old-sensor" style="height:100svh" data-beat-sensor="0"></div>
+          <div class="old-sensor" style="height:100svh" data-beat-sensor="1"></div>
+          <div class="old-sensor" style="height:100svh" data-beat-sensor="2"></div>
+          <div class="old-sensor" style="height:100svh" data-beat-sensor="3"></div>
+        </div>
+      </div>
+      <div class="wrap old-mobile">
+        <article class="old-card"><p class="band-kicker">01 / 为什么总要你盯</p><h2>任务交出去了，为什么还总要你盯？</h2><p>任务能做，不等于会自己推进。</p></article>
+        <article class="old-card"><p class="band-kicker">反复确认</p><h2>你得反复确认，它有没有理解对。</h2><p>每个关键节点都在等你继续说明。</p></article>
+        <article class="old-card"><p class="band-kicker">任务变多</p><h2>检查和返工也一起变多。</h2><p>开得越多，需要你重新收尾的地方也越多。</p></article>
+        <article class="old-card"><p class="band-kicker">真正缺少的</p><h2>一套能自己推进的流程。</h2><p>对齐、交接、验收、退回，都应该有明确位置。</p></article>
+      </div>
+    </section>
+
+    <!-- ═══ 02 责任 ═══ -->
+    <section class="band" id="roles">
+      <div class="wrap">
+        <header class="band-head rise">
+          <p class="band-kicker">02 / 责任</p>
+          <h2>这些推进工作，一直都落在你身上。</h2>
+          <p class="lead">回想你“亲自上”的那些时候。把任务讲清楚、把上一步递给下一步、发现跑偏拽回来、一遍遍检查能不能用——都是你。</p>
+        </header>
+        <div class="role-stack">
+          <article class="role-story">
+            <div class="role-copy rise">
+              <p class="band-kicker">当前 · 都由你负责</p>
+              <h3>对齐、交接、验收、返工。</h3>
+              <p>这些推进工作一直有人在做。现在，那个人就是你。</p>
+              <p class="big-truth">你以为自己在使用工具。<br>其实还在亲手维持整条流程。</p>
+            </div>
+            <div class="roster" data-stagger aria-label="四项工作当前都由你负责">
+              <div class="roster-head"><span>推进工作</span><span>经手</span></div>
+              <div class="roster-row"><span><strong>对齐目标</strong><small>把任务讲清楚</small></span><span class="state state-you">你</span></div>
+              <div class="roster-row"><span><strong>交接上下文</strong><small>上一步递给下一步</small></span><span class="state state-you">你</span></div>
+              <div class="roster-row"><span><strong>逐条把关</strong><small>一遍遍检查能不能用</small></span><span class="state state-you">你</span></div>
+              <div class="roster-row"><span><strong>退回重做</strong><small>发现跑偏拽回来</small></span><span class="state state-you">你</span></div>
+            </div>
+          </article>
+          <article class="role-story">
+            <div class="role-copy rise">
+              <p class="band-kicker">交给 Moebius · 自动推进</p>
+              <h3>推进交给 Moebius，你只保留必须拍板的事。</h3>
+              <p>任务交出后，各环节自行接续；只有超出约定边界时才来找你。<strong>不靠你推也往前走。</strong></p>
+              <p>其余时候，它负责向前推进，也负责在交付前把关。</p>
+            </div>
+            <div class="roster" data-stagger aria-label="Moebius 接手推进工作，你只保留拍板职责">
+              <div class="roster-head"><span>推进工作</span><span>经手</span></div>
+              <div class="roster-row"><span><strong>对齐目标</strong><small>开工前问清楚</small></span><span class="state state-align">Moebius</span></div>
+              <div class="roster-row"><span><strong>交接上下文</strong><small>环节之间自行接续</small></span><span class="state state-align">Moebius</span></div>
+              <div class="roster-row"><span><strong>验收与返工</strong><small>不合格当场打回</small></span><span class="state state-align">Moebius</span></div>
+              <div class="roster-row"><span><strong>只有必须决定的事</strong><small>超出边界才来找你</small></span><span class="state state-you">你拍板</span></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 03 三个时刻 ═══ -->
+    <section class="band" id="how">
+      <div class="wrap">
+        <header class="band-head rise">
+          <p class="band-kicker">03 / 三个时刻</p>
+          <h2>该问你时问你，<br>该返工时自己返。</h2>
+          <p class="lead">交出去之后，一个环节干完，下一个环节自己接上。<strong>那根接力棒，不在你手里了。</strong> <strong>盯进度这活，归它了。</strong></p>
+        </header>
+        <div class="flow-track rise" aria-label="接手、处理、复核、交付依次接续">
+          <svg class="track-svg" viewBox="0 0 720 84" xmlns="http://www.w3.org/2000/svg">
+            <line x1="60" y1="34" x2="660" y2="34" stroke="var(--hairline)" stroke-width="2"/>
+            <line class="flow-progress" x1="60" y1="34" x2="660" y2="34" stroke="var(--ink)" stroke-width="2" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/>
+            <g fill="var(--panel)" stroke="var(--ink)" stroke-width="1.5">
+              <circle cx="60" cy="34" r="7"/><circle cx="260" cy="34" r="7"/><circle cx="460" cy="34" r="7"/><circle cx="660" cy="34" r="7"/>
+            </g>
+            <g font-size="13" fill="var(--ink)" text-anchor="middle" font-family="'Noto Sans SC', sans-serif">
+              <text x="60" y="62">接手</text><text x="260" y="62">处理</text><text x="460" y="62">复核</text><text x="660" y="62">交付</text>
+            </g>
+            <g font-size="10" fill="var(--ink-3)" text-anchor="middle" font-family="'JetBrains Mono', monospace">
+              <text x="60" y="78">01</text><text x="260" y="78">02</text><text x="460" y="78">03</text><text x="660" y="78">04</text>
+            </g>
+          </svg>
+        </div>
+        <div class="mechanism-grid">
+          <article class="mechanism-card rise">
+            <span class="trace"><b>01 · ALIGN</b> · <span style="color:var(--align)">对齐</span></span>
+            <h3>先对齐：只问“你要什么”。</h3>
+            <p>含糊的地方，宁可多问一句，也不闷头做错。怎么做，是它自己的事；哪些事必须由你拍板，在开工前说好。</p>
+            <div class="mini-scene" data-stagger aria-label="目标选择示例">
+              <div class="mini-row"><span><span class="opt">A</span>本周可上线的最小范围</span><span class="state state-align">待你选</span></div>
+              <div class="mini-row"><span><span class="opt">B</span>供内部评审的完整方案</span><span class="state state-idle">备选</span></div>
+              <p class="mini-note">它问目标，不把做法丢给你。</p>
+            </div>
+          </article>
+          <article class="mechanism-card rise">
+            <span class="trace"><b>02 · VERIFY</b> · <span style="color:var(--pass)">验收</span></span>
+            <h3>再验收：按开工时说好的，一条一条查。</h3>
+            <p>每份产出送到你手上之前，至少被验收一次。以前逐字逐行检查的是你；现在这个位置，由它顶上。</p>
+            <div class="mini-scene" data-stagger aria-label="逐条验收示例">
+              <div class="mini-row"><span>目标范围一致</span><span class="state state-pass">通过</span></div>
+              <div class="mini-row"><span>必要内容齐全</span><span class="state state-pass">通过</span></div>
+              <div class="mini-row"><span>交付说明缺失</span><span class="state state-redo">退回</span></div>
+            </div>
+          </article>
+          <article class="mechanism-card rise">
+            <span class="trace"><b>03 · REDO</b> · <span style="color:var(--redo)">返工</span></span>
+            <h3>没通过：打回，重做，再验。</h3>
+            <p>这一整圈它自己跑完。打回几圈还过不了，它不硬跑——带着卡住的地方，再来找你拍板。</p>
+            <div class="mini-scene" data-stagger aria-label="未通过后带原因退回并再次提交">
+              <div class="mini-row"><span>复核未通过 · 缺少必要说明</span><span class="state state-redo">退回</span></div>
+              <div class="mini-row"><span>带原因退回 · 只重做未通过的部分</span><span class="state state-idle">处理</span></div>
+              <div class="mini-row"><span>修改后再次提交 · 重新进入复核</span><span class="state state-pass">再验</span></div>
+            </div>
+          </article>
+        </div>
+        <p class="mechanism-close rise">能自己定的，它不来烦你；<br>只有你有权定的，才来找你。<br>其余的时间，它不出声，只干活。</p>
+      </div>
+    </section>
+
+    <!-- ═══ 04 底单 ═══ -->
+    <section class="band" id="trace">
+      <div class="wrap receipt-layout">
+        <div class="receipt-copy rise">
+          <p class="band-kicker">04 / 痕迹</p>
+          <h2>每份交付，都该带一张过程底单。</h2>
+          <p class="lead">今天任何一个 AI 交回来的东西，你要么凭感觉决定信不信，要么自己从头再看一遍。过程刷过去就没了，手边没有一张能对着查的单子。</p>
+          <p>底单上会有不体面的记录——被打回、返工、重来。但恰恰是这些记录让你看得见：<strong>验收真的发生过。</strong></p>
+          <p class="honesty">完整的底单，我们还在做——标准先立在这里。这套标准，先管我们自己。</p>
+        </div>
+        <div class="exhibit rise" aria-label="过程底单标准图解，每行可展开查看原因与经手">
+          <span class="exhibit-tag">示例记录 · 非产品实拍</span>
+          <div class="receipt">
+            <div class="receipt-head">
+              <span class="trace"><b>过程底单</b> · 任务 T-001</span>
+              <span class="trace">退回 1 次 · 全程可回查</span>
+            </div>
+            <div class="receipt-row">
+              <button class="receipt-line" type="button"><span class="trace">09:58</span><span class="state state-align">对齐</span><span>开工前确认目标与拍板边界</span><span class="chev">›</span></button>
+              <div class="receipt-detail">目标、验收标准和哪些事必须由你决定，都在开工前写清。之后它没有再来问过。</div>
+            </div>
+            <div class="receipt-row">
+              <button class="receipt-line" type="button"><span class="trace">10:12</span><span class="state state-idle">接手</span><span>接手时带上目标、上下文和验收标准</span><span class="chev">›</span></button>
+              <div class="receipt-detail">上一步递给下一步，交接内容全部在案。期间你不在场。</div>
+            </div>
+            <div class="receipt-row">
+              <button class="receipt-line" type="button"><span class="trace">10:41</span><span class="state state-redo">打回</span><span>首次验收未过：缺少必要说明</span><span class="chev">›</span></button>
+              <div class="receipt-detail">原因写明，退回给处理。没有人来找你——因为这不是该你拍板的事。</div>
+            </div>
+            <div class="receipt-row">
+              <button class="receipt-line" type="button"><span class="trace">10:58</span><span class="state state-idle">重做</span><span>按退回原因补齐后再次交出</span><span class="chev">›</span></button>
+              <div class="receipt-detail">只重做未通过的部分，重新进入复核。</div>
+            </div>
+            <div class="receipt-row">
+              <button class="receipt-line" type="button"><span class="trace">11:05</span><span class="state state-you">拍板</span><span>本次触发：需要你决定的边界在这里确认</span><span class="chev">›</span></button>
+              <div class="receipt-detail">超出开工时约定的边界，停下来等你决定。这是整张底单里唯一需要你出现的一行。</div>
+            </div>
+            <div class="receipt-row">
+              <button class="receipt-line" type="button"><span class="trace">11:06</span><span class="state state-pass">验收</span><span>逐项核对通过，进入交付</span><span class="chev">›</span></button>
+              <div class="receipt-detail">检查项与结论都在这行记录里。你看到交付时，它已经完整验收过一次。</div>
+            </div>
+            <div class="receipt-hint trace">点击任一行，展开原因与经手 ›</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 05 开始 ═══ -->
+    <section class="band" id="start">
+      <div class="wrap">
+        <header class="band-head rise">
+          <p class="band-kicker">05 / 第一个任务</p>
+          <h2>开源免注册，<br>交出你的第一个任务。</h2>
+          <p class="lead">你需要的只有两样：一台 Mac，以及可用的 Codex CLI 或 Claude CLI。打开“终端”，任选一条版本命令；能返回版本号，就可以开始。</p>
+        </header>
+        <div class="terminal-compare">
+          <article class="terminal-card rise">
+            <h3><span class="state state-pass">这样确认</span>命令能返回版本号</h3>
+            <div class="term"><p><span class="dim">$</span> codex --version</p><p class="ok">› 返回版本号 = 可以使用</p><p><span class="dim">$</span> claude --version<span class="caret"></span></p></div>
+          </article>
+          <article class="terminal-card rise">
+            <h3><span class="state state-redo">不能这样确认</span>只看图标或窗口样式</h3>
+            <div class="chat-mock" aria-label="聊天窗口不能说明命令行是否可用">
+              <div class="appbar"><span class="appdot"></span><span class="trace">聊天窗口</span></div>
+              <div class="chat-bubble">请帮我做件事。</div>
+              <div class="chat-bubble">当然，请继续输入。</div>
+            </div>
+          </article>
+        </div>
+        <p class="lead rise">不确定自己有没有装？不要凭图标或界面猜。打开“终端”，运行 <code class="trace">codex --version</code> 或 <code class="trace">claude --version</code>；任一命令能返回版本号，就说明已经可用。</p>
+        <ul class="promise-list rise">
+          <li>免费开源，代码公开可查</li><li>不用注册，不填密码，也不收任何密钥</li>
+          <li>Codex CLI 或 Claude CLI，任一即可</li><li>任务在你的电脑上跑，用的是本机 CLI</li>
+          <li>额度就是你平时用的那一笔，不另算</li><li>Moebius 本身不收费，也不加价</li>
+          <li>对齐、验收和打回，都会出现在第一个任务里</li>
+        </ul>
+        <div class="actions rise" id="download-note">
+          <button class="button button-primary" type="button" disabled aria-describedby="release-note">macOS 版即将开放 …</button>
+          <button class="button" type="button" disabled aria-describedby="release-note">GitHub 源码即将开放 …</button>
+        </div>
+        <div class="install-links rise">
+          <a href="https://developers.openai.com/codex/cli/" target="_blank" rel="noreferrer">Codex CLI 官方安装指引 ↗</a>
+          <a href="https://docs.anthropic.com/en/docs/claude-code/setup" target="_blank" rel="noreferrer">Claude CLI 官方安装指引 ↗</a>
+        </div>
+        <p class="cta-note" id="release-note">目前只有 macOS 版；下载与源码地址公布后会更新在这里。</p>
+        <p class="final-question rise">第一个任务交什么？<span>想想你今天本来打算盯着干完的那件事。</span></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <span class="trace"><b>MOEBIUS</b> · 免费开源的 macOS 应用</span>
+      <span class="trace">一件事，一路推进，一张底单。</span>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      'use strict';
+      const reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+      let reduced = reducedQuery.matches;
+
+      /* ── 浮现（P1）与错峰行（P3）：进入视口触发一次 ── */
+      const riseIO = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          e.target.classList.add('on');
+          if (e.target.hasAttribute('data-stagger')) {
+            e.target.querySelectorAll('.roster-row, .mini-row').forEach((row) => row.classList.add('on'));
+          }
+          if (e.target.classList.contains('flow-track')) {
+            const line = e.target.querySelector('.flow-progress');
+            if (line) { line.style.transition = 'stroke-dashoffset 1.1s cubic-bezier(.2,.6,.2,1)'; line.style.strokeDashoffset = '0'; }
+          }
+          riseIO.unobserve(e.target);
+        });
+      }, { threshold: .3 });
+      document.querySelectorAll('.rise, [data-stagger], .flow-track').forEach((el) => riseIO.observe(el));
+      if (reduced) {
+        document.querySelectorAll('.roster-row, .mini-row').forEach((row) => row.classList.add('on'));
+        const line = document.querySelector('.flow-progress');
+        if (line) line.style.strokeDashoffset = '0';
+      }
+
+      /* ── 底单下钻 ── */
+      document.querySelectorAll('.receipt-line').forEach((btn) => {
+        btn.addEventListener('click', () => btn.closest('.receipt-row').classList.toggle('open'));
+      });
+
+      /* ── 旧世界分镜：滚动状态机 ── */
+      const oldScroll = document.querySelector('.old-scroll');
+      const sensors = [...document.querySelectorAll('[data-beat-sensor]')];
+      const beatCopies = [...document.querySelectorAll('[data-beat-copy]')];
+      const scenes = [...document.querySelectorAll('[data-scene]')];
+      const progressDots = [...document.querySelectorAll('.old-progress span')];
+      let beatFrame = 0;
+      const setBeat = (index) => {
+        if (!oldScroll || String(index) === oldScroll.dataset.beat) return;
+        oldScroll.dataset.beat = String(index);
+        beatCopies.forEach((item, i) => item.classList.toggle('is-active', i === index));
+        scenes.forEach((item, i) => item.classList.toggle('is-active', i === index));
+        progressDots.forEach((item, i) => item.classList.toggle('is-active', i === index));
+      };
+      const syncBeat = () => {
+        cancelAnimationFrame(beatFrame);
+        beatFrame = requestAnimationFrame(() => {
+          if (!oldScroll || window.innerWidth <= 760 || reduced) return;
+          const center = window.innerHeight * .52;
+          let bestIndex = 0, bestDistance = Infinity;
+          sensors.forEach((sensor, index) => {
+            const rect = sensor.getBoundingClientRect();
+            const distance = Math.abs((rect.top + rect.bottom) / 2 - center);
+            if (distance < bestDistance) { bestDistance = distance; bestIndex = index; }
+          });
+          setBeat(bestIndex);
+        });
+      };
+      const beatIO = new IntersectionObserver(syncBeat, { threshold: [0, .2, .5, .8, 1] });
+      sensors.forEach((sensor) => beatIO.observe(sensor));
+      window.addEventListener('resize', syncBeat, { passive: true });
+
+      /* ── Hero 跟踪板：render(t) 纯函数（视觉宪法 §二.5）──
+         站点与相位全部参数化；?t=0.47 可冻结任意一帧验收。 */
+      const STATIONS = [
+        { x: 60,  label: '接手', shape: 'circle' },
+        { x: 240, label: '处理', shape: 'circle' },
+        { x: 420, label: '复核', shape: 'circle' },
+        { x: 540, label: '拍板', shape: 'diamond' },
+        { x: 660, label: '交付', shape: 'circle' },
+      ];
+      const DUR = 16000;
+      const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+      const ease = (u) => u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+      const seg = (t, a, b) => ease(clamp((t - a) / (b - a), 0, 1));
+      const lerp = (a, b, u) => a + (b - a) * u;
+      const $ = (id) => document.getElementById(id);
+
+      const stG = $('tk-stations');
+      STATIONS.forEach((s) => {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const mark = s.shape === 'diamond'
+          ? `<rect x="${s.x - 6}" y="40" width="12" height="12" transform="rotate(45 ${s.x} 46)" fill="var(--paper)" stroke="var(--ink)" stroke-width="1.5"/>`
+          : `<circle cx="${s.x}" cy="46" r="7" fill="var(--paper)" stroke="var(--ink)" stroke-width="1.5"/>`;
+        g.innerHTML = mark + `<text x="${s.x}" y="70" text-anchor="middle" font-size="12" fill="var(--ink-2)">${s.label}</text>`;
+        stG.appendChild(g);
+      });
+
+      const X = STATIONS.map((s) => s.x);
+      const chipX = (t) => {
+        if (t < .06) return X[0];
+        if (t < .20) return lerp(X[0], X[1], seg(t, .06, .20));
+        if (t < .30) return X[1];
+        if (t < .42) return lerp(X[1], X[2], seg(t, .30, .42));
+        if (t < .46) return X[2];
+        if (t < .56) return lerp(X[2], X[1], seg(t, .46, .56));
+        if (t < .64) return X[1];
+        if (t < .74) return lerp(X[1], X[2], seg(t, .64, .74));
+        if (t < .78) return X[2];
+        if (t < .84) return lerp(X[2], X[3], seg(t, .78, .84));
+        if (t < .90) return lerp(X[3], X[4], seg(t, .84, .90));
+        return X[4];
+      };
+      const chipOpacity = (t) => t < .02 ? 0 : t < .06 ? seg(t, .02, .06) : t < .96 ? 1 : 1 - seg(t, .96, 1);
+      const progress = (t) => {
+        const far = t < .42 ? chipX(t) : t < .78 ? X[2] : chipX(t);
+        return (far - X[0]) / (X[4] - X[0]);
+      };
+
+      const logRows = [...document.querySelectorAll('#hero-log li')];
+      const render = (t) => {
+        $('tk-chip').setAttribute('transform', `translate(${chipX(t)}, 46)`);
+        $('tk-chip').setAttribute('opacity', chipOpacity(t).toFixed(3));
+        $('tk-progress').setAttribute('stroke-dashoffset', (1 - progress(t)).toFixed(4));
+        $('tk-verdict').setAttribute('opacity', t >= .44 && t < .62 ? 1 : 0);
+        $('tk-sign').setAttribute('opacity', t >= .90 ? 1 : 0);
+        logRows.forEach((li) => li.classList.toggle('on', t >= parseFloat(li.dataset.at)));
+      };
+
+      let raf = null, t0 = performance.now(), tOffset = 0, playing = false, inView = true;
+      const urlT = new URLSearchParams(location.search).get('t');
+      const frozen = urlT !== null && !isNaN(parseFloat(urlT));
+      if (frozen) tOffset = clamp(parseFloat(urlT), 0, 1);
+      const tick = (now) => {
+        render(((now - t0) / DUR + tOffset) % 1);
+        if (playing) raf = requestAnimationFrame(tick);
+      };
+      const setPlaying = (p) => {
+        if (p === playing) return;
+        playing = p;
+        if (p) { raf = requestAnimationFrame(tick); }
+        else cancelAnimationFrame(raf);
+      };
+      const heroBoard = $('hero-board');
+      const heroIO = new IntersectionObserver((entries) => {
+        inView = entries[0]?.isIntersecting ?? true;
+        setPlaying(inView && !reduced && !frozen && !document.hidden);
+      }, { threshold: .15 });
+      heroIO.observe(heroBoard);
+      document.addEventListener('visibilitychange', () => {
+        setPlaying(inView && !reduced && !frozen && !document.hidden);
+        if (!document.hidden) t0 = performance.now();
+      });
+      reducedQuery.addEventListener?.('change', (e) => {
+        reduced = e.matches;
+        if (reduced) { setPlaying(false); render(.92); }
+        else setPlaying(inView && !frozen && !document.hidden);
+      });
+
+      if (frozen || reduced) render(reduced && !frozen ? .92 : tOffset);
+      else { render(0); setPlaying(true); }
+    })();
+  </script>
+</body>
+</html>

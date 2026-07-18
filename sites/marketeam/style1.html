@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN" class="no-js">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Moebius 视觉规范：运行中任务底单与视觉令牌。">
+  <meta name="theme-color" content="#f7f6f3">
+  <title>Moebius · Live Ledger</title>
+  <link rel="icon" href="data:,">
+  <script>document.documentElement.classList.remove('no-js');document.documentElement.classList.add('js')</script>
+  <style>
+    :root{
+      --paper:#f7f6f3;--ink:#17212a;--muted:#646b6f;--faint:#9b9e9e;--line:#ced0cf;
+      --blue:#1f5cff;--green:#139a72;--red:#ef4e2f;--serif:"Songti SC","STSong","Noto Serif CJK SC",Georgia,serif;
+      --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;--mono:"SFMono-Regular",Consolas,monospace
+    }
+    *,*::before,*::after{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--serif);-webkit-font-smoothing:antialiased}
+    button,input{font:inherit;color:inherit}button{cursor:pointer}
+    :focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+    .skip{position:fixed;z-index:20;left:16px;top:12px;transform:translateY(-150%);padding:8px 12px;background:var(--ink);color:#fff;text-decoration:none;font-family:var(--sans)}
+    .skip:focus{transform:none}
+    .wrap{width:min(1387px,calc(100% - 85px));margin-left:50px;margin-right:35px}
+    .topbar{height:64px;border-bottom:1px solid #aeb2b1}
+    .topbar-inner{height:100%;display:flex;align-items:center;justify-content:space-between;gap:24px}
+    .topbar-inner>*{transform:translateY(7px)}
+    .brandline{display:flex;align-items:baseline;gap:24px;white-space:nowrap}
+    .brandline strong{font:700 28px/1 Georgia,var(--serif);letter-spacing:-.02em}
+    .brandline span,.topmeta{color:#51595e;font-size:14px}
+    .topmeta{display:flex;gap:30px;white-space:nowrap}
+    main{display:block}
+    .ledger-intro{position:relative;height:137px;padding-top:42px;border-bottom:1px solid var(--line)}
+    .titleline{display:flex;align-items:center;gap:14px}
+    h1,h2,p{margin-top:0}
+    h1{margin:0;font:700 31px/1.2 var(--serif);letter-spacing:.01em}
+    .title-state,.status{display:inline-flex;align-items:center;justify-content:center;border:1px solid currentColor;border-radius:999px;white-space:nowrap}
+    .title-state{height:28px;padding:0 13px;color:var(--blue);font:13px/1 var(--serif)}
+    .intro-copy{margin:12px 200px 0 0;color:#696f72;font-size:14px;letter-spacing:.02em}
+    .evidence-cta{position:absolute;right:0;top:59px;height:38px;padding:0 17px;border:1px solid #768087;border-radius:4px;background:transparent;font-size:14px}
+    .evidence-cta:hover{background:#fff}
+    .ledger{position:relative}
+    .grid-head,.ledger-row{display:grid;grid-template-columns:62px 98px 140px 170px minmax(300px,1fr) 120px 265px}
+    .grid-head{height:51px;align-items:center;border-bottom:1px solid var(--line);color:#323b40}
+    .grid-head span{padding-inline:12px;transform:translateY(4px)}.grid-head span:first-child{padding:0}
+    .rows{position:relative}
+    .ledger-row{position:relative;width:100%;height:79.5px;align-items:stretch;padding:0;border:0;border-bottom:1px solid var(--line);background:transparent;text-align:left}
+    .ledger-row:hover,.ledger-row:focus-visible{background:rgba(255,255,255,.64)}
+    .ledger-row.is-current{background:rgba(255,255,255,.34)}
+    .ledger-row>span{display:flex;min-width:0;align-items:center;padding:0 12px}
+    .seq{justify-content:center;padding:0!important;color:#737c82;font:25px/1 Georgia,var(--serif)}
+    .time{font:13px/1.5 Georgia,var(--serif);font-variant-numeric:tabular-nums}
+    .step{font-size:16px}.owner{gap:12px}.owner-copy,.action-copy,.evidence-copy{display:block!important;padding:0!important}
+    .owner strong,.action strong,.evidence strong{display:block;font-weight:400;font-size:14px}
+    .owner small,.action small,.evidence small{display:block;margin-top:5px;color:#72787c;font-size:12px;line-height:1.35}
+    .owner small{font-family:Georgia,var(--serif)}
+    .person-icon{position:relative;flex:0 0 16px;width:16px;height:18px;padding:0!important}
+    .person-icon::before{content:"";position:absolute;left:5px;top:0;width:6px;height:6px;border:1px solid #657078;border-radius:50%}
+    .person-icon::after{content:"";position:absolute;left:2px;bottom:0;width:12px;height:8px;border:1px solid #657078;border-radius:7px 7px 3px 3px}
+    .action{padding-right:74px!important}.action .return-copy{color:var(--red)}
+    .status-cell{justify-content:flex-start;padding-left:0!important}.status{min-height:28px;padding:0 13px;font-size:13px;background:var(--paper)}
+    .s-blue{color:var(--blue)}.s-red{color:var(--red)}.s-green{color:var(--green)}.s-neutral{color:#303a40}
+    .evidence{justify-content:space-between;gap:10px}.row-view{color:var(--blue);font-size:13px;white-space:nowrap}
+    .rail{pointer-events:none;position:absolute;z-index:2;left:54.3%;top:0;height:477px;width:1px}
+    .rail-blue,.rail-green,.rail-ink{position:absolute;left:0;width:2px;transform:translateX(-50%)}
+    .rail-blue{top:39.75px;height:318px;background:var(--blue)}.rail-green{top:357px;height:61px;background:var(--green)}.rail-ink{top:418px;height:19px;background:var(--ink)}
+    .node{position:absolute;left:0;width:18px;height:18px;border:2px solid var(--blue);border-radius:50%;background:var(--paper);transform:translate(-50%,-50%)}
+    .node::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--blue)}
+    .node:nth-of-type(5){border-color:var(--green)}.node:nth-of-type(5)::after{background:var(--green)}
+    .n1{top:39.75px}.n2{top:119.25px}.n3{top:198.75px}.n4{top:278.25px}.n5{top:357.75px}
+    .diamond{position:absolute;left:0;top:437.25px;width:25px;height:25px;border:2px solid var(--ink);background:var(--paper);transform:translate(-50%,-50%) rotate(45deg)}
+    .return-loop{position:absolute;z-index:1;left:calc(54.3% - 100px);top:119px;width:70px;height:91px;border-right:2px dashed var(--red);border-bottom:2px dashed var(--red);border-radius:0 0 24px 0;pointer-events:none}
+    .return-loop::before{content:"";position:absolute;left:-6px;bottom:-7px;width:9px;height:9px;border:2px solid var(--red);border-radius:50%;background:var(--paper)}
+    .return-loop::after{content:"";position:absolute;right:-6px;top:-1px;width:9px;height:9px;border-top:2px solid var(--red);border-left:2px solid var(--red);transform:rotate(45deg);background:var(--paper)}
+    .timeline{height:98px;display:grid;grid-template-columns:96px 36px minmax(200px,1fr) auto 220px;gap:18px;align-items:center;position:relative;border-bottom:1px solid var(--line)}
+    .timeline-label,.timeline-time{white-space:nowrap}.timeline-label{font-size:13px}.timeline-time{font:14px Georgia,var(--serif);color:#555d62}
+    .track{position:relative;height:34px}
+    .track::before{content:"";position:absolute;left:0;right:0;top:16px;height:1px;background:#8c949b}
+    .track-progress{position:absolute;left:0;top:15px;height:2px;background:var(--blue);width:61.7%}
+    .track-dots{position:absolute;inset:0}
+    .track-dots i{position:absolute;top:50%;width:8px;height:8px;border:1.5px solid var(--blue);border-radius:50%;background:var(--paper);transform:translate(-50%,-50%)}
+    .track-dots i:nth-child(1){left:0;opacity:0}.track-dots i:nth-child(2){left:12%}.track-dots i:nth-child(3){left:20.6%}.track-dots i:nth-child(4){left:31.5%}.track-dots i:nth-child(5){left:42.2%}.track-dots i:nth-child(6){left:61.7%}
+    .track-dots i.is-current{width:17px;height:17px;background:var(--blue)}
+    .scrub{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+    .control-zone{position:relative;align-self:stretch;display:flex;align-items:center;justify-content:flex-end;padding-top:14px}
+    .autofollow{position:absolute;right:0;top:8px;display:flex;align-items:center;gap:10px;border:0;background:transparent;font-size:13px}
+    .switch{position:relative;width:30px;height:17px;border-radius:999px;background:var(--blue)}
+    .switch::after{content:"";position:absolute;right:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff}
+    .autofollow[aria-pressed="false"] .switch{background:#b9bdbe}.autofollow[aria-pressed="false"] .switch::after{right:15px}
+    .controls{display:flex;gap:18px;margin-top:20px}.control{width:62px;height:36px;border:1px solid #b6bbbc;border-radius:3px;background:transparent;font:18px/1 var(--sans)}
+    .control:hover{background:#fff}.control.play{font-size:15px}
+    .tokens-section{border-bottom:1px solid var(--line)}
+    .tokens-heading{position:relative;height:141px;padding-top:54px;border-bottom:1px solid var(--line)}
+    .tokens-heading h2{margin:0;font:700 29px/1.25 var(--serif)}
+    .tokens-heading p{margin:13px 0 0;color:#6b7073;font-size:14px}
+    .tokens-link{position:absolute;right:12px;top:80px;border:0;background:transparent;font-size:14px}
+    .token-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr 1.25fr;min-height:180px}
+    .token-panel{padding:22px 20px;border-right:1px solid var(--line)}.token-panel:first-child{padding-left:2px}.token-panel:last-child{border-right:0}
+    .token-panel h3{margin:0 0 19px;font:14px/1.2 var(--serif)}
+    .swatches{display:flex;gap:34px}.swatch{width:30px;height:45px;border-radius:3px;background:var(--ink)}
+    .swatch:nth-child(2){background:#cfd0d0}.swatch:nth-child(3){background:var(--blue)}.swatch:nth-child(4){background:var(--green)}.swatch:nth-child(5){background:var(--red)}
+    .type-line{display:flex;gap:34px;align-items:baseline}.type-line span{font:38px/1 Georgia,var(--serif)}.type-line span:nth-child(2){font-size:34px}.type-line span:nth-child(3){font-family:var(--sans);font-weight:650}
+    .line-samples{display:flex;gap:48px;padding-top:10px}.line-samples i{width:85px;height:1px;background:#596168}.line-samples i:last-child{background:#c6c8c8}
+    .space-samples{display:flex;justify-content:space-between;font:12px Georgia,var(--serif)}
+    footer{padding:30px 0 50px;color:#676d70;font-size:12px}
+    @media(max-width:980px){
+      .wrap{width:calc(100% - 40px);margin-inline:auto}.topbar{height:auto;min-height:64px}.topbar-inner{padding:14px 0;align-items:flex-start}.topbar-inner>*{transform:none}.brandline{white-space:normal}.topmeta{gap:14px;flex-wrap:wrap;justify-content:flex-end}
+      .ledger-intro{height:auto;min-height:155px;padding:28px 0 26px}.intro-copy{margin-right:210px}.evidence-cta{top:auto;bottom:28px}
+      .grid-head{display:none}.rows{border-top:1px solid var(--line)}.ledger-row{height:auto;min-height:112px;grid-template-columns:48px 78px 1fr 1.35fr 100px}.ledger-row .evidence{grid-column:3/6;border-top:1px solid var(--line);min-height:46px}.rail,.return-loop{display:none}
+      .timeline{grid-template-columns:auto auto 1fr auto;min-height:126px;height:auto;padding:22px 0}.control-zone{grid-column:1/-1;justify-content:flex-start;min-height:68px}.autofollow{left:0;right:auto}.controls{margin-left:auto}
+      .token-grid{grid-template-columns:1fr 1fr}.token-panel:nth-child(2){border-right:0}.token-panel:nth-child(n+3){border-top:1px solid var(--line)}
+    }
+    @media(max-width:620px){
+      .wrap{width:calc(100% - 24px)}.topbar-inner{display:block}.brandline{display:block}.brandline span{display:block;margin-top:6px}.topmeta{margin-top:8px;justify-content:flex-start;font-size:11px}
+      .ledger-intro{padding-bottom:76px}.titleline{align-items:flex-start;flex-wrap:wrap}.titleline h1{font-size:26px}.intro-copy{margin-right:0}.evidence-cta{left:0;right:auto;bottom:24px}
+      .ledger-row{grid-template-columns:42px 68px 1fr;min-height:0}.ledger-row>span{padding:12px 9px}.ledger-row .seq{grid-row:1/4}.ledger-row .time{grid-row:1}.ledger-row .step{grid-row:1}.ledger-row .owner{grid-column:2/4;grid-row:2;border-top:1px solid var(--line)}.ledger-row .action{grid-column:2/4;grid-row:3;border-top:1px solid var(--line);padding-right:10px!important}.ledger-row .status-cell{grid-column:2;grid-row:4;border-top:1px solid var(--line)}.ledger-row .evidence{grid-column:3;grid-row:4;border-top:1px solid var(--line);min-width:0}.row-view{display:none}
+      .timeline{grid-template-columns:auto 1fr auto;gap:10px}.timeline-label{grid-column:1/-1}.track{min-width:0}.control-zone{grid-column:1/-1}.controls{gap:8px}.control{width:52px;height:44px}
+      .tokens-heading{height:auto;padding:35px 0 27px}.tokens-link{top:38px;right:0}.tokens-heading p{padding-right:80px}.token-grid{grid-template-columns:1fr}.token-panel{border-right:0!important;border-top:1px solid var(--line)}.token-panel:first-child{border-top:0;padding-left:20px}
+    }
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到正文</a>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <div class="brandline"><strong>Moebius</strong><span>视觉规范 / Live Ledger&nbsp;&nbsp;运行中底单</span></div>
+      <div class="topmeta"><span>版本 0.1.0</span><span>2026-07-18</span><span>sites/marketeam/style.html</span></div>
+    </div>
+  </header>
+  <main id="main" tabindex="-1">
+    <section class="wrap ledger-intro" aria-labelledby="page-title">
+      <div class="titleline"><h1 id="page-title">任务底单 · PRD-2026-0718-001</h1><span class="title-state" id="live-state" aria-live="polite">运行中</span></div>
+      <p class="intro-copy">Moebius 将人类目标转化为可审计的交付，角色之间交接工作，评审者可退回并说明原因，证据持续累积，仅在真实决策边界才邀请人类。</p>
+      <button class="evidence-cta" type="button" data-evidence>查看完整证据包&nbsp; →</button>
+    </section>
+
+    <section class="wrap ledger" aria-label="六行任务运行底单">
+      <div class="grid-head" aria-hidden="true"><span></span><span>时间</span><span>步骤</span><span>负责人</span><span>动作与交接</span><span>状态</span><span>产出与证据（摘要）</span></div>
+      <div class="rows">
+        <button class="ledger-row" type="button" data-step="0" aria-pressed="false"><span class="seq">1</span><span class="time">09:12<br>07-18</span><span class="step">接收目标</span><span class="owner"><i class="person-icon" aria-hidden="true"></i><span class="owner-copy"><strong>需求分析员</strong><small>Agent: Analyst</small></span></span><span class="action"><span class="action-copy"><strong>解析目标，澄清范围与约束</strong><small>交接给&nbsp; 方案设计员</small></span></span><span class="status-cell"><span class="status s-blue">对齐中</span></span><span class="evidence"><span class="evidence-copy"><strong>目标解析文档 v0.1</strong><small>证据 6 条 · 附件 2 个</small></span><span class="row-view">查看</span></span></button>
+        <button class="ledger-row" type="button" data-step="1" aria-pressed="false"><span class="seq">2</span><span class="time">09:18<br>07-18</span><span class="step">方案设计</span><span class="owner"><i class="person-icon" aria-hidden="true"></i><span class="owner-copy"><strong>方案设计员</strong><small>Agent: Architect</small></span></span><span class="action"><span class="action-copy"><strong>生成方案，给出选项与权衡</strong><small>交接给&nbsp; 评审员</small></span></span><span class="status-cell"><span class="status s-blue">对齐中</span></span><span class="evidence"><span class="evidence-copy"><strong>方案设计文档 v0.2</strong><small>证据 9 条 · 附件 3 个</small></span><span class="row-view">查看</span></span></button>
+        <button class="ledger-row" type="button" data-step="2" aria-pressed="false"><span class="seq">3</span><span class="time">09:27<br>07-18</span><span class="step">评审</span><span class="owner"><i class="person-icon" aria-hidden="true"></i><span class="owner-copy"><strong>评审员</strong><small>Agent: Reviewer</small></span></span><span class="action"><span class="action-copy"><strong>评审方案，提出修改意见</strong><small class="return-copy">退回给&nbsp; 方案设计员</small></span></span><span class="status-cell"><span class="status s-red">已退回</span></span><span class="evidence"><span class="evidence-copy"><strong>评审意见 v0.1</strong><small>证据 4 条 · 附件 1 个</small></span><span class="row-view">查看</span></span></button>
+        <button class="ledger-row" type="button" data-step="3" aria-pressed="false"><span class="seq">4</span><span class="time">09:37<br>07-18</span><span class="step">方案迭代</span><span class="owner"><i class="person-icon" aria-hidden="true"></i><span class="owner-copy"><strong>方案设计员</strong><small>Agent: Architect</small></span></span><span class="action"><span class="action-copy"><strong>根据意见迭代方案</strong><small>交接给&nbsp; 评审员</small></span></span><span class="status-cell"><span class="status s-blue">对齐中</span></span><span class="evidence"><span class="evidence-copy"><strong>方案设计文档 v0.3</strong><small>证据 7 条 · 附件 2 个</small></span><span class="row-view">查看</span></span></button>
+        <button class="ledger-row" type="button" data-step="4" aria-pressed="false"><span class="seq">5</span><span class="time">09:52<br>07-18</span><span class="step">复审通过</span><span class="owner"><i class="person-icon" aria-hidden="true"></i><span class="owner-copy"><strong>评审员</strong><small>Agent: Reviewer</small></span></span><span class="action"><span class="action-copy"><strong>复审通过，建议进入决策</strong><small>交接给&nbsp; 人类决策者</small></span></span><span class="status-cell"><span class="status s-green">已通过</span></span><span class="evidence"><span class="evidence-copy"><strong>复审结论 v1.0</strong><small>证据 3 条</small></span><span class="row-view">查看</span></span></button>
+        <button class="ledger-row" type="button" data-step="5" aria-pressed="true"><span class="seq">6</span><span class="time">10:03<br>07-18</span><span class="step">人类决策</span><span class="owner"><i class="person-icon" aria-hidden="true"></i><span class="owner-copy"><strong>产品负责人</strong><small>Human</small></span></span><span class="action"><span class="action-copy"><strong>确认方案与风险，批准执行</strong><small>交接给&nbsp; 执行代理</small></span></span><span class="status-cell"><span class="status s-neutral">待决策</span></span><span class="evidence"><span class="evidence-copy"><strong>决策记录</strong><small>待确认</small></span><span class="row-view">查看</span></span></button>
+        <div class="rail" aria-hidden="true"><span class="rail-blue"></span><span class="rail-green"></span><span class="rail-ink"></span><i class="node n1"></i><i class="node n2"></i><i class="node n3"></i><i class="node n4"></i><i class="node n5"></i><i class="diamond"></i></div>
+        <div class="return-loop" aria-hidden="true"></div>
+      </div>
+      <div class="timeline" aria-label="底单时间轴控制">
+        <span class="timeline-label">底单时间轴</span><span class="timeline-time">09:12</span>
+        <div class="track"><span class="track-progress" data-progress></span><span class="track-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i class="is-current"></i></span><input class="scrub" data-scrub type="range" min="0" max="5" step="1" value="5" aria-label="底单进度，第 1 至第 6 行"></div>
+        <span class="timeline-time" data-stepread>10:03</span>
+        <div class="control-zone"><button class="autofollow" type="button" data-auto aria-pressed="true">自动跟随 <span class="switch" aria-hidden="true"></span></button><div class="controls"><button class="control play" type="button" data-play aria-label="播放任务底单">▶</button><button class="control" type="button" data-prev aria-label="上一步">‹</button><button class="control" type="button" data-next aria-label="下一步">›</button></div></div>
+      </div>
+    </section>
+
+    <section class="tokens-section" aria-labelledby="tokens-title">
+      <div class="wrap tokens-heading"><h2 id="tokens-title">视觉令牌 · Visual Tokens</h2><p>定义 Moebius 界面的基础视觉语言，确保一致、清晰、可访问。</p><button class="tokens-link" type="button">全部令牌&nbsp; →</button></div>
+      <div class="wrap token-grid">
+        <section class="token-panel"><h3>颜色 · Color</h3><div class="swatches" aria-label="墨色、灰色、蓝色、绿色、红色"><i class="swatch"></i><i class="swatch"></i><i class="swatch"></i><i class="swatch"></i><i class="swatch"></i></div></section>
+        <section class="token-panel"><h3>字体 · Typography</h3><div class="type-line"><span>Aa</span><span>Aa</span><span>Aa</span></div></section>
+        <section class="token-panel"><h3>线条 · Line</h3><div class="line-samples"><i></i><i></i></div></section>
+        <section class="token-panel"><h3>间距 · Space</h3><div class="space-samples"><span>4</span><span>8</span><span>12</span><span>16</span><span>24</span><span>32</span><span>48</span><span>64</span></div></section>
+      </div>
+    </section>
+  </main>
+  <footer><div class="wrap">MOEBIUS / VISUAL SPECIFICATION / LIVE LEDGER</div></footer>
+  <script>
+    (()=>{'use strict';
+      const rows=[...document.querySelectorAll('.ledger-row')],scrub=document.querySelector('[data-scrub]'),play=document.querySelector('[data-play]'),prev=document.querySelector('[data-prev]'),next=document.querySelector('[data-next]'),read=document.querySelector('[data-stepread]'),progress=document.querySelector('[data-progress]'),dots=[...document.querySelectorAll('.track-dots i')],auto=document.querySelector('[data-auto]'),live=document.querySelector('#live-state');
+      const times=['09:12','09:18','09:27','09:37','09:52','10:03'],positions=[0,12,20.6,31.5,42.2,61.7];let step=5,timer=0,playing=false;
+      const render=(value,{focus=false}={})=>{step=Math.max(0,Math.min(5,Number(value)||0));rows.forEach((row,i)=>{row.classList.toggle('is-current',i===step);row.setAttribute('aria-pressed',String(i===step))});dots.forEach((dot,i)=>dot.classList.toggle('is-current',i===step));scrub.value=String(step);progress.style.width=`${positions[step]}%`;read.textContent=times[step];live.textContent='运行中';if(focus)rows[step].focus({preventScroll:true})};
+      const stop=()=>{playing=false;clearInterval(timer);play.textContent='▶';play.setAttribute('aria-pressed','false')};
+      const start=()=>{playing=true;play.textContent='Ⅱ';play.setAttribute('aria-pressed','true');timer=setInterval(()=>{if(step===5){stop();return}render(step+1)},1100)};
+      rows.forEach((row,i)=>row.addEventListener('click',()=>{stop();render(i)}));scrub.addEventListener('input',e=>{stop();render(e.target.value)});prev.addEventListener('click',()=>{stop();render(step-1,{focus:true})});next.addEventListener('click',()=>{stop();render(step+1,{focus:true})});play.addEventListener('click',()=>playing?stop():(step===5?render(0):null,start()));auto.addEventListener('click',()=>auto.setAttribute('aria-pressed',String(auto.getAttribute('aria-pressed')!=='true')));document.querySelector('[data-evidence]').addEventListener('click',()=>{stop();render(5,{focus:true})});
+      render(5);
+    })();
+  </script>
+</body>
+</html>
