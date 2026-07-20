@@ -11,6 +11,7 @@ import {
 } from "@/ui/dropdown-menu";
 
 export type ConversationSessionStatus = "red" | "blue" | "blink" | "none";
+export type ConversationSidebarDataState = "ready" | "loading" | "error";
 
 export interface ConversationSidebarSession {
   id: string;
@@ -34,6 +35,7 @@ export interface ConversationSidebarProject {
 
 export interface ConversationSidebarProps {
   projects: ConversationSidebarProject[];
+  dataState?: ConversationSidebarDataState;
   selectedSessionId?: string;
   onSelectSession?: (sessionId: string, projectId: string) => void;
   onNewConversation?: (projectId: string) => void;
@@ -43,8 +45,11 @@ export interface ConversationSidebarProps {
   onArchiveSession?: (sessionId: string, projectId: string) => void;
   onReorderProjects?: (projectIds: string[]) => boolean | void | Promise<boolean | void>;
   onRepairProject?: (project: ConversationSidebarProject) => void;
+  onRetry?: () => void;
   disabled?: boolean;
   disabledReason?: string;
+  projectActionsDisabled?: boolean;
+  projectActionsDisabledReason?: string;
   showProjectPath?: boolean;
   className?: string;
 }
@@ -158,6 +163,7 @@ const PROJECT_DRAG_DELAY_MS = 150;
 
 export function ConversationSidebar({
   projects,
+  dataState = "ready",
   selectedSessionId,
   onSelectSession,
   onNewConversation,
@@ -167,8 +173,11 @@ export function ConversationSidebar({
   onArchiveSession,
   onReorderProjects,
   onRepairProject,
+  onRetry,
   disabled = false,
   disabledReason,
+  projectActionsDisabled = false,
+  projectActionsDisabledReason,
   showProjectPath = true,
   className
 }: ConversationSidebarProps): JSX.Element {
@@ -227,6 +236,7 @@ export function ConversationSidebar({
   const activateGesture = (gesture: ProjectPointerGesture): void => {
     if (
       disabled
+      || projectActionsDisabled
       || onReorderProjects === undefined
       || gestureRef.current !== gesture
       || gesture.activated
@@ -288,7 +298,15 @@ export function ConversationSidebar({
       aria-label="项目和会话"
     >
       <nav className="scroll-thin min-h-0 flex-1 overflow-auto px-2 pb-2" aria-label="项目列表">
-        {visibleProjects.map((project) => {
+        {dataState === "loading" ? (
+          <ProjectListSkeleton />
+        ) : dataState === "error" ? (
+          <ProjectListError onRetry={onRetry} />
+        ) : visibleProjects.length === 0 ? (
+          <p className="px-2 py-3 text-xs leading-5 text-hint" data-testid="conversation-sidebar-no-projects">
+            从“新建对话”添加第一个项目
+          </p>
+        ) : visibleProjects.map((project) => {
           const projectName = projectDirectoryName(project);
           const orderedSessions = orderSessionsByCreatedAt(project.sessions);
           const expanded = !collapsedProjectIds.has(project.id);
@@ -298,6 +316,7 @@ export function ConversationSidebar({
             aggregatedStatus === "none" ? "" : `，${statusLabel[aggregatedStatus]}`
           }`;
           const newConversationDisabledReason = project.newConversationDisabledReason
+            ?? (projectActionsDisabled ? projectActionsDisabledReason ?? "项目正在变更，请稍后再试" : null)
             ?? (disabled ? disabledReason ?? "项目正在变更，请稍后再试" : null);
 
           return (
@@ -403,7 +422,7 @@ export function ConversationSidebar({
                     aria-description={project.directoryUnavailableReason ?? undefined}
                     data-project-row-action="repair-project"
                     title={project.directoryUnavailableReason ?? "当前项目本地文件夹未找到，可以指定新的文件夹"}
-                    disabled={disabled}
+                    disabled={disabled || projectActionsDisabled}
                     onClick={(event) => {
                       event.stopPropagation();
                       onRepairProject(project);
@@ -440,7 +459,7 @@ export function ConversationSidebar({
                         aria-label={`${projectName} 项目菜单`}
                         title={`${projectName} 项目菜单`}
                         data-project-row-action="project-menu"
-                        disabled={disabled}
+                        disabled={disabled || projectActionsDisabled}
                         onClick={(event) => event.stopPropagation()}
                       >
                         <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
@@ -468,7 +487,15 @@ export function ConversationSidebar({
                 ) : null}
               </div>
 
-              {expanded ? (
+              {expanded ? orderedSessions.length === 0 ? (
+                <p
+                  id={conversationListId}
+                  className="px-8 py-1.5 text-xs text-hint"
+                  data-testid="conversation-sidebar-empty-project"
+                >
+                  还没有对话
+                </p>
+              ) : (
                 <div id={conversationListId} className="space-y-0.5" role="list" aria-label={`${projectName} 对话`}>
                   {orderedSessions.map((session) => (
                     <SessionRow
@@ -488,6 +515,41 @@ export function ConversationSidebar({
         })}
       </nav>
     </aside>
+  );
+}
+
+function ProjectListSkeleton(): JSX.Element {
+  return (
+    <div className="space-y-3 px-2 py-2" aria-label="项目正在加载" aria-busy="true" data-testid="conversation-sidebar-loading">
+      {["first", "second", "third"].map((key, index) => (
+        <div key={key} className="animate-pulse space-y-2" aria-hidden="true">
+          <div className="flex h-8 items-center gap-2">
+            <span className="h-3 w-3 rounded-sm bg-line" />
+            <span className={cn("h-3 rounded bg-line", index === 1 ? "w-24" : "w-32")} />
+          </div>
+          <div className="ml-5 h-7 rounded-md bg-line/60" />
+          {index === 0 ? <div className="ml-5 h-7 rounded-md bg-line/40" /> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProjectListError({ onRetry }: { onRetry?: () => void }): JSX.Element {
+  return (
+    <div className="mx-2 mt-2 rounded-lg border border-line bg-card px-3 py-3" role="alert" data-testid="conversation-sidebar-error">
+      <p className="text-sm font-medium text-ink">项目加载失败</p>
+      <p className="mt-1 text-xs leading-5 text-sub">暂时无法显示项目，请重试。</p>
+      {onRetry ? (
+        <button
+          type="button"
+          className="mt-2 h-7 rounded-md border border-line bg-input px-2.5 text-xs font-medium text-ink hover:bg-hover"
+          onClick={onRetry}
+        >
+          重试
+        </button>
+      ) : null}
+    </div>
   );
 }
 

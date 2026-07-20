@@ -192,6 +192,7 @@ function App(): JSX.Element {
   const messages = state?.messages ?? [];
   const activeRun = state?.activeRun ?? null;
   const sqlitePath = state?.sqlitePath;
+  const projectListState = state !== null ? "ready" : clientError === null ? "loading" : "error";
 
   const actions = useMemo(() => new ConsoleStateActions({
     apiBase,
@@ -377,6 +378,7 @@ function App(): JSX.Element {
       runnerStatus={runnerStatus}
       sqlitePath={sqlitePath}
       lastError={lastError}
+      projectListState={projectListState}
       onComposerChange={setComposerValue}
       onSend={actions.sendMessage}
       onOpenProject={actions.openProject}
@@ -395,6 +397,10 @@ function App(): JSX.Element {
       onArchiveSession={actions.archiveSession}
       onInterrupt={interrupt}
       onOpenDiagnostics={openDiagnostics}
+      onRetryProjectList={() => {
+        setClientError(null);
+        void refresh(selectionRef.current);
+      }}
       isSending={isSending}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}

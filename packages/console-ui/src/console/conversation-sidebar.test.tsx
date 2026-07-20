@@ -246,6 +246,34 @@ describe("ConversationSidebar", () => {
     expect(onNewConversation).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the no-project and expanded empty-project states", () => {
+    const { rerender } = render(<ConversationSidebar projects={[]} />);
+
+    expect(screen.getByText("从“新建对话”添加第一个项目")).toBeVisible();
+
+    rerender(<ConversationSidebar projects={[{ id: "empty", path: "/tmp/empty", sessions: [] }]} />);
+    expect(screen.getByRole("button", { name: "empty 项目，已展开" })).toBeVisible();
+    expect(screen.getByText("还没有对话")).toBeVisible();
+  });
+
+  it("renders a structure-preserving loading placeholder instead of project data", () => {
+    render(<ConversationSidebar projects={[project]} dataState="loading" />);
+
+    expect(screen.getByLabelText("项目正在加载")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByTestId("conversation-sidebar-loading").children).toHaveLength(3);
+    expect(screen.queryByText("agent-moebius")).not.toBeInTheDocument();
+  });
+
+  it("renders a short load failure with a working retry action", () => {
+    const onRetry = vi.fn();
+    render(<ConversationSidebar projects={[project]} dataState="error" onRetry={onRetry} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("项目加载失败");
+    expect(screen.queryByText("agent-moebius")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it("toggles from the project row while keeping its new-conversation button independent", () => {
     const onNewConversation = vi.fn();
     render(<ConversationSidebar projects={[project]} onNewConversation={onNewConversation} />);
@@ -367,6 +395,27 @@ describe("ConversationSidebar", () => {
     fireEvent.click(sessionButton);
     expect(onNewConversation).not.toHaveBeenCalled();
     expect(onSelectSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps project browsing available while only project actions are disabled", async () => {
+    const onSelectSession = vi.fn();
+    render(
+      <ConversationSidebar
+        projects={[project]}
+        onSelectSession={onSelectSession}
+        onNewConversation={vi.fn()}
+        onShowProjectInFolder={vi.fn()}
+        projectActionsDisabled
+        projectActionsDisabledReason="项目配置正在更新"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "agent-moebius 项目菜单" })).toBeDisabled();
+    const session = screen.getByRole("button", { name: "导出功能重构" });
+    expect(session).toBeEnabled();
+    fireEvent.click(session);
+    expect(onSelectSession).toHaveBeenCalledWith("idle-refactor", "agent-moebius");
   });
 
   it("explains why a project with an unavailable directory cannot start a conversation", () => {

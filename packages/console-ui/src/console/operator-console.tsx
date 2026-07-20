@@ -51,6 +51,7 @@ export type OperatorSessionStatus =
   | "interrupted";
 export type OperatorRunnerStatus = "starting" | "running" | "stopped" | "crashed" | "error";
 export type OperatorApplicationView = "conversation" | "agent-teams";
+export type OperatorProjectListState = "ready" | "loading" | "error";
 export interface NewConversationOptions {
   projectId?: string;
 }
@@ -141,6 +142,7 @@ export interface OperatorConsoleProps {
   runnerStatus?: OperatorRunnerStatus;
   sqlitePath?: string;
   lastError?: string | null;
+  projectListState?: OperatorProjectListState;
   onComposerChange(value: string): void;
   onSend(): void;
   onOpenProject?: () => void;
@@ -156,6 +158,7 @@ export interface OperatorConsoleProps {
   onArchiveSession?: (sessionId: string, projectId: string) => void | Promise<void>;
   onInterrupt(sessionId: string, runId: string): void;
   onOpenDiagnostics?: () => void;
+  onRetryProjectList?: () => void;
   isSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
@@ -177,6 +180,7 @@ export function OperatorConsole({
   activeRun,
   composerValue,
   lastError,
+  projectListState = "ready",
   onComposerChange,
   onSend,
   onOpenProject,
@@ -192,6 +196,7 @@ export function OperatorConsole({
   onArchiveSession,
   onInterrupt,
   onOpenDiagnostics,
+  onRetryProjectList,
   isSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
@@ -216,6 +221,8 @@ export function OperatorConsole({
   const activeProjectId = selectedProjectId ?? project.projectId;
   const activeProject = visibleProjects.find((item) => item.projectId === activeProjectId) ?? project;
   const activeProjectUnavailable = activeProject.directoryAvailable === false;
+  const projectListUnavailable = projectListState !== "ready";
+  const projectConfigurationPending = isProjectMutationPending;
   const sidebarProjects = visibleProjects.map(toSidebarProject);
   const canSend = composerValue.trim() !== "" && activeRun === null && !isSending && !isSessionProjectUpdating && !activeProjectUnavailable;
   const emptyConversation = messages.length === 0 && activeRun === null;
@@ -276,11 +283,19 @@ export function OperatorConsole({
           <SidebarAction
             icon={Plus}
             label="新建对话"
-            disabled={activeProjectUnavailable}
-            disabledReason={activeProject.directoryUnavailableReason ?? undefined}
+            disabled={activeProjectUnavailable || projectListUnavailable || isSelectionMutationPending || projectConfigurationPending}
+            disabledReason={activeProject.directoryUnavailableReason
+              ?? (projectListUnavailable ? "项目数据尚不可用" : undefined)
+              ?? (isSelectionMutationPending || projectConfigurationPending ? "项目正在变更，请稍后再试" : undefined)}
             onClick={() => openNewConversation()}
           />
-          <SidebarAction icon={Search} label="搜索" onClick={() => setApplicationOverlay({ kind: "search" })} />
+          <SidebarAction
+            icon={Search}
+            label="搜索"
+            disabled={projectListUnavailable}
+            disabledReason={projectListUnavailable ? "项目数据尚不可用" : undefined}
+            onClick={() => setApplicationOverlay({ kind: "search" })}
+          />
           <SidebarAction
             icon={Diamond}
             label="Agent 团队"
@@ -291,9 +306,13 @@ export function OperatorConsole({
           />
         </nav>
 
-        <div className="shrink-0 px-4 pb-1 pt-2 text-xs font-medium text-hint">项目</div>
+        <div className="flex shrink-0 items-center justify-between px-4 pb-1 pt-2 text-xs font-medium text-hint">
+          <span>项目</span>
+          {projectConfigurationPending ? <span role="status">正在更新…</span> : null}
+        </div>
         <ConversationSidebar
           projects={sidebarProjects}
+          dataState={projectListState}
           selectedSessionId={isNewConversationWithoutProject ? undefined : selectedSessionId}
           showProjectPath={false}
           onSelectSession={(sessionId, projectId) => {
@@ -352,8 +371,11 @@ export function OperatorConsole({
               .catch((error: unknown) => setProjectActionError(error instanceof Error ? error.message : String(error)))
               .finally(() => setRepairPickerProjectId(null));
           }}
-          disabled={isSelectionMutationPending || isProjectMutationPending}
+          onRetry={onRetryProjectList}
+          disabled={isSelectionMutationPending}
           disabledReason="项目正在变更，请稍后再试"
+          projectActionsDisabled={projectConfigurationPending}
+          projectActionsDisabledReason="项目配置正在更新"
           className="min-h-0 w-full flex-1 overflow-hidden border-0"
         />
 

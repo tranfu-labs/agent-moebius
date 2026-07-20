@@ -50,6 +50,60 @@ describe("OperatorConsole", () => {
     expect(screen.queryByText(/本地引擎/u)).not.toBeInTheDocument();
   });
 
+  it("keeps all three application entries available when there are no projects", () => {
+    renderConsole({ projects: [] });
+
+    expect(screen.getByText("从“新建对话”添加第一个项目")).toBeVisible();
+    expect(screen.getByRole("button", { name: "新建对话" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "搜索" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Agent 团队" })).toBeEnabled();
+  });
+
+  it("shows project loading structure while keeping independent application areas available", () => {
+    renderConsole({ projectListState: "loading" });
+
+    expect(screen.getByLabelText("项目正在加载")).toBeVisible();
+    expect(screen.getByRole("button", { name: "新建对话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "搜索" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Agent 团队" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "设置" })).toBeEnabled();
+  });
+
+  it("shows project load failure with retry while Agent teams and Settings stay available", () => {
+    const onRetryProjectList = vi.fn();
+    renderConsole({ projectListState: "error", onRetryProjectList });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("项目加载失败");
+    expect(screen.getByRole("button", { name: "Agent 团队" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "设置" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(onRetryProjectList).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables conflicting project entries during configuration changes without blocking browsing", async () => {
+    const onSelectSession = vi.fn();
+    renderConsole({
+      isProjectMutationPending: true,
+      onSelectSession,
+      onShowProjectInFolder: vi.fn(),
+    });
+
+    expect(screen.getByRole("button", { name: "新建对话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "agent-moebius 项目菜单" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "搜索" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Agent 团队" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "设置" })).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveTextContent("正在更新…");
+
+    fireEvent.click(screen.getByRole("button", { name: "验收会话，需要你处理" }));
+    expect(onSelectSession).toHaveBeenCalledWith({ sessionId: "session-b", projectId: "local" });
+
+    const projectToggle = screen.getByRole("button", { name: "agent-moebius 项目，已展开" });
+    fireEvent.keyDown(projectToggle, { key: "Enter" });
+    expect(projectToggle).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("opens the new-conversation placeholder without creating a persisted session", () => {
     renderConsole();
 
