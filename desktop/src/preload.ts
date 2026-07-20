@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopStatusSnapshot } from "./status.js";
 import {
+  getAgentTeamFileManagerLabel,
+  TEAM_FILE_MANAGER_IPC_CHANNEL,
+  type AgentTeamFileManagerRequest,
+} from "./team-file-manager.js";
+import {
   TEAM_IPC_CHANNELS,
   type AgentTeamCreateRequest,
   type AgentTeamDuplicateBuiltInRequest,
@@ -25,6 +30,8 @@ export interface AgentMoebiusDesktopApi {
   selectProjectFolder(): Promise<string | null>;
   selectFolderForRepair(projectId: string): Promise<string | null>;
   showInFolder(folderPath: string): Promise<void>;
+  readonly agentTeamFileManagerLabel: string;
+  openAgentTeamLocation(request: AgentTeamFileManagerRequest): Promise<void>;
   listAgentTeams(): Promise<AgentTeamListResponse>;
   createAgentTeam(request: AgentTeamCreateRequest): Promise<AgentTeamListItem>;
   readAgentTeamMember(request: AgentTeamMemberRequest): Promise<AgentTeamMemberDocument>;
@@ -68,6 +75,10 @@ const api: AgentMoebiusDesktopApi = {
   },
   showInFolder(folderPath) {
     return ipcRenderer.invoke("project:show-in-folder", folderPath) as Promise<void>;
+  },
+  agentTeamFileManagerLabel: getAgentTeamFileManagerLabel(process.platform),
+  openAgentTeamLocation(request) {
+    return ipcRenderer.invoke(TEAM_FILE_MANAGER_IPC_CHANNEL, request) as Promise<void>;
   },
   listAgentTeams() {
     return ipcRenderer.invoke(TEAM_IPC_CHANNELS.list) as Promise<AgentTeamListResponse>;

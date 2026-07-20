@@ -22,6 +22,10 @@ import { DESKTOP_RUNNER_ARGS } from "./runner-launch.js";
 import { resolveShellPath } from "./shell-path.js";
 import type { DesktopStatusSnapshot } from "./status.js";
 import {
+  openAgentTeamLocationInFileManager,
+  TEAM_FILE_MANAGER_IPC_CHANNEL,
+} from "./team-file-manager.js";
+import {
   TEAM_IPC_CHANNELS,
   addAgentTeamMember,
   createAgentTeam,
@@ -292,6 +296,13 @@ ipcMain.handle(TEAM_IPC_CHANNELS.setPrimaryAgent, async (_event, request: unknow
 
 ipcMain.handle(TEAM_IPC_CHANNELS.duplicateBuiltIn, async (_event, request: unknown) =>
   duplicateBuiltInAgentTeam(status.dataRoot, request));
+
+ipcMain.handle(TEAM_FILE_MANAGER_IPC_CHANNEL, async (_event, request: unknown) =>
+  openAgentTeamLocationInFileManager({
+    dataRoot: status.dataRoot,
+    request,
+    shell,
+  }));
 
 ipcMain.handle("project:select-folder", async () => {
   const options: OpenDialogOptions = {

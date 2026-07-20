@@ -27,6 +27,7 @@ import type {
   AgentTeamPrimaryAgentWriteRequest,
   AgentTeamUpdateInformationRequest,
 } from "../team-ipc.js";
+import type { AgentTeamFileManagerRequest } from "../team-file-manager.js";
 import { parseAgentMarkdownIdentity } from "../team-model.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -73,6 +74,8 @@ interface DesktopApi {
   selectProjectFolder?: () => Promise<string | null>;
   selectFolderForRepair?: (projectId: string) => Promise<string | null>;
   showInFolder?: (folderPath: string) => Promise<void>;
+  readonly agentTeamFileManagerLabel?: string;
+  openAgentTeamLocation?: (request: AgentTeamFileManagerRequest) => Promise<void>;
   listAgentTeams?: () => Promise<AgentTeamListResponse>;
   createAgentTeam?: (request: AgentTeamCreateRequest) => Promise<AgentTeamListItem>;
   readAgentTeamMember?: (request: AgentTeamMemberRequest) => Promise<AgentTeamMemberDocument>;
@@ -497,6 +500,19 @@ function App(): JSX.Element {
       });
   }, [agentTeamsState]);
 
+  const openAgentTeamLocation = useCallback(async (teamKey: string, memberSlug?: string): Promise<void> => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const openLocation = window.agentMoebius?.openAgentTeamLocation;
+    if (team === undefined || openLocation === undefined) {
+      throw new Error("暂时无法打开这个位置，请稍后重试。");
+    }
+    await openLocation({
+      teamId: team.id,
+      ownership: team.ownership,
+      ...(memberSlug === undefined ? {} : { memberSlug }),
+    });
+  }, [agentTeamsState]);
+
   const agentTeamDetailState = useMemo<AgentTeamDetailState | null>(() => {
     if (activeAgentTeamKey === null) {
       return null;
@@ -908,6 +924,8 @@ function App(): JSX.Element {
       }}
       onSaveAllAgentTeamDrafts={saveAllDraftsAndLeave}
       onDuplicateBuiltInAgentTeam={duplicateBuiltInAgentTeam}
+      agentTeamFileManagerLabel={window.agentMoebius?.agentTeamFileManagerLabel ?? "在文件管理器中打开"}
+      onOpenAgentTeamLocation={openAgentTeamLocation}
       isSending={isSending}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}

@@ -200,6 +200,8 @@ export interface OperatorConsoleProps {
   onDiscardAllAgentTeamDrafts?: (teamKey: string) => void;
   onSaveAllAgentTeamDrafts?: (teamKey: string) => Promise<{ failures: AgentTeamSaveAllFailureView[] }>;
   onDuplicateBuiltInAgentTeam?: (teamKey: string) => Promise<string>;
+  agentTeamFileManagerLabel?: string;
+  onOpenAgentTeamLocation?: (teamKey: string, memberSlug?: string) => void | Promise<void>;
   isSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
@@ -257,6 +259,8 @@ export function OperatorConsole({
   onDiscardAllAgentTeamDrafts,
   onSaveAllAgentTeamDrafts,
   onDuplicateBuiltInAgentTeam,
+  agentTeamFileManagerLabel = "在文件管理器中打开",
+  onOpenAgentTeamLocation,
   isSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
@@ -546,6 +550,8 @@ export function OperatorConsole({
             onDiscardAll={onDiscardAllAgentTeamDrafts}
             onSaveAll={onSaveAllAgentTeamDrafts}
             onDuplicateBuiltInTeam={onDuplicateBuiltInAgentTeam}
+            fileManagerActionLabel={agentTeamFileManagerLabel}
+            onOpenLocation={onOpenAgentTeamLocation}
             onBack={() => setApplicationView("conversation")}
           />
         ) : (

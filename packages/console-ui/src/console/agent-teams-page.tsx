@@ -1,4 +1,4 @@
-import { AlertTriangle, LoaderCircle, Plus } from "lucide-react";
+import { AlertTriangle, ChevronDown, FolderOpen, LoaderCircle, MoreHorizontal, Plus } from "lucide-react";
 import { useRef, useState } from "react";
 
 import {
@@ -9,6 +9,14 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/ui/dropdown-menu";
+
+const FILE_MANAGER_OPEN_ERROR = "暂时无法打开这个位置。请确认相关文件仍然存在，并检查访问权限后重试。";
 
 export interface OperatorAgentTeamMember {
   slug: string;
@@ -61,6 +69,8 @@ export function AgentTeamsPage({
   onDiscardAll,
   onSaveAll,
   onDuplicateBuiltInTeam,
+  fileManagerActionLabel = "在文件管理器中打开",
+  onOpenLocation,
   onBack,
 }: {
   state: OperatorAgentTeamsState;
@@ -83,6 +93,8 @@ export function AgentTeamsPage({
   onDiscardAll?: (teamKey: string) => void;
   onSaveAll?: (teamKey: string) => Promise<{ failures: AgentTeamSaveAllFailureView[] }>;
   onDuplicateBuiltInTeam?: (teamKey: string) => Promise<string>;
+  fileManagerActionLabel?: string;
+  onOpenLocation?: (teamKey: string, memberSlug?: string) => void | Promise<void>;
   onBack: () => void;
 }): JSX.Element {
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -92,6 +104,7 @@ export function AgentTeamsPage({
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editingTeamInformation, setEditingTeamInformation] = useState<OperatorAgentTeam | null>(null);
+  const [fileManagerError, setFileManagerError] = useState<"team" | "member" | null>(null);
   const openedTeam = state.status === "ready"
     ? state.teams.find((team) => team.teamKey === openedTeamKey)
     : undefined;
@@ -104,6 +117,7 @@ export function AgentTeamsPage({
   const openTeam = (teamKey: string) => {
     listScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? 0;
     setDuplicateError(null);
+    setFileManagerError(null);
     onOpenTeam?.(teamKey);
     setOpenedTeamKey(teamKey);
     if (scrollContainerRef.current !== null) {
@@ -114,6 +128,7 @@ export function AgentTeamsPage({
   const returnToList = () => {
     onCloseTeam?.();
     setDuplicateError(null);
+    setFileManagerError(null);
     setOpenedTeamKey(null);
     if (scrollContainerRef.current !== null) {
       scrollContainerRef.current.scrollTop = listScrollTopRef.current;
@@ -133,6 +148,18 @@ export function AgentTeamsPage({
       setDuplicateError(error instanceof Error ? error.message : "暂时无法复制团队，请稍后重试。");
     } finally {
       setDuplicatingTeamKey(null);
+    }
+  };
+
+  const openLocation = async (team: OperatorAgentTeam, memberSlug?: string) => {
+    if (onOpenLocation === undefined) {
+      return;
+    }
+    setFileManagerError(null);
+    try {
+      await onOpenLocation(team.teamKey, memberSlug);
+    } catch {
+      setFileManagerError(memberSlug === undefined ? "team" : "member");
     }
   };
 
@@ -159,34 +186,66 @@ export function AgentTeamsPage({
               <AgentTeamDetail
                 team={openedTeam}
                 state={openedDetailState}
-                teamActions={openedTeam.ownership === "system" ? (
-                  <div className="flex max-w-xs flex-col items-end gap-2">
-                    <Button
-                      type="button"
-                      disabled={duplicatingTeamKey !== null || onDuplicateBuiltInTeam === undefined}
-                      onClick={() => void duplicateBuiltInTeam(openedTeam)}
-                    >
-                      {duplicatingTeamKey === openedTeam.teamKey ? (
-                        <LoaderCircle className="mr-2 h-4 w-4 animate-spin" strokeWidth={1.5} aria-hidden="true" />
-                      ) : null}
-                      {duplicatingTeamKey === openedTeam.teamKey ? "正在复制…" : "复制并编辑"}
-                    </Button>
-                    {duplicateError !== null ? (
-                      <p className="text-right text-sm leading-5 text-danger" role="alert">{duplicateError}</p>
-                    ) : null}
-                  </div>
-                ) : onUpdateTeamInformation !== undefined ? (
-                  <Button type="button" variant="outline" size="sm" onClick={() => setEditingTeamInformation(openedTeam)}>
-                    修改信息
-                  </Button>
-                ) : undefined}
                 onChangePrimaryAgent={onChangePrimaryAgent === undefined
                   ? undefined
                   : (memberSlug) => onChangePrimaryAgent(openedTeam.teamKey, memberSlug)}
                 readOnly={openedTeam.ownership === "system"}
+                teamActions={(
+                  <div className="flex max-w-sm flex-col items-end gap-2">
+                    <div className="flex items-center gap-2">
+                      {openedTeam.ownership === "system" ? (
+                        <Button
+                          type="button"
+                          disabled={duplicatingTeamKey !== null || onDuplicateBuiltInTeam === undefined}
+                          onClick={() => void duplicateBuiltInTeam(openedTeam)}
+                        >
+                          {duplicatingTeamKey === openedTeam.teamKey ? (
+                            <LoaderCircle className="mr-2 h-4 w-4 animate-spin" strokeWidth={1.5} aria-hidden="true" />
+                          ) : null}
+                          {duplicatingTeamKey === openedTeam.teamKey ? "正在复制…" : "复制并编辑"}
+                        </Button>
+                      ) : onUpdateTeamInformation !== undefined ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEditingTeamInformation(openedTeam)}
+                        >
+                          修改信息
+                        </Button>
+                      ) : null}
+                      <FileManagerMenu
+                        triggerLabel={`${teamName(openedTeam)}更多操作`}
+                        actionLabel={fileManagerActionLabel}
+                        disabled={onOpenLocation === undefined}
+                        onOpen={() => void openLocation(openedTeam)}
+                      />
+                    </div>
+                    {duplicateError !== null ? (
+                      <p className="text-right text-sm leading-5 text-danger" role="alert">{duplicateError}</p>
+                    ) : null}
+                    {fileManagerError === "team" ? (
+                      <p className="max-w-sm text-right text-sm leading-5 text-danger" role="alert">{FILE_MANAGER_OPEN_ERROR}</p>
+                    ) : null}
+                  </div>
+                )}
                 onAddMember={openedTeam.ownership === "user" && onAddMember !== undefined
                   ? () => onAddMember(openedTeam.teamKey)
                   : undefined}
+                memberActions={openedDetailState.selectedMemberSlug === null ? undefined : (
+                  <div className="flex max-w-sm flex-col items-end gap-2">
+                    <FileManagerMenu
+                      iconOnly
+                      triggerLabel={`${memberName(openedTeam, openedDetailState.selectedMemberSlug)}更多操作`}
+                      actionLabel={fileManagerActionLabel}
+                      disabled={onOpenLocation === undefined}
+                      onOpen={() => void openLocation(openedTeam, openedDetailState.selectedMemberSlug ?? undefined)}
+                    />
+                    {fileManagerError === "member" ? (
+                      <p className="max-w-sm text-right text-sm leading-5 text-danger" role="alert">{FILE_MANAGER_OPEN_ERROR}</p>
+                    ) : null}
+                  </div>
+                )}
                 onSelectMember={(memberSlug) => onSelectMember?.(openedTeam.teamKey, memberSlug)}
                 onChangeMember={(memberSlug, agentMarkdown) => onChangeMember?.(openedTeam.teamKey, memberSlug, agentMarkdown)}
                 onSaveMember={(memberSlug) => onSaveMember?.(openedTeam.teamKey, memberSlug)}
@@ -390,6 +449,49 @@ function TeamInformationDialog({
   );
 }
 
+function FileManagerMenu({
+  triggerLabel,
+  actionLabel,
+  disabled,
+  iconOnly = false,
+  onOpen,
+}: {
+  triggerLabel: string;
+  actionLabel: string;
+  disabled: boolean;
+  iconOnly?: boolean;
+  onOpen: () => void;
+}): JSX.Element {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size={iconOnly ? "icon" : "sm"}
+          aria-label={triggerLabel}
+          disabled={disabled}
+        >
+          {iconOnly ? (
+            <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          ) : (
+            <>
+              更多
+              <ChevronDown className="ml-1.5 h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            </>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-52">
+        <DropdownMenuItem onSelect={onOpen}>
+          <FolderOpen className="mr-2 h-4 w-4 text-sub" strokeWidth={1.5} aria-hidden="true" />
+          {actionLabel}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function AgentTeamRow({
   team,
   useStackedLayout,
@@ -504,6 +606,10 @@ function orderTeamMembers(team: OperatorAgentTeam): OperatorAgentTeamMember[] {
 
 function teamName(team: OperatorAgentTeam): string {
   return team.name?.trim() || "未命名团队";
+}
+
+function memberName(team: OperatorAgentTeam, memberSlug: string): string {
+  return team.members.find((member) => member.slug === memberSlug)?.displayName || `@${memberSlug}`;
 }
 
 function teamDescription(team: OperatorAgentTeam): string {
