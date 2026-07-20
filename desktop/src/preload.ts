@@ -33,6 +33,11 @@ import {
   type AgentTeamRelocateRequest,
   type AgentTeamRepairRequest,
 } from "./team-repair-ipc.js";
+import {
+  TEAM_CONVERSATION_PREFERENCE_IPC_CHANNELS,
+  type LastUsedAgentTeam,
+  type SuccessfulConversationAgentTeamRequest,
+} from "./team-conversation-preference.js";
 
 export interface AgentMoebiusDesktopApi {
   onStatus(listener: (snapshot: DesktopStatusSnapshot) => void): () => void;
@@ -64,6 +69,10 @@ export interface AgentMoebiusDesktopApi {
   selectAgentTeamRelocationFolder(): Promise<string | null>;
   relocateAgentTeamRecord(request: AgentTeamRelocateRequest): Promise<AgentTeamListItem>;
   removeAgentTeamRecord(request: AgentTeamRepairRequest): Promise<void>;
+  readLastUsedAgentTeam(): Promise<LastUsedAgentTeam | null>;
+  recordSuccessfulConversationAgentTeam(
+    request: SuccessfulConversationAgentTeamRequest,
+  ): Promise<LastUsedAgentTeam>;
 }
 
 const api: AgentMoebiusDesktopApi = {
@@ -154,6 +163,17 @@ const api: AgentMoebiusDesktopApi = {
   },
   removeAgentTeamRecord(request) {
     return ipcRenderer.invoke(TEAM_REPAIR_IPC_CHANNELS.removeRecord, request) as Promise<void>;
+  },
+  readLastUsedAgentTeam() {
+    return ipcRenderer.invoke(
+      TEAM_CONVERSATION_PREFERENCE_IPC_CHANNELS.readLastUsed,
+    ) as Promise<LastUsedAgentTeam | null>;
+  },
+  recordSuccessfulConversationAgentTeam(request) {
+    return ipcRenderer.invoke(
+      TEAM_CONVERSATION_PREFERENCE_IPC_CHANNELS.recordSuccessful,
+      request,
+    ) as Promise<LastUsedAgentTeam>;
   },
 };
 

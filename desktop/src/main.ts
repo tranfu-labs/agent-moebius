@@ -51,6 +51,11 @@ import {
   TEAM_EXTERNAL_CHANGE_IPC_CHANNEL,
   checkAgentTeamMemberExternalChange,
 } from "./team-external-change.js";
+import {
+  TEAM_CONVERSATION_PREFERENCE_IPC_CHANNELS,
+  readLastUsedAgentTeam,
+  recordSuccessfulConversationAgentTeam,
+} from "./team-conversation-preference.js";
 import { decideUpdate, type ReleaseMetadata } from "./updater.js";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -351,6 +356,18 @@ ipcMain.handle(TEAM_IPC_CHANNELS.trashUserTeam, async (_event, request: unknown)
 
 ipcMain.handle(TEAM_EXTERNAL_CHANGE_IPC_CHANNEL, async (_event, request: unknown) =>
   checkAgentTeamMemberExternalChange(status.dataRoot, request));
+
+ipcMain.handle(TEAM_CONVERSATION_PREFERENCE_IPC_CHANNELS.readLastUsed, async () =>
+  readLastUsedAgentTeam(status.dataRoot));
+
+ipcMain.handle(TEAM_CONVERSATION_PREFERENCE_IPC_CHANNELS.recordSuccessful, async (_event, request: unknown) =>
+  recordSuccessfulConversationAgentTeam(status.dataRoot, request, async (sessionId) => {
+    if (localConsoleServer === null) {
+      return false;
+    }
+    const localState = await localConsoleServer.runtime.state({ sessionId });
+    return localState.selectedSession?.sessionId === sessionId;
+  }));
 
 ipcMain.handle("project:select-folder", async () => {
   const options: OpenDialogOptions = {

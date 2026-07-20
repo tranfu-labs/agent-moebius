@@ -120,9 +120,21 @@ describe("ConsoleStateActions", () => {
     expect(coordinator.isSelectionMutationPending).toBe(true);
 
     refreshResponse.resolve(true);
-    await create;
+    await expect(create).resolves.toEqual({ sessionId: "session-b" });
     expect(coordinator.isSelectionMutationPending).toBe(false);
     expect(harness.mutationKinds).toEqual(["create-session", null]);
+  });
+
+  it("reports a failed create without producing a successful session result", async () => {
+    const coordinator = new ConsoleStateCoordinator();
+    const fetch = vi.fn(async () => jsonResponse({ error: "create rejected" }, 500));
+    const harness = actionHarness({ coordinator, fetch });
+
+    await expect(harness.actions.createSession("project-b")).resolves.toBeNull();
+
+    expect(harness.selection()).toEqual({ projectId: "project-a", sessionId: "session-a" });
+    expect(harness.errors).toEqual(["create rejected"]);
+    expect(coordinator.isSelectionMutationPending).toBe(false);
   });
 
   it("blocks every selection handler and duplicate mutation while folder picking is pending", async () => {

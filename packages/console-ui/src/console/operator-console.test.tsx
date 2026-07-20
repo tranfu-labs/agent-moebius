@@ -7,6 +7,7 @@ import {
   MIN_SIDEBAR_WIDTH_PX,
   NARROW_WINDOW_WIDTH_PX,
   OperatorConsole,
+  resolveNewConversationAgentTeamKey,
   type OperatorConsoleProps,
   type OperatorMessage,
   type OperatorProject,
@@ -114,21 +115,20 @@ describe("OperatorConsole", () => {
     expect(projectToggle).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("opens the new-conversation placeholder without creating a persisted session", () => {
+  it("opens the new-conversation form without creating a persisted session until confirmed", () => {
     renderConsole();
 
     fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
 
     expect(screen.getByRole("dialog", { name: "新建对话" })).toBeVisible();
-    expect(screen.getByText("此入口不会直接创建空白对话。", { exact: false })).toBeVisible();
     expect(screen.getByRole("button", { name: "创建对话" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(screen.queryByRole("dialog", { name: "新建对话" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("opens the same new-conversation placeholder with the owning project preselected", () => {
+  it("opens the same new-conversation form with the owning project preselected", () => {
     const secondProject: OperatorProject = {
       ...project,
       projectId: "project-b",
@@ -142,9 +142,93 @@ describe("OperatorConsole", () => {
 
     const dialog = screen.getByRole("dialog", { name: "新建对话" });
     expect(dialog).toBeVisible();
-    expect(screen.getByTestId("preselected-project")).toHaveTextContent("已预选项目");
-    expect(screen.getByTestId("preselected-project")).toHaveTextContent("project-b");
-    expect(screen.getByText("此入口不会直接创建空白对话。", { exact: false })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "项目" })).toHaveValue("project-b");
+  });
+
+  it("preselects the last successfully used usable team and lets the user change it before creation", async () => {
+    const userTeam = {
+      ...agentTeam,
+      teamKey: "user:my-team",
+      id: "my-team",
+      ownership: "user" as const,
+      name: "我的团队",
+    };
+    const onCreateConversation = vi.fn().mockResolvedValue(true);
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [agentTeam, userTeam] },
+      lastUsedAgentTeamKey: userTeam.teamKey,
+      onCreateConversation,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+    const teamSelector = screen.getByRole("combobox", { name: "Agent 团队" });
+    expect(teamSelector).toHaveValue(userTeam.teamKey);
+
+    fireEvent.change(teamSelector, { target: { value: agentTeam.teamKey } });
+    expect(teamSelector).toHaveValue(agentTeam.teamKey);
+    expect(onCreateConversation).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "创建对话" }));
+    await waitFor(() => expect(onCreateConversation).toHaveBeenCalledWith("local", agentTeam.teamKey));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新建对话" })).not.toBeInTheDocument());
+  });
+
+  it("falls back to the first built-in team for first use, deletion, drafts, and repair states", () => {
+    const unavailableLastUsed = {
+      ...agentTeam,
+      teamKey: "user:broken",
+      id: "broken",
+      ownership: "user" as const,
+      name: "需要修复的团队",
+      status: "needs-repair" as const,
+      canCreateConversation: false,
+    };
+    const draft = {
+      ...unavailableLastUsed,
+      teamKey: "user:draft",
+      id: "draft",
+      name: "未完成团队",
+      status: "unfinished-draft" as const,
+    };
+    const teams = [agentTeam, unavailableLastUsed, draft];
+    expect(resolveNewConversationAgentTeamKey(teams, null)).toBe(agentTeam.teamKey);
+    expect(resolveNewConversationAgentTeamKey(teams, "user:deleted")).toBe(agentTeam.teamKey);
+    expect(resolveNewConversationAgentTeamKey(teams, unavailableLastUsed.teamKey)).toBe(agentTeam.teamKey);
+    renderConsole({
+      agentTeamsState: { status: "ready", teams },
+      lastUsedAgentTeamKey: unavailableLastUsed.teamKey,
+      onCreateConversation: vi.fn(),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+    const teamSelector = screen.getByRole("combobox", { name: "Agent 团队" });
+    expect(teamSelector).toHaveValue(agentTeam.teamKey);
+    expect(within(teamSelector).queryByRole("option", { name: "需要修复的团队" })).not.toBeInTheDocument();
+    expect(within(teamSelector).queryByRole("option", { name: "未完成团队" })).not.toBeInTheDocument();
+  });
+
+  it("does not change the next preselection when the user changes teams and cancels", () => {
+    const userTeam = {
+      ...agentTeam,
+      teamKey: "user:my-team",
+      id: "my-team",
+      ownership: "user" as const,
+      name: "我的团队",
+    };
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [agentTeam, userTeam] },
+      lastUsedAgentTeamKey: userTeam.teamKey,
+      onCreateConversation: vi.fn(),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Agent 团队" }), {
+      target: { value: agentTeam.teamKey },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+
+    expect(screen.getByRole("combobox", { name: "Agent 团队" })).toHaveValue(userTeam.teamKey);
   });
 
   it("keeps a project with an unavailable directory out of the new-conversation flow", () => {
@@ -162,13 +246,13 @@ describe("OperatorConsole", () => {
     expect(screen.queryByRole("dialog", { name: "新建对话" })).not.toBeInTheDocument();
   });
 
-  it("offers project setup from the new-conversation placeholder when no project exists", () => {
+  it("offers project setup from the new-conversation form when no project exists", () => {
     const onOpenProject = vi.fn();
     renderConsole({ projects: [], onOpenProject });
 
     fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
 
-    expect(screen.getByText("还没有项目")).toBeVisible();
+    expect(screen.getByText("还没有可用项目")).toBeVisible();
     expect(screen.getByRole("button", { name: "创建对话" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "添加项目" }));
     expect(onOpenProject).toHaveBeenCalledTimes(1);

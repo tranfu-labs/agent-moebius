@@ -161,8 +161,12 @@ export async function acknowledgeDisplayedResult(options: {
   return body.cleared === true;
 }
 
+export interface CreatedSession {
+  sessionId: string;
+}
+
 interface SessionResponse {
-  session?: { sessionId: string };
+  session?: CreatedSession;
   error?: string;
 }
 
@@ -204,14 +208,14 @@ export interface ConsoleStateActionsOptions {
 export class ConsoleStateActions {
   constructor(private readonly options: ConsoleStateActionsOptions) {}
 
-  readonly createSession = async (projectId: string): Promise<void> => {
+  readonly createSession = async (projectId: string): Promise<CreatedSession | null> => {
     if (this.options.apiBase === null) {
       this.options.setError("local console server unavailable");
-      return;
+      return null;
     }
     const token = this.beginMutation("create-session");
     if (token === null) {
-      return;
+      return null;
     }
     try {
       const fetch = this.options.fetch;
@@ -228,8 +232,10 @@ export class ConsoleStateActions {
       this.options.commitSelection(nextSelection);
       this.options.clearComposer();
       await this.options.refresh(nextSelection, token);
+      return body.session;
     } catch (error) {
       this.options.setError(formatError(error));
+      return null;
     } finally {
       this.finishMutation(token);
     }

@@ -34,6 +34,10 @@ import type {
 import type { AgentTeamRelocateRequest, AgentTeamRepairRequest } from "../team-repair-ipc.js";
 import type { AgentTeamFileManagerRequest } from "../team-file-manager.js";
 import type {
+  LastUsedAgentTeam,
+  SuccessfulConversationAgentTeamRequest,
+} from "../team-conversation-preference.js";
+import type {
   AgentTeamExternalChangeRequest,
   AgentTeamExternalChangeResponse,
 } from "../team-external-change.js";
@@ -55,6 +59,7 @@ import {
   writeSidebarVisibilityPreference,
   type SidebarVisibilityPreference,
 } from "./sidebar-preference.js";
+import { createConversationAndRecordTeam } from "./new-conversation.js";
 import {
   applyAgentTeamMemberExternalChange,
   clearAgentTeamMemberExternalChange,
@@ -110,6 +115,10 @@ interface DesktopApi {
   selectAgentTeamRelocationFolder?: () => Promise<string | null>;
   relocateAgentTeamRecord?: (request: AgentTeamRelocateRequest) => Promise<AgentTeamListItem>;
   removeAgentTeamRecord?: (request: AgentTeamRepairRequest) => Promise<void>;
+  readLastUsedAgentTeam?: () => Promise<LastUsedAgentTeam | null>;
+  recordSuccessfulConversationAgentTeam?: (
+    request: SuccessfulConversationAgentTeamRequest,
+  ) => Promise<LastUsedAgentTeam>;
 }
 
 interface DesktopStatusSnapshot {
@@ -163,6 +172,7 @@ function App(): JSX.Element {
   const [isProjectMutationPending, setIsProjectMutationPending] = useState(false);
   const [isNewConversationWithoutProject, setIsNewConversationWithoutProject] = useState(false);
   const [agentTeamsState, setAgentTeamsState] = useState<OperatorAgentTeamsState>({ status: "loading" });
+  const [lastUsedAgentTeamKey, setLastUsedAgentTeamKey] = useState<string | null>(null);
   const [agentTeamSelection, setAgentTeamSelection] = useState<AgentTeamSelection | null>(null);
   const [activeAgentTeamKey, setActiveAgentTeamKey] = useState<string | null>(null);
   const [agentTeamDraftState, setAgentTeamDraftState] = useState<AgentTeamDraftState>(EMPTY_AGENT_TEAM_DRAFT_STATE);
@@ -195,7 +205,10 @@ function App(): JSX.Element {
       }
 
       try {
-        const result = await listTeams();
+        const [result, lastUsedTeam] = await Promise.all([
+          listTeams(),
+          window.agentMoebius?.readLastUsedAgentTeam?.().catch(() => null) ?? Promise.resolve(null),
+        ]);
         if (cancelled) {
           return;
         }
@@ -211,6 +224,7 @@ function App(): JSX.Element {
         }
 
         setAgentTeamsState({ status: "ready", teams: result.teams.map(toOperatorAgentTeam) });
+        setLastUsedAgentTeamKey(lastUsedTeam === null ? null : getAgentTeamIdentityKey(lastUsedTeam));
         setAgentTeamSelection((current) => reconcileAgentTeamSelection(result.teams, current));
       } catch {
         if (!cancelled) {
@@ -979,6 +993,34 @@ function App(): JSX.Element {
       : () => window.agentMoebius!.selectProjectFolder!(),
   }), [apiBase, commitSelection, composerValue, refresh]);
 
+  const createConversation = useCallback(async (projectId: string, teamKey: string): Promise<boolean> => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    if (team === undefined || !team.canCreateConversation) {
+      setClientError("所选 Agent 团队当前不能用于新建对话。");
+      return false;
+    }
+
+    const recordSuccessfulTeam = window.agentMoebius?.recordSuccessfulConversationAgentTeam;
+    const result = await createConversationAndRecordTeam({
+      projectId,
+      team: { teamId: team.id, ownership: team.ownership },
+      createSession: (targetProjectId) => actions.createSession(targetProjectId),
+      recordSuccessfulTeam: recordSuccessfulTeam === undefined
+        ? async () => undefined
+        : (request) => recordSuccessfulTeam(request),
+    });
+    if (!result.created) {
+      return false;
+    }
+    if (result.preferenceRecorded) {
+      setLastUsedAgentTeamKey(team.teamKey);
+    } else {
+      setClientError(`会话已创建，但无法记住本次使用的 Agent 团队：${formatError(result.preferenceError)}`);
+    }
+    setIsNewConversationWithoutProject(false);
+    return true;
+  }, [actions, agentTeamsState]);
+
   const toggleProjectWorktree = useCallback(async (projectId: string, worktreeMode: boolean) => {
     if (apiBase === null) {
       setClientError("local console server unavailable");
@@ -1148,12 +1190,14 @@ function App(): JSX.Element {
       lastError={lastError}
       projectListState={projectListState}
       agentTeamsState={agentTeamsState}
+      lastUsedAgentTeamKey={lastUsedAgentTeamKey}
       selectedAgentTeamKey={agentTeamSelection?.teamKey}
       selectedAgentTeamMemberSlug={agentTeamSelection?.memberSlug}
       agentTeamDetailState={agentTeamDetailState}
       onComposerChange={setComposerValue}
       onSend={actions.sendMessage}
       onOpenProject={actions.openProject}
+      onCreateConversation={createConversation}
       onReorderProjects={actions.reorderProjects}
       onToggleProjectWorktree={toggleProjectWorktree}
       onSelectSession={(nextSelection) => {
@@ -1272,6 +1316,10 @@ function toOperatorAgentTeam(team: AgentTeamListItem): OperatorAgentTeam {
     canCreateConversation: team.canCreateConversation,
     issues: team.issues,
   };
+}
+
+function getAgentTeamIdentityKey(team: LastUsedAgentTeam): string {
+  return `${team.ownership}:${team.teamId}`;
 }
 
 function findOperatorAgentTeam(state: OperatorAgentTeamsState, teamKey: string): OperatorAgentTeam | undefined {

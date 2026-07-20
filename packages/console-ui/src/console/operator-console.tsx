@@ -167,12 +167,14 @@ export interface OperatorConsoleProps {
   lastError?: string | null;
   projectListState?: OperatorProjectListState;
   agentTeamsState?: OperatorAgentTeamsState;
+  lastUsedAgentTeamKey?: string | null;
   selectedAgentTeamKey?: string | null;
   selectedAgentTeamMemberSlug?: string | null;
   agentTeamDetailState?: AgentTeamDetailState | null;
   onComposerChange(value: string): void;
   onSend(): void;
   onOpenProject?: () => void;
+  onCreateConversation?: (projectId: string, teamKey: string) => boolean | void | Promise<boolean | void>;
   onReorderProjects?: (projectIds: string[]) => boolean | void | Promise<boolean | void>;
   onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
@@ -236,12 +238,14 @@ export function OperatorConsole({
   lastError,
   projectListState = "ready",
   agentTeamsState = { status: "loading" },
+  lastUsedAgentTeamKey = null,
   selectedAgentTeamKey,
   selectedAgentTeamMemberSlug,
   agentTeamDetailState,
   onComposerChange,
   onSend,
   onOpenProject,
+  onCreateConversation,
   onReorderProjects,
   onToggleProjectWorktree,
   onSelectSession,
@@ -696,7 +700,10 @@ export function OperatorConsole({
         <ApplicationPlaceholder
           overlay={applicationOverlay}
           projects={visibleProjects}
+          agentTeamsState={agentTeamsState}
+          lastUsedAgentTeamKey={lastUsedAgentTeamKey}
           onAddProject={onOpenProject}
+          onCreateConversation={onCreateConversation}
           onClose={() => setApplicationOverlay(null)}
         />
       ) : null}
@@ -1039,23 +1046,33 @@ function SidebarAction({
 function ApplicationPlaceholder({
   overlay,
   projects,
+  agentTeamsState,
+  lastUsedAgentTeamKey,
   onAddProject,
+  onCreateConversation,
   onClose,
 }: {
   overlay: OperatorApplicationOverlay;
   projects: OperatorProject[];
+  agentTeamsState: OperatorAgentTeamsState;
+  lastUsedAgentTeamKey: string | null;
   onAddProject?: () => void;
+  onCreateConversation?: (projectId: string, teamKey: string) => boolean | void | Promise<boolean | void>;
   onClose: () => void;
 }): JSX.Element {
-  const isNewConversation = overlay.kind === "new-conversation";
-  const hasProjects = projects.length > 0;
-  const preselectedProject = isNewConversation && overlay.options.projectId !== undefined
-    ? projects.find((project) => project.projectId === overlay.options.projectId)
-    : undefined;
-  const title = isNewConversation ? "新建对话" : "全局搜索";
-  const description = isNewConversation
-    ? "新建对话窗口将在后续任务中提供。此入口不会直接创建空白对话。"
-    : "全局搜索将在后续任务中提供。关闭此窗口后会回到原来的项目和对话。";
+  if (overlay.kind === "new-conversation") {
+    return (
+      <NewConversationDialog
+        options={overlay.options}
+        projects={projects}
+        agentTeamsState={agentTeamsState}
+        lastUsedAgentTeamKey={lastUsedAgentTeamKey}
+        onAddProject={onAddProject}
+        onCreateConversation={onCreateConversation}
+        onClose={onClose}
+      />
+    );
+  }
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink/20 p-6" data-testid="application-overlay">
@@ -1066,32 +1083,12 @@ function ApplicationPlaceholder({
         aria-labelledby="application-placeholder-title"
       >
         <h1 id="application-placeholder-title" className="text-lg font-semibold tracking-[-0.01em] text-ink">
-          {title}
+          全局搜索
         </h1>
-        <p className="mt-2 text-sm leading-6 text-sub">{description}</p>
-        {preselectedProject ? (
-          <div className="mt-4 rounded-lg border border-line bg-rail p-3" data-testid="preselected-project">
-            <p className="text-xs font-medium text-sub">已预选项目</p>
-            <p className="mt-1 truncate text-sm font-medium text-ink" title={preselectedProject.title}>
-              {preselectedProject.title}
-            </p>
-          </div>
-        ) : null}
-        {isNewConversation && !hasProjects ? (
-          <div className="mt-4 rounded-lg border border-line bg-rail p-3">
-            <p className="text-sm font-medium text-ink">还没有项目</p>
-            <p className="mt-1 text-xs leading-5 text-sub">请先添加项目；添加完成前不能创建对话。</p>
-            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onAddProject}>
-              添加项目
-            </Button>
-          </div>
-        ) : null}
+        <p className="mt-2 text-sm leading-6 text-sub">
+          全局搜索将在后续任务中提供。关闭此窗口后会回到原来的项目和对话。
+        </p>
         <div className="mt-5 flex justify-end gap-2">
-          {isNewConversation ? (
-            <Button type="button" disabled>
-              创建对话
-            </Button>
-          ) : null}
           <Button type="button" variant="outline" onClick={onClose}>
             关闭
           </Button>
@@ -1099,6 +1096,179 @@ function ApplicationPlaceholder({
       </section>
     </div>
   );
+}
+
+function NewConversationDialog({
+  options,
+  projects,
+  agentTeamsState,
+  lastUsedAgentTeamKey,
+  onAddProject,
+  onCreateConversation,
+  onClose,
+}: {
+  options: NewConversationOptions;
+  projects: OperatorProject[];
+  agentTeamsState: OperatorAgentTeamsState;
+  lastUsedAgentTeamKey: string | null;
+  onAddProject?: () => void;
+  onCreateConversation?: (projectId: string, teamKey: string) => boolean | void | Promise<boolean | void>;
+  onClose: () => void;
+}): JSX.Element {
+  const availableProjects = projects.filter((project) =>
+    project.directoryAvailable !== false && project.newConversationDisabledReason == null,
+  );
+  const availableTeams = agentTeamsState.status === "ready"
+    ? agentTeamsState.teams.filter((team) => team.canCreateConversation)
+    : [];
+  const preferredProjectId = availableProjects.some((project) => project.projectId === options.projectId)
+    ? options.projectId ?? null
+    : availableProjects[0]?.projectId ?? null;
+  const preferredTeamKey = resolveNewConversationAgentTeamKey(
+    agentTeamsState.status === "ready" ? agentTeamsState.teams : [],
+    lastUsedAgentTeamKey,
+  );
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(preferredProjectId);
+  const [selectedTeamKey, setSelectedTeamKey] = useState<string | null>(preferredTeamKey);
+  const [isCreating, setIsCreating] = useState(false);
+  const [creationError, setCreationError] = useState<string | null>(null);
+  const projectSelectionChangedRef = useRef(false);
+  const teamSelectionChangedRef = useRef(false);
+
+  useEffect(() => {
+    const selectionStillAvailable = availableProjects.some((project) => project.projectId === selectedProjectId);
+    if (!projectSelectionChangedRef.current || !selectionStillAvailable) {
+      setSelectedProjectId(preferredProjectId);
+    }
+  }, [availableProjects, preferredProjectId, selectedProjectId]);
+
+  useEffect(() => {
+    const selectionStillAvailable = availableTeams.some((team) => team.teamKey === selectedTeamKey);
+    if (!teamSelectionChangedRef.current || !selectionStillAvailable) {
+      setSelectedTeamKey(preferredTeamKey);
+    }
+  }, [availableTeams, preferredTeamKey, selectedTeamKey]);
+
+  const selectedTeam = availableTeams.find((team) => team.teamKey === selectedTeamKey);
+  const selectedPrimaryAgent = selectedTeam?.members.find((member) => member.slug === selectedTeam.primaryAgentSlug);
+  const canCreate = selectedProjectId !== null
+    && selectedTeamKey !== null
+    && onCreateConversation !== undefined
+    && !isCreating;
+
+  const submit = async (): Promise<void> => {
+    if (!canCreate || onCreateConversation === undefined || selectedProjectId === null || selectedTeamKey === null) {
+      return;
+    }
+    setIsCreating(true);
+    setCreationError(null);
+    try {
+      const created = await onCreateConversation(selectedProjectId, selectedTeamKey);
+      if (created === false) {
+        setCreationError("创建失败，请检查当前项目和 Agent 团队后重试。");
+        return;
+      }
+      onClose();
+    } catch (error) {
+      setCreationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink/20 p-6" data-testid="application-overlay">
+      <section
+        className="w-full max-w-md rounded-xl border border-line bg-canvas p-5 shadow-lg"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-conversation-title"
+      >
+        <h1 id="new-conversation-title" className="text-lg font-semibold tracking-[-0.01em] text-ink">
+          新建对话
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-sub">选择项目和负责这段对话的 Agent 团队。</p>
+
+        {availableProjects.length > 0 ? (
+          <label className="mt-5 grid gap-1.5 text-xs font-medium text-sub">
+            项目
+            <select
+              className="h-9 w-full rounded-md border border-line bg-input px-3 text-sm font-normal text-ink outline-none focus:border-accent"
+              aria-label="项目"
+              value={selectedProjectId ?? ""}
+              disabled={isCreating}
+              onChange={(event) => {
+                projectSelectionChangedRef.current = true;
+                setSelectedProjectId(event.currentTarget.value);
+              }}
+            >
+              {availableProjects.map((project) => (
+                <option key={project.projectId} value={project.projectId}>{project.title}</option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <div className="mt-5 rounded-lg border border-line bg-rail p-3">
+            <p className="text-sm font-medium text-ink">还没有可用项目</p>
+            <p className="mt-1 text-xs leading-5 text-sub">请先添加项目；添加完成前不能创建对话。</p>
+            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onAddProject}>
+              添加项目
+            </Button>
+          </div>
+        )}
+
+        <label className="mt-4 grid gap-1.5 text-xs font-medium text-sub">
+          Agent 团队
+          <select
+            className="h-9 w-full rounded-md border border-line bg-input px-3 text-sm font-normal text-ink outline-none focus:border-accent disabled:text-hint"
+            aria-label="Agent 团队"
+            value={selectedTeamKey ?? ""}
+            disabled={isCreating || availableTeams.length === 0}
+            onChange={(event) => {
+              teamSelectionChangedRef.current = true;
+              setSelectedTeamKey(event.currentTarget.value);
+            }}
+          >
+            {availableTeams.length === 0 ? (
+              <option value="">
+                {agentTeamsState.status === "loading" ? "正在载入团队…" : "没有可用团队"}
+              </option>
+            ) : availableTeams.map((team) => (
+              <option key={team.teamKey} value={team.teamKey}>{team.name ?? team.id}</option>
+            ))}
+          </select>
+        </label>
+        {selectedTeam ? (
+          <p className="mt-1.5 text-xs text-hint" data-testid="selected-team-summary">
+            {selectedPrimaryAgent?.displayName ?? selectedTeam.primaryAgentSlug ?? "主 Agent"} 默认接收新对话
+          </p>
+        ) : null}
+
+        {creationError ? <p className="mt-4 text-sm text-danger" role="alert">{creationError}</p> : null}
+        <div className="mt-6 flex justify-end gap-2">
+          <Button type="button" variant="outline" disabled={isCreating} onClick={onClose}>
+            取消
+          </Button>
+          <Button type="button" disabled={!canCreate} onClick={() => void submit()}>
+            {isCreating ? "正在创建…" : "创建对话"}
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function resolveNewConversationAgentTeamKey(
+  teams: readonly OperatorAgentTeam[],
+  lastUsedAgentTeamKey: string | null,
+): string | null {
+  const recordedTeam = lastUsedAgentTeamKey === null
+    ? undefined
+    : teams.find((team) => team.teamKey === lastUsedAgentTeamKey && team.canCreateConversation);
+  if (recordedTeam !== undefined) {
+    return recordedTeam.teamKey;
+  }
+  return teams.find((team) => team.ownership === "system" && team.canCreateConversation)?.teamKey ?? null;
 }
 
 function ComposerContext({
