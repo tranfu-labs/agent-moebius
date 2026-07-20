@@ -16,16 +16,20 @@ import {
 } from "@agent-moebius/console-ui";
 import type {
   AgentTeamDuplicateBuiltInRequest,
+  AgentTeamDuplicateUserRequest,
   AgentTeamListItem,
   AgentTeamListResponse,
   AgentTeamCreateRequest,
   AgentTeamMemberAddRequest,
   AgentTeamMemberAddResponse,
   AgentTeamMemberDocument,
+  AgentTeamMemberDuplicateRequest,
   AgentTeamMemberRequest,
   AgentTeamMemberWriteRequest,
+  AgentTeamMemberTrashRequest,
   AgentTeamPrimaryAgentWriteRequest,
   AgentTeamUpdateInformationRequest,
+  AgentTeamTrashUserRequest,
 } from "../team-ipc.js";
 import type { AgentTeamFileManagerRequest } from "../team-file-manager.js";
 import { parseAgentMarkdownIdentity } from "../team-model.js";
@@ -55,9 +59,12 @@ import {
   finishAgentTeamMemberLoad,
   finishAgentTeamMemberSave,
   getAgentTeamKey,
+  getDirtyAgentTeamMemberSlugs,
   getAgentTeamMemberDraft,
   isAgentTeamMemberDirty,
   reconcileAgentTeamSelection,
+  removeAgentTeamDrafts,
+  removeAgentTeamMemberDraft,
   saveAllAgentTeamDrafts,
   startAgentTeamMemberLoad,
   startAgentTeamMemberSave,
@@ -84,6 +91,10 @@ interface DesktopApi {
   updateAgentTeamInformation?: (request: AgentTeamUpdateInformationRequest) => Promise<AgentTeamListItem>;
   setAgentTeamPrimaryAgent?: (request: AgentTeamPrimaryAgentWriteRequest) => Promise<AgentTeamListItem>;
   duplicateBuiltInAgentTeam?: (request: AgentTeamDuplicateBuiltInRequest) => Promise<AgentTeamListItem>;
+  duplicateUserAgentTeam?: (request: AgentTeamDuplicateUserRequest) => Promise<AgentTeamListItem>;
+  duplicateAgentTeamMember?: (request: AgentTeamMemberDuplicateRequest) => Promise<AgentTeamMemberAddResponse>;
+  trashAgentTeamMember?: (request: AgentTeamMemberTrashRequest) => Promise<AgentTeamListItem>;
+  trashUserAgentTeam?: (request: AgentTeamTrashUserRequest) => Promise<void>;
 }
 
 interface DesktopStatusSnapshot {
@@ -381,14 +392,7 @@ function App(): JSX.Element {
     }
   }, [agentTeamsState]);
 
-  const duplicateBuiltInAgentTeam = useCallback(async (teamKey: string): Promise<string> => {
-    const source = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const duplicateTeam = window.agentMoebius?.duplicateBuiltInAgentTeam;
-    if (source === undefined || source.ownership !== "system" || duplicateTeam === undefined) {
-      throw new Error("当前无法复制这支内置团队，请稍后重试。");
-    }
-
-    const copiedItem = await duplicateTeam({ teamId: source.id, ownership: "system" });
+  const activateCopiedAgentTeam = useCallback(async (copiedItem: AgentTeamListItem): Promise<string> => {
     const copiedTeam = toOperatorAgentTeam(copiedItem);
     setAgentTeamsState((current) => current.status !== "ready"
       ? current
@@ -434,7 +438,126 @@ function App(): JSX.Element {
     }
 
     return copiedTeam.teamKey;
-  }, [agentTeamsState, commitAgentTeamDraftState]);
+  }, [commitAgentTeamDraftState]);
+
+  const duplicateBuiltInAgentTeam = useCallback(async (teamKey: string): Promise<string> => {
+    const source = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const duplicateTeam = window.agentMoebius?.duplicateBuiltInAgentTeam;
+    if (source === undefined || source.ownership !== "system" || duplicateTeam === undefined) {
+      throw new Error("当前无法复制这支内置团队，请稍后重试。");
+    }
+
+    const copiedItem = await duplicateTeam({ teamId: source.id, ownership: "system" });
+    return activateCopiedAgentTeam(copiedItem);
+  }, [activateCopiedAgentTeam, agentTeamsState]);
+
+  const assertAgentTeamDraftsResolved = useCallback((teamKey: string) => {
+    if (getDirtyAgentTeamMemberSlugs(agentTeamDraftStateRef.current, teamKey).length > 0) {
+      throw new Error("请先保存或放弃这支团队中未保存的修改。");
+    }
+  }, []);
+
+  const duplicateUserAgentTeam = useCallback(async (teamKey: string): Promise<string> => {
+    assertAgentTeamDraftsResolved(teamKey);
+    const source = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const duplicateTeam = window.agentMoebius?.duplicateUserAgentTeam;
+    if (source === undefined || source.ownership !== "user" || duplicateTeam === undefined) {
+      throw new Error("当前无法复制这支用户团队，请稍后重试。");
+    }
+    const copiedItem = await duplicateTeam({ teamId: source.id, ownership: "user" });
+    return activateCopiedAgentTeam(copiedItem);
+  }, [activateCopiedAgentTeam, agentTeamsState, assertAgentTeamDraftsResolved]);
+
+  const duplicateAgentTeamMember = useCallback(async (teamKey: string, memberSlug: string): Promise<void> => {
+    assertAgentTeamDraftsResolved(teamKey);
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const duplicateMember = window.agentMoebius?.duplicateAgentTeamMember;
+    if (team === undefined || team.ownership !== "user" || duplicateMember === undefined) {
+      throw new Error("当前无法复制这个 Agent，请稍后重试。");
+    }
+    const result = await duplicateMember({
+      teamId: team.id,
+      ownership: "user",
+      memberSlug,
+    });
+    const updatedTeam = toOperatorAgentTeam(result.team);
+    setAgentTeamsState((current) => current.status !== "ready"
+      ? current
+      : {
+          status: "ready",
+          teams: current.teams.map((candidate) => candidate.teamKey === teamKey ? updatedTeam : candidate),
+        });
+    commitAgentTeamDraftState(finishAgentTeamMemberLoad(
+      agentTeamDraftStateRef.current,
+      teamKey,
+      result.member.slug,
+      result.member.agentMarkdown,
+    ));
+    setAgentTeamSelection({ teamKey, memberSlug: result.member.slug });
+    setAgentTeamSaveAllFailures([]);
+  }, [agentTeamsState, assertAgentTeamDraftsResolved, commitAgentTeamDraftState]);
+
+  const trashAgentTeamMember = useCallback(async (teamKey: string, memberSlug: string): Promise<void> => {
+    assertAgentTeamDraftsResolved(teamKey);
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const trashMember = window.agentMoebius?.trashAgentTeamMember;
+    if (team === undefined || team.ownership !== "user" || trashMember === undefined) {
+      throw new Error("当前无法删除这个 Agent，请稍后重试。");
+    }
+    if (team.primaryAgentSlug === memberSlug) {
+      throw new Error("删除主 Agent 前，请先指定另一名有效成员作为主 Agent。");
+    }
+    const updatedItem = await trashMember({ teamId: team.id, ownership: "user", memberSlug });
+    const updatedTeam = toOperatorAgentTeam(updatedItem);
+    setAgentTeamsState((current) => current.status !== "ready"
+      ? current
+      : {
+          status: "ready",
+          teams: current.teams.map((candidate) => candidate.teamKey === teamKey ? updatedTeam : candidate),
+        });
+    commitAgentTeamDraftState(removeAgentTeamMemberDraft(
+      agentTeamDraftStateRef.current,
+      teamKey,
+      memberSlug,
+    ));
+    const nextMemberSlug = updatedTeam.primaryAgentSlug !== null
+      && updatedTeam.members.some((member) => member.slug === updatedTeam.primaryAgentSlug)
+      ? updatedTeam.primaryAgentSlug
+      : updatedTeam.members[0]?.slug ?? null;
+    setAgentTeamSelection({ teamKey, memberSlug: nextMemberSlug });
+    setAgentTeamSaveAllFailures([]);
+    if (nextMemberSlug !== null) {
+      void loadAgentTeamMember(teamKey, nextMemberSlug);
+    }
+  }, [agentTeamsState, assertAgentTeamDraftsResolved, commitAgentTeamDraftState, loadAgentTeamMember]);
+
+  const trashUserAgentTeam = useCallback(async (teamKey: string): Promise<void> => {
+    assertAgentTeamDraftsResolved(teamKey);
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const trashTeam = window.agentMoebius?.trashUserAgentTeam;
+    if (team === undefined || team.ownership !== "user" || trashTeam === undefined) {
+      throw new Error("当前无法把这支团队移到系统废纸篓，请稍后重试。");
+    }
+    await trashTeam({ teamId: team.id, ownership: "user" });
+    const remainingTeams = agentTeamsState.status === "ready"
+      ? agentTeamsState.teams.filter((candidate) => candidate.teamKey !== teamKey)
+      : [];
+    setAgentTeamsState({ status: "ready", teams: remainingTeams });
+    commitAgentTeamDraftState(removeAgentTeamDrafts(agentTeamDraftStateRef.current, teamKey));
+    const fallbackTeam = remainingTeams[0];
+    const fallbackMemberSlug = fallbackTeam === undefined
+      ? null
+      : fallbackTeam.primaryAgentSlug !== null
+          && fallbackTeam.members.some((member) => member.slug === fallbackTeam.primaryAgentSlug)
+        ? fallbackTeam.primaryAgentSlug
+        : fallbackTeam.members[0]?.slug ?? null;
+    setAgentTeamSelection(fallbackTeam === undefined
+      ? null
+      : { teamKey: fallbackTeam.teamKey, memberSlug: fallbackMemberSlug });
+    setActiveAgentTeamKey(null);
+    setAgentTeamSaveAllFailures([]);
+    setPrimaryAgentChange(null);
+  }, [agentTeamsState, assertAgentTeamDraftsResolved, commitAgentTeamDraftState]);
 
   const createAgentTeam = useCallback(async (
     information: AgentTeamInformationInput,
@@ -926,6 +1049,10 @@ function App(): JSX.Element {
       onDuplicateBuiltInAgentTeam={duplicateBuiltInAgentTeam}
       agentTeamFileManagerLabel={window.agentMoebius?.agentTeamFileManagerLabel ?? "在文件管理器中打开"}
       onOpenAgentTeamLocation={openAgentTeamLocation}
+      onDuplicateUserAgentTeam={duplicateUserAgentTeam}
+      onDuplicateAgentTeamMember={duplicateAgentTeamMember}
+      onTrashAgentTeamMember={trashAgentTeamMember}
+      onTrashUserAgentTeam={trashUserAgentTeam}
       isSending={isSending}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}

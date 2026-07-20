@@ -202,6 +202,10 @@ export interface OperatorConsoleProps {
   onDuplicateBuiltInAgentTeam?: (teamKey: string) => Promise<string>;
   agentTeamFileManagerLabel?: string;
   onOpenAgentTeamLocation?: (teamKey: string, memberSlug?: string) => void | Promise<void>;
+  onDuplicateUserAgentTeam?: (teamKey: string) => Promise<string>;
+  onDuplicateAgentTeamMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onTrashAgentTeamMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onTrashUserAgentTeam?: (teamKey: string) => void | Promise<void>;
   isSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
@@ -261,6 +265,10 @@ export function OperatorConsole({
   onDuplicateBuiltInAgentTeam,
   agentTeamFileManagerLabel = "在文件管理器中打开",
   onOpenAgentTeamLocation,
+  onDuplicateUserAgentTeam,
+  onDuplicateAgentTeamMember,
+  onTrashAgentTeamMember,
+  onTrashUserAgentTeam,
   isSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
@@ -552,6 +560,10 @@ export function OperatorConsole({
             onDuplicateBuiltInTeam={onDuplicateBuiltInAgentTeam}
             fileManagerActionLabel={agentTeamFileManagerLabel}
             onOpenLocation={onOpenAgentTeamLocation}
+            onDuplicateUserTeam={onDuplicateUserAgentTeam}
+            onDuplicateMember={onDuplicateAgentTeamMember}
+            onTrashMember={onTrashAgentTeamMember}
+            onTrashUserTeam={onTrashUserAgentTeam}
             onBack={() => setApplicationView("conversation")}
           />
         ) : (

@@ -30,9 +30,13 @@ import {
   addAgentTeamMember,
   createAgentTeam,
   duplicateBuiltInAgentTeam,
+  duplicateAgentTeamMember,
+  duplicateUserAgentTeam,
   listAgentTeams,
   readAgentTeamMember,
   setAgentTeamPrimaryAgent,
+  trashAgentTeamMember,
+  trashUserAgentTeam,
   updateAgentTeamInformation,
   writeAgentTeamMember,
 } from "./team-ipc.js";
@@ -303,6 +307,18 @@ ipcMain.handle(TEAM_FILE_MANAGER_IPC_CHANNEL, async (_event, request: unknown) =
     request,
     shell,
   }));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.duplicateUser, async (_event, request: unknown) =>
+  duplicateUserAgentTeam(status.dataRoot, request));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.duplicateMember, async (_event, request: unknown) =>
+  duplicateAgentTeamMember(status.dataRoot, request));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.trashMember, async (_event, request: unknown) =>
+  trashAgentTeamMember(status.dataRoot, request, (targetPath) => shell.trashItem(targetPath)));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.trashUserTeam, async (_event, request: unknown) =>
+  trashUserAgentTeam(status.dataRoot, request, (targetPath) => shell.trashItem(targetPath)));
 
 ipcMain.handle("project:select-folder", async () => {
   const options: OpenDialogOptions = {

@@ -55,6 +55,8 @@ export interface AddedTeamMember {
   member: TeamMemberSnapshot;
 }
 
+export type MovePathToTrash = (targetPath: string) => Promise<void>;
+
 export function getTeamsRoot(dataRoot: string): string {
   return path.join(path.resolve(dataRoot), TEAMS_DIRECTORY);
 }
@@ -336,21 +338,132 @@ export async function duplicateBuiltInTeamDirectory(source: TeamLocation): Promi
     throw new TeamPathError(`Only a built-in team can be copied by this operation: ${source.directory}`);
   }
 
+  return duplicateTeamDirectoryAsUserTeam(source);
+}
+
+export async function duplicateUserTeamDirectory(source: TeamLocation): Promise<TeamLocation> {
+  assertTeamWritable(source);
+  return duplicateTeamDirectoryAsUserTeam(source);
+}
+
+export async function duplicateTeamMemberDirectory(
+  location: TeamLocation,
+  sourceSlug: string,
+): Promise<AddedTeamMember> {
+  assertTeamWritable(location);
+  const snapshot = await readTeamSnapshot(location);
+  if (snapshot.definition === null || snapshot.status === "needs-repair") {
+    throw new TeamMutationError("团队信息当前不可用，无法复制 Agent。");
+  }
+  const sourceMember = snapshot.members.find((member) => member.slug === sourceSlug);
+  if (sourceMember === undefined) {
+    throw new TeamMutationError("要复制的 Agent 当前不可用。");
+  }
+
+  const occupiedSlugs = new Set(snapshot.definition.memberOrder);
+  let slug: string;
+  let memberDirectory: string;
+  for (;;) {
+    slug = createUniqueAgentSlug(sourceMember.slug, occupiedSlugs);
+    memberDirectory = getMemberDirectory(location, slug);
+    try {
+      await fs.mkdir(memberDirectory);
+      break;
+    } catch (error) {
+      if (isNodeError(error) && error.code === "EEXIST") {
+        occupiedSlugs.add(slug);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  try {
+    await copyDirectoryContents(sourceMember.directory, memberDirectory);
+    await writeTeamDefinition(location, {
+      ...snapshot.definition,
+      memberOrder: [...snapshot.definition.memberOrder, slug],
+    });
+  } catch (error) {
+    await fs.rm(memberDirectory, { recursive: true, force: true });
+    throw error;
+  }
+
+  const team = await readTeamSnapshot(location);
+  const member = team.members.find((candidate) => candidate.slug === slug);
+  if (member === undefined) {
+    throw new TeamMutationError("Agent 已复制，但暂时无法重新读取。");
+  }
+  return { team, member };
+}
+
+export async function trashTeamMemberDirectory(
+  location: TeamLocation,
+  memberSlug: string,
+  moveToTrash: MovePathToTrash,
+): Promise<TeamSnapshot> {
+  assertTeamWritable(location);
+  const snapshot = await readTeamSnapshot(location);
+  if (snapshot.definition === null || snapshot.status === "needs-repair") {
+    throw new TeamMutationError("团队信息当前不可用，无法删除 Agent。");
+  }
+  if (snapshot.definition.primaryAgentSlug === memberSlug) {
+    throw new TeamPrimaryAgentError("删除主 Agent 前，请先指定另一名有效成员作为主 Agent。");
+  }
+  const member = snapshot.members.find((candidate) => candidate.slug === memberSlug);
+  if (member === undefined) {
+    throw new TeamMutationError("要删除的 Agent 当前不可用。");
+  }
+
+  const previousDefinition = snapshot.definition;
+  await writeTeamDefinition(location, {
+    ...previousDefinition,
+    memberOrder: previousDefinition.memberOrder.filter((slug) => slug !== memberSlug),
+  });
+  try {
+    await moveToTrash(member.directory);
+  } catch (error) {
+    try {
+      await writeTeamDefinition(location, previousDefinition);
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        "Agent 未能移到系统废纸篓，团队成员清单也未能恢复。",
+      );
+    }
+    throw error;
+  }
+
+  return readTeamSnapshot(location);
+}
+
+export async function trashUserTeamDirectory(
+  location: TeamLocation,
+  moveToTrash: MovePathToTrash,
+): Promise<void> {
+  assertTeamWritable(location);
+  const sourceStats = await fs.stat(location.directory);
+  if (!sourceStats.isDirectory()) {
+    throw new TeamPathError(`User team path is not a directory: ${location.directory}`);
+  }
+  await moveToTrash(location.directory);
+}
+
+async function duplicateTeamDirectoryAsUserTeam(source: TeamLocation): Promise<TeamLocation> {
+  assertLocationMatchesLayout(source);
+  const actualOwnership = determineTeamOwnership(source.dataRoot, source.directory);
+  if (source.ownership !== actualOwnership) {
+    throw new TeamPathError(`Team ownership does not match its disk location: ${source.directory}`);
+  }
+
   const sourceStats = await fs.stat(source.directory);
   if (!sourceStats.isDirectory()) {
-    throw new TeamPathError(`Built-in team path is not a directory: ${source.directory}`);
+    throw new TeamPathError(`Team path is not a directory: ${source.directory}`);
   }
 
   const destination = await reserveUserTeamCopyLocation(source);
   try {
-    const entries = await fs.readdir(source.directory);
-    for (const entry of entries) {
-      await fs.cp(path.join(source.directory, entry), path.join(destination.directory, entry), {
-        recursive: true,
-        force: false,
-        errorOnExist: true,
-      });
-    }
+    await copyDirectoryContents(source.directory, destination.directory);
     return destination;
   } catch (error) {
     await fs.rm(destination.directory, { recursive: true, force: true });
@@ -428,6 +541,17 @@ async function reserveUserTeamCopyLocation(source: TeamLocation): Promise<TeamLo
       }
       throw error;
     }
+  }
+}
+
+async function copyDirectoryContents(sourceDirectory: string, destinationDirectory: string): Promise<void> {
+  const entries = await fs.readdir(sourceDirectory);
+  for (const entry of entries) {
+    await fs.cp(path.join(sourceDirectory, entry), path.join(destinationDirectory, entry), {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+    });
   }
 }
 

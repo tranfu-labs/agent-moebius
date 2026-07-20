@@ -1,5 +1,5 @@
-import { AlertTriangle, ChevronDown, FolderOpen, LoaderCircle, MoreHorizontal, Plus } from "lucide-react";
-import { useRef, useState } from "react";
+import { AlertTriangle, Copy, FolderOpen, LoaderCircle, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
 
 import {
   AgentTeamDetail,
@@ -8,13 +8,14 @@ import {
 } from "@/console/agent-team-detail";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
-import { Input } from "@/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
+import { Input } from "@/ui/input";
 
 const FILE_MANAGER_OPEN_ERROR = "暂时无法打开这个位置。请确认相关文件仍然存在，并检查访问权限后重试。";
 
@@ -48,6 +49,13 @@ export interface AgentTeamInformationInput {
   description: string;
 }
 
+type AgentTeamFileOperation =
+  | { kind: "duplicate-team"; team: OperatorAgentTeam }
+  | { kind: "duplicate-member"; team: OperatorAgentTeam; member: OperatorAgentTeamMember }
+  | { kind: "trash-member"; team: OperatorAgentTeam; member: OperatorAgentTeamMember }
+  | { kind: "trash-team"; team: OperatorAgentTeam };
+type AgentTeamTrashOperation = Extract<AgentTeamFileOperation, { kind: "trash-member" | "trash-team" }>;
+
 export function AgentTeamsPage({
   state,
   selectedTeamKey,
@@ -71,6 +79,10 @@ export function AgentTeamsPage({
   onDuplicateBuiltInTeam,
   fileManagerActionLabel = "在文件管理器中打开",
   onOpenLocation,
+  onDuplicateUserTeam,
+  onDuplicateMember,
+  onTrashMember,
+  onTrashUserTeam,
   onBack,
 }: {
   state: OperatorAgentTeamsState;
@@ -95,6 +107,10 @@ export function AgentTeamsPage({
   onDuplicateBuiltInTeam?: (teamKey: string) => Promise<string>;
   fileManagerActionLabel?: string;
   onOpenLocation?: (teamKey: string, memberSlug?: string) => void | Promise<void>;
+  onDuplicateUserTeam?: (teamKey: string) => Promise<string>;
+  onDuplicateMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onTrashMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onTrashUserTeam?: (teamKey: string) => void | Promise<void>;
   onBack: () => void;
 }): JSX.Element {
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -105,6 +121,12 @@ export function AgentTeamsPage({
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editingTeamInformation, setEditingTeamInformation] = useState<OperatorAgentTeam | null>(null);
   const [fileManagerError, setFileManagerError] = useState<"team" | "member" | null>(null);
+  const [draftOperation, setDraftOperation] = useState<AgentTeamFileOperation | null>(null);
+  const [confirmationOperation, setConfirmationOperation] = useState<AgentTeamTrashOperation | null>(null);
+  const [mutationKey, setMutationKey] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [draftOperationError, setDraftOperationError] = useState<string | null>(null);
+  const [savingDraftsForOperation, setSavingDraftsForOperation] = useState(false);
   const openedTeam = state.status === "ready"
     ? state.teams.find((team) => team.teamKey === openedTeamKey)
     : undefined;
@@ -113,11 +135,15 @@ export function AgentTeamsPage({
     && detailState.teamKey === openedTeam?.teamKey
     ? detailState
     : null;
+  const selectedMember = openedTeam?.members.find(
+    (member) => member.slug === openedDetailState?.selectedMemberSlug,
+  );
 
   const openTeam = (teamKey: string) => {
     listScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? 0;
     setDuplicateError(null);
     setFileManagerError(null);
+    setActionError(null);
     onOpenTeam?.(teamKey);
     setOpenedTeamKey(teamKey);
     if (scrollContainerRef.current !== null) {
@@ -129,6 +155,9 @@ export function AgentTeamsPage({
     onCloseTeam?.();
     setDuplicateError(null);
     setFileManagerError(null);
+    setActionError(null);
+    setDraftOperation(null);
+    setConfirmationOperation(null);
     setOpenedTeamKey(null);
     if (scrollContainerRef.current !== null) {
       scrollContainerRef.current.scrollTop = listScrollTopRef.current;
@@ -163,6 +192,100 @@ export function AgentTeamsPage({
     }
   };
 
+  const executeFileOperation = async (operation: AgentTeamFileOperation) => {
+    const operationKey = fileOperationKey(operation);
+    if (mutationKey !== null) {
+      return;
+    }
+    setMutationKey(operationKey);
+    setActionError(null);
+    try {
+      if (operation.kind === "duplicate-team") {
+        if (onDuplicateUserTeam === undefined) {
+          throw new Error("当前无法复制这支团队，请稍后重试。");
+        }
+        const copiedTeamKey = await onDuplicateUserTeam(operation.team.teamKey);
+        setOpenedTeamKey(copiedTeamKey);
+      } else if (operation.kind === "duplicate-member") {
+        if (onDuplicateMember === undefined) {
+          throw new Error("当前无法复制这个 Agent，请稍后重试。");
+        }
+        await onDuplicateMember(operation.team.teamKey, operation.member.slug);
+      } else if (operation.kind === "trash-member") {
+        if (onTrashMember === undefined) {
+          throw new Error("当前无法删除这个 Agent，请稍后重试。");
+        }
+        await onTrashMember(operation.team.teamKey, operation.member.slug);
+      } else {
+        if (onTrashUserTeam === undefined) {
+          throw new Error("当前无法把这支团队移到系统废纸篓或回收站，请稍后重试。");
+        }
+        await onTrashUserTeam(operation.team.teamKey);
+        returnToList();
+      }
+      setConfirmationOperation(null);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+      setConfirmationOperation(null);
+    } finally {
+      setMutationKey(null);
+    }
+  };
+
+  const prepareFileOperation = (operation: AgentTeamFileOperation) => {
+    if (operation.kind === "trash-member" || operation.kind === "trash-team") {
+      setConfirmationOperation(operation);
+      return;
+    }
+    void executeFileOperation(operation);
+  };
+
+  const requestFileOperation = (operation: AgentTeamFileOperation) => {
+    const hasUnsavedDrafts = openedDetailState !== null
+      && openedDetailState.teamKey === operation.team.teamKey
+      && Object.values(openedDetailState.memberEditors).some((editor) => editor?.isDirty === true);
+    setActionError(null);
+    if (hasUnsavedDrafts) {
+      setDraftOperationError(null);
+      setDraftOperation(operation);
+      return;
+    }
+    prepareFileOperation(operation);
+  };
+
+  const discardDraftsAndContinue = () => {
+    if (draftOperation === null) {
+      return;
+    }
+    const operation = draftOperation;
+    onDiscardAll?.(operation.team.teamKey);
+    setDraftOperation(null);
+    setDraftOperationError(null);
+    prepareFileOperation(operation);
+  };
+
+  const saveDraftsAndContinue = async () => {
+    if (draftOperation === null || onSaveAll === undefined || savingDraftsForOperation) {
+      return;
+    }
+    setSavingDraftsForOperation(true);
+    setDraftOperationError(null);
+    try {
+      const result = await onSaveAll(draftOperation.team.teamKey);
+      if (result.failures.length > 0) {
+        setDraftOperationError("有 Agent 未能保存。请处理保存失败后再继续。");
+        return;
+      }
+      const operation = draftOperation;
+      setDraftOperation(null);
+      prepareFileOperation(operation);
+    } catch (error) {
+      setDraftOperationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSavingDraftsForOperation(false);
+    }
+  };
+
   return (
     <section
       ref={scrollContainerRef}
@@ -183,17 +306,23 @@ export function AgentTeamsPage({
                 正在读取团队详情…
               </div>
             ) : (
-              <AgentTeamDetail
-                team={openedTeam}
-                state={openedDetailState}
-                onChangePrimaryAgent={onChangePrimaryAgent === undefined
-                  ? undefined
-                  : (memberSlug) => onChangePrimaryAgent(openedTeam.teamKey, memberSlug)}
-                readOnly={openedTeam.ownership === "system"}
-                teamActions={(
-                  <div className="flex max-w-sm flex-col items-end gap-2">
-                    <div className="flex items-center gap-2">
-                      {openedTeam.ownership === "system" ? (
+              <>
+                {actionError !== null ? (
+                  <div className="mb-4 border border-danger/30 bg-danger/5 px-3 py-2.5 text-sm text-danger" role="alert">
+                    {actionError}
+                  </div>
+                ) : null}
+                {fileManagerError !== null ? (
+                  <div className="mb-4 border border-danger/30 bg-danger/5 px-3 py-2.5 text-sm text-danger" role="alert">
+                    {FILE_MANAGER_OPEN_ERROR}
+                  </div>
+                ) : null}
+                <AgentTeamDetail
+                  team={openedTeam}
+                  state={openedDetailState}
+                  teamActions={openedTeam.ownership === "system" ? (
+                    <div className="flex max-w-sm flex-col items-end gap-2">
+                      <div className="flex items-center gap-2">
                         <Button
                           type="button"
                           disabled={duplicatingTeamKey !== null || onDuplicateBuiltInTeam === undefined}
@@ -204,57 +333,77 @@ export function AgentTeamsPage({
                           ) : null}
                           {duplicatingTeamKey === openedTeam.teamKey ? "正在复制…" : "复制并编辑"}
                         </Button>
-                      ) : onUpdateTeamInformation !== undefined ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditingTeamInformation(openedTeam)}
-                        >
+                        {onOpenLocation !== undefined ? (
+                          <TeamMoreMenu
+                            triggerLabel={`${teamName(openedTeam)}更多操作`}
+                            fileManagerActionLabel={fileManagerActionLabel}
+                            disabled={duplicatingTeamKey !== null}
+                            onOpen={() => void openLocation(openedTeam)}
+                          />
+                        ) : null}
+                      </div>
+                      {duplicateError !== null ? (
+                        <p className="text-right text-sm leading-5 text-danger" role="alert">{duplicateError}</p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      {onUpdateTeamInformation !== undefined ? (
+                        <Button type="button" variant="outline" size="sm" onClick={() => setEditingTeamInformation(openedTeam)}>
                           修改信息
                         </Button>
                       ) : null}
-                      <FileManagerMenu
+                      <TeamMoreMenu
                         triggerLabel={`${teamName(openedTeam)}更多操作`}
-                        actionLabel={fileManagerActionLabel}
-                        disabled={onOpenLocation === undefined}
-                        onOpen={() => void openLocation(openedTeam)}
+                        fileManagerActionLabel={fileManagerActionLabel}
+                        disabled={mutationKey !== null}
+                        onOpen={onOpenLocation === undefined ? undefined : () => void openLocation(openedTeam)}
+                        onDuplicate={onDuplicateUserTeam === undefined
+                          ? undefined
+                          : () => requestFileOperation({ kind: "duplicate-team", team: openedTeam })}
+                        onTrash={onTrashUserTeam === undefined
+                          ? undefined
+                          : () => requestFileOperation({ kind: "trash-team", team: openedTeam })}
                       />
                     </div>
-                    {duplicateError !== null ? (
-                      <p className="text-right text-sm leading-5 text-danger" role="alert">{duplicateError}</p>
-                    ) : null}
-                    {fileManagerError === "team" ? (
-                      <p className="max-w-sm text-right text-sm leading-5 text-danger" role="alert">{FILE_MANAGER_OPEN_ERROR}</p>
-                    ) : null}
-                  </div>
-                )}
-                onAddMember={openedTeam.ownership === "user" && onAddMember !== undefined
-                  ? () => onAddMember(openedTeam.teamKey)
-                  : undefined}
-                memberActions={openedDetailState.selectedMemberSlug === null ? undefined : (
-                  <div className="flex max-w-sm flex-col items-end gap-2">
-                    <FileManagerMenu
-                      iconOnly
-                      triggerLabel={`${memberName(openedTeam, openedDetailState.selectedMemberSlug)}更多操作`}
-                      actionLabel={fileManagerActionLabel}
-                      disabled={onOpenLocation === undefined}
-                      onOpen={() => void openLocation(openedTeam, openedDetailState.selectedMemberSlug ?? undefined)}
+                  )}
+                  memberActions={selectedMember !== undefined
+                    && (onOpenLocation !== undefined
+                      || (openedTeam.ownership === "user"
+                        && (onDuplicateMember !== undefined || onTrashMember !== undefined))) ? (
+                    <MemberMoreMenu
+                      member={selectedMember}
+                      isPrimary={selectedMember.slug === openedTeam.primaryAgentSlug}
+                      disabled={mutationKey !== null}
+                      fileManagerActionLabel={fileManagerActionLabel}
+                      onOpen={onOpenLocation === undefined
+                        ? undefined
+                        : () => void openLocation(openedTeam, selectedMember.slug)}
+                      onDuplicate={openedTeam.ownership !== "user" || onDuplicateMember === undefined
+                        ? undefined
+                        : () => requestFileOperation({ kind: "duplicate-member", team: openedTeam, member: selectedMember })}
+                      onTrash={openedTeam.ownership !== "user" || onTrashMember === undefined
+                        ? undefined
+                        : () => requestFileOperation({ kind: "trash-member", team: openedTeam, member: selectedMember })}
                     />
-                    {fileManagerError === "member" ? (
-                      <p className="max-w-sm text-right text-sm leading-5 text-danger" role="alert">{FILE_MANAGER_OPEN_ERROR}</p>
-                    ) : null}
-                  </div>
-                )}
-                onSelectMember={(memberSlug) => onSelectMember?.(openedTeam.teamKey, memberSlug)}
-                onChangeMember={(memberSlug, agentMarkdown) => onChangeMember?.(openedTeam.teamKey, memberSlug, agentMarkdown)}
-                onSaveMember={(memberSlug) => onSaveMember?.(openedTeam.teamKey, memberSlug)}
-                onRetryLoad={(memberSlug) => onRetryMember?.(openedTeam.teamKey, memberSlug)}
-                onDiscardMember={(memberSlug) => onDiscardMember?.(openedTeam.teamKey, memberSlug)}
-                onDiscardAll={() => onDiscardAll?.(openedTeam.teamKey)}
-                onSaveAll={() => onSaveAll?.(openedTeam.teamKey) ?? Promise.resolve({ failures: [] })}
-                onLeave={returnToList}
-              />
+                  ) : undefined}
+                  onChangePrimaryAgent={onChangePrimaryAgent === undefined
+                    ? undefined
+                    : (memberSlug) => onChangePrimaryAgent(openedTeam.teamKey, memberSlug)}
+                  readOnly={openedTeam.ownership === "system"}
+                  onAddMember={openedTeam.ownership === "user" && onAddMember !== undefined
+                    ? () => onAddMember(openedTeam.teamKey)
+                    : undefined}
+                  onSelectMember={(memberSlug) => onSelectMember?.(openedTeam.teamKey, memberSlug)}
+                  onChangeMember={(memberSlug, agentMarkdown) => onChangeMember?.(openedTeam.teamKey, memberSlug, agentMarkdown)}
+                  onSaveMember={(memberSlug) => onSaveMember?.(openedTeam.teamKey, memberSlug)}
+                  onRetryLoad={(memberSlug) => onRetryMember?.(openedTeam.teamKey, memberSlug)}
+                  onDiscardMember={(memberSlug) => onDiscardMember?.(openedTeam.teamKey, memberSlug)}
+                  onDiscardAll={() => onDiscardAll?.(openedTeam.teamKey)}
+                  onSaveAll={() => onSaveAll?.(openedTeam.teamKey) ?? Promise.resolve({ failures: [] })}
+                  onLeave={returnToList}
+                />
+              </>
             )}
           </div>
         ) : (
@@ -354,8 +503,252 @@ export function AgentTeamsPage({
           }}
         />
       ) : null}
+
+      {draftOperation !== null ? (
+        <UnsavedFileOperationDialog
+          operation={draftOperation}
+          saving={savingDraftsForOperation}
+          error={draftOperationError}
+          onContinueEditing={() => {
+            setDraftOperation(null);
+            setDraftOperationError(null);
+          }}
+          onDiscard={() => discardDraftsAndContinue()}
+          onSave={() => void saveDraftsAndContinue()}
+        />
+      ) : null}
+
+      {confirmationOperation !== null ? (
+        <TrashConfirmationDialog
+          operation={confirmationOperation}
+          pending={mutationKey !== null}
+          onCancel={() => setConfirmationOperation(null)}
+          onConfirm={() => void executeFileOperation(confirmationOperation)}
+        />
+      ) : null}
     </section>
   );
+}
+
+function TeamMoreMenu({
+  triggerLabel,
+  fileManagerActionLabel,
+  disabled,
+  onOpen,
+  onDuplicate,
+  onTrash,
+}: {
+  triggerLabel: string;
+  fileManagerActionLabel: string;
+  disabled: boolean;
+  onOpen?: () => void;
+  onDuplicate?: () => void;
+  onTrash?: () => void;
+}): JSX.Element {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="ghost" size="sm" disabled={disabled} aria-label={triggerLabel}>
+          <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          更多
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {onOpen !== undefined ? (
+          <DropdownMenuItem onSelect={onOpen}>
+            <FolderOpen className="mr-2 h-3.5 w-3.5 text-sub" strokeWidth={1.5} aria-hidden="true" />
+            {fileManagerActionLabel}
+          </DropdownMenuItem>
+        ) : null}
+        {onDuplicate !== undefined ? (
+          <DropdownMenuItem onSelect={onDuplicate}>
+            <Copy className="mr-2 h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            复制团队
+          </DropdownMenuItem>
+        ) : null}
+        {(onOpen !== undefined || onDuplicate !== undefined) && onTrash !== undefined ? <DropdownMenuSeparator /> : null}
+        {onTrash !== undefined ? (
+          <DropdownMenuItem className="text-danger focus:text-danger" onSelect={onTrash}>
+            <Trash2 className="mr-2 h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            移到废纸篓 / 回收站
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function MemberMoreMenu({
+  member,
+  isPrimary,
+  disabled,
+  fileManagerActionLabel,
+  onOpen,
+  onDuplicate,
+  onTrash,
+}: {
+  member: OperatorAgentTeamMember;
+  isPrimary: boolean;
+  disabled: boolean;
+  fileManagerActionLabel: string;
+  onOpen?: () => void;
+  onDuplicate?: () => void;
+  onTrash?: () => void;
+}): JSX.Element {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          disabled={disabled}
+          aria-label={`${member.displayName || `@${member.slug}`}更多操作`}
+        >
+          <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {onOpen !== undefined ? (
+          <DropdownMenuItem onSelect={onOpen}>
+            <FolderOpen className="mr-2 h-3.5 w-3.5 text-sub" strokeWidth={1.5} aria-hidden="true" />
+            {fileManagerActionLabel}
+          </DropdownMenuItem>
+        ) : null}
+        {onDuplicate !== undefined ? (
+          <DropdownMenuItem onSelect={onDuplicate}>
+            <Copy className="mr-2 h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            复制 Agent
+          </DropdownMenuItem>
+        ) : null}
+        {(onOpen !== undefined || onDuplicate !== undefined) && onTrash !== undefined ? <DropdownMenuSeparator /> : null}
+        {onTrash !== undefined ? (
+          <DropdownMenuItem
+            disabled={isPrimary}
+            className="text-danger focus:text-danger"
+            onSelect={onTrash}
+          >
+            <Trash2 className="mr-2 h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            {isPrimary ? "删除 Agent（请先更换主 Agent）" : "删除 Agent"}
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function UnsavedFileOperationDialog({
+  operation,
+  saving,
+  error,
+  onContinueEditing,
+  onDiscard,
+  onSave,
+}: {
+  operation: AgentTeamFileOperation;
+  saving: boolean;
+  error: string | null;
+  onContinueEditing: () => void;
+  onDiscard: () => void;
+  onSave: () => void;
+}): JSX.Element {
+  const actionLabel = operation.kind.startsWith("duplicate") ? "复制" : "删除";
+  return (
+    <DialogFrame label={`${actionLabel}前先处理未保存修改`} dismissible={!saving} onDismiss={onContinueEditing}>
+      <h2 className="text-base font-semibold">{actionLabel}前先处理未保存修改</h2>
+      <p className="mt-2 text-sm leading-6 text-sub">
+        这项操作只使用已经完整保存到磁盘的文件。请先保存全部修改，或放弃未保存内容后继续。
+      </p>
+      {error !== null ? <p className="mt-3 text-sm text-danger" role="alert">{error}</p> : null}
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <Button type="button" variant="ghost" disabled={saving} onClick={onContinueEditing}>继续编辑</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onDiscard}>放弃全部并继续</Button>
+        <Button type="button" disabled={saving} onClick={onSave}>
+          {saving ? "正在逐个保存…" : "保存全部并继续"}
+        </Button>
+      </div>
+    </DialogFrame>
+  );
+}
+
+function TrashConfirmationDialog({
+  operation,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  operation: AgentTeamTrashOperation;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}): JSX.Element {
+  const isTeam = operation.kind === "trash-team";
+  const title = isTeam
+    ? `把“${teamName(operation.team)}”移到系统废纸篓或回收站？`
+    : `删除“${operation.member.displayName || `@${operation.member.slug}`}”？`;
+  return (
+    <DialogFrame label={title} dismissible={!pending} onDismiss={onCancel}>
+      <h2 className="text-base font-semibold">{title}</h2>
+      {isTeam ? (
+        <>
+          <p className="mt-2 text-sm leading-6 text-sub">
+            这支团队包含 {operation.team.members.length} 个 Agent：
+            {operation.team.members.map((member) => member.displayName || `@${member.slug}`).join("、") || "暂无成员"}。
+            团队目录、每个 Agent 的 AGENT.md 和目录中的相关文件都会一起移到系统废纸篓或回收站。
+          </p>
+          <p className="mt-2 text-sm leading-6 text-sub">
+            已有会话及其创建时载入的团队版本会保留。本应用不提供永久删除或独立的已删除团队页面。
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="mt-2 text-sm leading-6 text-sub">
+            该 Agent 的整个目录、AGENT.md 和相关文件会移到系统废纸篓或回收站。
+          </p>
+          <p className="mt-2 text-sm leading-6 text-sub">
+            其他成员的交棒规则可能仍引用 @{operation.member.slug}。产品不会自动理解、清理或改写这些规则；确认后仍会删除。
+          </p>
+        </>
+      )}
+      <div className="mt-5 flex justify-end gap-2">
+        <Button type="button" variant="ghost" disabled={pending} onClick={onCancel}>取消</Button>
+        <Button type="button" variant="danger" disabled={pending} onClick={onConfirm}>
+          {pending ? "正在移到系统废纸篓…" : isTeam ? "移到废纸篓 / 回收站" : "删除 Agent"}
+        </Button>
+      </div>
+    </DialogFrame>
+  );
+}
+
+function DialogFrame({
+  label,
+  dismissible,
+  onDismiss,
+  children,
+}: {
+  label: string;
+  dismissible: boolean;
+  onDismiss: () => void;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && dismissible) {
+          onDismiss();
+        }
+      }}
+    >
+      <div className="w-full max-w-md rounded-xl border border-line bg-card p-5 text-ink shadow-overlay" role="dialog" aria-modal="true" aria-label={label}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function fileOperationKey(operation: AgentTeamFileOperation): string {
+  return `${operation.kind}:${operation.team.teamKey}:${"member" in operation ? operation.member.slug : "team"}`;
 }
 
 function TeamInformationDialog({
@@ -446,49 +839,6 @@ function TeamInformationDialog({
         </div>
       </form>
     </div>
-  );
-}
-
-function FileManagerMenu({
-  triggerLabel,
-  actionLabel,
-  disabled,
-  iconOnly = false,
-  onOpen,
-}: {
-  triggerLabel: string;
-  actionLabel: string;
-  disabled: boolean;
-  iconOnly?: boolean;
-  onOpen: () => void;
-}): JSX.Element {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size={iconOnly ? "icon" : "sm"}
-          aria-label={triggerLabel}
-          disabled={disabled}
-        >
-          {iconOnly ? (
-            <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-          ) : (
-            <>
-              更多
-              <ChevronDown className="ml-1.5 h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-            </>
-          )}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-52">
-        <DropdownMenuItem onSelect={onOpen}>
-          <FolderOpen className="mr-2 h-4 w-4 text-sub" strokeWidth={1.5} aria-hidden="true" />
-          {actionLabel}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -606,10 +956,6 @@ function orderTeamMembers(team: OperatorAgentTeam): OperatorAgentTeamMember[] {
 
 function teamName(team: OperatorAgentTeam): string {
   return team.name?.trim() || "未命名团队";
-}
-
-function memberName(team: OperatorAgentTeam, memberSlug: string): string {
-  return team.members.find((member) => member.slug === memberSlug)?.displayName || `@${memberSlug}`;
 }
 
 function teamDescription(team: OperatorAgentTeam): string {

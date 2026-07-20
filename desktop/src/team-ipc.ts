@@ -9,12 +9,17 @@ import {
   addTeamMember,
   createUserTeam,
   duplicateBuiltInTeamDirectory,
+  duplicateTeamMemberDirectory,
+  duplicateUserTeamDirectory,
   listTeamLocations,
   readTeamSnapshot,
   resolveTeamLocation,
   setTeamPrimaryAgent,
+  trashTeamMemberDirectory,
+  trashUserTeamDirectory,
   updateTeamInformation,
   writeMemberAgentMarkdown,
+  type MovePathToTrash,
   type TeamMemberSnapshot,
   type TeamSnapshot,
 } from "./team-store.js";
@@ -28,6 +33,10 @@ export const TEAM_IPC_CHANNELS = {
   updateInformation: "agent-teams:update-information",
   setPrimaryAgent: "agent-teams:set-primary-agent",
   duplicateBuiltIn: "agent-teams:duplicate-built-in",
+  duplicateUser: "agent-teams:duplicate-user",
+  duplicateMember: "agent-teams:duplicate-member",
+  trashMember: "agent-teams:trash-member",
+  trashUserTeam: "agent-teams:trash-user-team",
 } as const;
 
 export interface AgentTeamMemberSummary {
@@ -70,6 +79,24 @@ export interface AgentTeamPrimaryAgentWriteRequest {
 export interface AgentTeamDuplicateBuiltInRequest {
   teamId: string;
   ownership: "system";
+}
+
+export interface AgentTeamDuplicateUserRequest {
+  teamId: string;
+  ownership: "user";
+}
+
+export interface AgentTeamMemberDuplicateRequest extends AgentTeamMemberRequest {
+  ownership: "user";
+}
+
+export interface AgentTeamMemberTrashRequest extends AgentTeamMemberRequest {
+  ownership: "user";
+}
+
+export interface AgentTeamTrashUserRequest {
+  teamId: string;
+  ownership: "user";
 }
 
 export type AgentTeamCreateRequest = TeamInformation;
@@ -207,6 +234,43 @@ export async function duplicateBuiltInAgentTeam(dataRoot: string, rawRequest: un
   return toListItem(await readTeamSnapshot(destination));
 }
 
+export async function duplicateUserAgentTeam(dataRoot: string, rawRequest: unknown): Promise<AgentTeamListItem> {
+  const request = parseUserTeamRequest(rawRequest, "Only a user team can be copied by this operation.");
+  const source = resolveTeamLocation({ dataRoot, teamId: request.teamId, ownership: request.ownership });
+  const destination = await duplicateUserTeamDirectory(source);
+  return toListItem(await readTeamSnapshot(destination));
+}
+
+export async function duplicateAgentTeamMember(
+  dataRoot: string,
+  rawRequest: unknown,
+): Promise<AgentTeamMemberAddResponse> {
+  const request = parseUserMemberRequest(rawRequest, "Only a user-team Agent can be copied.");
+  const location = resolveTeamLocation({ dataRoot, teamId: request.teamId, ownership: request.ownership });
+  const result = await duplicateTeamMemberDirectory(location, request.memberSlug);
+  return { team: toListItem(result.team), member: toMemberDocument(result.member) };
+}
+
+export async function trashAgentTeamMember(
+  dataRoot: string,
+  rawRequest: unknown,
+  moveToTrash: MovePathToTrash,
+): Promise<AgentTeamListItem> {
+  const request = parseUserMemberRequest(rawRequest, "Only a user-team Agent can be deleted.");
+  const location = resolveTeamLocation({ dataRoot, teamId: request.teamId, ownership: request.ownership });
+  return toListItem(await trashTeamMemberDirectory(location, request.memberSlug, moveToTrash));
+}
+
+export async function trashUserAgentTeam(
+  dataRoot: string,
+  rawRequest: unknown,
+  moveToTrash: MovePathToTrash,
+): Promise<void> {
+  const request = parseUserTeamRequest(rawRequest, "Only a user team can be moved to the trash.");
+  const location = resolveTeamLocation({ dataRoot, teamId: request.teamId, ownership: request.ownership });
+  await trashUserTeamDirectory(location, moveToTrash);
+}
+
 function toListItem(snapshot: TeamSnapshot): AgentTeamListItem {
   return {
     id: snapshot.location.id,
@@ -309,6 +373,22 @@ function parseDuplicateBuiltInRequest(value: unknown): AgentTeamDuplicateBuiltIn
     throw new AgentTeamIpcRequestError("Only a built-in team can be copied by this operation.");
   }
   return { teamId: value.teamId, ownership: "system" };
+}
+
+function parseUserTeamRequest(value: unknown, ownershipError: string): AgentTeamDuplicateUserRequest {
+  const request = parseTeamRequest(value);
+  if (request.ownership !== "user") {
+    throw new AgentTeamIpcRequestError(ownershipError);
+  }
+  return { teamId: request.teamId, ownership: "user" };
+}
+
+function parseUserMemberRequest(value: unknown, ownershipError: string): AgentTeamMemberDuplicateRequest {
+  const request = parseMemberRequest(value);
+  if (request.ownership !== "user") {
+    throw new AgentTeamIpcRequestError(ownershipError);
+  }
+  return { ...request, ownership: "user" };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

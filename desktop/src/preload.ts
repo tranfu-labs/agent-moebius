@@ -9,6 +9,7 @@ import {
   TEAM_IPC_CHANNELS,
   type AgentTeamCreateRequest,
   type AgentTeamDuplicateBuiltInRequest,
+  type AgentTeamDuplicateUserRequest,
   type AgentTeamListItem,
   type AgentTeamListResponse,
   type AgentTeamMemberDocument,
@@ -16,8 +17,11 @@ import {
   type AgentTeamMemberAddResponse,
   type AgentTeamMemberRequest,
   type AgentTeamMemberWriteRequest,
+  type AgentTeamMemberDuplicateRequest,
+  type AgentTeamMemberTrashRequest,
   type AgentTeamPrimaryAgentWriteRequest,
   type AgentTeamUpdateInformationRequest,
+  type AgentTeamTrashUserRequest,
 } from "./team-ipc.js";
 
 export interface AgentMoebiusDesktopApi {
@@ -40,6 +44,10 @@ export interface AgentMoebiusDesktopApi {
   updateAgentTeamInformation(request: AgentTeamUpdateInformationRequest): Promise<AgentTeamListItem>;
   setAgentTeamPrimaryAgent(request: AgentTeamPrimaryAgentWriteRequest): Promise<AgentTeamListItem>;
   duplicateBuiltInAgentTeam(request: AgentTeamDuplicateBuiltInRequest): Promise<AgentTeamListItem>;
+  duplicateUserAgentTeam(request: AgentTeamDuplicateUserRequest): Promise<AgentTeamListItem>;
+  duplicateAgentTeamMember(request: AgentTeamMemberDuplicateRequest): Promise<AgentTeamMemberAddResponse>;
+  trashAgentTeamMember(request: AgentTeamMemberTrashRequest): Promise<AgentTeamListItem>;
+  trashUserAgentTeam(request: AgentTeamTrashUserRequest): Promise<void>;
 }
 
 const api: AgentMoebiusDesktopApi = {
@@ -103,6 +111,18 @@ const api: AgentMoebiusDesktopApi = {
   },
   duplicateBuiltInAgentTeam(request) {
     return ipcRenderer.invoke(TEAM_IPC_CHANNELS.duplicateBuiltIn, request) as Promise<AgentTeamListItem>;
+  },
+  duplicateUserAgentTeam(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.duplicateUser, request) as Promise<AgentTeamListItem>;
+  },
+  duplicateAgentTeamMember(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.duplicateMember, request) as Promise<AgentTeamMemberAddResponse>;
+  },
+  trashAgentTeamMember(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.trashMember, request) as Promise<AgentTeamListItem>;
+  },
+  trashUserAgentTeam(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.trashUserTeam, request) as Promise<void>;
   },
 };
 

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentTeamListItem } from "../src/team-ipc.js";
 import {
+  finishAgentTeamMemberLoad,
   getAgentTeamKey,
+  removeAgentTeamDrafts,
+  removeAgentTeamMemberDraft,
   reconcileAgentTeamSelection,
+  updateAgentTeamMemberDraft,
 } from "../src/console-page/team-state.js";
 
 const builtInTeam = team({
@@ -51,6 +55,17 @@ describe("Agent team page selection", () => {
       teamKey: "system:development",
       memberSlug: "manager",
     })).toBeNull();
+  });
+
+  it("removes deleted member and team drafts so stale unsaved content cannot block later operations", () => {
+    const teamKey = "user:development";
+    let state = finishAgentTeamMemberLoad({ membersByKey: {} }, teamKey, "lead", "# Lead\n");
+    state = finishAgentTeamMemberLoad(state, teamKey, "qa", "# QA\n");
+    state = updateAgentTeamMemberDraft(state, teamKey, "qa", "# QA changed\n");
+
+    const withoutMember = removeAgentTeamMemberDraft(state, teamKey, "qa");
+    expect(Object.values(withoutMember.membersByKey).map((member) => member.memberSlug)).toEqual(["lead"]);
+    expect(removeAgentTeamDrafts(withoutMember, teamKey)).toEqual({ membersByKey: {} });
   });
 });
 

@@ -220,6 +220,29 @@ export function discardAllAgentTeamDrafts(state: AgentTeamDraftState, teamKey: s
   return nextState;
 }
 
+export function removeAgentTeamMemberDraft(
+  state: AgentTeamDraftState,
+  teamKey: string,
+  memberSlug: string,
+): AgentTeamDraftState {
+  const key = getAgentTeamMemberDraftKey(teamKey, memberSlug);
+  if (!(key in state.membersByKey)) {
+    return state;
+  }
+  const membersByKey = { ...state.membersByKey };
+  delete membersByKey[key];
+  return { membersByKey };
+}
+
+export function removeAgentTeamDrafts(state: AgentTeamDraftState, teamKey: string): AgentTeamDraftState {
+  const membersByKey = Object.fromEntries(
+    Object.entries(state.membersByKey).filter(([, member]) => member.teamKey !== teamKey),
+  );
+  return Object.keys(membersByKey).length === Object.keys(state.membersByKey).length
+    ? state
+    : { membersByKey };
+}
+
 export async function saveAllAgentTeamDrafts(input: {
   state: AgentTeamDraftState;
   teamKey: string;

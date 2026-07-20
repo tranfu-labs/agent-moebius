@@ -9,12 +9,16 @@ import {
   createUserTeam,
   determineTeamOwnership,
   duplicateBuiltInTeamDirectory,
+  duplicateTeamMemberDirectory,
+  duplicateUserTeamDirectory,
   getSystemTeamsRoot,
   getTeamsRoot,
   listTeamLocations,
   readTeamSnapshot,
   resolveTeamLocation,
   setTeamPrimaryAgent,
+  trashTeamMemberDirectory,
+  trashUserTeamDirectory,
   updateTeamInformation,
   writeMemberAgentMarkdown,
   writeTeamDefinition,
@@ -182,6 +186,117 @@ describe("team disk store", () => {
         canCreateConversation: true,
         definition: { primaryAgentSlug: "manager", memberOrder: ["manager", "developer", "agent"] },
       },
+    });
+  });
+
+  it("copies a whole user team through the shared directory-copy path", async () => {
+    const dataRoot = await makeDataRoot();
+    const source = resolveTeamLocation({ dataRoot, teamId: "my-development", ownership: "user" });
+    await writeTeamDefinition(source, usableDefinition);
+    await writeMemberAgentMarkdown(source, "manager", "# 开发经理\n\n默认接单\n");
+    await writeMemberAgentMarkdown(source, "developer", "# 开发\n\n负责实现\n");
+    await fs.writeFile(path.join(source.directory, "team-notes.md"), "完整复制\n", "utf8");
+
+    const destination = await duplicateUserTeamDirectory(source);
+
+    expect(destination).toMatchObject({ id: "my-development-copy", ownership: "user" });
+    expect(await readFileTree(destination.directory)).toEqual(await readFileTree(source.directory));
+    expect(await readTeamSnapshot(destination)).toMatchObject({ status: "usable", canCreateConversation: true });
+  });
+
+  it("copies an Agent directory with related files and assigns a new stable slug in the same team", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "my-development", ownership: "user" });
+    await writeTeamDefinition(location, usableDefinition);
+    await writeMemberAgentMarkdown(location, "manager", "# 开发经理\n\n默认接单\n");
+    await writeMemberAgentMarkdown(location, "developer", "# 开发\n\n负责实现并交给 @manager\n");
+    await fs.mkdir(path.join(location.directory, "members", "developer", "references"), { recursive: true });
+    await fs.writeFile(
+      path.join(location.directory, "members", "developer", "references", "rules.md"),
+      "成员相关文件\n",
+      "utf8",
+    );
+
+    const copied = await duplicateTeamMemberDirectory(location, "developer");
+
+    expect(copied.member).toMatchObject({
+      slug: "developer-2",
+      displayName: "开发",
+      agentMarkdown: "# 开发\n\n负责实现并交给 @manager\n",
+    });
+    expect(copied.team.definition).toMatchObject({
+      primaryAgentSlug: "manager",
+      memberOrder: ["manager", "developer", "developer-2"],
+    });
+    expect(await fs.readFile(
+      path.join(location.directory, "members", "developer-2", "references", "rules.md"),
+      "utf8",
+    )).toBe("成员相关文件\n");
+  });
+
+  it("moves a non-primary Agent to recoverable trash and keeps a still-valid team usable", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "my-development", ownership: "user" });
+    await writeTeamDefinition(location, usableDefinition);
+    await writeMemberAgentMarkdown(location, "manager", "# 开发经理\n\n下一步交给 @developer\n");
+    await writeMemberAgentMarkdown(location, "developer", "# 开发\n\n负责实现\n");
+    await fs.writeFile(path.join(location.directory, "members", "developer", "notes.txt"), "可恢复\n", "utf8");
+    const trashRoot = path.join(dataRoot, "system-trash");
+    const trashedMember = path.join(trashRoot, "developer");
+
+    const team = await trashTeamMemberDirectory(location, "developer", async (targetPath) => {
+      await fs.mkdir(trashRoot, { recursive: true });
+      await fs.rename(targetPath, trashedMember);
+    });
+
+    expect(team).toMatchObject({
+      status: "usable",
+      canCreateConversation: true,
+      definition: { primaryAgentSlug: "manager", memberOrder: ["manager"] },
+      issues: [],
+    });
+    expect(await fs.readFile(path.join(trashedMember, "notes.txt"), "utf8")).toBe("可恢复\n");
+    expect(await fs.readFile(path.join(location.directory, "members", "manager", "AGENT.md"), "utf8"))
+      .toContain("@developer");
+  });
+
+  it("requires another valid primary Agent before deleting the current primary", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "my-development", ownership: "user" });
+    await writeTeamDefinition(location, usableDefinition);
+    await writeMemberAgentMarkdown(location, "manager", "# 开发经理\n\n默认接单\n");
+    await writeMemberAgentMarkdown(location, "developer", "# 开发\n\n负责实现\n");
+    let trashCalled = false;
+
+    await expect(trashTeamMemberDirectory(location, "manager", async () => {
+      trashCalled = true;
+    })).rejects.toMatchObject({ code: "TEAM_PRIMARY_AGENT_INVALID" });
+    expect(trashCalled).toBe(false);
+    expect((await readTeamSnapshot(location)).definition).toEqual(usableDefinition);
+  });
+
+  it("moves a user team directory to recoverable trash and rejects built-in teams", async () => {
+    const dataRoot = await makeDataRoot();
+    const user = resolveTeamLocation({ dataRoot, teamId: "my-development", ownership: "user" });
+    const builtIn = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    await writeTeamDefinition(user, { ...usableDefinition, primaryAgentSlug: null, memberOrder: [] });
+    await fs.mkdir(builtIn.directory, { recursive: true });
+    const trashRoot = path.join(dataRoot, "system-trash");
+    const trashedTeam = path.join(trashRoot, user.id);
+
+    await trashUserTeamDirectory(user, async (targetPath) => {
+      await fs.mkdir(trashRoot, { recursive: true });
+      await fs.rename(targetPath, trashedTeam);
+    });
+
+    expect(JSON.parse(await fs.readFile(path.join(trashedTeam, "team.json"), "utf8"))).toMatchObject({
+      name: "开发团队",
+      primaryAgentSlug: null,
+      memberOrder: [],
+    });
+    await expect(fs.access(user.directory)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(trashUserTeamDirectory(builtIn, async () => undefined)).rejects.toMatchObject({
+      code: "BUILT_IN_TEAM_READ_ONLY",
     });
   });
 

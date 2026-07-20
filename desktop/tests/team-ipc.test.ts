@@ -6,10 +6,14 @@ import type { TeamDefinition } from "../src/team-model.js";
 import {
   addAgentTeamMember,
   createAgentTeam,
+  duplicateAgentTeamMember,
   duplicateBuiltInAgentTeam,
+  duplicateUserAgentTeam,
   listAgentTeams,
   readAgentTeamMember,
   setAgentTeamPrimaryAgent,
+  trashAgentTeamMember,
+  trashUserAgentTeam,
   updateAgentTeamInformation,
   writeAgentTeamMember,
 } from "../src/team-ipc.js";
@@ -214,6 +218,65 @@ describe("Agent team IPC service", () => {
       teamId: "development-copy",
       ownership: "user",
     })).rejects.toMatchObject({ code: "AGENT_TEAM_IPC_REQUEST_INVALID" });
+  });
+
+  it("exposes separate user-team and member duplication operations", async () => {
+    const dataRoot = await makeDataRoot();
+    const user = resolveTeamLocation({ dataRoot, teamId: "my-team", ownership: "user" });
+    await createUsableTeam(user, {
+      ...usableDefinition,
+      primaryAgentSlug: "manager",
+      memberOrder: ["manager", "developer"],
+    });
+    await fs.writeFile(path.join(user.directory, "members", "developer", "related.txt"), "copy me\n", "utf8");
+
+    await expect(duplicateUserAgentTeam(dataRoot, { teamId: "my-team", ownership: "user" }))
+      .resolves.toMatchObject({ id: "my-team-copy", ownership: "user", status: "usable" });
+    await expect(duplicateAgentTeamMember(dataRoot, {
+      teamId: "my-team",
+      ownership: "user",
+      memberSlug: "developer",
+    })).resolves.toMatchObject({
+      member: { slug: "developer-2", displayName: "开发" },
+      team: { definition: { memberOrder: ["manager", "developer", "developer-2"] } },
+    });
+    await expect(fs.readFile(path.join(user.directory, "members", "developer-2", "related.txt"), "utf8"))
+      .resolves.toBe("copy me\n");
+    await expect(duplicateUserAgentTeam(dataRoot, { teamId: "my-team", ownership: "system" }))
+      .rejects.toMatchObject({ code: "AGENT_TEAM_IPC_REQUEST_INVALID" });
+  });
+
+  it("moves member and team paths through the injected system-trash boundary", async () => {
+    const dataRoot = await makeDataRoot();
+    const user = resolveTeamLocation({ dataRoot, teamId: "my-team", ownership: "user" });
+    await createUsableTeam(user, {
+      ...usableDefinition,
+      primaryAgentSlug: "manager",
+      memberOrder: ["manager", "developer"],
+    });
+    const movedPaths: string[] = [];
+    const trashRoot = path.join(dataRoot, "trash");
+    const moveToTrash = async (targetPath: string) => {
+      movedPaths.push(targetPath);
+      await fs.mkdir(trashRoot, { recursive: true });
+      await fs.rename(targetPath, path.join(trashRoot, `${movedPaths.length}-${path.basename(targetPath)}`));
+    };
+
+    await expect(trashAgentTeamMember(dataRoot, {
+      teamId: "my-team",
+      ownership: "user",
+      memberSlug: "developer",
+    }, moveToTrash)).resolves.toMatchObject({ status: "usable", definition: { memberOrder: ["manager"] } });
+    await expect(trashUserAgentTeam(dataRoot, {
+      teamId: "my-team",
+      ownership: "user",
+    }, moveToTrash)).resolves.toBeUndefined();
+
+    expect(movedPaths).toEqual([
+      path.join(user.directory, "members", "developer"),
+      user.directory,
+    ]);
+    expect(await fs.readdir(trashRoot)).toEqual(["1-developer", "2-my-team"]);
   });
 });
 

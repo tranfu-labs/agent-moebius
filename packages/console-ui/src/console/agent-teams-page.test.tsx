@@ -24,6 +24,105 @@ describe("AgentTeamsPage built-in duplication", () => {
     expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).not.toHaveAttribute("readonly");
     expect(screen.queryByRole("button", { name: "复制并编辑" })).not.toBeInTheDocument();
   });
+
+  it("never shows team deletion or member mutation controls for a built-in team", async () => {
+    render(<DuplicateTeamHarness onDuplicate={() => undefined} />);
+    fireEvent.click(screen.getByTestId("agent-team-row"));
+
+    expect(screen.queryByRole("button", { name: "团队更多操作" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "开发经理更多操作" })).not.toBeInTheDocument();
+    expect(screen.queryByText("删除 Agent")).not.toBeInTheDocument();
+    expect(screen.queryByText(/废纸篓|回收站/u)).not.toBeInTheDocument();
+  });
+});
+
+describe("AgentTeamsPage user-team file operations", () => {
+  it("blocks Agent duplication on unsaved drafts until the user discards them", async () => {
+    const onDiscardAll = vi.fn();
+    const onDuplicateMember = vi.fn().mockResolvedValue(undefined);
+    renderUserTeam({
+      detailState: detailStateFor(userTeam.teamKey, { dirty: true }),
+      onDiscardAll,
+      onDuplicateMember,
+    });
+
+    await openMenu("开发经理更多操作");
+    fireEvent.click(screen.getByRole("menuitem", { name: "复制 Agent" }));
+
+    const dialog = screen.getByRole("dialog", { name: "复制前先处理未保存修改" });
+    expect(dialog).toHaveTextContent("只使用已经完整保存到磁盘的文件");
+    expect(onDuplicateMember).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "放弃全部并继续" }));
+
+    await waitFor(() => expect(onDiscardAll).toHaveBeenCalledWith(userTeam.teamKey));
+    await waitFor(() => expect(onDuplicateMember).toHaveBeenCalledWith(userTeam.teamKey, "manager"));
+  });
+
+  it("requires another primary Agent before deleting the current primary", async () => {
+    const onTrashMember = vi.fn();
+    renderUserTeam({ onTrashMember });
+
+    await openMenu("开发经理更多操作");
+    const item = screen.getByRole("menuitem", { name: "删除 Agent（请先更换主 Agent）" });
+    expect(item).toHaveAttribute("data-disabled");
+    fireEvent.click(item);
+    expect(onTrashMember).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: /删除/u })).not.toBeInTheDocument();
+  });
+
+  it("warns about unchanged handoff references before deleting a non-primary Agent", async () => {
+    const onTrashMember = vi.fn().mockResolvedValue(undefined);
+    renderUserTeam({
+      detailState: detailStateFor(userTeam.teamKey, { selectedMemberSlug: "dev" }),
+      onTrashMember,
+    });
+
+    await openMenu("开发更多操作");
+    fireEvent.click(screen.getByRole("menuitem", { name: "删除 Agent" }));
+
+    const dialog = screen.getByRole("dialog", { name: "删除“开发”？" });
+    expect(dialog).toHaveTextContent("其他成员的交棒规则可能仍引用 @dev");
+    expect(dialog).toHaveTextContent("不会自动理解、清理或改写这些规则");
+    expect(dialog).toHaveTextContent("整个目录、AGENT.md 和相关文件");
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除 Agent" }));
+    await waitFor(() => expect(onTrashMember).toHaveBeenCalledWith(userTeam.teamKey, "dev"));
+  });
+
+  it("saves outstanding drafts before team deletion, then explains every affected file and preserved sessions", async () => {
+    const onSaveAll = vi.fn().mockResolvedValue({ failures: [] });
+    const onTrashUserTeam = vi.fn().mockResolvedValue(undefined);
+    renderUserTeam({
+      detailState: detailStateFor(userTeam.teamKey, { dirty: true }),
+      onSaveAll,
+      onTrashUserTeam,
+    });
+
+    await openMenu("我的开发团队更多操作");
+    fireEvent.click(screen.getByRole("menuitem", { name: "移到废纸篓 / 回收站" }));
+    const draftDialog = screen.getByRole("dialog", { name: "删除前先处理未保存修改" });
+    expect(onTrashUserTeam).not.toHaveBeenCalled();
+    fireEvent.click(within(draftDialog).getByRole("button", { name: "保存全部并继续" }));
+
+    await waitFor(() => expect(onSaveAll).toHaveBeenCalledWith(userTeam.teamKey));
+    const confirm = await screen.findByRole("dialog", { name: "把“我的开发团队”移到系统废纸篓或回收站？" });
+    expect(confirm).toHaveTextContent("2 个 Agent：开发经理、开发");
+    expect(confirm).toHaveTextContent("AGENT.md 和目录中的相关文件");
+    expect(confirm).toHaveTextContent("已有会话及其创建时载入的团队版本会保留");
+    expect(confirm).toHaveTextContent("不提供永久删除或独立的已删除团队页面");
+    fireEvent.click(within(confirm).getByRole("button", { name: "移到废纸篓 / 回收站" }));
+
+    await waitFor(() => expect(onTrashUserTeam).toHaveBeenCalledWith(userTeam.teamKey));
+    await waitFor(() => expect(screen.queryByTestId("agent-team-detail-view")).not.toBeInTheDocument());
+  });
+
+  it("duplicates a user team from the detail More menu", async () => {
+    const onDuplicateUserTeam = vi.fn().mockResolvedValue(userTeam.teamKey);
+    renderUserTeam({ onDuplicateUserTeam });
+
+    await openMenu("我的开发团队更多操作");
+    fireEvent.click(screen.getByRole("menuitem", { name: "复制团队" }));
+    await waitFor(() => expect(onDuplicateUserTeam).toHaveBeenCalledWith(userTeam.teamKey));
+  });
 });
 
 describe("AgentTeamsPage file manager actions", () => {
@@ -210,23 +309,87 @@ const emptyDraftDetailState: AgentTeamDetailState = {
   saveAllFailures: [],
 };
 
-function detailStateFor(teamKey: string): AgentTeamDetailState {
+const userTeam: OperatorAgentTeam = {
+  teamKey: "user:my-development",
+  id: "my-development",
+  ownership: "user",
+  name: "我的开发团队",
+  description: "负责软件方案、实现和验收",
+  primaryAgentSlug: "manager",
+  memberOrder: ["manager", "dev"],
+  members: [
+    { slug: "manager", displayName: "开发经理", description: "默认接单" },
+    { slug: "dev", displayName: "开发", description: "负责实现" },
+  ],
+  status: "usable",
+  canCreateConversation: true,
+};
+
+function detailStateFor(
+  teamKey: string,
+  options: { dirty?: boolean; selectedMemberSlug?: string } = {},
+): AgentTeamDetailState {
   return {
     teamKey,
-    selectedMemberSlug: "manager",
+    selectedMemberSlug: options.selectedMemberSlug ?? "manager",
     memberEditors: {
       manager: {
         memberSlug: "manager",
         loadStatus: "ready",
         loadError: null,
         draftMarkdown: "# 开发经理\n\n默认接单\n",
-        isDirty: false,
+        isDirty: options.dirty ?? false,
         saveStatus: "idle",
         saveError: null,
         displayName: "开发经理",
         description: "默认接单",
       },
+      dev: {
+        memberSlug: "dev",
+        loadStatus: "ready",
+        loadError: null,
+        draftMarkdown: "# 开发\n\n负责实现\n",
+        isDirty: false,
+        saveStatus: "idle",
+        saveError: null,
+        displayName: "开发",
+        description: "负责实现",
+      },
     },
     saveAllFailures: [],
   };
+}
+
+function renderUserTeam(overrides: {
+  detailState?: AgentTeamDetailState;
+  onDiscardAll?: (teamKey: string) => void;
+  onSaveAll?: (teamKey: string) => Promise<{ failures: [] }>;
+  onDuplicateUserTeam?: (teamKey: string) => Promise<string>;
+  onDuplicateMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onTrashMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onTrashUserTeam?: (teamKey: string) => void | Promise<void>;
+} = {}): void {
+  render(
+    <AgentTeamsPage
+      state={{ status: "ready", teams: [userTeam] }}
+      detailState={overrides.detailState ?? detailStateFor(userTeam.teamKey)}
+      useStackedRows={false}
+      onOpenTeam={() => undefined}
+      onCloseTeam={() => undefined}
+      onSelectMember={() => undefined}
+      onChangePrimaryAgent={() => undefined}
+      onChangeMember={() => undefined}
+      onSaveMember={() => undefined}
+      onRetryMember={() => undefined}
+      onDiscardMember={() => undefined}
+      onDiscardAll={overrides.onDiscardAll ?? (() => undefined)}
+      onSaveAll={overrides.onSaveAll ?? (async () => ({ failures: [] }))}
+      onDuplicateUserTeam={overrides.onDuplicateUserTeam}
+      onDuplicateMember={overrides.onDuplicateMember}
+      onTrashMember={overrides.onTrashMember}
+      onTrashUserTeam={overrides.onTrashUserTeam}
+      onBack={() => undefined}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("agent-team-row"));
 }
