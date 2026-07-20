@@ -44,6 +44,10 @@
       {
         "from": "../config.toml",
         "to": "seed/config.toml"
+      },
+      {
+        "from": "../seeds/teams",
+        "to": "seed/teams"
       }
     ],
     "directories": {

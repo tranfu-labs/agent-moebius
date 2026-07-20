@@ -54,6 +54,7 @@
 │   │   ├── console-page/       # 桌面本地对话操作台 renderer（含 selection mutation / refresh 协调）
 │   │   ├── status-page/        # 桌面辅助诊断状态页静态资源
 │   │   ├── data-root.ts        # 数据根解析与首启种子拷贝计划
+│   │   ├── team-seed.ts        # 内置团队内容指纹、临时解包与 .system 覆盖播种
 │   │   ├── shell-path.ts       # macOS 登录 shell PATH 读取与合并
 │   │   ├── env-doctor.ts       # codex / gh / gh auth 自检
 │   │   ├── runner-supervisor.ts # runner 子进程状态机与崩溃退避
@@ -61,6 +62,8 @@
 │   └── tests/                  # 桌面壳纯模块 Vitest
 ├── packages/
 │   └── console-ui/             # shadcn/Radix + Tailwind 的 React 对话操作台组件库与 Storybook
+├── seeds/
+│   └── teams/                  # 打包进桌面应用的只读内置团队种子
 ├── sites/                      # 面向公众的自包含静态营销站点（与产品运行时零耦合）
 │   └── marketeam/              # 当前唯一官网：自包含 index.html + 同目录 DEPLOY.md（目录名 marketeam 为历史遗留；marketing-site 域）
 ├── tests/                      # Vitest 单元测试
@@ -103,7 +106,7 @@
 - 运行桌面应用开发态：`pnpm desktop`
   - 使用 Electron 壳启动本地对话操作台主窗口，进程内以动态端口启动 local console server 与只读 observer，并以 `utilityProcess` 派生 runner 子进程。
   - 开发态默认数据根为仓库根；打包态默认数据根为 `~/.agent-moebius`；两种形态都可用 `AGENT_MOEBIUS_DATA_ROOT` 覆盖。
-  - 首启会把提交版 `agents/` 与示例 `config.toml` 种子拷贝到数据根，已存在的文件一律不覆盖；用户本机仍通过数据根下被忽略的 `config.local.toml` 配置监听仓库。
+  - 首启会把提交版 `agents/` 与示例 `config.toml` 种子拷贝到数据根，已存在的文件一律不覆盖；内置团队从 `seeds/teams/` 打包后按内容指纹整体覆盖到 `<数据根>/teams/.system/`，指纹相同则跳过，用户团队目录不参与播种；用户本机仍通过数据根下被忽略的 `config.local.toml` 配置监听仓库。
   - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`；runner child 显式以 GitHub mode 启动，因此不会重复启动 local console server。
   - 操作台采用 Codex 桌面端式两栏骨架：macOS 主窗口使用集成标题栏，左侧按已打开的持久化本地项目分组，并把每个项目下的所有会话（包括带 `parentSessionId` 的裂变会话）平铺为同级列表；右侧为同一条多 agent 时间线，底部输入器承载项目 / 本地或隔离工作区上下文；状态页和 observer 只保留为辅助诊断入口，路径、SQLite、runDir、cwd、内部 id 与原始输出不常驻对话页。
   - 每个项目行右侧的新会话按钮只在该项目下创建会话；空白且无运行、消息或父子关系的会话可从 composer 项目菜单切换到其他已打开项目，保持 session id、草稿与选中态。create/open/rebind 共用同步 selection mutation gate；mutation owner refresh 可抢占旧 lease，非 owner refresh 不得提交，周期 refresh 保持 single-flight。已有消息、运行或父子关系的会话项目归属锁定。

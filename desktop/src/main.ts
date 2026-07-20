@@ -21,6 +21,7 @@ import { RunnerSupervisor, type RunnerProcess } from "./runner-supervisor.js";
 import { DESKTOP_RUNNER_ARGS } from "./runner-launch.js";
 import { resolveShellPath } from "./shell-path.js";
 import type { DesktopStatusSnapshot } from "./status.js";
+import { seedBuiltInTeams } from "./team-seed.js";
 import { decideUpdate, type ReleaseMetadata } from "./updater.js";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -99,7 +100,15 @@ async function boot(): Promise<void> {
     const seedRoot = resolveSeedRoot();
     const plan = await buildSeedCopyPlan({ seedRoot, dataRoot: status.dataRoot });
     await executeSeedCopyPlan(plan.operations);
-    status.seed = { status: "ok", copied: plan.operations.length, skipped: plan.skippedDestinations.length };
+    const teamSeed = await seedBuiltInTeams({
+      seedTeamsRoot: app.isPackaged ? path.join(seedRoot, "teams") : path.join(projectRoot, "seeds", "teams"),
+      dataRoot: status.dataRoot,
+    });
+    status.seed = {
+      status: "ok",
+      copied: plan.operations.length + (teamSeed.status === "seeded" ? 1 : 0),
+      skipped: plan.skippedDestinations.length + (teamSeed.status === "skipped" ? 1 : 0),
+    };
   } catch (error) {
     status.seed = { status: "error", copied: 0, skipped: 0, error: formatError(error) };
     publishStatus();
