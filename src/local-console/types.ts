@@ -41,6 +41,13 @@ export interface LocalRouteDecisionRecord {
 }
 
 export type LocalConsoleSessionStatus = "idle" | "running" | "waiting" | "stuck" | "failed" | "interrupted";
+export const LOCAL_CONSOLE_AWAITS_HUMAN_REASONS = [
+  "answer",
+  "confirmation",
+  "acceptance",
+  "exception",
+] as const;
+export type LocalConsoleAwaitsHumanReason = (typeof LOCAL_CONSOLE_AWAITS_HUMAN_REASONS)[number];
 export type LocalConsoleProjectSourceType = typeof LOCAL_CONSOLE_PROJECT_SOURCE_TYPE;
 export type LocalConsoleWorkspaceMode = "direct" | "worktree";
 
@@ -57,6 +64,8 @@ export interface LocalConsoleSessionSummary {
   parentSessionId?: string | null;
   title: string;
   status: LocalConsoleSessionStatus;
+  awaitsHumanReason: LocalConsoleAwaitsHumanReason | null;
+  unreadSince: string | null;
   runningCount: number;
   waitingCount: number;
   stuckCount: number;
@@ -184,6 +193,7 @@ export interface LocalConsoleStore {
     now: string;
   }): Promise<LocalConsoleSessionSummary>;
   listSessions(): Promise<LocalConsoleSessionSummary[]>;
+  markSessionResultRead(input: { sessionId: string; unreadSince: string; now: string }): Promise<boolean>;
   appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage>;
   listMessages(sessionId: string): Promise<LocalConsoleMessage[]>;
   hasRunningMessage(sessionId: string): Promise<boolean>;

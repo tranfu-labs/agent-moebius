@@ -19,7 +19,6 @@ import { ConversationEmptyState } from "@/console/conversation-empty-state";
 import {
   ConversationSidebar,
   type ConversationSidebarProject,
-  type ConversationSessionStatus,
 } from "@/console/conversation-sidebar";
 import { RoleComposer } from "@/console/role-composer";
 import { RunBlock } from "@/console/run-block";
@@ -65,6 +64,8 @@ export interface OperatorSession {
   parentSessionId?: string | null;
   title: string;
   status: OperatorSessionStatus;
+  awaitsHumanReason: "answer" | "confirmation" | "acceptance" | "exception" | null;
+  unreadSince: string | null;
   runningCount: number;
   waitingCount: number;
   stuckCount: number;
@@ -922,21 +923,13 @@ function toSidebarProject(project: OperatorProject): ConversationSidebarProject 
     sessions: project.sessions.map((session) => ({
       id: session.sessionId,
       title: session.title,
-      status: toSidebarStatus(session),
+      awaitsHumanReason: session.awaitsHumanReason,
+      unreadSince: session.unreadSince,
+      isRunning: session.status === "running" || session.runningCount > 0,
       createdAt: session.createdAt,
       summary: sessionSummary(session),
     })),
   };
-}
-
-function toSidebarStatus(session: OperatorSession): ConversationSessionStatus {
-  if (session.status === "waiting" || session.waitingCount > 0) {
-    return "waiting";
-  }
-  if (session.status === "running" || session.runningCount > 0) {
-    return "running";
-  }
-  return "idle";
 }
 
 function sessionSummary(session: OperatorSession): string | undefined {

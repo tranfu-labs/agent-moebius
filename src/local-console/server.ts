@@ -296,6 +296,21 @@ async function handleRequest(
       return;
     }
 
+    const sessionReadMatch = matchSessionRoute(url.pathname, "read");
+    if (request.method === "POST" && sessionReadMatch !== null) {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload) || typeof payload.unreadSince !== "string" || payload.unreadSince.trim() === "") {
+        sendJson(response, 400, { error: "Expected JSON body with a string unreadSince field" });
+        return;
+      }
+      const cleared = await runtime.markSessionResultRead({
+        sessionId: sessionReadMatch.sessionId,
+        unreadSince: payload.unreadSince,
+      });
+      sendJson(response, 200, { cleared });
+      return;
+    }
+
     const interruptMatch = matchSessionRoute(url.pathname, "interrupt");
     if (request.method === "POST" && interruptMatch !== null) {
       const payload = await readJsonBody(request);
@@ -598,7 +613,7 @@ function matchProjectRoute(pathname: string): { projectId: string } | null {
 
 function matchSessionRoute(
   pathname: string,
-  action: "messages" | "interrupt" | "project",
+  action: "messages" | "read" | "interrupt" | "project",
 ): { sessionId: string } | null {
   const match = new RegExp(`^/api/local-console/sessions/(.+)/${action}$`, "u").exec(pathname);
   if (match === null) {

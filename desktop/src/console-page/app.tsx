@@ -11,6 +11,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  acknowledgeDisplayedResult,
   ConsoleStateActions,
   ConsoleStateCoordinator,
   refreshConsoleState,
@@ -80,6 +81,7 @@ function App(): JSX.Element {
   const [sidebarVisibilityPreference, setSidebarVisibilityPreference] = useState<SidebarVisibilityPreference>(() =>
     readSidebarVisibilityPreference(window.localStorage),
   );
+  const resultAcknowledgementsRef = useRef(new Set<string>());
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +157,32 @@ function App(): JSX.Element {
       coordinatorRef.current.invalidateRefresh();
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (apiBase === null || state === null || state.selectedSession === null || state.selectedSession.unreadSince === null) {
+      return;
+    }
+    const { sessionId, unreadSince } = state.selectedSession;
+    const latestResultIsDisplayed = state.messages.some(
+      (message) => message.speaker === "agent" && message.createdAt >= unreadSince,
+    );
+    if (!latestResultIsDisplayed) {
+      return;
+    }
+    const acknowledgementKey = `${sessionId}:${unreadSince}`;
+    if (resultAcknowledgementsRef.current.has(acknowledgementKey)) {
+      return;
+    }
+    resultAcknowledgementsRef.current.add(acknowledgementKey);
+    void acknowledgeDisplayedResult({ apiBase, sessionId, unreadSince, fetch })
+      .then(async () => {
+        await refresh(selectionRef.current);
+      })
+      .catch((error: unknown) => {
+        resultAcknowledgementsRef.current.delete(acknowledgementKey);
+        setClientError(formatError(error));
+      });
+  }, [apiBase, refresh, state]);
 
   const project = state?.project ?? emptyProject;
   const projects = state?.projects ?? [project];

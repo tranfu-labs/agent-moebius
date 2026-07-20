@@ -51,6 +51,7 @@ export type SqliteStateCommand =
       now: string;
     }
   | { kind: "local-list-sessions" }
+  | { kind: "local-mark-session-result-read"; sessionId: string; unreadSince: string; now: string }
   | { kind: "local-append-user"; sessionId: string; body: string; now: string }
   | { kind: "local-list"; sessionId: string }
   | { kind: "local-has-running"; sessionId: string }

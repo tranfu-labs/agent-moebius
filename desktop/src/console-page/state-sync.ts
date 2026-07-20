@@ -139,6 +139,28 @@ export async function refreshConsoleState<TState>(options: RefreshConsoleStateOp
   }
 }
 
+export async function acknowledgeDisplayedResult(options: {
+  apiBase: string;
+  sessionId: string;
+  unreadSince: string;
+  fetch: FetchLike;
+}): Promise<boolean> {
+  const fetch = options.fetch;
+  const response = await fetch(
+    endpoint(options.apiBase, `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/read`),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ unreadSince: options.unreadSince }),
+    },
+  );
+  const body = await response.json() as { cleared?: boolean; error?: string };
+  if (!response.ok) {
+    throw new Error(body.error ?? "mark result read failed");
+  }
+  return body.cleared === true;
+}
+
 interface SessionResponse {
   session?: { sessionId: string };
   error?: string;

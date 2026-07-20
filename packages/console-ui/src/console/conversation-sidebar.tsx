@@ -10,12 +10,14 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
 
-export type ConversationSessionStatus = "waiting" | "running" | "idle";
+export type ConversationSessionStatus = "red" | "blue" | "blink" | "none";
 
 export interface ConversationSidebarSession {
   id: string;
   title: string;
-  status: ConversationSessionStatus;
+  awaitsHumanReason: string | null;
+  unreadSince: string | null;
+  isRunning: boolean;
   createdAt: string;
   summary?: string;
 }
@@ -43,10 +45,26 @@ export interface ConversationSidebarProps {
 }
 
 const statusLabel: Record<ConversationSessionStatus, string> = {
-  waiting: "等你",
-  running: "运行中",
-  idle: "静止"
+  red: "需要你处理",
+  blue: "有新结果",
+  blink: "正在运行",
+  none: ""
 };
+
+export function deriveStatusDot(
+  session: Pick<ConversationSidebarSession, "awaitsHumanReason" | "unreadSince" | "isRunning">,
+): ConversationSessionStatus {
+  if (session.awaitsHumanReason !== null) {
+    return "red";
+  }
+  if (session.unreadSince !== null) {
+    return "blue";
+  }
+  if (session.isRunning) {
+    return "blink";
+  }
+  return "none";
+}
 
 export function projectDirectoryName(project: Pick<ConversationSidebarProject, "path" | "label">): string {
   const displayName = project.label?.trim();
@@ -186,17 +204,20 @@ function SessionRow({
   onSelectSession?: (sessionId: string, projectId: string) => void;
   disabled: boolean;
 }): JSX.Element {
+  const status = deriveStatusDot(session);
+  const accessibleName = status === "none" ? session.title : `${session.title}，${statusLabel[status]}`;
   return (
     <button
       type="button"
       data-testid="conversation-sidebar-session"
       data-session-id={session.id}
+      data-status-dot={status}
       className={cn(
         "grid h-8 w-full grid-cols-[minmax(0,1fr)_18px] items-center gap-1.5 rounded-md px-2 text-left text-sm hover:bg-hover",
         selected ? "bg-sel" : "bg-transparent"
       )}
       aria-current={selected ? "page" : undefined}
-      aria-label={`${session.title}，${statusLabel[session.status]}`}
+      aria-label={accessibleName}
       disabled={disabled}
       onClick={() => {
         if (!disabled) {
@@ -207,32 +228,35 @@ function SessionRow({
       <span className="min-w-0">
         <span className="block truncate text-[13px] font-normal leading-4">{session.title}</span>
       </span>
-      <StatusIcon status={session.status} />
+      <StatusIcon status={status} />
     </button>
   );
 }
 
 function StatusIcon({ status }: { status: ConversationSessionStatus }): JSX.Element {
-  // 状态点语义与 Badge 对齐：运行中=靛蓝实心，等你/静止=中性空心
-  if (status === "running") {
+  if (status === "red") {
     return (
       <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
-        <span className="h-2 w-2 rounded-full bg-accent animate-breathe" />
+        <span className="h-2 w-2 rounded-full bg-danger" />
       </span>
     );
   }
 
-  if (status === "waiting") {
+  if (status === "blue") {
     return (
       <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
-        <span className="h-2 w-2 rounded-full border-[1.5px] border-sub" />
+        <span className="h-2 w-2 rounded-full bg-accent" />
       </span>
     );
   }
 
-  return (
-    <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
-      <span className="h-2 w-2 rounded-full border-[1.5px] border-hint" />
-    </span>
-  );
+  if (status === "blink") {
+    return (
+      <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+        <span className="h-2 w-2 rounded-full bg-sub animate-breathe" />
+      </span>
+    );
+  }
+
+  return <span className="h-4 w-4" aria-hidden="true" />;
 }

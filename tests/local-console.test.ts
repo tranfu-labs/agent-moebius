@@ -121,6 +121,74 @@ describe("local console", () => {
     }
   });
 
+  it("persists human-attention and unread-result state with race-safe read acknowledgement", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    try {
+      const user = await store.appendUserMessage({
+        sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+        body: "@dev implement",
+        now: "2026-07-09T00:00:00.000Z",
+      });
+      await store.claimNextPendingMessage({
+        sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+        runId: "run-attention",
+        now: "2026-07-09T00:00:01.000Z",
+      });
+      await store.recordAgentResponse({
+        userMessageId: user.id,
+        sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+        role: "dev",
+        body: "结果已生成\n\n等待真人：请验收结果",
+        runId: "run-attention",
+        runDir: "/tmp/run-attention",
+        now: "2026-07-09T00:00:02.000Z",
+      });
+
+      expect((await store.listSessions()).find((session) => session.sessionId === LOCAL_CONSOLE_DEFAULT_SESSION_ID)).toMatchObject({
+        awaitsHumanReason: "acceptance",
+        unreadSince: "2026-07-09T00:00:02.000Z",
+        waitingCount: 1,
+      });
+      await expect(store.markSessionResultRead({
+        sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+        unreadSince: "2026-07-09T00:00:01.000Z",
+        now: "2026-07-09T00:00:03.000Z",
+      })).resolves.toBe(false);
+      await expect(store.markSessionResultRead({
+        sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+        unreadSince: "2026-07-09T00:00:02.000Z",
+        now: "2026-07-09T00:00:04.000Z",
+      })).resolves.toBe(true);
+      expect((await store.listSessions()).find((session) => session.sessionId === LOCAL_CONSOLE_DEFAULT_SESSION_ID)).toMatchObject({
+        awaitsHumanReason: "acceptance",
+        unreadSince: null,
+      });
+
+      await store.appendUserMessage({
+        sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+        body: "验收反馈",
+        now: "2026-07-09T00:00:05.000Z",
+      });
+      expect((await store.listSessions()).find((session) => session.sessionId === LOCAL_CONSOLE_DEFAULT_SESSION_ID)).toMatchObject({
+        awaitsHumanReason: null,
+        unreadSince: null,
+      });
+    } finally {
+      await store.close();
+    }
+
+    const database = new DatabaseSync(sqlitePath);
+    try {
+      expect(() => database.prepare("UPDATE sessions SET awaits_human_reason = 'invalid' WHERE session_id = ?")
+        .run(LOCAL_CONSOLE_DEFAULT_SESSION_ID)).toThrow();
+    } finally {
+      database.close();
+    }
+  });
+
   it("marks stale running SQLite messages as stuck", async () => {
     const root = await makeFixtureRoot();
     const store = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
@@ -2539,6 +2607,8 @@ function buildSessionSummary(sessionId: string, title = "默认会话", messages
           : interruptedCount > 0
             ? "interrupted"
             : "idle",
+    awaitsHumanReason: null,
+    unreadSince: null,
     runningCount,
     waitingCount: 0,
     stuckCount,
@@ -2626,6 +2696,10 @@ class FastFailAppendStore implements LocalConsoleStore {
 
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {
     return [buildSessionSummary(LOCAL_CONSOLE_DEFAULT_SESSION_ID)];
+  }
+
+  async markSessionResultRead(): Promise<boolean> {
+    return false;
   }
 
   appendUserMessage(): Promise<LocalConsoleMessage> {
@@ -2742,6 +2816,10 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
 
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {
     return await this.inner.listSessions();
+  }
+
+  async markSessionResultRead(input: { sessionId: string; unreadSince: string; now: string }): Promise<boolean> {
+    return await this.inner.markSessionResultRead(input);
   }
 
   async appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {
@@ -2968,6 +3046,10 @@ class FailOnceRecordRouteAppendStore implements LocalConsoleStore {
     return await this.inner.listSessions();
   }
 
+  async markSessionResultRead(input: { sessionId: string; unreadSince: string; now: string }): Promise<boolean> {
+    return await this.inner.markSessionResultRead(input);
+  }
+
   async appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {
     return await this.inner.appendUserMessage(input);
   }
@@ -3191,6 +3273,10 @@ class RecoveringAppendStore implements LocalConsoleStore {
     return Array.from(ids).map((sessionId) =>
       buildSessionSummary(sessionId, this.sessions.get(sessionId) ?? sessionId, this.messages),
     );
+  }
+
+  async markSessionResultRead(): Promise<boolean> {
+    return false;
   }
 
   appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {

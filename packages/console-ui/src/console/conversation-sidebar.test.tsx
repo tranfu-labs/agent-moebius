@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ConversationSidebar,
+  deriveStatusDot,
   orderSessionsByCreatedAt,
   projectDirectoryName,
   type ConversationSidebarProject
@@ -33,6 +34,13 @@ describe("ConversationSidebar", () => {
     expect(sessions.map((session) => session.id)).toEqual(["oldest", "newest", "same-time-a", "same-time-b"]);
   });
 
+  it("derives one status dot with red, blue, blink, none priority", () => {
+    expect(deriveStatusDot({ awaitsHumanReason: "answer", unreadSince: "2026-07-09T00:02:00.000Z", isRunning: true })).toBe("red");
+    expect(deriveStatusDot({ awaitsHumanReason: null, unreadSince: "2026-07-09T00:02:00.000Z", isRunning: true })).toBe("blue");
+    expect(deriveStatusDot({ awaitsHumanReason: null, unreadSince: null, isRunning: true })).toBe("blink");
+    expect(deriveStatusDot({ awaitsHumanReason: null, unreadSince: null, isRunning: false })).toBe("none");
+  });
+
   it("renders every session in createdAt descending order without a completed group", () => {
     render(<ConversationSidebar projects={[project]} selectedSessionId="idle-refactor" />);
 
@@ -57,7 +65,9 @@ describe("ConversationSidebar", () => {
       ...project,
       sessions: project.sessions.map((session) => ({
         ...session,
-        status: session.id === "idle-refactor" ? "running" : "idle"
+        awaitsHumanReason: null,
+        unreadSince: session.id === "waiting-summary" ? "2026-07-09T00:04:00.000Z" : null,
+        isRunning: session.id === "idle-refactor"
       }))
     };
     rerender(<ConversationSidebar projects={[changedProject]} selectedSessionId="waiting-summary" />);
@@ -72,7 +82,9 @@ describe("ConversationSidebar", () => {
             {
               id: "brand-new",
               title: "刚创建的对话",
-              status: "idle",
+              awaitsHumanReason: null,
+              unreadSince: null,
+              isRunning: false,
               createdAt: "2026-07-09T00:04:00.000Z"
             }
           ]
@@ -87,9 +99,18 @@ describe("ConversationSidebar", () => {
     const onSelectSession = vi.fn();
     render(<ConversationSidebar projects={[project]} selectedSessionId="idle-refactor" onSelectSession={onSelectSession} />);
 
-    expect(screen.getByRole("button", { name: "导出功能重构，静止" })).toHaveAttribute("aria-current", "page");
-    fireEvent.click(screen.getByRole("button", { name: "进度提示，运行中" }));
+    expect(screen.getByRole("button", { name: "导出功能重构" })).toHaveAttribute("aria-current", "page");
+    fireEvent.click(screen.getByRole("button", { name: "进度提示，正在运行" }));
     expect(onSelectSession).toHaveBeenCalledWith("running-progress", "agent-moebius");
+  });
+
+  it("exposes red, blue, and blinking meanings without relying on color while none has no status suffix", () => {
+    render(<ConversationSidebar projects={[project]} />);
+
+    expect(screen.getByRole("button", { name: "失败汇总，需要你处理" })).toHaveAttribute("data-status-dot", "red");
+    expect(screen.getByRole("button", { name: "文档记录，有新结果" })).toHaveAttribute("data-status-dot", "blue");
+    expect(screen.getByRole("button", { name: "进度提示，正在运行" })).toHaveAttribute("data-status-dot", "blink");
+    expect(screen.getByRole("button", { name: "导出功能重构" })).toHaveAttribute("data-status-dot", "none");
   });
 
   it("requests a new conversation for the project row that owns the button", () => {
@@ -120,7 +141,7 @@ describe("ConversationSidebar", () => {
     );
 
     const createButton = screen.getByRole("button", { name: "在 agent-moebius 中新建会话" });
-    const sessionButton = screen.getByRole("button", { name: "导出功能重构，静止" });
+    const sessionButton = screen.getByRole("button", { name: "导出功能重构" });
     expect(createButton).toBeDisabled();
     expect(createButton).toHaveAttribute("title", "项目正在变更，请稍后再试");
     expect(createButton).toHaveAttribute("aria-description", "项目正在变更，请稍后再试");
@@ -156,9 +177,9 @@ const project: ConversationSidebarProject = {
   id: "agent-moebius",
   path: "/Users/example/work/agent-moebius",
   sessions: [
-    { id: "idle-refactor", title: "导出功能重构", status: "idle", createdAt: "2026-07-09T00:01:00.000Z" },
-    { id: "docs-history", title: "文档记录", status: "idle", createdAt: "2026-07-09T00:00:00.000Z" },
-    { id: "running-progress", title: "进度提示", status: "running", createdAt: "2026-07-09T00:03:00.000Z" },
-    { id: "waiting-summary", title: "失败汇总", status: "waiting", createdAt: "2026-07-09T00:02:00.000Z" }
+    { id: "idle-refactor", title: "导出功能重构", awaitsHumanReason: null, unreadSince: null, isRunning: false, createdAt: "2026-07-09T00:01:00.000Z" },
+    { id: "docs-history", title: "文档记录", awaitsHumanReason: null, unreadSince: "2026-07-09T00:00:30.000Z", isRunning: false, createdAt: "2026-07-09T00:00:00.000Z" },
+    { id: "running-progress", title: "进度提示", awaitsHumanReason: null, unreadSince: null, isRunning: true, createdAt: "2026-07-09T00:03:00.000Z" },
+    { id: "waiting-summary", title: "失败汇总", awaitsHumanReason: "acceptance", unreadSince: "2026-07-09T00:02:30.000Z", isRunning: true, createdAt: "2026-07-09T00:02:00.000Z" }
   ]
 };

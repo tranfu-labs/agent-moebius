@@ -7,6 +7,7 @@ import {
   LocalConsoleSessionProjectError,
   type LocalConsoleMessage,
   type LocalConsoleMessageStatus,
+  type LocalConsoleAwaitsHumanReason,
   type MoveEmptySessionResult,
   type LocalConsoleProjectRemovalResult,
   type LocalConsoleProjectSummary,
@@ -104,6 +105,10 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
 
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {
     return this.run({ kind: "local-list-sessions" });
+  }
+
+  async markSessionResultRead(input: { sessionId: string; unreadSince: string; now: string }): Promise<boolean> {
+    return this.run({ kind: "local-mark-session-result-read", ...input });
   }
 
   async appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {
@@ -408,6 +413,8 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
     parentSessionId: "parentSessionId" in value ? readNullableString(value.parentSessionId, "parentSessionId") : null,
     title: readString(value.title, "title"),
     status: readSessionStatus(value.status),
+    awaitsHumanReason: readAwaitsHumanReason(value.awaitsHumanReason),
+    unreadSince: readNullableString(value.unreadSince, "unreadSince"),
     runningCount: readNumber(value.runningCount, "runningCount"),
     waitingCount: readNumber(value.waitingCount, "waitingCount"),
     stuckCount: readNumber(value.stuckCount, "stuckCount"),
@@ -417,4 +424,14 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
     createdAt: readString(value.createdAt, "createdAt"),
     updatedAt: readString(value.updatedAt, "updatedAt"),
   } satisfies LocalConsoleSessionSummary;
+}
+
+function readAwaitsHumanReason(value: unknown): LocalConsoleAwaitsHumanReason | null {
+  if (value === null) {
+    return null;
+  }
+  if (value === "answer" || value === "confirmation" || value === "acceptance" || value === "exception") {
+    return value;
+  }
+  throw new Error(`Invalid local console awaits human reason: ${String(value)}`);
 }

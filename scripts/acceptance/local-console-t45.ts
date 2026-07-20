@@ -481,6 +481,10 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
     return await this.inner.listSessions();
   }
 
+  async markSessionResultRead(input: Parameters<LocalConsoleStore["markSessionResultRead"]>[0]): Promise<boolean> {
+    return await this.inner.markSessionResultRead(input);
+  }
+
   async appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {
     return await this.inner.appendUserMessage(input);
   }

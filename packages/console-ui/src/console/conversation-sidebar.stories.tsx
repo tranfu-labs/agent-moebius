@@ -11,19 +11,19 @@ const projects: ConversationSidebarProject[] = [
     id: "agent-moebius",
     path: "/Users/example/work/agent-moebius",
     sessions: [
-      { id: "running-fix", title: "失败汇总修复", status: "running", createdAt: "2026-07-11T10:05:00.000Z", summary: "开发执行中" },
-      { id: "docs-history", title: "文档归档记录", status: "idle", createdAt: "2026-07-11T10:04:00.000Z" },
-      { id: "waiting-summary", title: "失败汇总", status: "waiting", createdAt: "2026-07-11T10:03:00.000Z", summary: "等你验收" },
-      { id: "running-progress", title: "进度提示", status: "running", createdAt: "2026-07-11T10:02:00.000Z", summary: "正在运行测试" },
-      { id: "idle-refactor", title: "导出功能重构", status: "idle", createdAt: "2026-07-11T10:01:00.000Z" }
+      { id: "running-fix", title: "失败汇总修复", awaitsHumanReason: "exception", unreadSince: "2026-07-11T10:06:00.000Z", isRunning: true, createdAt: "2026-07-11T10:05:00.000Z", summary: "需要处理异常" },
+      { id: "docs-history", title: "文档归档记录", awaitsHumanReason: null, unreadSince: "2026-07-11T10:04:30.000Z", isRunning: false, createdAt: "2026-07-11T10:04:00.000Z" },
+      { id: "waiting-summary", title: "失败汇总", awaitsHumanReason: "acceptance", unreadSince: null, isRunning: false, createdAt: "2026-07-11T10:03:00.000Z", summary: "等你验收" },
+      { id: "running-progress", title: "进度提示", awaitsHumanReason: null, unreadSince: null, isRunning: true, createdAt: "2026-07-11T10:02:00.000Z", summary: "正在运行测试" },
+      { id: "idle-refactor", title: "导出功能重构", awaitsHumanReason: null, unreadSince: null, isRunning: false, createdAt: "2026-07-11T10:01:00.000Z" }
     ]
   },
   {
     id: "tranfu-site",
     path: "/Users/example/work/tranfu-site/",
     sessions: [
-      { id: "site-waiting", title: "首页文案", status: "waiting", createdAt: "2026-07-11T10:01:00.000Z", summary: "提案等确认" },
-      { id: "site-idle", title: "分享卡片", status: "idle", createdAt: "2026-07-11T10:00:00.000Z" }
+      { id: "site-waiting", title: "首页文案", awaitsHumanReason: "confirmation", unreadSince: null, isRunning: false, createdAt: "2026-07-11T10:01:00.000Z", summary: "提案等确认" },
+      { id: "site-idle", title: "分享卡片", awaitsHumanReason: null, unreadSince: null, isRunning: false, createdAt: "2026-07-11T10:00:00.000Z" }
     ]
   }
 ];

@@ -61,7 +61,7 @@ describe("OperatorConsole", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("dialog", { name: "新建对话" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toHaveAttribute("aria-current", "page");
   });
 
   it("opens the same new-conversation placeholder with the owning project preselected", () => {
@@ -112,7 +112,7 @@ describe("OperatorConsole", () => {
 
   it("opens search over the current selection and restores it when closed", () => {
     renderConsole();
-    const selectedSession = screen.getByRole("button", { name: "默认会话，运行中" });
+    const selectedSession = screen.getByRole("button", { name: "默认会话，正在运行" });
 
     fireEvent.click(screen.getByRole("button", { name: "搜索" }));
 
@@ -120,7 +120,7 @@ describe("OperatorConsole", () => {
     expect(selectedSession).toHaveAttribute("aria-current", "page");
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("dialog", { name: "全局搜索" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toBe(selectedSession);
+    expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toBe(selectedSession);
   });
 
   it("routes Agent Teams to a selected stub page and restores the current conversation", () => {
@@ -136,7 +136,7 @@ describe("OperatorConsole", () => {
     fireEvent.click(screen.getByRole("button", { name: "返回当前对话" }));
     expect(teamsEntry).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("region", { name: "会话时间线" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toHaveAttribute("aria-current", "page");
   });
 
   it("closes and restores the sidebar without remounting the timeline or active run", () => {
@@ -145,7 +145,7 @@ describe("OperatorConsole", () => {
     const sidebar = screen.getByTestId("operator-sidebar");
     const main = screen.getByTestId("operator-main");
     const projectList = screen.getByRole("navigation", { name: "项目列表" });
-    const selectedSessionRow = screen.getByRole("button", { name: "默认会话，运行中" });
+    const selectedSessionRow = screen.getByRole("button", { name: "默认会话，正在运行" });
     const timeline = screen.getByRole("region", { name: "会话时间线" });
     const activeRunBlock = screen.getByTestId("active-run-block");
     projectList.scrollTop = 73;
@@ -167,7 +167,7 @@ describe("OperatorConsole", () => {
     expect(sidebar).not.toHaveClass("hidden");
     expect(main).toHaveAttribute("data-sidebar-open", "true");
     expect(projectList.scrollTop).toBe(73);
-    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toBe(selectedSessionRow);
+    expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toBe(selectedSessionRow);
     expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
     expect(screen.getByTestId("active-run-block")).toBe(activeRunBlock);
   });
@@ -361,7 +361,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" }))
       .toHaveAttribute("title", "项目正在变更，请稍后再试");
-    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toBeDisabled();
     expect(screen.getByLabelText("项目：agent-moebius，点击切换")).toBeDisabled();
     const composer = screen.getByRole("textbox");
     expect(composer).toBeDisabled();
@@ -434,7 +434,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("heading", { name: "新建对话" })).toBeVisible();
     expect(screen.getByRole("button", { name: "项目：未选择" })).toHaveTextContent("未选择项目");
     expect(screen.queryByRole("region", { name: "会话时间线" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "默认会话，运行中" })).not.toHaveAttribute("aria-current");
+    expect(screen.queryByRole("button", { name: "默认会话，正在运行" })).not.toHaveAttribute("aria-current");
   });
 });
 
@@ -473,6 +473,8 @@ const sessions: OperatorSession[] = [
     projectId: "local",
     title: "默认会话",
     status: "running",
+    awaitsHumanReason: null,
+    unreadSince: null,
     runningCount: 1,
     waitingCount: 0,
     stuckCount: 0,
@@ -486,6 +488,8 @@ const sessions: OperatorSession[] = [
     projectId: "local",
     title: "验收会话",
     status: "failed",
+    awaitsHumanReason: "exception",
+    unreadSince: null,
     runningCount: 0,
     waitingCount: 0,
     stuckCount: 0,

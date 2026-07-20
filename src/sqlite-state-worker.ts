@@ -8,6 +8,7 @@ import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
   LOCAL_CONSOLE_PROJECT_ID,
   LOCAL_CONSOLE_PROJECT_SOURCE_TYPE,
+  type LocalConsoleAwaitsHumanReason,
   type LocalConsoleSessionSummary,
   type MoveEmptySessionResult,
 } from "./local-console/types.js";
@@ -135,6 +136,8 @@ function runCommand(input: WorkerInput): unknown {
         return createLocalChildSession(database, input.command);
       case "local-list-sessions":
         return listLocalSessions(database);
+      case "local-mark-session-result-read":
+        return markSessionResultRead(database, input.command);
       case "local-append-user":
         return appendUserMessage(database, input.command);
       case "local-list":
@@ -235,6 +238,10 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       title TEXT,
       status TEXT NOT NULL,
       archived_at TEXT,
+      awaits_human_reason TEXT CHECK (
+        awaits_human_reason IS NULL OR awaits_human_reason IN ('answer', 'confirmation', 'acceptance', 'exception')
+      ),
+      unread_since TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       CHECK (source_type <> 'local' OR project_id IS NOT NULL)
@@ -373,6 +380,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   migrateSessionsCreatedAt(database, now);
   migrateSessionsProjectId(database, now);
   migrateMainSidebarProjectRemoval(database);
+  migrateSessionAttentionState(database);
   database.exec(
     "CREATE INDEX IF NOT EXISTS idx_sessions_local_project_created_at ON sessions(project_id, created_at DESC, session_id ASC) WHERE source_type = 'local'",
   );
@@ -381,6 +389,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   markSchemaMigration(database, "t5-local-console-facts");
   markSchemaMigration(database, "main-sidebar-t2-session-created-at");
   markSchemaMigration(database, "main-sidebar-t8-project-removal");
+  markSchemaMigration(database, "main-sidebar-t3-session-attention-state");
 }
 
 function migrateMainSidebarProjectRemoval(database: SqliteDatabase): void {
@@ -392,6 +401,41 @@ function migrateMainSidebarProjectRemoval(database: SqliteDatabase): void {
   }
   if (!tableHasColumn(database, "sessions", "archived_at")) {
     database.exec("ALTER TABLE sessions ADD COLUMN archived_at TEXT");
+  }
+}
+
+function migrateSessionAttentionState(database: SqliteDatabase): void {
+  const shouldBackfillAwaitReason = !tableHasColumn(database, "sessions", "awaits_human_reason");
+  if (shouldBackfillAwaitReason) {
+    database.exec(
+      "ALTER TABLE sessions ADD COLUMN awaits_human_reason TEXT CHECK (awaits_human_reason IS NULL OR awaits_human_reason IN ('answer', 'confirmation', 'acceptance', 'exception'))",
+    );
+  }
+  if (!tableHasColumn(database, "sessions", "unread_since")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN unread_since TEXT");
+  }
+
+  if (shouldBackfillAwaitReason) {
+    database.exec(`
+      UPDATE sessions
+      SET awaits_human_reason = 'answer'
+      WHERE source_type = 'local'
+        AND awaits_human_reason IS NULL
+        AND (
+          SELECT speaker
+          FROM session_messages
+          WHERE session_messages.session_id = sessions.session_id
+          ORDER BY id DESC
+          LIMIT 1
+        ) = 'agent'
+        AND INSTR((
+          SELECT body
+          FROM session_messages
+          WHERE session_messages.session_id = sessions.session_id
+          ORDER BY id DESC
+          LIMIT 1
+        ), '等待真人：') > 0
+    `);
   }
 }
 
@@ -1158,6 +1202,20 @@ function listLocalSessions(database: SqliteDatabase): unknown[] {
   return rows.map((row) => readLocalSessionRow(database, row));
 }
 
+function markSessionResultRead(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-mark-session-result-read" }>,
+): boolean {
+  const result = database
+    .prepare(
+      `UPDATE sessions
+       SET unread_since = NULL, updated_at = ?
+       WHERE session_id = ? AND source_type = 'local' AND unread_since = ?`,
+    )
+    .run(input.now, input.sessionId, input.unreadSince);
+  return Number(result.changes ?? 0) === 1;
+}
+
 function appendUserMessage(
   database: SqliteDatabase,
   input: Extract<SqliteStateCommand, { kind: "local-append-user" }>,
@@ -1165,6 +1223,9 @@ function appendUserMessage(
   return transaction(database, () => {
     ensureSession(database, input.sessionId, input.now, titleFromMessage(input.body), LOCAL_CONSOLE_PROJECT_ID);
     ensureLocalCursor(database, input.sessionId, input.now);
+    database
+      .prepare("UPDATE sessions SET awaits_human_reason = NULL, updated_at = ? WHERE session_id = ?")
+      .run(input.now, input.sessionId);
     const result = database
       .prepare(
         `INSERT INTO session_messages
@@ -1265,6 +1326,7 @@ function recordAgentResponse(
         VALUES (?, 'agent', ?, ?, 'displayed', ?, ?, NULL, 'local-message', NULL, ?, ?)`,
       )
       .run(input.sessionId, input.role, input.body, input.runId, input.runDir, input.now, input.now);
+    updateSessionAttentionAfterAgentResponse(database, input.sessionId, input.body, input.now);
     completeSourceMessage(database, source, "completed", null, input.runId, input.runDir, input.now);
     return null;
   });
@@ -1317,6 +1379,7 @@ function recordLocalRouteAppend(
         VALUES (?, 'agent', 'ceo', ?, 'displayed', ?, ?, NULL, 'local-route', ?, ?, ?)`,
       )
       .run(input.sessionId, input.body, input.runId, input.runDir, input.routeKey, input.now, input.now);
+    updateSessionAttentionAfterAgentResponse(database, input.sessionId, input.body, input.now);
     insertLocalRouteDecision(database, {
       sessionId: input.sessionId,
       messageId: input.userMessageId,
@@ -1406,6 +1469,7 @@ function recordFailure(database: SqliteDatabase, input: Extract<SqliteStateComma
       input.now,
       source.speaker === "agent" ? "failed" : "displayed",
     );
+    setSessionAwaitsHumanReason(database, input.sessionId, "exception", input.now);
     completeSourceMessage(database, source, "failed", input.error, input.runId, input.runDir, input.now);
     return null;
   });
@@ -1482,6 +1546,7 @@ function recordDeadLetterAndComplete(
         )
         .run(input.error, failureCount, input.error, input.now, source.id, input.sessionId);
     }
+    setSessionAwaitsHumanReason(database, input.sessionId, "exception", input.now);
     completeSourceMessage(database, source, "failed", input.error, input.runId, input.runDir, input.now, failureCount, input.error);
     return null;
   });
@@ -1520,6 +1585,7 @@ function recordStuck(database: SqliteDatabase, input: Extract<SqliteStateCommand
       input.now,
       source.speaker === "agent" ? "stuck" : "displayed",
     );
+    setSessionAwaitsHumanReason(database, input.sessionId, "exception", input.now);
     completeSourceMessage(database, source, "stuck", input.reason, input.runId, input.runDir, input.now);
     return null;
   });
@@ -1839,6 +1905,10 @@ function markStaleRunning(
       count += 1;
     }
 
+    if (count > 0) {
+      setSessionAwaitsHumanReason(database, input.sessionId, "exception", input.now);
+    }
+
     return count;
   });
 }
@@ -2071,6 +2141,8 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
   }
   const sessionId = readString(row.session_id, "session_id");
   const counts = readSessionCounts(database, sessionId);
+  const awaitsHumanReason = readNullableAwaitsHumanReason(row.awaits_human_reason);
+  counts.waiting = awaitsHumanReason === null ? 0 : 1;
   const childCountRow = database
     .prepare("SELECT COUNT(*) AS count FROM sessions WHERE parent_session_id = ?")
     .get(sessionId);
@@ -2080,6 +2152,8 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
     parentSessionId: readNullableString(row.parent_session_id, "parent_session_id"),
     title: readNullableString(row.title, "title") ?? fallbackSessionTitle(sessionId),
     status: sessionStatusFromCounts(counts),
+    awaitsHumanReason,
+    unreadSince: readNullableString(row.unread_since, "unread_since"),
     runningCount: counts.running,
     waitingCount: counts.waiting,
     stuckCount: counts.stuck,
@@ -2118,18 +2192,55 @@ function readSessionCounts(database: SqliteDatabase, sessionId: string): {
       counts.interrupted += count;
     }
   }
-  const latestDisplayed = database
-    .prepare(
-      `SELECT body FROM session_messages
-       WHERE session_id = ? AND speaker IN ('agent', 'system')
-       ORDER BY id DESC
-       LIMIT 1`,
-    )
-    .get(sessionId);
-  if (isRecord(latestDisplayed) && readString(latestDisplayed.body, "body").includes("等待真人：")) {
-    counts.waiting = 1;
-  }
   return counts;
+}
+
+function updateSessionAttentionAfterAgentResponse(
+  database: SqliteDatabase,
+  sessionId: string,
+  body: string,
+  now: string,
+): void {
+  database
+    .prepare("UPDATE sessions SET awaits_human_reason = ?, unread_since = ?, updated_at = ? WHERE session_id = ?")
+    .run(awaitsHumanReasonFromAgentResponse(body), now, now, sessionId);
+}
+
+function setSessionAwaitsHumanReason(
+  database: SqliteDatabase,
+  sessionId: string,
+  reason: LocalConsoleAwaitsHumanReason,
+  now: string,
+): void {
+  database
+    .prepare("UPDATE sessions SET awaits_human_reason = ?, updated_at = ? WHERE session_id = ?")
+    .run(reason, now, sessionId);
+}
+
+function awaitsHumanReasonFromAgentResponse(body: string): LocalConsoleAwaitsHumanReason | null {
+  const markerIndex = body.lastIndexOf("等待真人：");
+  if (markerIndex < 0) {
+    return null;
+  }
+  const request = body.slice(markerIndex + "等待真人：".length).split(/\r?\n/u, 1)[0] ?? "";
+  if (/验收/u.test(request)) {
+    return "acceptance";
+  }
+  if (/异常|错误|失败|修复|重试|卡住/u.test(request)) {
+    return "exception";
+  }
+  if (/确认|批准|同意|选择|决定/u.test(request)) {
+    return "confirmation";
+  }
+  return "answer";
+}
+
+function readNullableAwaitsHumanReason(value: unknown): LocalConsoleAwaitsHumanReason | null {
+  const reason = readNullableString(value, "awaits_human_reason");
+  if (reason === null || reason === "answer" || reason === "confirmation" || reason === "acceptance" || reason === "exception") {
+    return reason;
+  }
+  throw new Error(`Invalid awaits_human_reason: ${reason}`);
 }
 
 function sessionStatusFromCounts(counts: {

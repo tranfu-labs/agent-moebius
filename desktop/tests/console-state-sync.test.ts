@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  acknowledgeDisplayedResult,
   ConsoleStateActions,
   ConsoleStateCoordinator,
   refreshConsoleState,
@@ -61,6 +62,30 @@ describe("refreshConsoleState", () => {
     await expect(oldRefresh).resolves.toBe(false);
     expect(committed).toEqual([{ selectedProjectId: "project-b", selectedSessionId: "session-a" }]);
     expect(coordinator.endSelectionMutation(token!)).toBe(true);
+  });
+});
+
+describe("acknowledgeDisplayedResult", () => {
+  it("acknowledges the exact unread timestamp after the result is displayed", async () => {
+    const fetch = vi.fn(function (this: unknown) {
+      expect(this).toBeUndefined();
+      return Promise.resolve(jsonResponse({ cleared: true }));
+    });
+
+    await expect(acknowledgeDisplayedResult({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      unreadSince: "2026-07-09T00:00:02.000Z",
+      fetch,
+    })).resolves.toBe(true);
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("http://127.0.0.1:8787/api/local-console/sessions/session%2Fa/read"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ unreadSince: "2026-07-09T00:00:02.000Z" }),
+      }),
+    );
   });
 });
 

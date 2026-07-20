@@ -320,6 +320,16 @@ export class LocalConsoleRuntime {
     return true;
   }
 
+  async markSessionResultRead(input: { sessionId: string; unreadSince: string }): Promise<boolean> {
+    return await this.storeCall("local-console-store-mark-session-result-read", () =>
+      this.options.store.markSessionResultRead({
+        sessionId: input.sessionId,
+        unreadSince: input.unreadSince,
+        now: this.nowIso(),
+      }),
+    );
+  }
+
   async snapshot(sessionId = this.sessionId): Promise<LocalConsoleSnapshot> {
     const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
     return {
