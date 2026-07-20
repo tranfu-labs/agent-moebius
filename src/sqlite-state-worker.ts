@@ -363,10 +363,50 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   migrateLocalWorkspaceDiffMetadata(database);
   const now = new Date().toISOString();
   ensureDefaultLocalProject(database, defaultLocalProjectFolderPath(sqlitePath), now);
+  migrateSessionsCreatedAt(database, now);
   migrateSessionsProjectId(database, now);
+  database.exec(
+    "CREATE INDEX IF NOT EXISTS idx_sessions_local_project_created_at ON sessions(project_id, created_at DESC, session_id ASC) WHERE source_type = 'local'",
+  );
   markSchemaMigration(database, "t3-unified-sqlite-state");
   markSchemaMigration(database, "t46-local-project-workspace-source");
   markSchemaMigration(database, "t5-local-console-facts");
+  markSchemaMigration(database, "main-sidebar-t2-session-created-at");
+}
+
+function migrateSessionsCreatedAt(database: SqliteDatabase, now: string): void {
+  if (!tableHasColumn(database, "sessions", "created_at")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN created_at TEXT");
+  }
+
+  const legacyMessageCreatedAt = tableExists(database, "local_messages")
+    ? `(
+        SELECT NULLIF(TRIM(local_messages.created_at), '')
+        FROM local_messages
+        WHERE local_messages.session_id = sessions.session_id
+        ORDER BY local_messages.id ASC
+        LIMIT 1
+      )`
+    : "NULL";
+  database
+    .prepare(
+      `UPDATE sessions
+       SET created_at = COALESCE(
+         NULLIF(TRIM(created_at), ''),
+         (
+           SELECT NULLIF(TRIM(session_messages.created_at), '')
+           FROM session_messages
+           WHERE session_messages.session_id = sessions.session_id
+           ORDER BY session_messages.id ASC
+           LIMIT 1
+         ),
+         ${legacyMessageCreatedAt},
+         NULLIF(TRIM(updated_at), ''),
+         ?
+       )
+       WHERE created_at IS NULL OR TRIM(created_at) = ''`,
+    )
+    .run(now);
 }
 
 function migrateSessionEdgesHiddenKey(database: SqliteDatabase): void {
@@ -480,6 +520,12 @@ function tableHasColumn(database: SqliteDatabase, tableName: string, columnName:
   return rows.some((row) => isRecord(row) && row.name === columnName);
 }
 
+function tableExists(database: SqliteDatabase, tableName: string): boolean {
+  return database
+    .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName) !== undefined;
+}
+
 function defaultLocalProjectFolderPath(sqlitePath: string): string {
   const stateDir = path.dirname(sqlitePath);
   return path.basename(stateDir) === ".state" ? path.dirname(stateDir) : stateDir;
@@ -506,6 +552,9 @@ function migrateLocalMessages(database: SqliteDatabase): void {
   }
   transaction(database, () => {
     const now = new Date().toISOString();
+    const existingDefaultSession = database
+      .prepare("SELECT 1 AS found FROM sessions WHERE session_id = ?")
+      .get(LOCAL_CONSOLE_DEFAULT_SESSION_ID);
     ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, now, "默认会话", LOCAL_CONSOLE_PROJECT_ID);
     database.exec(`
       INSERT OR IGNORE INTO session_messages
@@ -513,6 +562,24 @@ function migrateLocalMessages(database: SqliteDatabase): void {
       SELECT id, session_id, speaker, role, body, status, run_id, run_dir, error, 'local-message', CAST(id AS TEXT), created_at, updated_at
       FROM local_messages
     `);
+    if (existingDefaultSession === undefined) {
+      database
+        .prepare(
+          `UPDATE sessions
+           SET created_at = COALESCE(
+             (
+               SELECT NULLIF(TRIM(created_at), '')
+               FROM session_messages
+               WHERE session_id = ?
+               ORDER BY id ASC
+               LIMIT 1
+             ),
+             created_at
+           )
+           WHERE session_id = ?`,
+        )
+        .run(LOCAL_CONSOLE_DEFAULT_SESSION_ID, LOCAL_CONSOLE_DEFAULT_SESSION_ID);
+    }
     markMigrationImported(database, "local-messages", null);
   });
 }
@@ -989,7 +1056,7 @@ function createLocalChildSession(
 
 function listLocalSessions(database: SqliteDatabase): unknown[] {
   const rows = database
-    .prepare("SELECT * FROM sessions WHERE source_type = 'local' ORDER BY updated_at DESC, created_at DESC")
+    .prepare("SELECT * FROM sessions WHERE source_type = 'local' ORDER BY created_at DESC, session_id ASC")
     .all();
   if (rows.length === 0) {
     ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, new Date().toISOString(), "默认会话", LOCAL_CONSOLE_PROJECT_ID);
@@ -1873,7 +1940,7 @@ function readLocalProjectRow(database: SqliteDatabase, row: unknown): unknown {
   }
   const projectId = readString(row.project_id, "project_id");
   const sessions = database
-    .prepare("SELECT * FROM sessions WHERE source_type = 'local' AND project_id = ? ORDER BY updated_at DESC, created_at DESC")
+    .prepare("SELECT * FROM sessions WHERE source_type = 'local' AND project_id = ? ORDER BY created_at DESC, session_id ASC")
     .all(projectId)
     .map((sessionRow) => readLocalSessionRow(database, sessionRow));
   const counts = { running: 0, waiting: 0, stuck: 0, failed: 0 };

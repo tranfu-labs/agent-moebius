@@ -210,6 +210,140 @@ describe("local console", () => {
     }
   });
 
+  it("keeps sessions ordered by creation time when an older session is updated", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    try {
+      await store.createSession({
+        sessionId: "local:older",
+        title: "older",
+        now: "2099-07-09T00:00:00.000Z",
+      });
+      await store.createSession({
+        sessionId: "local:newer",
+        title: "newer",
+        now: "2099-07-09T00:01:00.000Z",
+      });
+      await store.appendUserMessage({
+        sessionId: "local:older",
+        body: "updating an old session must not move it",
+        now: "2099-07-09T00:02:00.000Z",
+      });
+
+      const orderedSessionIds = (await store.listSessions())
+        .filter((session) => session.sessionId === "local:older" || session.sessionId === "local:newer")
+        .map((session) => session.sessionId);
+      expect(orderedSessionIds).toEqual(["local:newer", "local:older"]);
+
+      const localProject = (await store.listProjects()).find((project) => project.projectId === LOCAL_CONSOLE_PROJECT_ID);
+      expect(
+        localProject?.sessions
+          .filter((session) => session.sessionId === "local:older" || session.sessionId === "local:newer")
+          .map((session) => session.sessionId),
+      ).toEqual(["local:newer", "local:older"]);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("backfills a missing session createdAt from its earliest message id", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    await fs.mkdir(path.dirname(sqlitePath), { recursive: true });
+    const database = new DatabaseSync(sqlitePath);
+    try {
+      database.exec(`
+        CREATE TABLE sessions (
+          session_id TEXT PRIMARY KEY,
+          project_id TEXT,
+          source_type TEXT NOT NULL,
+          source_owner TEXT,
+          source_repo TEXT,
+          source_issue_number INTEGER,
+          parent_session_id TEXT,
+          title TEXT,
+          status TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE local_messages (
+          id INTEGER PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          speaker TEXT NOT NULL,
+          role TEXT,
+          body TEXT NOT NULL,
+          status TEXT NOT NULL,
+          run_id TEXT,
+          run_dir TEXT,
+          error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO sessions
+          (session_id, project_id, source_type, title, status, updated_at)
+        VALUES
+          ('local:legacy', 'local', 'local', 'legacy', 'active', '2099-07-09T00:03:00.000Z');
+        INSERT INTO local_messages
+          (id, session_id, speaker, role, body, status, run_id, run_dir, error, created_at, updated_at)
+        VALUES
+          (20, 'local:legacy', 'user', NULL, 'later id', 'completed', NULL, NULL, NULL, '2099-07-09T00:01:00.000Z', '2099-07-09T00:01:00.000Z'),
+          (10, 'local:legacy', 'user', NULL, 'earliest id', 'completed', NULL, NULL, NULL, '2099-07-09T00:02:00.000Z', '2099-07-09T00:02:00.000Z');
+      `);
+    } finally {
+      database.close();
+    }
+
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    try {
+      expect((await store.listSessions()).find((session) => session.sessionId === "local:legacy")?.createdAt)
+        .toBe("2099-07-09T00:02:00.000Z");
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("uses the earliest legacy message id when migration synthesizes the default session", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    await fs.mkdir(path.dirname(sqlitePath), { recursive: true });
+    const database = new DatabaseSync(sqlitePath);
+    try {
+      database.exec(`
+        CREATE TABLE local_messages (
+          id INTEGER PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          speaker TEXT NOT NULL,
+          role TEXT,
+          body TEXT NOT NULL,
+          status TEXT NOT NULL,
+          run_id TEXT,
+          run_dir TEXT,
+          error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO local_messages
+          (id, session_id, speaker, role, body, status, run_id, run_dir, error, created_at, updated_at)
+        VALUES
+          (20, 'default', 'user', NULL, 'later id', 'completed', NULL, NULL, NULL, '2099-07-09T00:01:00.000Z', '2099-07-09T00:01:00.000Z'),
+          (10, 'default', 'user', NULL, 'earliest id', 'completed', NULL, NULL, NULL, '2099-07-09T00:02:00.000Z', '2099-07-09T00:02:00.000Z');
+      `);
+    } finally {
+      database.close();
+    }
+
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    try {
+      expect((await store.listSessions()).find((session) => session.sessionId === LOCAL_CONSOLE_DEFAULT_SESSION_ID)?.createdAt)
+        .toBe("2099-07-09T00:02:00.000Z");
+    } finally {
+      await store.close();
+    }
+  });
+
   it("moves only empty unlinked local sessions and fails closed on either lineage source", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");

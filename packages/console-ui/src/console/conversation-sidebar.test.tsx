@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ConversationSidebar,
+  orderSessionsByCreatedAt,
   projectDirectoryName,
-  sortConversationSessions,
   type ConversationSidebarProject
 } from "./conversation-sidebar";
 
@@ -15,42 +15,71 @@ describe("ConversationSidebar", () => {
     expect(projectDirectoryName({ path: "///", label: "fallback" })).toBe("fallback");
   });
 
-  it("sorts sessions by waiting, running, idle, and completed without mutating input", () => {
+  it("orders sessions by createdAt descending without mutating input and preserves ties", () => {
     const sessions = [
-      { id: "idle", status: "idle" as const },
-      { id: "completed", status: "completed" as const },
-      { id: "running", status: "running" as const },
-      { id: "waiting", status: "waiting" as const },
-      { id: "running-two", status: "running" as const }
+      { id: "oldest", createdAt: "2026-07-09T00:00:00.000Z" },
+      { id: "newest", createdAt: "2026-07-09T00:02:00.000Z" },
+      { id: "same-time-a", createdAt: "2026-07-09T00:01:00.000Z" },
+      { id: "same-time-b", createdAt: "2026-07-09T00:01:00.000Z" }
     ];
 
-    expect(sortConversationSessions(sessions).map((session) => session.id)).toEqual([
-      "waiting",
-      "running",
-      "running-two",
-      "idle",
-      "completed"
+    expect(orderSessionsByCreatedAt(sessions).map((session) => session.id)).toEqual([
+      "newest",
+      "same-time-a",
+      "same-time-b",
+      "oldest"
     ]);
-    expect(sessions.map((session) => session.id)).toEqual(["idle", "completed", "running", "waiting", "running-two"]);
+    expect(sessions.map((session) => session.id)).toEqual(["oldest", "newest", "same-time-a", "same-time-b"]);
   });
 
-  it("renders sorted active sessions and keeps completed sessions collapsed by default", () => {
+  it("renders every session in createdAt descending order without a completed group", () => {
     render(<ConversationSidebar projects={[project]} selectedSessionId="idle-refactor" />);
 
     expect(screen.getByText("agent-moebius")).toBeInTheDocument();
-    expect(screen.queryByText("文档归档")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "已完成 (1)" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/已完成/u)).not.toBeInTheDocument();
 
-    const activeList = screen.getByRole("list", { name: "agent-moebius 活跃会话" });
-    expect(within(activeList).getAllByTestId("conversation-sidebar-session").map((row) => row.dataset.sessionId)).toEqual([
-      "waiting-summary",
+    const conversationList = screen.getByRole("list", { name: "agent-moebius 对话" });
+    expect(within(conversationList).getAllByTestId("conversation-sidebar-session").map((row) => row.dataset.sessionId)).toEqual([
       "running-progress",
-      "idle-refactor"
+      "waiting-summary",
+      "idle-refactor",
+      "docs-history"
     ]);
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "已完成 (1)" }));
-    expect(screen.getByRole("button", { name: "已完成 (1)" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("文档归档")).toBeInTheDocument();
+  it("keeps order unchanged when selection and statuses change, then puts a new session first", () => {
+    const { rerender } = render(<ConversationSidebar projects={[project]} selectedSessionId="idle-refactor" />);
+    const sessionIds = () => screen.getAllByTestId("conversation-sidebar-session").map((row) => row.dataset.sessionId);
+    expect(sessionIds()).toEqual(["running-progress", "waiting-summary", "idle-refactor", "docs-history"]);
+
+    const changedProject: ConversationSidebarProject = {
+      ...project,
+      sessions: project.sessions.map((session) => ({
+        ...session,
+        status: session.id === "idle-refactor" ? "running" : "idle"
+      }))
+    };
+    rerender(<ConversationSidebar projects={[changedProject]} selectedSessionId="waiting-summary" />);
+    expect(sessionIds()).toEqual(["running-progress", "waiting-summary", "idle-refactor", "docs-history"]);
+
+    rerender(
+      <ConversationSidebar
+        projects={[{
+          ...changedProject,
+          sessions: [
+            ...changedProject.sessions,
+            {
+              id: "brand-new",
+              title: "刚创建的对话",
+              status: "idle",
+              createdAt: "2026-07-09T00:04:00.000Z"
+            }
+          ]
+        }]}
+        selectedSessionId="brand-new"
+      />
+    );
+    expect(sessionIds()).toEqual(["brand-new", "running-progress", "waiting-summary", "idle-refactor", "docs-history"]);
   });
 
   it("marks selection without changing order and reports the selected session", () => {
@@ -103,9 +132,9 @@ const project: ConversationSidebarProject = {
   id: "agent-moebius",
   path: "/Users/example/work/agent-moebius",
   sessions: [
-    { id: "idle-refactor", title: "导出功能重构", status: "idle" },
-    { id: "completed-docs", title: "文档归档", status: "completed", summary: "已完成" },
-    { id: "running-progress", title: "进度提示", status: "running" },
-    { id: "waiting-summary", title: "失败汇总", status: "waiting" }
+    { id: "idle-refactor", title: "导出功能重构", status: "idle", createdAt: "2026-07-09T00:01:00.000Z" },
+    { id: "docs-history", title: "文档记录", status: "idle", createdAt: "2026-07-09T00:00:00.000Z" },
+    { id: "running-progress", title: "进度提示", status: "running", createdAt: "2026-07-09T00:03:00.000Z" },
+    { id: "waiting-summary", title: "失败汇总", status: "waiting", createdAt: "2026-07-09T00:02:00.000Z" }
   ]
 };

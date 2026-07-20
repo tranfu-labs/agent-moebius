@@ -57,19 +57,6 @@ const sessions: OperatorConsoleProps["project"]["sessions"] = [
     createdAt: "2026-07-11T10:00:00.000Z",
     updatedAt: "2026-07-11T10:04:00.000Z",
   },
-  {
-    sessionId: "completed",
-    projectId: "local",
-    title: "已归档任务",
-    status: "completed",
-    runningCount: 0,
-    waitingCount: 0,
-    stuckCount: 0,
-    errorCount: 0,
-    interruptedCount: 0,
-    createdAt: "2026-07-11T10:00:00.000Z",
-    updatedAt: "2026-07-11T10:04:00.000Z",
-  },
 ];
 
 const sample: OperatorConsoleProps = {

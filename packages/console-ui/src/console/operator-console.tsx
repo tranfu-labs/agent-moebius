@@ -44,7 +44,6 @@ export type OperatorSessionStatus =
   | "idle"
   | "running"
   | "waiting"
-  | "completed"
   | "stuck"
   | "failed"
   | "interrupted";
@@ -488,15 +487,13 @@ function toSidebarProject(project: OperatorProject): ConversationSidebarProject 
       id: session.sessionId,
       title: session.title,
       status: toSidebarStatus(session),
+      createdAt: session.createdAt,
       summary: sessionSummary(session),
     })),
   };
 }
 
 function toSidebarStatus(session: OperatorSession): ConversationSessionStatus {
-  if (session.status === "completed") {
-    return "completed";
-  }
   if (session.status === "waiting" || session.waitingCount > 0) {
     return "waiting";
   }
