@@ -23,6 +23,7 @@ import { resolveShellPath } from "./shell-path.js";
 import type { DesktopStatusSnapshot } from "./status.js";
 import {
   TEAM_IPC_CHANNELS,
+  duplicateBuiltInAgentTeam,
   listAgentTeams,
   readAgentTeamMember,
   setAgentTeamPrimaryAgent,
@@ -276,6 +277,9 @@ ipcMain.handle(TEAM_IPC_CHANNELS.writeMember, async (_event, request: unknown) =
 
 ipcMain.handle(TEAM_IPC_CHANNELS.setPrimaryAgent, async (_event, request: unknown) =>
   setAgentTeamPrimaryAgent(status.dataRoot, request));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.duplicateBuiltIn, async (_event, request: unknown) =>
+  duplicateBuiltInAgentTeam(status.dataRoot, request));
 
 ipcMain.handle("project:select-folder", async () => {
   const options: OpenDialogOptions = {

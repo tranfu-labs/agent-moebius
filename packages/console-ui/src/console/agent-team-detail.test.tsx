@@ -136,6 +136,32 @@ describe("AgentTeamDetail", () => {
     })} />);
     expect(screen.getByRole("alert")).toHaveTextContent("测试：权限不足");
   });
+
+  it("explains built-in ownership and keeps AGENT.md selectable but read-only", () => {
+    const onSaveMember = vi.fn();
+    const base = detailProps();
+    renderDetail({
+      team: { ...base.team, teamKey: "system:development", ownership: "system" },
+      state: { ...base.state, teamKey: "system:development" },
+      readOnly: true,
+      teamActions: <button type="button">复制并编辑</button>,
+      onSaveMember,
+    });
+
+    expect(screen.getByText("内置团队")).toBeVisible();
+    expect(screen.getByText("只读")).toBeVisible();
+    expect(screen.getByRole("note")).toHaveTextContent("这是软件自带的只读团队");
+    expect(screen.getByRole("note")).toHaveTextContent("请先复制一份独立团队");
+    expect(screen.getByRole("button", { name: "复制并编辑" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toHaveAttribute("readonly");
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "放弃修改" })).not.toBeInTheDocument();
+    expect(screen.queryByText("复制 Agent")).not.toBeInTheDocument();
+    expect(screen.queryByText("删除 Agent")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "s", metaKey: true });
+    expect(onSaveMember).not.toHaveBeenCalled();
+  });
 });
 
 function renderDetail(overrides: Partial<AgentTeamDetailProps> = {}) {

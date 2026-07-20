@@ -154,6 +154,11 @@ export function AgentTeamDetail({
               <span className="shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[11px] font-medium text-sub">
                 {team.ownership === "system" ? "内置团队" : "用户团队"}
               </span>
+              {readOnly ? (
+                <span className="shrink-0 rounded-sm bg-sunken px-1.5 py-0.5 text-[11px] font-medium text-hint">
+                  只读
+                </span>
+              ) : null}
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-sub">
               {team.description?.trim() || "这支团队还没有填写用途说明。"}
@@ -161,6 +166,12 @@ export function AgentTeamDetail({
           </div>
           {teamActions}
         </div>
+
+        {readOnly ? (
+          <div className="mt-5 border-l-2 border-line-strong bg-sunken px-3 py-2.5 text-sm leading-6 text-sub" role="note">
+            这是软件自带的只读团队。你可以查看全部内容；如需调整，请先复制一份独立团队。
+          </div>
+        ) : null}
 
         <div className="mt-6 flex min-h-8 flex-wrap items-center gap-3 text-sm">
           <span className="text-hint">主 Agent</span>
@@ -311,11 +322,11 @@ export function AgentTeamDetail({
               <label htmlFor="agent-team-markdown-editor" className="text-xs font-semibold uppercase tracking-[0.08em] text-hint">
                 AGENT.md
               </label>
-              <span className="text-xs text-hint">@{selectedMember.slug}</span>
+              <span className="text-xs text-hint">{readOnly ? "只读 · " : ""}@{selectedMember.slug}</span>
             </div>
             <textarea
               id="agent-team-markdown-editor"
-              className="mt-2 min-h-[300px] w-full resize-y border border-line-strong bg-input px-4 py-3 font-sans text-sm leading-6 text-ink placeholder:text-hint disabled:cursor-not-allowed disabled:bg-sunken disabled:text-sub"
+              className="mt-2 min-h-[300px] w-full resize-y border border-line-strong bg-input px-4 py-3 font-sans text-sm leading-6 text-ink placeholder:text-hint read-only:cursor-default read-only:bg-sunken read-only:text-sub disabled:cursor-not-allowed disabled:bg-sunken disabled:text-sub"
               aria-label={`${selectedEditor.displayName || selectedMember.displayName || selectedMember.slug} AGENT.md`}
               value={selectedEditor.draftMarkdown}
               readOnly={readOnly}

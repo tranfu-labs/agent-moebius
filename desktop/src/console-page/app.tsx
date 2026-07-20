@@ -14,6 +14,7 @@ import {
   type OperatorSession,
 } from "@agent-moebius/console-ui";
 import type {
+  AgentTeamDuplicateBuiltInRequest,
   AgentTeamListItem,
   AgentTeamListResponse,
   AgentTeamMemberDocument,
@@ -71,6 +72,7 @@ interface DesktopApi {
   readAgentTeamMember?: (request: AgentTeamMemberRequest) => Promise<AgentTeamMemberDocument>;
   writeAgentTeamMember?: (request: AgentTeamMemberWriteRequest) => Promise<AgentTeamMemberDocument>;
   setAgentTeamPrimaryAgent?: (request: AgentTeamPrimaryAgentWriteRequest) => Promise<AgentTeamListItem>;
+  duplicateBuiltInAgentTeam?: (request: AgentTeamDuplicateBuiltInRequest) => Promise<AgentTeamListItem>;
 }
 
 interface DesktopStatusSnapshot {
@@ -367,6 +369,61 @@ function App(): JSX.Element {
       setPrimaryAgentChange({ teamKey, status: "failed", error: formatError(error) });
     }
   }, [agentTeamsState]);
+
+  const duplicateBuiltInAgentTeam = useCallback(async (teamKey: string): Promise<string> => {
+    const source = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const duplicateTeam = window.agentMoebius?.duplicateBuiltInAgentTeam;
+    if (source === undefined || source.ownership !== "system" || duplicateTeam === undefined) {
+      throw new Error("当前无法复制这支内置团队，请稍后重试。");
+    }
+
+    const copiedItem = await duplicateTeam({ teamId: source.id, ownership: "system" });
+    const copiedTeam = toOperatorAgentTeam(copiedItem);
+    setAgentTeamsState((current) => current.status !== "ready"
+      ? current
+      : { status: "ready", teams: [...current.teams, copiedTeam] });
+
+    const memberSlug = copiedTeam.primaryAgentSlug !== null
+      && copiedTeam.members.some((member) => member.slug === copiedTeam.primaryAgentSlug)
+      ? copiedTeam.primaryAgentSlug
+      : copiedTeam.members[0]?.slug ?? null;
+    setActiveAgentTeamKey(copiedTeam.teamKey);
+    setAgentTeamSelection({ teamKey: copiedTeam.teamKey, memberSlug });
+    setAgentTeamSaveAllFailures([]);
+
+    if (memberSlug !== null) {
+      commitAgentTeamDraftState(startAgentTeamMemberLoad(
+        agentTeamDraftStateRef.current,
+        copiedTeam.teamKey,
+        memberSlug,
+      ));
+      try {
+        const document = await window.agentMoebius?.readAgentTeamMember?.({
+          teamId: copiedTeam.id,
+          ownership: copiedTeam.ownership,
+          memberSlug,
+        });
+        if (document === undefined) {
+          throw new Error("当前无法读取复制后的 Agent 内容，请稍后重试。");
+        }
+        commitAgentTeamDraftState(finishAgentTeamMemberLoad(
+          agentTeamDraftStateRef.current,
+          copiedTeam.teamKey,
+          memberSlug,
+          document.agentMarkdown,
+        ));
+      } catch (error) {
+        commitAgentTeamDraftState(failAgentTeamMemberLoad(
+          agentTeamDraftStateRef.current,
+          copiedTeam.teamKey,
+          memberSlug,
+          formatError(error),
+        ));
+      }
+    }
+
+    return copiedTeam.teamKey;
+  }, [agentTeamsState, commitAgentTeamDraftState]);
 
   const agentTeamDetailState = useMemo<AgentTeamDetailState | null>(() => {
     if (activeAgentTeamKey === null) {
@@ -775,6 +832,7 @@ function App(): JSX.Element {
         setAgentTeamSaveAllFailures([]);
       }}
       onSaveAllAgentTeamDrafts={saveAllDraftsAndLeave}
+      onDuplicateBuiltInAgentTeam={duplicateBuiltInAgentTeam}
       isSending={isSending}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}

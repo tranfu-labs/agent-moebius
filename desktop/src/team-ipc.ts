@@ -1,5 +1,6 @@
 import type { TeamDefinition, TeamOwnership, TeamRepairIssueCode, TeamStatus } from "./team-model.js";
 import {
+  duplicateBuiltInTeamDirectory,
   listTeamLocations,
   readTeamSnapshot,
   resolveTeamLocation,
@@ -14,6 +15,7 @@ export const TEAM_IPC_CHANNELS = {
   readMember: "agent-teams:read-member",
   writeMember: "agent-teams:write-member",
   setPrimaryAgent: "agent-teams:set-primary-agent",
+  duplicateBuiltIn: "agent-teams:duplicate-built-in",
 } as const;
 
 export interface AgentTeamMemberSummary {
@@ -51,6 +53,11 @@ export interface AgentTeamPrimaryAgentWriteRequest {
   teamId: string;
   ownership: TeamOwnership;
   primaryAgentSlug: string;
+}
+
+export interface AgentTeamDuplicateBuiltInRequest {
+  teamId: string;
+  ownership: "system";
 }
 
 export interface AgentTeamMemberDocument extends AgentTeamMemberSummary {
@@ -119,6 +126,17 @@ export async function setAgentTeamPrimaryAgent(
 
   // The store validates both write ownership and membership validity.
   return toListItem(await setTeamPrimaryAgent(location, request.primaryAgentSlug));
+}
+
+export async function duplicateBuiltInAgentTeam(dataRoot: string, rawRequest: unknown): Promise<AgentTeamListItem> {
+  const request = parseDuplicateBuiltInRequest(rawRequest);
+  const source = resolveTeamLocation({
+    dataRoot,
+    teamId: request.teamId,
+    ownership: request.ownership,
+  });
+  const destination = await duplicateBuiltInTeamDirectory(source);
+  return toListItem(await readTeamSnapshot(destination));
 }
 
 function toListItem(snapshot: TeamSnapshot): AgentTeamListItem {
@@ -196,6 +214,16 @@ function parsePrimaryAgentWriteRequest(value: unknown): AgentTeamPrimaryAgentWri
     ownership: value.ownership,
     primaryAgentSlug: value.primaryAgentSlug,
   };
+}
+
+function parseDuplicateBuiltInRequest(value: unknown): AgentTeamDuplicateBuiltInRequest {
+  if (!isPlainObject(value) || typeof value.teamId !== "string" || value.teamId.trim().length === 0) {
+    throw new AgentTeamIpcRequestError("A built-in team id is required.");
+  }
+  if (value.ownership !== "system") {
+    throw new AgentTeamIpcRequestError("Only a built-in team can be copied by this operation.");
+  }
+  return { teamId: value.teamId, ownership: "system" };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

@@ -221,6 +221,35 @@ export async function setTeamPrimaryAgent(location: TeamLocation, primaryAgentSl
   return readTeamSnapshot(location);
 }
 
+export async function duplicateBuiltInTeamDirectory(source: TeamLocation): Promise<TeamLocation> {
+  assertLocationMatchesLayout(source);
+  const actualOwnership = determineTeamOwnership(source.dataRoot, source.directory);
+  if (source.ownership !== "system" || actualOwnership !== "system") {
+    throw new TeamPathError(`Only a built-in team can be copied by this operation: ${source.directory}`);
+  }
+
+  const sourceStats = await fs.stat(source.directory);
+  if (!sourceStats.isDirectory()) {
+    throw new TeamPathError(`Built-in team path is not a directory: ${source.directory}`);
+  }
+
+  const destination = await reserveUserTeamCopyLocation(source);
+  try {
+    const entries = await fs.readdir(source.directory);
+    for (const entry of entries) {
+      await fs.cp(path.join(source.directory, entry), path.join(destination.directory, entry), {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+      });
+    }
+    return destination;
+  } catch (error) {
+    await fs.rm(destination.directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 export function assertTeamWritable(location: TeamLocation): void {
   assertLocationMatchesLayout(location);
   const actualOwnership = determineTeamOwnership(location.dataRoot, location.directory);
@@ -262,6 +291,26 @@ export class TeamPrimaryAgentError extends Error {
 function assertTeamId(teamId: string): void {
   if (!isValidPathSegment(teamId) || teamId.trim() !== teamId || teamId === SYSTEM_TEAMS_DIRECTORY) {
     throw new TeamPathError(`Invalid team id: ${teamId}`);
+  }
+}
+
+async function reserveUserTeamCopyLocation(source: TeamLocation): Promise<TeamLocation> {
+  for (let copyNumber = 1; ; copyNumber += 1) {
+    const teamId = `${source.id}-copy${copyNumber === 1 ? "" : `-${copyNumber}`}`;
+    const destination = resolveTeamLocation({
+      dataRoot: source.dataRoot,
+      teamId,
+      ownership: "user",
+    });
+    try {
+      await fs.mkdir(destination.directory, { recursive: false });
+      return destination;
+    } catch (error) {
+      if (isNodeError(error) && error.code === "EEXIST") {
+        continue;
+      }
+      throw error;
+    }
   }
 }
 

@@ -6,6 +6,7 @@ import { serializeTeamDefinition, type TeamDefinition } from "../src/team-model.
 import {
   BuiltInTeamReadOnlyError,
   determineTeamOwnership,
+  duplicateBuiltInTeamDirectory,
   getSystemTeamsRoot,
   getTeamsRoot,
   listTeamLocations,
@@ -123,6 +124,48 @@ describe("team disk store", () => {
     });
   });
 
+  it("keeps externally modified files under .system owned and read-only", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    const agentPath = path.join(location.directory, "members", "manager", "AGENT.md");
+    await fs.mkdir(path.dirname(agentPath), { recursive: true });
+    await fs.writeFile(path.join(location.directory, "team.json"), serializeTeamDefinition(usableDefinition), "utf8");
+    await fs.writeFile(agentPath, "# 外部修改的经理\n\n仍然是内置内容\n", "utf8");
+
+    const [listed] = await listTeamLocations(dataRoot);
+    expect(listed?.ownership).toBe("system");
+    expect(determineTeamOwnership(dataRoot, agentPath)).toBe("system");
+    await expect(writeMemberAgentMarkdown(location, "manager", "# UI 绕过写入\n")).rejects.toMatchObject({
+      code: "BUILT_IN_TEAM_READ_ONLY",
+    });
+    expect(await fs.readFile(agentPath, "utf8")).toBe("# 外部修改的经理\n\n仍然是内置内容\n");
+  });
+
+  it("copies every built-in team file into an independent user team without touching unrelated state", async () => {
+    const dataRoot = await makeDataRoot();
+    const source = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    await fs.mkdir(path.join(source.directory, "members", "manager", "references"), { recursive: true });
+    await fs.mkdir(path.join(source.directory, "playbooks"), { recursive: true });
+    await fs.writeFile(path.join(source.directory, "team.json"), serializeTeamDefinition(usableDefinition), "utf8");
+    await fs.writeFile(path.join(source.directory, "members", "manager", "AGENT.md"), "# 开发经理\n\n默认接单\n", "utf8");
+    await fs.writeFile(path.join(source.directory, "members", "manager", "references", "rules.md"), "规则\n", "utf8");
+    await fs.writeFile(path.join(source.directory, "playbooks", "checklist.txt"), "check\n", "utf8");
+    await fs.writeFile(path.join(source.directory, ".team-note"), "hidden\n", "utf8");
+    const lastUsedSentinel = path.join(dataRoot, "last-used-team.json");
+    await fs.writeFile(lastUsedSentinel, JSON.stringify({ teamId: "another-team" }), "utf8");
+
+    const destination = await duplicateBuiltInTeamDirectory(source);
+
+    expect(destination).toMatchObject({ id: "development-copy", ownership: "user" });
+    expect(destination.directory).toBe(path.join(dataRoot, "teams", "development-copy"));
+    expect(await readFileTree(destination.directory)).toEqual(await readFileTree(source.directory));
+    expect(await fs.readFile(lastUsedSentinel, "utf8")).toBe(JSON.stringify({ teamId: "another-team" }));
+
+    await fs.writeFile(path.join(destination.directory, "playbooks", "checklist.txt"), "copied team edit\n", "utf8");
+    expect(await fs.readFile(path.join(source.directory, "playbooks", "checklist.txt"), "utf8")).toBe("check\n");
+    await expect(writeMemberAgentMarkdown(destination, "manager", "# 可编辑副本\n")).resolves.toBeUndefined();
+  });
+
   it("marks a new team with no primary agent as an unfinished draft, not a repair", async () => {
     const dataRoot = await makeDataRoot();
     const location = resolveTeamLocation({ dataRoot, teamId: "draft", ownership: "user" });
@@ -190,4 +233,21 @@ async function makeDataRoot(): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-store-"));
   temporaryRoots.push(root);
   return root;
+}
+
+async function readFileTree(root: string): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  const visit = async (directory: string): Promise<void> => {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolutePath);
+      } else {
+        result[path.relative(root, absolutePath)] = await fs.readFile(absolutePath, "utf8");
+      }
+    }
+  };
+  await visit(root);
+  return result;
 }

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopStatusSnapshot } from "./status.js";
 import {
   TEAM_IPC_CHANNELS,
+  type AgentTeamDuplicateBuiltInRequest,
   type AgentTeamListItem,
   type AgentTeamListResponse,
   type AgentTeamMemberDocument,
@@ -24,6 +25,7 @@ export interface AgentMoebiusDesktopApi {
   readAgentTeamMember(request: AgentTeamMemberRequest): Promise<AgentTeamMemberDocument>;
   writeAgentTeamMember(request: AgentTeamMemberWriteRequest): Promise<AgentTeamMemberDocument>;
   setAgentTeamPrimaryAgent(request: AgentTeamPrimaryAgentWriteRequest): Promise<AgentTeamListItem>;
+  duplicateBuiltInAgentTeam(request: AgentTeamDuplicateBuiltInRequest): Promise<AgentTeamListItem>;
 }
 
 const api: AgentMoebiusDesktopApi = {
@@ -71,6 +73,9 @@ const api: AgentMoebiusDesktopApi = {
   },
   setAgentTeamPrimaryAgent(request) {
     return ipcRenderer.invoke(TEAM_IPC_CHANNELS.setPrimaryAgent, request) as Promise<AgentTeamListItem>;
+  },
+  duplicateBuiltInAgentTeam(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.duplicateBuiltIn, request) as Promise<AgentTeamListItem>;
   },
 };
 

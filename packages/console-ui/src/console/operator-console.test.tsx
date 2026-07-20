@@ -303,7 +303,11 @@ describe("OperatorConsole", () => {
     expect(onOpenAgentTeam).toHaveBeenCalledWith("system:development");
     expect(screen.getByTestId("agent-team-detail-view")).toHaveAttribute("data-team-key", "system:development");
     expect(screen.getByTestId("agent-team-detail")).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toBeVisible();
+    expect(screen.getByText("内置团队")).toBeVisible();
+    expect(screen.getByText("只读")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "复制并编辑" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("agent-team-list")).not.toBeInTheDocument();
     expect(listPage.scrollTop).toBe(0);
 
@@ -311,6 +315,22 @@ describe("OperatorConsole", () => {
     expect(onCloseAgentTeam).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("agent-team-list")).toBeVisible();
     expect(listPage.scrollTop).toBe(187);
+  });
+
+  it("routes the built-in copy action through the dedicated whole-team callback", async () => {
+    const onDuplicateBuiltInAgentTeam = vi.fn().mockResolvedValue("user:development-copy");
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [fiveMemberTeam] },
+      agentTeamDetailState: detailStateFor(fiveMemberTeam.teamKey),
+      onDuplicateBuiltInAgentTeam,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+    fireEvent.click(screen.getByTestId("agent-team-row"));
+    fireEvent.click(screen.getByRole("button", { name: "复制并编辑" }));
+
+    await waitFor(() => expect(onDuplicateBuiltInAgentTeam).toHaveBeenCalledWith("system:development"));
+    expect(screen.queryByText("复制 Agent")).not.toBeInTheDocument();
+    expect(screen.queryByText("删除团队")).not.toBeInTheDocument();
   });
 
   it("renders the controlled team detail and keeps member selection inside that page", () => {

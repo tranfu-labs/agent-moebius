@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TeamDefinition } from "../src/team-model.js";
 import {
+  duplicateBuiltInAgentTeam,
   listAgentTeams,
   readAgentTeamMember,
   setAgentTeamPrimaryAgent,
@@ -126,6 +127,29 @@ describe("Agent team IPC service", () => {
       primaryAgentSlug: "developer",
     })).rejects.toMatchObject({ code: "BUILT_IN_TEAM_READ_ONLY" });
     expect(await fs.readFile(path.join(builtIn.directory, "team.json"), "utf8")).toBe(builtInManifest);
+  });
+
+  it("duplicates a built-in team as a user-team list item and rejects user-team sources", async () => {
+    const dataRoot = await makeDataRoot();
+    const builtIn = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    await createUsableTeam(builtIn);
+    await fs.writeFile(path.join(builtIn.directory, "related.txt"), "copied too\n", "utf8");
+
+    await expect(duplicateBuiltInAgentTeam(dataRoot, {
+      teamId: "development",
+      ownership: "system",
+    })).resolves.toMatchObject({
+      id: "development-copy",
+      ownership: "user",
+      definition: usableDefinition,
+      members: [{ slug: "manager", displayName: "开发经理" }],
+    });
+    await expect(fs.readFile(path.join(dataRoot, "teams", "development-copy", "related.txt"), "utf8"))
+      .resolves.toBe("copied too\n");
+    await expect(duplicateBuiltInAgentTeam(dataRoot, {
+      teamId: "development-copy",
+      ownership: "user",
+    })).rejects.toMatchObject({ code: "AGENT_TEAM_IPC_REQUEST_INVALID" });
   });
 });
 

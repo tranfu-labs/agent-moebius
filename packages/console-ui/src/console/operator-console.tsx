@@ -194,6 +194,7 @@ export interface OperatorConsoleProps {
   onDiscardAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
   onDiscardAllAgentTeamDrafts?: (teamKey: string) => void;
   onSaveAllAgentTeamDrafts?: (teamKey: string) => Promise<{ failures: AgentTeamSaveAllFailureView[] }>;
+  onDuplicateBuiltInAgentTeam?: (teamKey: string) => Promise<string>;
   isSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
@@ -247,6 +248,7 @@ export function OperatorConsole({
   onDiscardAgentTeamMember,
   onDiscardAllAgentTeamDrafts,
   onSaveAllAgentTeamDrafts,
+  onDuplicateBuiltInAgentTeam,
   isSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
@@ -532,6 +534,7 @@ export function OperatorConsole({
             onDiscardMember={onDiscardAgentTeamMember}
             onDiscardAll={onDiscardAllAgentTeamDrafts}
             onSaveAll={onSaveAllAgentTeamDrafts}
+            onDuplicateBuiltInTeam={onDuplicateBuiltInAgentTeam}
             onBack={() => setApplicationView("conversation")}
           />
         ) : (

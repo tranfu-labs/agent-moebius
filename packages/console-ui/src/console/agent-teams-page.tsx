@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, LoaderCircle } from "lucide-react";
 import { useRef, useState } from "react";
 
 import {
@@ -51,6 +51,7 @@ export function AgentTeamsPage({
   onDiscardMember,
   onDiscardAll,
   onSaveAll,
+  onDuplicateBuiltInTeam,
   onBack,
 }: {
   state: OperatorAgentTeamsState;
@@ -69,11 +70,14 @@ export function AgentTeamsPage({
   onDiscardMember?: (teamKey: string, memberSlug: string) => void;
   onDiscardAll?: (teamKey: string) => void;
   onSaveAll?: (teamKey: string) => Promise<{ failures: AgentTeamSaveAllFailureView[] }>;
+  onDuplicateBuiltInTeam?: (teamKey: string) => Promise<string>;
   onBack: () => void;
 }): JSX.Element {
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const listScrollTopRef = useRef(0);
   const [openedTeamKey, setOpenedTeamKey] = useState<string | null>(null);
+  const [duplicatingTeamKey, setDuplicatingTeamKey] = useState<string | null>(null);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
   const openedTeam = state.status === "ready"
     ? state.teams.find((team) => team.teamKey === openedTeamKey)
     : undefined;
@@ -85,6 +89,7 @@ export function AgentTeamsPage({
 
   const openTeam = (teamKey: string) => {
     listScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? 0;
+    setDuplicateError(null);
     onOpenTeam?.(teamKey);
     setOpenedTeamKey(teamKey);
     if (scrollContainerRef.current !== null) {
@@ -94,9 +99,26 @@ export function AgentTeamsPage({
 
   const returnToList = () => {
     onCloseTeam?.();
+    setDuplicateError(null);
     setOpenedTeamKey(null);
     if (scrollContainerRef.current !== null) {
       scrollContainerRef.current.scrollTop = listScrollTopRef.current;
+    }
+  };
+
+  const duplicateBuiltInTeam = async (team: OperatorAgentTeam) => {
+    if (duplicatingTeamKey !== null || onDuplicateBuiltInTeam === undefined) {
+      return;
+    }
+    setDuplicatingTeamKey(team.teamKey);
+    setDuplicateError(null);
+    try {
+      const copiedTeamKey = await onDuplicateBuiltInTeam(team.teamKey);
+      setOpenedTeamKey(copiedTeamKey);
+    } catch (error) {
+      setDuplicateError(error instanceof Error ? error.message : "暂时无法复制团队，请稍后重试。");
+    } finally {
+      setDuplicatingTeamKey(null);
     }
   };
 
@@ -126,6 +148,24 @@ export function AgentTeamsPage({
                 onChangePrimaryAgent={onChangePrimaryAgent === undefined
                   ? undefined
                   : (memberSlug) => onChangePrimaryAgent(openedTeam.teamKey, memberSlug)}
+                readOnly={openedTeam.ownership === "system"}
+                teamActions={openedTeam.ownership === "system" ? (
+                  <div className="flex max-w-xs flex-col items-end gap-2">
+                    <Button
+                      type="button"
+                      disabled={duplicatingTeamKey !== null || onDuplicateBuiltInTeam === undefined}
+                      onClick={() => void duplicateBuiltInTeam(openedTeam)}
+                    >
+                      {duplicatingTeamKey === openedTeam.teamKey ? (
+                        <LoaderCircle className="mr-2 h-4 w-4 animate-spin" strokeWidth={1.5} aria-hidden="true" />
+                      ) : null}
+                      {duplicatingTeamKey === openedTeam.teamKey ? "正在复制…" : "复制并编辑"}
+                    </Button>
+                    {duplicateError !== null ? (
+                      <p className="text-right text-sm leading-5 text-danger" role="alert">{duplicateError}</p>
+                    ) : null}
+                  </div>
+                ) : undefined}
                 onSelectMember={(memberSlug) => onSelectMember?.(openedTeam.teamKey, memberSlug)}
                 onChangeMember={(memberSlug, agentMarkdown) => onChangeMember?.(openedTeam.teamKey, memberSlug, agentMarkdown)}
                 onSaveMember={(memberSlug) => onSaveMember?.(openedTeam.teamKey, memberSlug)}
