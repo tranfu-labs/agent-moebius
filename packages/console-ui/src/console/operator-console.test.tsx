@@ -50,6 +50,63 @@ describe("OperatorConsole", () => {
     expect(screen.queryByText(/本地引擎/u)).not.toBeInTheDocument();
   });
 
+  it("opens the new-conversation placeholder without creating a persisted session", () => {
+    const onCreateSession = vi.fn();
+    renderConsole({ onCreateSession });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+
+    expect(screen.getByRole("dialog", { name: "新建对话" })).toBeVisible();
+    expect(screen.getByText("此入口不会直接创建空白对话。", { exact: false })).toBeVisible();
+    expect(screen.getByRole("button", { name: "创建对话" })).toBeDisabled();
+    expect(onCreateSession).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(screen.queryByRole("dialog", { name: "新建对话" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("offers project setup from the new-conversation placeholder when no project exists", () => {
+    const onOpenProject = vi.fn();
+    renderConsole({ projects: [], onOpenProject });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+
+    expect(screen.getByText("还没有项目")).toBeVisible();
+    expect(screen.getByRole("button", { name: "创建对话" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "添加项目" }));
+    expect(onOpenProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens search over the current selection and restores it when closed", () => {
+    renderConsole();
+    const selectedSession = screen.getByRole("button", { name: "默认会话，运行中" });
+
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+
+    expect(screen.getByRole("dialog", { name: "全局搜索" })).toBeVisible();
+    expect(selectedSession).toHaveAttribute("aria-current", "page");
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(screen.queryByRole("dialog", { name: "全局搜索" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toBe(selectedSession);
+  });
+
+  it("routes Agent Teams to a selected stub page and restores the current conversation", () => {
+    renderConsole();
+    const teamsEntry = screen.getByRole("button", { name: "Agent 团队" });
+
+    fireEvent.click(teamsEntry);
+
+    expect(teamsEntry).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "Agent 团队" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "会话时间线" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "返回当前对话" }));
+    expect(teamsEntry).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("region", { name: "会话时间线" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("closes and restores the sidebar without remounting the timeline or active run", () => {
     renderConsole({ activeRun: runSnapshot });
 

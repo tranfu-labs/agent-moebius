@@ -49,6 +49,8 @@ export type OperatorSessionStatus =
   | "failed"
   | "interrupted";
 export type OperatorRunnerStatus = "starting" | "running" | "stopped" | "crashed" | "error";
+export type OperatorApplicationView = "conversation" | "agent-teams";
+export type OperatorApplicationOverlay = "new-conversation" | "search";
 
 export interface OperatorSession {
   sessionId: string;
@@ -159,6 +161,7 @@ export function OperatorConsole({
   onComposerChange,
   onSend,
   onCreateSession,
+  onOpenProject,
   onToggleProjectWorktree,
   onSelectSession,
   onChangeSessionProject,
@@ -173,6 +176,8 @@ export function OperatorConsole({
   className,
 }: OperatorConsoleProps): JSX.Element {
   const [uncontrolledSidebarOpen, setUncontrolledSidebarOpen] = useState(true);
+  const [applicationView, setApplicationView] = useState<OperatorApplicationView>("conversation");
+  const [applicationOverlay, setApplicationOverlay] = useState<OperatorApplicationOverlay | null>(null);
   const visibleProjects = projects ?? [project];
   const activeProjectId = selectedProjectId ?? project.projectId;
   const activeProject = visibleProjects.find((item) => item.projectId === activeProjectId) ?? project;
@@ -199,7 +204,7 @@ export function OperatorConsole({
   };
 
   return (
-    <div className={cn("flex h-screen min-h-[560px] overflow-hidden bg-canvas text-ink", className)}>
+    <div className={cn("relative flex h-screen min-h-[560px] overflow-hidden bg-canvas text-ink", className)}>
       <aside
         className={cn(
           "relative w-[248px] shrink-0 flex-col overflow-hidden border-r border-line bg-rail",
@@ -229,9 +234,18 @@ export function OperatorConsole({
         </header>
 
         <nav className="shrink-0 px-2 pb-2 pt-1" aria-label="应用导航" data-testid="sidebar-app-actions">
-          <SidebarAction icon={Plus} label="新建对话" />
-          <SidebarAction icon={Search} label="搜索" />
-          <SidebarAction icon={Diamond} label="Agent 团队" />
+          <SidebarAction
+            icon={Plus}
+            label="新建对话"
+            onClick={() => setApplicationOverlay("new-conversation")}
+          />
+          <SidebarAction icon={Search} label="搜索" onClick={() => setApplicationOverlay("search")} />
+          <SidebarAction
+            icon={Diamond}
+            label="Agent 团队"
+            selected={applicationView === "agent-teams"}
+            onClick={() => setApplicationView("agent-teams")}
+          />
         </nav>
 
         <div className="shrink-0 px-4 pb-1 pt-2 text-xs font-medium text-hint">项目</div>
@@ -276,73 +290,88 @@ export function OperatorConsole({
           </button>
         ) : null}
 
-        <section className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-44 pt-16" aria-label="会话时间线">
-          {emptyConversation ? (
-            <ConversationEmptyState projectName={activeProject.title} />
-          ) : (
-            <div className="mx-auto max-w-[760px]">
-              <div className="divide-y divide-line">
-                {messages.map((message) => (
-                  <TimelineEntry key={message.id} message={message} onOpenDiagnostics={onOpenDiagnostics} />
-                ))}
-              </div>
+        {applicationView === "agent-teams" ? (
+          <AgentTeamsStub onBack={() => setApplicationView("conversation")} />
+        ) : (
+          <>
+            <section className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-44 pt-16" aria-label="会话时间线">
+              {emptyConversation ? (
+                <ConversationEmptyState projectName={activeProject.title} />
+              ) : (
+                <div className="mx-auto max-w-[760px]">
+                  <div className="divide-y divide-line">
+                    {messages.map((message) => (
+                      <TimelineEntry key={message.id} message={message} onOpenDiagnostics={onOpenDiagnostics} />
+                    ))}
+                  </div>
 
-              {activeRun ? (
-                <div data-testid="active-run-block">
-                  <RunBlock
-                    role={activeRun.role ?? "dev"}
-                    elapsedTime={formatElapsed(activeRun.elapsedMs)}
-                    summary={safeRunSummary(activeRun.lastOutputSummary)}
-                    rawOutput={runRawOutput(activeRun)}
-                    onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
-                    className="mt-3"
-                  />
-                </div>
-              ) : null}
+                  {activeRun ? (
+                    <div data-testid="active-run-block">
+                      <RunBlock
+                        role={activeRun.role ?? "dev"}
+                        elapsedTime={formatElapsed(activeRun.elapsedMs)}
+                        summary={safeRunSummary(activeRun.lastOutputSummary)}
+                        rawOutput={runRawOutput(activeRun)}
+                        onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
+                        className="mt-3"
+                      />
+                    </div>
+                  ) : null}
 
-              {lastError ? (
-                <div className="mt-4 flex items-center justify-between gap-3 border-t border-line py-3 text-sm text-danger">
-                  <span>操作台遇到问题，请打开开发者诊断查看日志。</span>
-                  {onOpenDiagnostics ? (
-                    <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
-                      查看日志
-                    </Button>
+                  {lastError ? (
+                    <div className="mt-4 flex items-center justify-between gap-3 border-t border-line py-3 text-sm text-danger">
+                      <span>操作台遇到问题，请打开开发者诊断查看日志。</span>
+                      {onOpenDiagnostics ? (
+                        <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
+                          查看日志
+                        </Button>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
-              ) : null}
-            </div>
-          )}
-        </section>
+              )}
+            </section>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
-          <RoleComposer
-            value={composerValue}
-            onValueChange={onComposerChange}
-            onSubmit={submitComposer}
-            disabled={activeRun !== null || isSending || isSessionProjectUpdating}
-            placeholder={activeRun ? "当前 agent 正在执行…" : "描述你的目标，@ 一个角色开始…"}
-            statusText={activeRun ? "当前正在执行，完成后可继续发送" : undefined}
-            context={
-              <ComposerContext
-                project={activeProject}
-                projects={visibleProjects}
-                selectedSession={selectedSession}
-                canChangeProject={
-                  selectedSession !== null &&
-                  messages.length === 0 &&
-                  activeRun === null &&
-                  !selectedSession.parentSessionId &&
-                  (selectedSession.childCount ?? 0) === 0
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
+              <RoleComposer
+                value={composerValue}
+                onValueChange={onComposerChange}
+                onSubmit={submitComposer}
+                disabled={activeRun !== null || isSending || isSessionProjectUpdating}
+                placeholder={activeRun ? "当前 agent 正在执行…" : "描述你的目标，@ 一个角色开始…"}
+                statusText={activeRun ? "当前正在执行，完成后可继续发送" : undefined}
+                context={
+                  <ComposerContext
+                    project={activeProject}
+                    projects={visibleProjects}
+                    selectedSession={selectedSession}
+                    canChangeProject={
+                      selectedSession !== null &&
+                      messages.length === 0 &&
+                      activeRun === null &&
+                      !selectedSession.parentSessionId &&
+                      (selectedSession.childCount ?? 0) === 0
+                    }
+                    disabled={isSelectionMutationPending}
+                    onChangeSessionProject={onChangeSessionProject}
+                    onToggleProjectWorktree={onToggleProjectWorktree}
+                  />
                 }
-                disabled={isSelectionMutationPending}
-                onChangeSessionProject={onChangeSessionProject}
-                onToggleProjectWorktree={onToggleProjectWorktree}
+                className="pointer-events-auto mx-auto max-w-[720px]"
               />
-            }
-            className="pointer-events-auto mx-auto max-w-[720px]"
-          />
-        </div>
+            </div>
+          </>
+        )}
       </main>
+
+      {applicationOverlay ? (
+        <ApplicationPlaceholder
+          kind={applicationOverlay}
+          hasProjects={visibleProjects.length > 0}
+          onAddProject={onOpenProject}
+          onClose={() => setApplicationOverlay(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -367,15 +396,102 @@ function MoebiusLogo(): JSX.Element {
   );
 }
 
-function SidebarAction({ icon: Icon, label }: { icon: LucideIcon; label: string }): JSX.Element {
+function SidebarAction({
+  icon: Icon,
+  label,
+  selected = false,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  selected?: boolean;
+  onClick?: () => void;
+}): JSX.Element {
   return (
     <button
       type="button"
-      className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-normal text-ink hover:bg-hover"
+      className={cn(
+        "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-normal text-ink hover:bg-hover",
+        selected ? "bg-sel" : "bg-transparent",
+      )}
+      aria-current={selected ? "page" : undefined}
+      onClick={onClick}
     >
       <Icon className="h-4 w-4 shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
       <span>{label}</span>
     </button>
+  );
+}
+
+function AgentTeamsStub({ onBack }: { onBack: () => void }): JSX.Element {
+  return (
+    <section className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-12 pt-16" aria-labelledby="agent-teams-title">
+      <div className="mx-auto max-w-[760px]">
+        <p className="mb-2 text-xs font-medium text-hint">应用管理</p>
+        <h1 id="agent-teams-title" className="text-2xl font-semibold tracking-[-0.02em] text-ink">
+          Agent 团队
+        </h1>
+        <p className="mt-3 max-w-xl text-sm leading-6 text-sub">
+          Agent 团队管理界面将在后续任务中提供。当前入口与返回路径已经接通。
+        </p>
+        <Button type="button" variant="outline" className="mt-6" onClick={onBack}>
+          返回当前对话
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function ApplicationPlaceholder({
+  kind,
+  hasProjects,
+  onAddProject,
+  onClose,
+}: {
+  kind: OperatorApplicationOverlay;
+  hasProjects: boolean;
+  onAddProject?: () => void;
+  onClose: () => void;
+}): JSX.Element {
+  const isNewConversation = kind === "new-conversation";
+  const title = isNewConversation ? "新建对话" : "全局搜索";
+  const description = isNewConversation
+    ? "新建对话窗口将在后续任务中提供。此入口不会直接创建空白对话。"
+    : "全局搜索将在后续任务中提供。关闭此窗口后会回到原来的项目和对话。";
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink/20 p-6" data-testid="application-overlay">
+      <section
+        className="w-full max-w-md rounded-xl border border-line bg-canvas p-5 shadow-lg"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="application-placeholder-title"
+      >
+        <h1 id="application-placeholder-title" className="text-lg font-semibold tracking-[-0.01em] text-ink">
+          {title}
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-sub">{description}</p>
+        {isNewConversation && !hasProjects ? (
+          <div className="mt-4 rounded-lg border border-line bg-rail p-3">
+            <p className="text-sm font-medium text-ink">还没有项目</p>
+            <p className="mt-1 text-xs leading-5 text-sub">请先添加项目；添加完成前不能创建对话。</p>
+            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onAddProject}>
+              添加项目
+            </Button>
+          </div>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-2">
+          {isNewConversation ? (
+            <Button type="button" disabled>
+              创建对话
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={onClose}>
+            关闭
+          </Button>
+        </div>
+      </section>
+    </div>
   );
 }
 
