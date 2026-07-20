@@ -256,24 +256,50 @@ Requirements:
 
 ```text
 ┌────────────────────┬─────────────────────────────────────────────────────────┐
-│ 项目 / 会话列表    │ 你 · 23:00                                              │
-│ 全部保持同级       │ 请完成组件回收。                                        │
-│                    │ ─────────────────────────────────────────────────────   │
-│ 本地 T6 验收       │ 开发 · 正在执行 00:43                       [中断]       │
-│ 截图走查           │ live tail from codex                                    │
-│ 失败构造           │ ─────────────────────────────────────────────────────   │
-│                    │ 运行失败                                                │
-│                    │ 本轮没有完成，可查看日志后重新尝试。        [查看日志]  │
+│ 项目 / 会话列表    │ 官网落地页验收                                          │
+│ ◐ 本地 T6 验收     │ 项目 agent-moebius   工作区 隔离   模式 本地            │
+│ ○ 截图走查         │ ─────────────────────────────────────────────────────  │
+│ ○ 失败构造         │ (开) 开发  方案已写好                       ○ 09:41    │
+│                    │ 　  落地页采用单文件自包含结构，不引入构建步骤。        │
+│                    │ 　  → 交给「测试」按验收语句审查方案                    │
+│                    │ ─────────────────────────────────────────────────────  │
+│                    │ (测) 测试  进行中                           ○ 09:44    │
+│                    │ 　  方案可测性良好，建议补充空状态验收语句。            │
+│                    │ 　  → 交给「开发」补充验收语句                          │
+│                    │ ─────────────────────────────────────────────────────  │
+│                    │ (产) 产品  代码已验证                       ● 10:02    │
+│                    │ 　  三条验收语句全部通过，可进入发布流程。              │
+│                    │ 　  → 等你确认发布                                    │
 │                    │                                                         │
 │                    │      [agent-moebius] [本地] [当前分支]                  │
-│                    │      [描述目标，@ 一个角色…                       ↑]  │
+│                    │      [描述目标，@ 一个角色…                        ↑] │
 └────────────────────┴─────────────────────────────────────────────────────────┘
 ```
 
 Requirements:
-- The timeline is a flat chronological stream rather than a stack of floating Card surfaces.
-- Agent identity uses a compact localized avatar, name, and inline state metadata in the same stream.
+- The timeline is a flat chronological stream of hairline-separated Linear-inbox-style rows rather than a stack of floating Card surfaces.
+- Each agent row uses a circular localized role avatar with a stage corner badge; the first line holds the role name, inline state metadata, a right-aligned status icon, and a tabular-nums timestamp; conclusion and arrow-prefixed handoff follow as secondary lines.
+- The session context header is a property-panel strip (12px muted label above a 13px icon-prefixed value) carrying only project, workspace, and mode facts.
 - Waiting and pending remain neutral structural facts; failed and stuck use danger fact text; interrupted stays neutral and distinct from failure.
 - Raw output, runDir, cwd, SQLite paths, and internal ids remain in developer diagnostics rather than expandable timeline details.
 - The composer is the only floating surface and owns project/workspace context.
 - Sidebar project/session rows remain compact navigation controls and all sessions keep the same indentation.
+
+## Status Semantics and Typography
+
+```text
+运行态：  ● 运行中(靛蓝)   ◌ 等你(中性空心)   ◌ 排队中(中性空心)
+          ● 失败(红)       ● 卡住(红)         ○ 已中断(中性)
+          ● 已完成(中性)   ● 已显示(中性)     ○ 空闲(中性)
+裁决面：  ● 通过(绿)       ● 不通过(红)
+主按钮：  靛蓝 #5E6AD2；hover 亮色加深 #4B57C8 / 暗色变亮 #828FFF；active scale(0.98)
+浮层：    细描边 + 多层软投影；focus 为双层靛蓝 ring
+```
+
+Requirements:
+- Badge's nine runtime status variants (running/failed/waiting/interrupted/idle/pending/completed/displayed/stuck) all render as dot-plus-text markers; semantic variant names and the component API stay unchanged.
+- Green/red hues appear only on acceptance verdicts and danger facts; waiting, pending, and interrupted states stay neutral structural signals.
+- Sidebar session status dots share the Badge status semantics; the four-tier sidebar ordering is behavior, not visual language.
+- Icons are lucide at 16px default size with 1.5px stroke width.
+- Latin text uses the self-hosted Inter Variable subset (wght 510 for UI emphasis, 590 for titles, `cv01`/`ss03` features); CJK falls back to system fonts; body text below 16px uses zero letter-spacing.
+- Detailed token, elevation, and motion rules live in `packages/console-ui/DESIGN.md` as the design language fact source.

@@ -1,5 +1,14 @@
 @import "./tokens.css";
 
+/* 自托管 Inter Variable（latin 子集，含 cv01/ss03，wght 100-900，OFL 1.1） */
+@font-face {
+  font-family: "InterVar";
+  src: url("./fonts/inter-var-latin-cv01.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -16,7 +25,7 @@
     --destructive: var(--danger);
     --destructive-foreground: var(--accent-fg);
     --ring: var(--accent);
-    --radius: 7px;
+    --radius: 6px;
     color-scheme: light;
   }
 
@@ -32,11 +41,12 @@
     @apply bg-background text-foreground font-sans antialiased;
     font-size: 13px;
     letter-spacing: 0;
+    font-feature-settings: "cv01", "ss03";
   }
 
   :focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 1px;
+    outline: none;
+    box-shadow: var(--ring-focus);
     border-radius: 5px;
   }
 }

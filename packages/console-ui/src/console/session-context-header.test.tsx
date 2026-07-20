@@ -19,9 +19,10 @@ describe("SessionContextHeader", () => {
     expect(screen.getByRole("button", { name: /属于：目标 · 导出体验/u })).toBeInTheDocument();
     expect(screen.getByText("任务 T2 · 进度提示")).toBeInTheDocument();
     expect(screen.getByText("执行中")).toBeInTheDocument();
-    expect(screen.getByText("1 通过")).toBeInTheDocument();
-    expect(screen.getByText("1 运行中")).toBeInTheDocument();
-    expect(screen.getByText("1 等你")).toBeInTheDocument();
+    expect(screen.getByText("通过")).toBeInTheDocument();
+    expect(screen.getByText("运行中")).toBeInTheDocument();
+    expect(screen.getByText("等你")).toBeInTheDocument();
+    expect(screen.getAllByText("1")).toHaveLength(3);
     expect(screen.queryByText("新会话")).not.toBeInTheDocument();
     expect(screen.queryByText("等你清单")).not.toBeInTheDocument();
 

@@ -32,12 +32,12 @@ export const ConsoleActions: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-2">
       <Button>
-        <Send className="h-4 w-4" />
+        <Send className="h-4 w-4" strokeWidth={1.5} />
         发送
       </Button>
       <Button variant="outline">新会话</Button>
       <Button variant={"danger"}>
-        <Square className="h-4 w-4" />
+        <Square className="h-4 w-4" strokeWidth={1.5} />
         中断
       </Button>
       <Button variant="ghost">先不验</Button>

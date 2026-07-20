@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Circle, CheckCircle2, Code2, FileText } from "lucide-react";
 import { useState, type KeyboardEvent, type MouseEvent } from "react";
 
 import { cn } from "@/lib/utils";
@@ -56,7 +56,8 @@ export function AgentMessage({
   const [open, setOpen] = useState(defaultOpen);
   const parsed = parseAgentMarkdown(rawMarkdown);
   const roleLabel = localizeRole(role);
-  const stageLabel = localizeStage(nonBlank(stage) ?? parsed.stage);
+  const resolvedStage = nonBlank(stage) ?? parsed.stage;
+  const stageLabel = localizeStage(resolvedStage);
   const conclusionText = nonBlank(conclusion) ?? parsed.conclusion ?? "暂无结论摘要";
   const handoffText = nonBlank(handoff) ?? parsed.handoff ?? "暂无下一步";
 
@@ -66,9 +67,9 @@ export function AgentMessage({
   };
 
   return (
-    <details className={cn("group text-sm text-sub", className)} open={open}>
+    <details className={cn("group border-t border-line text-sm text-sub", className)} open={open}>
       <summary
-        className="grid cursor-pointer list-none grid-cols-[28px_minmax(0,1fr)_auto] gap-x-3 gap-y-1 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden"
+        className="grid cursor-pointer list-none grid-cols-[32px_minmax(0,1fr)] gap-x-3 rounded-md outline-none transition-colors hover:bg-hover [&::-webkit-details-marker]:hidden"
         aria-expanded={open}
         aria-label={open ? `收起${roleLabel}原文` : `展开${roleLabel}原文`}
         tabIndex={0}
@@ -79,26 +80,56 @@ export function AgentMessage({
           }
         }}
       >
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-sunken text-xs font-semibold text-ava-fg" aria-hidden="true">
-          {roleAvatars[role] ?? "协"}
+        <span className="relative mt-0.5 h-8 w-8" aria-hidden="true">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-ava-bg text-xs font-medium text-ava-fg">
+            {roleAvatars[role] ?? "协"}
+          </span>
+          <span className="absolute -bottom-0.5 -right-0.5 flex h-[15px] w-[15px] items-center justify-center rounded-full border border-line bg-card text-sub">
+            <StageBadgeIcon stage={resolvedStage} />
+          </span>
         </span>
         <span className="min-w-0">
-          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="font-semibold text-ink">{roleLabel}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="font-medium text-ink">{roleLabel}</span>
             <span className="text-xs font-normal text-sub">{stageLabel}</span>
-            {timestamp ? <span className="text-xs text-hint tnum">{timestamp}</span> : null}
+            <span className="ml-auto flex flex-none items-center gap-2">
+              <StageStatusIcon stage={resolvedStage} />
+              {timestamp ? <span className="text-xs text-hint tnum">{timestamp}</span> : null}
+              <ChevronRight
+                className={cn("h-4 w-4 text-hint transition-transform", open ? "rotate-90" : "")}
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+            </span>
           </span>
-          <span className="mt-1.5 block min-w-0 leading-6 text-ink">{conclusionText}</span>
-          <span className="mt-1 block min-w-0 text-xs text-sub">{handoffText}</span>
+          <span className="mt-1 block min-w-0 leading-6 text-ink">{conclusionText}</span>
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-sub">
+            <ArrowRight className="h-3 w-3 flex-none text-hint" strokeWidth={1.5} aria-hidden="true" />
+            <span className="min-w-0">{handoffText}</span>
+          </span>
         </span>
-        <ChevronRight
-          className={cn("mt-1 h-4 w-4 text-hint transition-transform", open ? "rotate-90" : "")}
-          aria-hidden="true"
-        />
       </summary>
-      <pre className="ml-10 mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words border-l border-line pl-4 font-mono text-xs leading-5 text-ink">{rawMarkdown}</pre>
+      <pre className="ml-11 mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words border-l border-line pl-4 font-mono text-xs leading-5 text-ink">{rawMarkdown}</pre>
     </details>
   );
+}
+
+function StageBadgeIcon({ stage }: { stage: string | null }): JSX.Element {
+  const className = "h-2.5 w-2.5";
+  if (stage === "plan-written") {
+    return <FileText className={className} strokeWidth={2} />;
+  }
+  if (stage === "code-verified") {
+    return <Check className={className} strokeWidth={2} />;
+  }
+  return <Code2 className={className} strokeWidth={2} />;
+}
+
+function StageStatusIcon({ stage }: { stage: string | null }): JSX.Element {
+  if (stage === "plan-written" || stage === "code-verified") {
+    return <CheckCircle2 className="h-4 w-4 text-hint" strokeWidth={1.5} aria-hidden="true" />;
+  }
+  return <Circle className="h-4 w-4 text-hint" strokeWidth={1.5} aria-hidden="true" />;
 }
 
 export function parseAgentMarkdown(rawMarkdown: string): {

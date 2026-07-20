@@ -20,6 +20,7 @@ const config = {
         hover: "var(--hover)",
         accent: "var(--accent)",
         "accent-fg": "var(--accent-fg)",
+        "accent-hover": "var(--accent-hover)",
         pass: "var(--pass)",
         danger: "var(--danger)",
         "ava-bg": "var(--ava-bg)",
@@ -41,18 +42,34 @@ const config = {
         sm: "calc(var(--radius) - 4px)"
       },
       boxShadow: {
-        overlay: "0 10px 28px rgba(0,0,0,0.13),0 2px 6px rgba(0,0,0,0.08)"
+        overlay: "var(--shadow-pop)"
       },
       fontFamily: {
         sans: [
-          "\"PingFang SC\"",
-          "\"Microsoft YaHei\"",
-          "\"Segoe UI\"",
+          "InterVar",
+          "ui-sans-serif",
           "system-ui",
           "-apple-system",
+          "\"Segoe UI\"",
+          "Roboto",
+          "\"PingFang SC\"",
+          "\"Hiragino Sans GB\"",
+          "\"Microsoft YaHei\"",
           "sans-serif"
         ],
         mono: ["\"SF Mono\"", "Menlo", "Consolas", "monospace"]
+      },
+      fontWeight: {
+        medium: "510",
+        semibold: "590"
+      },
+      transitionDuration: {
+        fast: "var(--dur-fast)",
+        DEFAULT: "var(--dur)"
+      },
+      transitionTimingFunction: {
+        DEFAULT: "var(--ease)",
+        enter: "var(--ease-enter)"
       },
       keyframes: {
         breathe: {

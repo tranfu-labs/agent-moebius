@@ -44,3 +44,37 @@ export const ExplicitOverrides: Story = {
     handoff: "交给「产品」确认验收",
   },
 };
+
+export const InboxStream: Story = {
+  render: () => (
+    <div className="max-w-[720px]">
+      <AgentMessage role="dev" rawMarkdown={rawMarkdown} timestamp="09:41" />
+      <AgentMessage
+        role="qa"
+        rawMarkdown={[
+          "## 结论",
+          "方案可测性良好，建议补充空状态验收语句。",
+          "",
+          "## 下一步",
+          "交棒：@dev 补充验收语句",
+          "",
+          "<!-- agent-moebius:stage=in-progress -->",
+        ].join("\n")}
+        timestamp="09:44"
+      />
+      <AgentMessage
+        role="product-manager"
+        rawMarkdown={[
+          "## 结论",
+          "三条验收语句全部通过，可进入发布流程。",
+          "",
+          "## 下一步",
+          "等待真人：确认发布",
+          "",
+          "<!-- agent-moebius:stage=code-verified -->",
+        ].join("\n")}
+        timestamp="10:02"
+      />
+    </div>
+  ),
+};

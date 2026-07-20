@@ -1,4 +1,4 @@
-import { Check, ExternalLink, Hand, X } from "lucide-react";
+import { ExternalLink, Hand } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
@@ -61,7 +61,7 @@ export function AcceptCard({
   return (
     <Card className={cn("max-w-[680px] p-4", className)}>
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
-        <Hand className="h-4 w-4 text-sub" aria-hidden="true" />
+        <Hand className="h-4 w-4 text-sub" strokeWidth={1.5} aria-hidden="true" />
         <span>轮到你了 · 「{reviewerLabel}」请你验收</span>
       </div>
 
@@ -75,7 +75,7 @@ export function AcceptCard({
           <span className="text-ink"> · {selfTestSummary}</span>
           {selfTestHref ? (
             <a className="ml-1 inline-flex items-center gap-1 text-accent" href={selfTestHref}>
-              点开看记录 <ExternalLink className="h-3 w-3" aria-hidden="true" />
+              点开看记录 <ExternalLink className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
             </a>
           ) : null}
         </p>
@@ -128,23 +128,35 @@ function AcceptanceRow({ item, index }: { item: AcceptanceItem; index: number })
 
 function DecisionSegment({ decision }: { decision: AcceptanceDecision }): JSX.Element {
   return (
-    <span className="flex shrink-0 gap-0.5 rounded-lg bg-hover p-0.5" aria-label="验收裁决">
+    <span className="flex shrink-0 items-center gap-3" aria-label="验收裁决">
       <span
         className={cn(
-          "inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-xs",
-          decision === "pass" ? "bg-sel font-semibold text-pass" : "text-sub"
+          "inline-flex h-7 items-center gap-1.5 text-xs",
+          decision === "pass" ? "font-medium text-pass" : "text-sub"
         )}
       >
-        <Check className="h-3 w-3" aria-hidden="true" />
+        <span
+          className={cn(
+            "h-2 w-2 rounded-full",
+            decision === "pass" ? "bg-pass" : "border-[1.5px] border-hint"
+          )}
+          aria-hidden="true"
+        />
         通过
       </span>
       <span
         className={cn(
-          "inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-xs",
-          decision === "fail" ? "bg-sel font-semibold text-danger" : "text-sub"
+          "inline-flex h-7 items-center gap-1.5 text-xs",
+          decision === "fail" ? "font-medium text-danger" : "text-sub"
         )}
       >
-        <X className="h-3 w-3" aria-hidden="true" />
+        <span
+          className={cn(
+            "h-2 w-2 rounded-full",
+            decision === "fail" ? "bg-danger" : "border-[1.5px] border-hint"
+          )}
+          aria-hidden="true"
+        />
         不通过
       </span>
     </span>

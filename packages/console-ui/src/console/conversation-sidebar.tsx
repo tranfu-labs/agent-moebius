@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CheckCircle2, ChevronDown, ChevronRight, Circle, Folder, Hand, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -99,7 +99,7 @@ export function ConversationSidebar({
           return (
             <section key={project.id} className="mb-2" aria-label={`${projectName} 项目`}>
               <div className="mb-0.5 flex min-w-0 items-center gap-2 px-2 py-1.5">
-                <Folder className="h-4 w-4 shrink-0 text-sub" aria-hidden="true" />
+                <Folder className="h-4 w-4 shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate text-sm font-semibold leading-5">{projectName}</h2>
                   {showProjectPath ? <p className="truncate text-xs text-hint">{project.path}</p> : null}
@@ -116,7 +116,7 @@ export function ConversationSidebar({
                       }
                     }}
                   >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    <Plus className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
                   </button>
                 ) : null}
               </div>
@@ -144,9 +144,9 @@ export function ConversationSidebar({
                     onClick={() => toggleCompleted(project.id)}
                   >
                     {completedOpen ? (
-                      <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                      <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                      <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
                     )}
                     <span>已完成 ({completedSessions.length})</span>
                   </button>
@@ -214,21 +214,34 @@ function SessionRow({
 }
 
 function StatusIcon({ status }: { status: ConversationSessionStatus }): JSX.Element {
-  if (status === "waiting") {
-    return <Hand className="h-4 w-4 text-sub" aria-hidden="true" />;
-  }
-
+  // 状态点语义与 Badge 对齐：运行中=靛蓝实心，已完成=中性实心，等你/静止=中性空心
   if (status === "running") {
     return (
       <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
-        <span className="h-2 w-2 rounded-full bg-sub animate-breathe" />
+        <span className="h-2 w-2 rounded-full bg-accent animate-breathe" />
       </span>
     );
   }
 
   if (status === "completed") {
-    return <CheckCircle2 className="h-4 w-4 text-sub" aria-hidden="true" />;
+    return (
+      <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+        <span className="h-2 w-2 rounded-full bg-hint" />
+      </span>
+    );
   }
 
-  return <Circle className="h-3.5 w-3.5 text-hint" aria-hidden="true" />;
+  if (status === "waiting") {
+    return (
+      <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+        <span className="h-2 w-2 rounded-full border-[1.5px] border-sub" />
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+      <span className="h-2 w-2 rounded-full border-[1.5px] border-hint" />
+    </span>
+  );
 }

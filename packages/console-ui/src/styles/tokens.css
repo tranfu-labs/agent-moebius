@@ -1,70 +1,94 @@
 /* ============================================================
-   Design tokens: Codex desktop light baseline.
-   Color budget: neutral first, dark interaction layer,
-   green for pass facts, Linear red for danger/fail facts.
-   Waiting-for-you states use neutral structure, never a hue.
+   Design tokens: Linear-restraint baseline.
+   Cool-tinted neutrals dominate; indigo #5E6AD2 is the single
+   interaction accent in both themes; green/red are reserved for
+   verdict and danger facts. Waiting-for-you states use neutral
+   structure, never a hue. Dark elevation stacks luminance with
+   inset hairlines instead of heavy drop shadows.
    ============================================================ */
 :root {
   --canvas: #FFFFFF;
-  --rail: #F1F1F1;
+  --rail: #F7F8FA;
   --card: #FFFFFF;
-  --sunken: #F5F5F5;
+  --sunken: #F6F7F9;
   --input: #FFFFFF;
-  --ink: #222222;
-  --sub: #6E6E6E;
-  --hint: #999999;
-  --line: rgba(0, 0, 0, 0.10);
-  --line-strong: rgba(0, 0, 0, 0.14);
-  --sel: #DEDEDE;
-  --hover: #E7E7E7;
-  --accent: #222222;
+  --ink: #23252D;
+  --sub: #5E6472;
+  --hint: #9BA0AC;
+  --line: rgba(24, 26, 42, 0.07);
+  --line-strong: rgba(24, 26, 42, 0.11);
+  --sel: rgba(24, 26, 42, 0.07);
+  --hover: rgba(24, 26, 42, 0.045);
+  --accent: #5E6AD2;
   --accent-fg: #FFFFFF;
+  --accent-hover: #4B57C8;
   --pass: #2F8F5B;
   --danger: #E5484D;
-  --ava-bg: #F5F5F5;
-  --ava-fg: #555555;
+  --ava-bg: rgba(24, 26, 42, 0.06);
+  --ava-fg: #5E6472;
+  --shadow-pop:
+    0 0 0 1px rgba(24, 26, 42, 0.05),
+    0 4px 12px rgba(24, 26, 42, 0.10),
+    0 8px 24px rgba(24, 26, 42, 0.08);
+  --ring-focus:
+    0 0 0 2px rgba(94, 106, 210, 0.4),
+    0 0 0 4px rgba(94, 106, 210, 0.2);
+  --dur-fast: 100ms;
+  --dur: 150ms;
+  --ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-enter: cubic-bezier(0.165, 0.84, 0.44, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --canvas: #08090A;
-    --rail: #0C0D0E;
-    --card: #141516;
-    --sunken: #0E0F10;
+    --canvas: #08090B;
+    --rail: #0F1011;
+    --card: #141519;
+    --sunken: #0E0F12;
     --input: #1A1B1D;
     --ink: #F7F8F8;
     --sub: #8A8F98;
     --hint: #62666D;
-    --line: rgba(255, 255, 255, 0.09);
-    --line-strong: rgba(255, 255, 255, 0.14);
-    --sel: rgba(255, 255, 255, 0.07);
-    --hover: rgba(255, 255, 255, 0.05);
-    --accent: #7E88EA;
-    --accent-fg: #0B0C0D;
+    --line: rgba(214, 218, 235, 0.07);
+    --line-strong: rgba(214, 218, 235, 0.11);
+    --sel: rgba(214, 218, 235, 0.08);
+    --hover: rgba(214, 218, 235, 0.045);
+    --accent: #5E6AD2;
+    --accent-fg: #F7F8F8;
+    --accent-hover: #828FFF;
     --pass: #5CC08A;
     --danger: #F26E6E;
-    --ava-bg: rgba(255, 255, 255, 0.09);
+    --ava-bg: rgba(214, 218, 235, 0.08);
     --ava-fg: #C3C6CC;
+    --shadow-pop:
+      rgba(0, 0, 0, 0.15) 0 4px 12px,
+      rgba(0, 0, 0, 0.2) 0 8px 24px,
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   }
 }
 
 :root.dark {
-  --canvas: #08090A;
-  --rail: #0C0D0E;
-  --card: #141516;
-  --sunken: #0E0F10;
+  --canvas: #08090B;
+  --rail: #0F1011;
+  --card: #141519;
+  --sunken: #0E0F12;
   --input: #1A1B1D;
   --ink: #F7F8F8;
   --sub: #8A8F98;
   --hint: #62666D;
-  --line: rgba(255, 255, 255, 0.09);
-  --line-strong: rgba(255, 255, 255, 0.14);
-  --sel: rgba(255, 255, 255, 0.07);
-  --hover: rgba(255, 255, 255, 0.05);
-  --accent: #7E88EA;
-  --accent-fg: #0B0C0D;
+  --line: rgba(214, 218, 235, 0.07);
+  --line-strong: rgba(214, 218, 235, 0.11);
+  --sel: rgba(214, 218, 235, 0.08);
+  --hover: rgba(214, 218, 235, 0.045);
+  --accent: #5E6AD2;
+  --accent-fg: #F7F8F8;
+  --accent-hover: #828FFF;
   --pass: #5CC08A;
   --danger: #F26E6E;
-  --ava-bg: rgba(255, 255, 255, 0.09);
+  --ava-bg: rgba(214, 218, 235, 0.08);
   --ava-fg: #C3C6CC;
+  --shadow-pop:
+    rgba(0, 0, 0, 0.15) 0 4px 12px,
+    rgba(0, 0, 0, 0.2) 0 8px 24px,
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }

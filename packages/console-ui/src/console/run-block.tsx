@@ -76,7 +76,7 @@ export function RunBlock({
           onClick={onInterrupt}
           onKeyDown={handleInterruptKeyDown}
         >
-          <Square className="h-3.5 w-3.5" aria-hidden="true" />
+          <Square className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
           中断
         </Button>
       </div>
@@ -121,12 +121,12 @@ function RunStepItem({ step, index }: { step: RunBlockStep; index: number }): JS
 
 function StepStatusIcon({ status }: { status: RunBlockStepStatus }): JSX.Element {
   if (status === "completed") {
-    return <Check className="h-4 w-4 text-sub" />;
+    return <Check className="h-4 w-4 text-sub" strokeWidth={1.5} />;
   }
   if (status === "running") {
-    return <Loader2 className="h-4 w-4 animate-spin text-sub" />;
+    return <Loader2 className="h-4 w-4 animate-spin text-sub" strokeWidth={1.5} />;
   }
-  return <Circle className="h-3.5 w-3.5 text-hint" />;
+  return <Circle className="h-3.5 w-3.5 text-hint" strokeWidth={1.5} />;
 }
 
 function localizeRole(role: string): string {

@@ -24,7 +24,7 @@ export const Playground: Story = {};
 
 export const ConsoleStates: Story = {
   render: () => (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-center gap-3.5">
       <Badge variant="running">运行中</Badge>
       <Badge variant="waiting">等待真人</Badge>
       <Badge variant="pending">排队中</Badge>

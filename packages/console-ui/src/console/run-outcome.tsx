@@ -74,15 +74,15 @@ export function RunOutcome({
 
 function OutcomeIcon({ status }: { status: RunOutcomeStatus }): JSX.Element {
   if (status === "failed") {
-    return <AlertTriangle className="h-4 w-4 text-danger" />;
+    return <AlertTriangle className="h-4 w-4 text-danger" strokeWidth={1.5} />;
   }
   if (status === "stuck") {
-    return <Clock3 className="h-4 w-4 text-danger" />;
+    return <Clock3 className="h-4 w-4 text-danger" strokeWidth={1.5} />;
   }
   if (status === "interrupted") {
-    return <CirclePause className="h-4 w-4 text-sub" />;
+    return <CirclePause className="h-4 w-4 text-sub" strokeWidth={1.5} />;
   }
-  return <Ban className="h-4 w-4 text-danger" />;
+  return <Ban className="h-4 w-4 text-danger" strokeWidth={1.5} />;
 }
 
 function localizeRole(role: string): string {

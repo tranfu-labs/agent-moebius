@@ -178,7 +178,7 @@ export function OperatorConsole({
           <div className="flex h-9 items-center justify-between px-2">
             <div className="text-base font-semibold tracking-[-0.01em]">Moebius</div>
             <span className="flex h-7 w-7 items-center justify-center text-sub" aria-hidden="true">
-              <Search className="h-4 w-4" />
+              <Search className="h-4 w-4" strokeWidth={1.5} />
             </span>
           </div>
 
@@ -193,7 +193,7 @@ export function OperatorConsole({
                 }
               }}
             >
-              <FolderOpen className="h-4 w-4 text-sub" aria-hidden="true" />
+              <FolderOpen className="h-4 w-4 text-sub" strokeWidth={1.5} aria-hidden="true" />
               打开项目
             </button>
           ) : null}
@@ -225,7 +225,7 @@ export function OperatorConsole({
               className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-sub hover:bg-hover hover:text-ink"
               onClick={onOpenDiagnostics}
             >
-              <Settings2 className="h-4 w-4" aria-hidden="true" />
+              <Settings2 className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
               开发者诊断
             </button>
           ) : null}
@@ -239,7 +239,7 @@ export function OperatorConsole({
       <main className="relative flex min-w-0 flex-1 flex-col bg-canvas">
         <div className="window-drag-region absolute inset-x-0 top-0 z-10 h-9" aria-hidden="true" />
         <div className="pointer-events-none absolute right-4 top-3 z-20 flex items-center gap-3 text-hint" aria-hidden="true">
-          <PanelLeft className="h-3.5 w-3.5" />
+          <PanelLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
         </div>
 
         <section className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-44 pt-16" aria-label="会话时间线">
@@ -340,9 +340,9 @@ function ComposerContext({
             aria-label={`项目：${project.title}，点击切换`}
             disabled
           >
-            <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
             <span className="truncate">{project.title}</span>
-            <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={1.5} aria-hidden="true" />
           </button>
         ) : (
           <DropdownMenu>
@@ -352,9 +352,9 @@ function ComposerContext({
                 className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink"
                 aria-label={`项目：${project.title}，点击切换`}
               >
-                <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
                 <span className="truncate">{project.title}</span>
-                <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={1.5} aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="top" className="min-w-48">
@@ -376,7 +376,7 @@ function ComposerContext({
         )
       ) : (
         <span className="inline-flex min-w-0 items-center gap-1.5" aria-label={`项目：${project.title}，已锁定`}>
-          <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
           <span className="truncate">{project.title}</span>
         </span>
       )}
@@ -388,17 +388,17 @@ function ComposerContext({
           aria-pressed={project.worktreeMode}
           onClick={() => onToggleProjectWorktree(project.projectId, !project.worktreeMode)}
         >
-          <Laptop className="h-3.5 w-3.5" aria-hidden="true" />
+          <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
           {workspaceLabel}
         </button>
       ) : (
         <span className="inline-flex items-center gap-1.5">
-          <Laptop className="h-3.5 w-3.5" aria-hidden="true" />
+          <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
           {workspaceLabel}
         </span>
       )}
       <span className="inline-flex items-center gap-1.5">
-        <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
+        <GitBranch className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
         {project.worktreeMode ? "会话分支" : "当前分支"}
       </span>
     </div>

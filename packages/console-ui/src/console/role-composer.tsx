@@ -300,7 +300,7 @@ export function RoleComposer({
             aria-label={submitLabel}
             onClick={() => onSubmit?.(value)}
           >
-            <ArrowUp className="h-4 w-4" aria-hidden="true" />
+            <ArrowUp className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
           </Button>
         </div>
       </div>
