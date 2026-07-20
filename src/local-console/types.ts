@@ -176,6 +176,7 @@ export interface LocalConsoleStore {
   updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary>;
   renameProject?(input: { projectId: string; title: string; now: string }): Promise<LocalConsoleProjectSummary>;
   removeProject?(input: { projectId: string; force: boolean; now: string }): Promise<LocalConsoleProjectRemovalResult>;
+  reorderProjects(projectIds: string[]): Promise<LocalConsoleProjectSummary[]>;
   listProjects(): Promise<LocalConsoleProjectSummary[]>;
   getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource>;
   recordProjectWorkspaceStatus(input: {

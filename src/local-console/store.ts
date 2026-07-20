@@ -65,6 +65,10 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     return this.run({ kind: "local-remove-project", ...input });
   }
 
+  async reorderProjects(projectIds: string[]): Promise<LocalConsoleProjectSummary[]> {
+    return this.run({ kind: "local-reorder-projects", projectIds });
+  }
+
   async listProjects(): Promise<LocalConsoleProjectSummary[]> {
     return this.run({ kind: "local-list-projects" });
   }

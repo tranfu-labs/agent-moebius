@@ -160,6 +160,17 @@ async function handleRequest(
       return;
     }
 
+    if (request.method === "PUT" && url.pathname === "/api/local-console/projects/order") {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload) || !isStringArray(payload.projectIds)) {
+        sendJson(response, 400, { error: "Expected JSON body with a projectIds string array" });
+        return;
+      }
+      const projects = await runtime.reorderProjects(payload.projectIds);
+      sendJson(response, 200, { projects });
+      return;
+    }
+
     const projectMatch = matchProjectRoute(url.pathname);
     if (request.method === "PATCH" && projectMatch !== null) {
       const payload = await readJsonBody(request);
@@ -601,6 +612,10 @@ function readOptionalString(value: unknown): string | undefined {
 
 function readOptionalBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.trim() !== "");
 }
 
 function matchProjectRoute(pathname: string): { projectId: string } | null {

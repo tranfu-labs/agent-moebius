@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   ConversationSidebar,
   deriveStatusDot,
+  orderProjectIdsForPointer,
   orderSessionsByCreatedAt,
   projectDirectoryName,
   type ConversationSidebarProject
@@ -39,6 +40,21 @@ describe("ConversationSidebar", () => {
     expect(deriveStatusDot({ awaitsHumanReason: null, unreadSince: "2026-07-09T00:02:00.000Z", isRunning: true })).toBe("blue");
     expect(deriveStatusDot({ awaitsHumanReason: null, unreadSince: null, isRunning: true })).toBe("blink");
     expect(deriveStatusDot({ awaitsHumanReason: null, unreadSince: null, isRunning: false })).toBe("none");
+  });
+
+  it("places the dragged project around row midpoints without mutating input", () => {
+    const projectIds = ["alpha", "beta", "gamma"];
+    expect(orderProjectIdsForPointer(projectIds, "alpha", 75, [
+      { id: "alpha", top: 0, bottom: 40 },
+      { id: "beta", top: 40, bottom: 80 },
+      { id: "gamma", top: 80, bottom: 120 },
+    ])).toEqual(["beta", "alpha", "gamma"]);
+    expect(orderProjectIdsForPointer(projectIds, "gamma", 10, [
+      { id: "alpha", top: 0, bottom: 40 },
+      { id: "beta", top: 40, bottom: 80 },
+      { id: "gamma", top: 80, bottom: 120 },
+    ])).toEqual(["gamma", "alpha", "beta"]);
+    expect(projectIds).toEqual(["alpha", "beta", "gamma"]);
   });
 
   it("renders every session in createdAt descending order without a completed group", () => {
@@ -127,6 +143,94 @@ describe("ConversationSidebar", () => {
     expect(onNewConversation).toHaveBeenCalledTimes(1);
   });
 
+  it("toggles from the project row while keeping its new-conversation button independent", () => {
+    const onNewConversation = vi.fn();
+    render(<ConversationSidebar projects={[project]} onNewConversation={onNewConversation} />);
+    const projectRow = screen.getByTestId("conversation-sidebar-project");
+    const projectToggle = screen.getByRole("button", { name: "agent-moebius 项目，已展开" });
+
+    firePointer(projectRow, "pointerdown", { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+    firePointer(projectRow, "pointerup", { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+    expect(projectToggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" }));
+    expect(onNewConversation).toHaveBeenCalledWith("agent-moebius");
+    expect(projectToggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps the project menu independent from row dragging and collapsing", () => {
+    const onShowProjectInFolder = vi.fn();
+    render(<ConversationSidebar projects={[project]} onShowProjectInFolder={onShowProjectInFolder} />);
+    const projectRow = screen.getByTestId("conversation-sidebar-project");
+    const projectToggle = screen.getByRole("button", { name: "agent-moebius 项目，已展开" });
+    const menuTrigger = screen.getByRole("button", { name: "agent-moebius 项目菜单" });
+
+    firePointer(menuTrigger, "pointerdown", { pointerId: 4, button: 0, clientX: 190, clientY: 10 });
+    firePointer(menuTrigger, "pointerup", { pointerId: 4, button: 0, clientX: 190, clientY: 10 });
+    fireEvent.click(menuTrigger);
+
+    expect(projectRow).not.toHaveClass("cursor-grabbing");
+    expect(projectToggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("menuitem", { name: "在文件管理器中显示" }));
+    expect(onShowProjectInFolder).toHaveBeenCalledWith(project);
+  });
+
+  it("requires 5px and 150ms before reordering and does not toggle after a drag", async () => {
+    vi.useFakeTimers();
+    try {
+      const onReorderProjects = vi.fn(async () => true);
+      const secondProject: ConversationSidebarProject = {
+        id: "second-project",
+        path: "/Users/example/work/second-project",
+        sessions: [],
+      };
+      render(
+        <ConversationSidebar
+          projects={[project, secondProject]}
+          onReorderProjects={onReorderProjects}
+        />,
+      );
+      const [firstRow, secondRow] = screen.getAllByTestId("conversation-sidebar-project");
+      vi.spyOn(firstRow!, "getBoundingClientRect").mockReturnValue(rect(0, 40));
+      vi.spyOn(secondRow!, "getBoundingClientRect").mockReturnValue(rect(40, 80));
+
+      firePointer(firstRow!, "pointerdown", { pointerId: 2, button: 0, clientX: 10, clientY: 10 });
+      firePointer(firstRow!, "pointermove", { pointerId: 2, button: 0, clientX: 10, clientY: 90 });
+      act(() => vi.advanceTimersByTime(149));
+      expect(onReorderProjects).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(1));
+      firePointer(firstRow!, "pointerup", { pointerId: 2, button: 0, clientX: 10, clientY: 90 });
+
+      expect(onReorderProjects).toHaveBeenCalledWith(["second-project", "agent-moebius"]);
+      expect(within(firstRow!).getByRole("button", { name: "agent-moebius 项目，已展开" })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      await act(async () => Promise.resolve());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a newly inserted top project expanded", () => {
+    const { rerender } = render(<ConversationSidebar projects={[project]} />);
+    const existingRow = screen.getByTestId("conversation-sidebar-project");
+    firePointer(existingRow, "pointerdown", { pointerId: 3, button: 0, clientX: 10, clientY: 10 });
+    firePointer(existingRow, "pointerup", { pointerId: 3, button: 0, clientX: 10, clientY: 10 });
+
+    const newProject: ConversationSidebarProject = {
+      id: "new-top-project",
+      path: "/Users/example/work/new-top-project",
+      sessions: [],
+    };
+    rerender(<ConversationSidebar projects={[newProject, project]} />);
+
+    const rows = screen.getAllByTestId("conversation-sidebar-project");
+    expect(rows.map((row) => row.dataset.projectId)).toEqual(["new-top-project", "agent-moebius"]);
+    expect(screen.getByRole("button", { name: "new-top-project 项目，已展开" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "agent-moebius 项目，已折叠" })).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("blocks project creation and session selection while a selection mutation is pending", () => {
     const onNewConversation = vi.fn();
     const onSelectSession = vi.fn();
@@ -183,3 +287,33 @@ const project: ConversationSidebarProject = {
     { id: "waiting-summary", title: "失败汇总", awaitsHumanReason: "acceptance", unreadSince: "2026-07-09T00:02:30.000Z", isRunning: true, createdAt: "2026-07-09T00:02:00.000Z" }
   ]
 };
+
+function rect(top: number, bottom: number): DOMRect {
+  return {
+    x: 0,
+    y: top,
+    width: 200,
+    height: bottom - top,
+    top,
+    right: 200,
+    bottom,
+    left: 0,
+    toJSON: () => ({}),
+  };
+}
+
+function firePointer(
+  element: Element,
+  type: "pointerdown" | "pointermove" | "pointerup",
+  input: { pointerId: number; button: number; clientX: number; clientY: number },
+): void {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: input.button,
+    clientX: input.clientX,
+    clientY: input.clientY,
+  });
+  Object.defineProperty(event, "pointerId", { value: input.pointerId });
+  fireEvent(element, event);
+}

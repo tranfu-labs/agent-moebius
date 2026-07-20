@@ -174,6 +174,11 @@ interface ProjectResponse {
   error?: string;
 }
 
+interface ProjectOrderResponse {
+  projects?: Array<{ projectId: string }>;
+  error?: string;
+}
+
 export interface ConsoleStateActionsOptions {
   apiBase: string | null;
   coordinator: ConsoleStateCoordinator;
@@ -302,6 +307,32 @@ export class ConsoleStateActions {
       this.options.setError(formatError(error));
     } finally {
       this.finishMutation(token);
+    }
+  };
+
+  readonly reorderProjects = async (projectIds: string[]): Promise<boolean> => {
+    if (this.options.apiBase === null || this.options.coordinator.isSelectionMutationPending) {
+      if (this.options.apiBase === null) {
+        this.options.setError("local console server unavailable");
+      }
+      return false;
+    }
+    try {
+      const fetch = this.options.fetch;
+      const response = await fetch(endpoint(this.options.apiBase, "/api/local-console/projects/order"), {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectIds }),
+      });
+      const body = await response.json() as ProjectOrderResponse;
+      if (!response.ok || body.projects === undefined) {
+        throw new Error(body.error ?? "reorder projects failed");
+      }
+      await this.options.refresh(this.options.getSelection());
+      return true;
+    } catch (error) {
+      this.options.setError(formatError(error));
+      return false;
     }
   };
 

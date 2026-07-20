@@ -454,6 +454,10 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
     return await this.inner.updateProject(input);
   }
 
+  async reorderProjects(projectIds: string[]): Promise<LocalConsoleProjectSummary[]> {
+    return await this.inner.reorderProjects(projectIds);
+  }
+
   async listProjects(): Promise<LocalConsoleProjectSummary[]> {
     return await this.inner.listProjects();
   }

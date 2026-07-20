@@ -122,6 +122,8 @@ function runCommand(input: WorkerInput): unknown {
         return renameLocalProject(database, input.command);
       case "local-remove-project":
         return removeLocalProject(database, input.command);
+      case "local-reorder-projects":
+        return reorderLocalProjects(database, input.command.projectIds);
       case "local-list-projects":
         return listLocalProjects(database);
       case "local-get-session-workspace":
@@ -224,6 +226,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       workspace_updated_at TEXT,
       original_folder_path TEXT,
       removed_at TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -376,10 +379,12 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   migrateLocalMessageFailureMetadata(database);
   migrateLocalWorkspaceDiffMetadata(database);
   const now = new Date().toISOString();
+  ensureLocalProjectSortOrderColumn(database);
+  migrateMainSidebarProjectRemoval(database);
   ensureDefaultLocalProject(database, defaultLocalProjectFolderPath(sqlitePath), now);
+  migrateLocalProjectSortOrder(database);
   migrateSessionsCreatedAt(database, now);
   migrateSessionsProjectId(database, now);
-  migrateMainSidebarProjectRemoval(database);
   migrateSessionAttentionState(database);
   database.exec(
     "CREATE INDEX IF NOT EXISTS idx_sessions_local_project_created_at ON sessions(project_id, created_at DESC, session_id ASC) WHERE source_type = 'local'",
@@ -585,6 +590,37 @@ function tableHasColumn(database: SqliteDatabase, tableName: string, columnName:
   return rows.some((row) => isRecord(row) && row.name === columnName);
 }
 
+function migrateLocalProjectSortOrder(database: SqliteDatabase): void {
+  const alreadyApplied = database
+    .prepare("SELECT 1 AS found FROM schema_migrations WHERE version = ?")
+    .get("main-sidebar-t9-project-sort-order");
+  if (alreadyApplied !== undefined) {
+    return;
+  }
+  transaction(database, () => {
+    const rows = database
+      .prepare(
+        "SELECT project_id FROM projects WHERE removed_at IS NULL ORDER BY created_at DESC, project_id ASC",
+      )
+      .all();
+    const update = database.prepare("UPDATE projects SET sort_order = ? WHERE project_id = ?");
+    rows.forEach((row, index) => {
+      if (!isRecord(row)) {
+        throw new Error("Invalid local console project row during sort order migration");
+      }
+      update.run(index, readString(row.project_id, "project_id"));
+    });
+    markSchemaMigration(database, "main-sidebar-t9-project-sort-order");
+    return null;
+  });
+}
+
+function ensureLocalProjectSortOrderColumn(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "projects", "sort_order")) {
+    database.exec("ALTER TABLE projects ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+  }
+}
+
 function tableExists(database: SqliteDatabase, tableName: string): boolean {
   return database
     .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?")
@@ -602,8 +638,8 @@ function ensureDefaultLocalProject(database: SqliteDatabase, folderPath: string,
   database
     .prepare(
       `INSERT OR IGNORE INTO projects
-        (project_id, source_type, title, folder_path, worktree_mode, workspace_cwd, workspace_mode, worktree_path, worktree_unavailable_reason, workspace_updated_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 0, ?, 'direct', NULL, NULL, ?, ?, ?)`,
+        (project_id, source_type, title, folder_path, worktree_mode, workspace_cwd, workspace_mode, worktree_path, worktree_unavailable_reason, workspace_updated_at, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, ?, 'direct', NULL, NULL, ?, 0, ?, ?)`,
     )
     .run(LOCAL_CONSOLE_PROJECT_ID, LOCAL_CONSOLE_PROJECT_SOURCE_TYPE, title, normalizedFolderPath, normalizedFolderPath, now, now, now);
 }
@@ -926,8 +962,9 @@ function createLocalProject(
     database
       .prepare(
         `INSERT INTO projects
-          (project_id, source_type, title, folder_path, worktree_mode, workspace_cwd, workspace_mode, worktree_path, worktree_unavailable_reason, workspace_updated_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+          (project_id, source_type, title, folder_path, worktree_mode, workspace_cwd, workspace_mode, worktree_path, worktree_unavailable_reason, workspace_updated_at, sort_order, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL,
+           (SELECT COALESCE(MIN(sort_order), 1) - 1 FROM projects WHERE removed_at IS NULL), ?, ?)`,
       )
       .run(
         projectId,
@@ -1029,8 +1066,35 @@ function updateLocalProject(
 }
 
 function listLocalProjects(database: SqliteDatabase): unknown[] {
-  const rows = database.prepare("SELECT * FROM projects WHERE removed_at IS NULL ORDER BY created_at DESC, project_id ASC").all();
+  const rows = database
+    .prepare(
+      "SELECT * FROM projects WHERE removed_at IS NULL ORDER BY sort_order ASC, created_at DESC, project_id ASC",
+    )
+    .all();
   return rows.map((row) => readLocalProjectRow(database, row));
+}
+
+function reorderLocalProjects(database: SqliteDatabase, projectIds: string[]): unknown[] {
+  return transaction(database, () => {
+    const rows = database.prepare("SELECT project_id FROM projects WHERE removed_at IS NULL").all();
+    const storedIds = rows.map((row) => {
+      if (!isRecord(row)) {
+        throw new Error("Invalid local console project row during reorder");
+      }
+      return readString(row.project_id, "project_id");
+    });
+    const requested = new Set(projectIds);
+    if (
+      requested.size !== projectIds.length
+      || projectIds.length !== storedIds.length
+      || storedIds.some((projectId) => !requested.has(projectId))
+    ) {
+      throw new Error("project order must contain every active project exactly once");
+    }
+    const update = database.prepare("UPDATE projects SET sort_order = ? WHERE project_id = ?");
+    projectIds.forEach((projectId, index) => update.run(index, projectId));
+    return listLocalProjects(database);
+  });
 }
 
 function getLocalSessionWorkspace(database: SqliteDatabase, sessionId: string): unknown {

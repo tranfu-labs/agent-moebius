@@ -347,6 +347,7 @@ function App(): JSX.Element {
       onComposerChange={setComposerValue}
       onSend={actions.sendMessage}
       onOpenProject={actions.openProject}
+      onReorderProjects={actions.reorderProjects}
       onToggleProjectWorktree={toggleProjectWorktree}
       onSelectSession={(nextSelection) => {
         setIsNewConversationWithoutProject(false);

@@ -339,6 +339,8 @@ describe("local console", () => {
       expect(await store.listMessages(session.sessionId)).toEqual([
         expect.objectContaining({ body: "history survives removal" }),
       ]);
+      const activeProjectIds = (await store.listProjects()).map((candidate) => candidate.projectId);
+      await expect(store.reorderProjects([...activeProjectIds].reverse())).resolves.toHaveLength(activeProjectIds.length);
 
       const readded = await store.createProject({
         folderPath,
@@ -347,6 +349,7 @@ describe("local console", () => {
       });
       expect(readded).toMatchObject({ folderPath, title: "removable-project", sessions: [] });
       expect(readded.projectId).not.toBe(project.projectId);
+      expect((await store.listProjects())[0]?.projectId).toBe(readded.projectId);
     } finally {
       await store.close();
     }
@@ -361,6 +364,44 @@ describe("local console", () => {
     } finally {
       database.close();
     }
+  });
+
+  it("persists explicit project order, keeps state updates stable, and places new projects first", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const folderA = path.join(root, "workspace-a");
+    const folderB = path.join(root, "workspace-b");
+    const folderC = path.join(root, "workspace-c");
+    await Promise.all([folderA, folderB, folderC].map((folderPath) => fs.mkdir(folderPath, { recursive: true })));
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    const defaultProjectId = (await store.listProjects())[0]!.projectId;
+    const projectA = await store.createProject({ folderPath: folderA, worktreeMode: false, now: "2026-07-09T00:00:01.000Z" });
+    const projectB = await store.createProject({ folderPath: folderB, worktreeMode: false, now: "2026-07-09T00:00:02.000Z" });
+    expect((await store.listProjects()).map((project) => project.projectId)).toEqual([
+      projectB.projectId,
+      projectA.projectId,
+      defaultProjectId,
+    ]);
+
+    const explicitOrder = [projectA.projectId, defaultProjectId, projectB.projectId];
+    await store.reorderProjects(explicitOrder);
+    await store.updateProject({ projectId: projectB.projectId, worktreeMode: true, now: "2026-07-09T00:00:03.000Z" });
+    expect((await store.listProjects()).map((project) => project.projectId)).toEqual(explicitOrder);
+    await expect(store.reorderProjects([projectA.projectId, projectB.projectId])).rejects.toThrow(
+      "project order must contain every active project exactly once",
+    );
+    await store.close();
+
+    const reopened = await createSqliteLocalConsoleStore({ sqlitePath });
+    await reopened.init();
+    expect((await reopened.listProjects()).map((project) => project.projectId)).toEqual(explicitOrder);
+    const projectC = await reopened.createProject({ folderPath: folderC, worktreeMode: false, now: "2026-07-09T00:00:04.000Z" });
+    expect((await reopened.listProjects()).map((project) => project.projectId)).toEqual([
+      projectC.projectId,
+      ...explicitOrder,
+    ]);
+    await reopened.close();
   });
 
   it("keeps sessions ordered by creation time when an older session is updated", async () => {
@@ -2672,6 +2713,10 @@ class FastFailAppendStore implements LocalConsoleStore {
     return buildProjectSummary([buildSessionSummary(LOCAL_CONSOLE_DEFAULT_SESSION_ID)], { worktreeMode: input.worktreeMode });
   }
 
+  async reorderProjects(): Promise<LocalConsoleProjectSummary[]> {
+    return await this.listProjects();
+  }
+
   async listProjects(): Promise<LocalConsoleProjectSummary[]> {
     return [buildProjectSummary(await this.listSessions())];
   }
@@ -2785,6 +2830,10 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
 
   async updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
     return await this.inner.updateProject(input);
+  }
+
+  async reorderProjects(projectIds: string[]): Promise<LocalConsoleProjectSummary[]> {
+    return await this.inner.reorderProjects(projectIds);
   }
 
   async listProjects(): Promise<LocalConsoleProjectSummary[]> {
@@ -3015,6 +3064,10 @@ class FailOnceRecordRouteAppendStore implements LocalConsoleStore {
     return await this.inner.updateProject(input);
   }
 
+  async reorderProjects(projectIds: string[]): Promise<LocalConsoleProjectSummary[]> {
+    return await this.inner.reorderProjects(projectIds);
+  }
+
   async listProjects(): Promise<LocalConsoleProjectSummary[]> {
     return await this.inner.listProjects();
   }
@@ -3243,6 +3296,10 @@ class RecoveringAppendStore implements LocalConsoleStore {
     void input.projectId;
     void input.now;
     return buildProjectSummary(await this.listSessions(), { worktreeMode: input.worktreeMode });
+  }
+
+  async reorderProjects(): Promise<LocalConsoleProjectSummary[]> {
+    return await this.listProjects();
   }
 
   async listProjects(): Promise<LocalConsoleProjectSummary[]> {

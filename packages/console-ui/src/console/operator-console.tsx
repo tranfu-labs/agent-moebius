@@ -142,6 +142,7 @@ export interface OperatorConsoleProps {
   onComposerChange(value: string): void;
   onSend(): void;
   onOpenProject?: () => void;
+  onReorderProjects?: (projectIds: string[]) => boolean | void | Promise<boolean | void>;
   onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
   onChangeSessionProject?: (sessionId: string, projectId: string) => void;
@@ -174,6 +175,7 @@ export function OperatorConsole({
   onComposerChange,
   onSend,
   onOpenProject,
+  onReorderProjects,
   onToggleProjectWorktree,
   onSelectSession,
   onChangeSessionProject,
@@ -315,6 +317,7 @@ export function OperatorConsole({
               setRemovalRequest({ project: target, force: false });
             }
           }}
+          onReorderProjects={isSelectionMutationPending || isProjectMutationPending ? undefined : onReorderProjects}
           disabled={isSelectionMutationPending || isProjectMutationPending}
           disabledReason="项目正在变更，请稍后再试"
           className="min-h-0 w-full flex-1 overflow-hidden border-0"

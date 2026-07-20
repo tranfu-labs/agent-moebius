@@ -224,6 +224,12 @@ export class LocalConsoleRuntime {
     }
   }
 
+  async reorderProjects(projectIds: string[]): Promise<LocalConsoleProjectSummary[]> {
+    return await this.storeCall("local-console-store-reorder-projects", () =>
+      this.options.store.reorderProjects(projectIds),
+    );
+  }
+
   async createSession(title?: string, projectId?: string): Promise<LocalConsoleSessionSummary> {
     const sessionId = `local:${this.now().toISOString()}-${Math.random().toString(36).slice(2, 8)}`;
     const resolvedProjectId = projectId ?? (await this.defaultProjectId());

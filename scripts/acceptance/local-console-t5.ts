@@ -1592,6 +1592,7 @@ class AlwaysFailRecordAgentResponseStore implements LocalConsoleStore {
   async close(): Promise<void> { await this.inner.close(); }
   async createProject(input: Parameters<LocalConsoleStore["createProject"]>[0]) { return await this.inner.createProject(input); }
   async updateProject(input: Parameters<LocalConsoleStore["updateProject"]>[0]) { return await this.inner.updateProject(input); }
+  async reorderProjects(projectIds: string[]) { return await this.inner.reorderProjects(projectIds); }
   async listProjects() { return await this.inner.listProjects(); }
   async getSessionWorkspace(sessionId: string) { return await this.inner.getSessionWorkspace(sessionId); }
   async recordProjectWorkspaceStatus(input: Parameters<LocalConsoleStore["recordProjectWorkspaceStatus"]>[0]) { await this.inner.recordProjectWorkspaceStatus(input); }

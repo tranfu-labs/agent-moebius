@@ -254,6 +254,37 @@ describe("ConsoleStateActions", () => {
     expect(coordinator.isSelectionMutationPending).toBe(false);
   });
 
+  it("persists a complete project order and refreshes without changing selection", async () => {
+    const coordinator = new ConsoleStateCoordinator();
+    const fetch = vi.fn(async () => jsonResponse({
+      projects: [{ projectId: "project-b" }, { projectId: "project-a" }],
+    }));
+    const refresh = vi.fn(async () => true);
+    const harness = actionHarness({ coordinator, fetch, refresh });
+
+    await expect(harness.actions.reorderProjects(["project-b", "project-a"])).resolves.toBe(true);
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("http://127.0.0.1:8787/api/local-console/projects/order"),
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ projectIds: ["project-b", "project-a"] }),
+      }),
+    );
+    expect(refresh).toHaveBeenCalledWith({ projectId: "project-a", sessionId: "session-a" });
+    expect(harness.selection()).toEqual({ projectId: "project-a", sessionId: "session-a" });
+  });
+
+  it("reports a project reorder failure and lets the sidebar restore server order", async () => {
+    const coordinator = new ConsoleStateCoordinator();
+    const fetch = vi.fn(async () => jsonResponse({ error: "stale project order" }, 409));
+    const harness = actionHarness({ coordinator, fetch });
+
+    await expect(harness.actions.reorderProjects(["project-b", "project-a"])).resolves.toBe(false);
+    expect(harness.errors).toEqual(["stale project order"]);
+    expect(harness.selection()).toEqual({ projectId: "project-a", sessionId: "session-a" });
+  });
+
   it("keeps the API-confirmed target selection when the follow-up refresh fails", async () => {
     const coordinator = new ConsoleStateCoordinator();
     const fetch = vi.fn(async () => jsonResponse({ session: { sessionId: "session-a" } }));
