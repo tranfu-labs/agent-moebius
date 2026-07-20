@@ -1,10 +1,19 @@
-import type { TeamDefinition, TeamOwnership, TeamRepairIssueCode, TeamStatus } from "./team-model.js";
+import type {
+  TeamDefinition,
+  TeamInformation,
+  TeamOwnership,
+  TeamRepairIssueCode,
+  TeamStatus,
+} from "./team-model.js";
 import {
+  addTeamMember,
+  createUserTeam,
   duplicateBuiltInTeamDirectory,
   listTeamLocations,
   readTeamSnapshot,
   resolveTeamLocation,
   setTeamPrimaryAgent,
+  updateTeamInformation,
   writeMemberAgentMarkdown,
   type TeamMemberSnapshot,
   type TeamSnapshot,
@@ -12,8 +21,11 @@ import {
 
 export const TEAM_IPC_CHANNELS = {
   list: "agent-teams:list",
+  create: "agent-teams:create",
   readMember: "agent-teams:read-member",
   writeMember: "agent-teams:write-member",
+  addMember: "agent-teams:add-member",
+  updateInformation: "agent-teams:update-information",
   setPrimaryAgent: "agent-teams:set-primary-agent",
   duplicateBuiltIn: "agent-teams:duplicate-built-in",
 } as const;
@@ -60,8 +72,25 @@ export interface AgentTeamDuplicateBuiltInRequest {
   ownership: "system";
 }
 
+export type AgentTeamCreateRequest = TeamInformation;
+
+export interface AgentTeamUpdateInformationRequest extends TeamInformation {
+  teamId: string;
+  ownership: TeamOwnership;
+}
+
+export interface AgentTeamMemberAddRequest {
+  teamId: string;
+  ownership: TeamOwnership;
+}
+
 export interface AgentTeamMemberDocument extends AgentTeamMemberSummary {
   agentMarkdown: string;
+}
+
+export interface AgentTeamMemberAddResponse {
+  team: AgentTeamListItem;
+  member: AgentTeamMemberDocument;
 }
 
 export async function listAgentTeams(input: {
@@ -88,6 +117,11 @@ export async function listAgentTeams(input: {
   };
 }
 
+export async function createAgentTeam(dataRoot: string, rawRequest: unknown): Promise<AgentTeamListItem> {
+  const request = parseTeamInformation(rawRequest);
+  return toListItem(await createUserTeam(dataRoot, request));
+}
+
 export async function readAgentTeamMember(dataRoot: string, rawRequest: unknown): Promise<AgentTeamMemberDocument> {
   const request = parseMemberRequest(rawRequest);
   const location = resolveTeamLocation({
@@ -111,6 +145,40 @@ export async function writeAgentTeamMember(dataRoot: string, rawRequest: unknown
   await writeMemberAgentMarkdown(location, request.memberSlug, request.agentMarkdown);
   const snapshot = await readTeamSnapshot(location);
   return toMemberDocument(findMember(snapshot, request.memberSlug));
+}
+
+export async function addAgentTeamMember(
+  dataRoot: string,
+  rawRequest: unknown,
+): Promise<AgentTeamMemberAddResponse> {
+  const request = parseTeamRequest(rawRequest);
+  const location = resolveTeamLocation({
+    dataRoot,
+    teamId: request.teamId,
+    ownership: request.ownership,
+  });
+  const result = await addTeamMember(location);
+  return {
+    team: toListItem(result.team),
+    member: toMemberDocument(result.member),
+  };
+}
+
+export async function updateAgentTeamInformation(
+  dataRoot: string,
+  rawRequest: unknown,
+): Promise<AgentTeamListItem> {
+  const request = parseTeamRequest(rawRequest);
+  if (!isPlainObject(rawRequest)) {
+    throw new AgentTeamIpcRequestError("Team information is required.");
+  }
+  const information = parseTeamInformation(rawRequest);
+  const location = resolveTeamLocation({
+    dataRoot,
+    teamId: request.teamId,
+    ownership: request.ownership,
+  });
+  return toListItem(await updateTeamInformation(location, information));
 }
 
 export async function setAgentTeamPrimaryAgent(
@@ -169,21 +237,15 @@ function findMember(snapshot: TeamSnapshot, memberSlug: string): TeamMemberSnaps
 }
 
 function parseMemberRequest(value: unknown): AgentTeamMemberRequest {
+  const team = parseTeamRequest(value);
   if (!isPlainObject(value)) {
     throw new AgentTeamIpcRequestError("A team member request is required.");
-  }
-  if (typeof value.teamId !== "string" || value.teamId.trim().length === 0) {
-    throw new AgentTeamIpcRequestError("A team id is required.");
-  }
-  if (value.ownership !== "system" && value.ownership !== "user") {
-    throw new AgentTeamIpcRequestError("A valid team ownership is required.");
   }
   if (typeof value.memberSlug !== "string" || value.memberSlug.trim().length === 0) {
     throw new AgentTeamIpcRequestError("An Agent slug is required.");
   }
   return {
-    teamId: value.teamId,
-    ownership: value.ownership,
+    ...team,
     memberSlug: value.memberSlug,
   };
 }
@@ -197,8 +259,22 @@ function parseMemberWriteRequest(value: unknown): AgentTeamMemberWriteRequest {
 }
 
 function parsePrimaryAgentWriteRequest(value: unknown): AgentTeamPrimaryAgentWriteRequest {
+  const team = parseTeamRequest(value);
   if (!isPlainObject(value)) {
     throw new AgentTeamIpcRequestError("A primary Agent request is required.");
+  }
+  if (typeof value.primaryAgentSlug !== "string" || value.primaryAgentSlug.trim().length === 0) {
+    throw new AgentTeamIpcRequestError("A primary Agent slug is required.");
+  }
+  return {
+    ...team,
+    primaryAgentSlug: value.primaryAgentSlug,
+  };
+}
+
+function parseTeamRequest(value: unknown): AgentTeamMemberAddRequest {
+  if (!isPlainObject(value)) {
+    throw new AgentTeamIpcRequestError("A team request is required.");
   }
   if (typeof value.teamId !== "string" || value.teamId.trim().length === 0) {
     throw new AgentTeamIpcRequestError("A team id is required.");
@@ -206,14 +282,23 @@ function parsePrimaryAgentWriteRequest(value: unknown): AgentTeamPrimaryAgentWri
   if (value.ownership !== "system" && value.ownership !== "user") {
     throw new AgentTeamIpcRequestError("A valid team ownership is required.");
   }
-  if (typeof value.primaryAgentSlug !== "string" || value.primaryAgentSlug.trim().length === 0) {
-    throw new AgentTeamIpcRequestError("A primary Agent slug is required.");
+  return { teamId: value.teamId, ownership: value.ownership };
+}
+
+function parseTeamInformation(value: unknown): TeamInformation {
+  if (!isPlainObject(value)) {
+    throw new AgentTeamIpcRequestError("Team information is required.");
   }
-  return {
-    teamId: value.teamId,
-    ownership: value.ownership,
-    primaryAgentSlug: value.primaryAgentSlug,
-  };
+  if (typeof value.name !== "string" || value.name.trim().length === 0) {
+    throw new AgentTeamIpcRequestError("A team name is required.");
+  }
+  if (typeof value.description !== "string" || value.description.trim().length === 0) {
+    throw new AgentTeamIpcRequestError("A one-line team description is required.");
+  }
+  if (/\r|\n/u.test(value.name) || /\r|\n/u.test(value.description)) {
+    throw new AgentTeamIpcRequestError("Team information must fit on one line.");
+  }
+  return { name: value.name, description: value.description };
 }
 
 function parseDuplicateBuiltInRequest(value: unknown): AgentTeamDuplicateBuiltInRequest {

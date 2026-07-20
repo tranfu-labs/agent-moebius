@@ -1,11 +1,15 @@
 import { constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_NEW_AGENT_IDENTITY,
   TEAM_AGENT_FILE,
   TEAM_MANIFEST_FILE,
   TEAM_MEMBERS_DIRECTORY,
   TeamDefinitionError,
+  createInitialAgentMarkdown,
+  createUniqueAgentSlug,
   evaluateTeamStatus,
   isValidPathSegment,
   parseAgentMarkdownIdentity,
@@ -14,6 +18,7 @@ import {
   validateTeamStructure,
   type AgentMarkdownIdentity,
   type TeamDefinition,
+  type TeamInformation,
   type TeamOwnership,
   type TeamRepairIssue,
   type TeamStatus,
@@ -43,6 +48,11 @@ export interface TeamSnapshot {
   status: TeamStatus;
   canCreateConversation: boolean;
   issues: TeamRepairIssue[];
+}
+
+export interface AddedTeamMember {
+  team: TeamSnapshot;
+  member: TeamMemberSnapshot;
 }
 
 export function getTeamsRoot(dataRoot: string): string {
@@ -202,6 +212,104 @@ export async function writeMemberAgentMarkdown(
   await fs.writeFile(getMemberAgentPath(location, slug), agentMarkdown, "utf8");
 }
 
+export async function createUserTeam(dataRoot: string, information: TeamInformation): Promise<TeamSnapshot> {
+  const normalizedInformation = normalizeTeamInformation(information);
+  await fs.mkdir(getTeamsRoot(dataRoot), { recursive: true });
+
+  for (;;) {
+    const teamId = `team-${randomUUID()}`;
+    const location = resolveTeamLocation({ dataRoot, teamId, ownership: "user" });
+    try {
+      await fs.mkdir(location.directory);
+    } catch (error) {
+      if (isNodeError(error) && error.code === "EEXIST") {
+        continue;
+      }
+      throw error;
+    }
+
+    try {
+      await writeTeamDefinition(location, {
+        ...normalizedInformation,
+        primaryAgentSlug: null,
+        memberOrder: [],
+      });
+      return await readTeamSnapshot(location);
+    } catch (error) {
+      await fs.rm(location.directory, { recursive: true, force: true });
+      throw error;
+    }
+  }
+}
+
+export async function addTeamMember(location: TeamLocation): Promise<AddedTeamMember> {
+  assertTeamWritable(location);
+  const snapshot = await readTeamSnapshot(location);
+  if (snapshot.definition === null || snapshot.status === "needs-repair") {
+    throw new TeamMutationError("团队信息当前不可用，无法添加 Agent。");
+  }
+
+  const membersRoot = path.join(location.directory, TEAM_MEMBERS_DIRECTORY);
+  await fs.mkdir(membersRoot, { recursive: true });
+  const occupiedSlugs = new Set(snapshot.definition.memberOrder);
+  let slug: string;
+  let memberDirectory: string;
+  for (;;) {
+    slug = createUniqueAgentSlug(DEFAULT_NEW_AGENT_IDENTITY.displayName, occupiedSlugs);
+    memberDirectory = getMemberDirectory(location, slug);
+    try {
+      await fs.mkdir(memberDirectory);
+      break;
+    } catch (error) {
+      if (isNodeError(error) && error.code === "EEXIST") {
+        occupiedSlugs.add(slug);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  try {
+    await fs.writeFile(
+      getMemberAgentPath(location, slug),
+      createInitialAgentMarkdown(DEFAULT_NEW_AGENT_IDENTITY),
+      "utf8",
+    );
+    await writeTeamDefinition(location, {
+      ...snapshot.definition,
+      primaryAgentSlug: snapshot.definition.primaryAgentSlug ?? slug,
+      memberOrder: [...snapshot.definition.memberOrder, slug],
+    });
+  } catch (error) {
+    await fs.rm(memberDirectory, { recursive: true, force: true });
+    throw error;
+  }
+
+  const team = await readTeamSnapshot(location);
+  const member = team.members.find((candidate) => candidate.slug === slug);
+  if (member === undefined) {
+    throw new TeamMutationError("Agent 已写入，但暂时无法重新读取。");
+  }
+  return { team, member };
+}
+
+export async function updateTeamInformation(
+  location: TeamLocation,
+  information: TeamInformation,
+): Promise<TeamSnapshot> {
+  assertTeamWritable(location);
+  const snapshot = await readTeamSnapshot(location);
+  if (snapshot.definition === null) {
+    throw new TeamMutationError("团队信息当前不可用，无法修改。");
+  }
+  const normalizedInformation = normalizeTeamInformation(information);
+  await writeTeamDefinition(location, {
+    ...snapshot.definition,
+    ...normalizedInformation,
+  });
+  return readTeamSnapshot(location);
+}
+
 export async function setTeamPrimaryAgent(location: TeamLocation, primaryAgentSlug: string): Promise<TeamSnapshot> {
   assertTeamWritable(location);
   const snapshot = await readTeamSnapshot(location);
@@ -288,6 +396,15 @@ export class TeamPrimaryAgentError extends Error {
   }
 }
 
+export class TeamMutationError extends Error {
+  readonly code = "TEAM_MUTATION_INVALID";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "TeamMutationError";
+  }
+}
+
 function assertTeamId(teamId: string): void {
   if (!isValidPathSegment(teamId) || teamId.trim() !== teamId || teamId === SYSTEM_TEAMS_DIRECTORY) {
     throw new TeamPathError(`Invalid team id: ${teamId}`);
@@ -312,6 +429,18 @@ async function reserveUserTeamCopyLocation(source: TeamLocation): Promise<TeamLo
       throw error;
     }
   }
+}
+
+function normalizeTeamInformation(information: TeamInformation): TeamInformation {
+  const name = information.name.trim();
+  const description = information.description.trim();
+  if (name.length === 0 || description.length === 0) {
+    throw new TeamMutationError("团队名称和一句话描述都需要填写。");
+  }
+  if (/\r|\n/u.test(name) || /\r|\n/u.test(description)) {
+    throw new TeamMutationError("团队名称和描述都只能填写一行。");
+  }
+  return { name, description };
 }
 
 function assertLocationMatchesLayout(location: TeamLocation): void {

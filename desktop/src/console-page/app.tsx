@@ -2,6 +2,7 @@ import "@agent-moebius/console-ui/globals.css";
 
 import {
   OperatorConsole,
+  type AgentTeamInformationInput,
   type AgentTeamDetailState,
   type AgentTeamMemberEditorState,
   type AgentTeamSaveAllFailureView,
@@ -17,10 +18,14 @@ import type {
   AgentTeamDuplicateBuiltInRequest,
   AgentTeamListItem,
   AgentTeamListResponse,
+  AgentTeamCreateRequest,
+  AgentTeamMemberAddRequest,
+  AgentTeamMemberAddResponse,
   AgentTeamMemberDocument,
   AgentTeamMemberRequest,
   AgentTeamMemberWriteRequest,
   AgentTeamPrimaryAgentWriteRequest,
+  AgentTeamUpdateInformationRequest,
 } from "../team-ipc.js";
 import { parseAgentMarkdownIdentity } from "../team-model.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -69,8 +74,11 @@ interface DesktopApi {
   selectFolderForRepair?: (projectId: string) => Promise<string | null>;
   showInFolder?: (folderPath: string) => Promise<void>;
   listAgentTeams?: () => Promise<AgentTeamListResponse>;
+  createAgentTeam?: (request: AgentTeamCreateRequest) => Promise<AgentTeamListItem>;
   readAgentTeamMember?: (request: AgentTeamMemberRequest) => Promise<AgentTeamMemberDocument>;
   writeAgentTeamMember?: (request: AgentTeamMemberWriteRequest) => Promise<AgentTeamMemberDocument>;
+  addAgentTeamMember?: (request: AgentTeamMemberAddRequest) => Promise<AgentTeamMemberAddResponse>;
+  updateAgentTeamInformation?: (request: AgentTeamUpdateInformationRequest) => Promise<AgentTeamListItem>;
   setAgentTeamPrimaryAgent?: (request: AgentTeamPrimaryAgentWriteRequest) => Promise<AgentTeamListItem>;
   duplicateBuiltInAgentTeam?: (request: AgentTeamDuplicateBuiltInRequest) => Promise<AgentTeamListItem>;
 }
@@ -424,6 +432,70 @@ function App(): JSX.Element {
 
     return copiedTeam.teamKey;
   }, [agentTeamsState, commitAgentTeamDraftState]);
+
+  const createAgentTeam = useCallback(async (
+    information: AgentTeamInformationInput,
+  ): Promise<OperatorAgentTeam> => {
+    const createTeam = window.agentMoebius?.createAgentTeam;
+    if (createTeam === undefined) {
+      throw new Error("当前无法创建团队，请稍后重试。");
+    }
+    const created = toOperatorAgentTeam(await createTeam(information));
+    setAgentTeamsState((current) => current.status !== "ready"
+      ? current
+      : { status: "ready", teams: [...current.teams, created] });
+    setActiveAgentTeamKey(created.teamKey);
+    setAgentTeamSelection({ teamKey: created.teamKey, memberSlug: null });
+    setAgentTeamSaveAllFailures([]);
+    setPrimaryAgentChange(null);
+    return created;
+  }, []);
+
+  const addAgentTeamMember = useCallback(async (teamKey: string): Promise<void> => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const addMember = window.agentMoebius?.addAgentTeamMember;
+    if (team === undefined || addMember === undefined) {
+      throw new Error("当前无法添加 Agent，请稍后重试。");
+    }
+    const result = await addMember({ teamId: team.id, ownership: team.ownership });
+    const updatedTeam = toOperatorAgentTeam(result.team);
+    setAgentTeamsState((current) => current.status !== "ready"
+      ? current
+      : {
+          status: "ready",
+          teams: current.teams.map((candidate) => candidate.teamKey === teamKey ? updatedTeam : candidate),
+        });
+    commitAgentTeamDraftState(finishAgentTeamMemberLoad(
+      agentTeamDraftStateRef.current,
+      teamKey,
+      result.member.slug,
+      result.member.agentMarkdown,
+    ));
+    setAgentTeamSelection({ teamKey, memberSlug: result.member.slug });
+    setAgentTeamSaveAllFailures([]);
+  }, [agentTeamsState, commitAgentTeamDraftState]);
+
+  const updateAgentTeamInformation = useCallback(async (
+    teamKey: string,
+    information: AgentTeamInformationInput,
+  ): Promise<void> => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const updateInformation = window.agentMoebius?.updateAgentTeamInformation;
+    if (team === undefined || updateInformation === undefined) {
+      throw new Error("当前无法修改团队信息，请稍后重试。");
+    }
+    const updatedTeam = toOperatorAgentTeam(await updateInformation({
+      teamId: team.id,
+      ownership: team.ownership,
+      ...information,
+    }));
+    setAgentTeamsState((current) => current.status !== "ready"
+      ? current
+      : {
+          status: "ready",
+          teams: current.teams.map((candidate) => candidate.teamKey === teamKey ? updatedTeam : candidate),
+      });
+  }, [agentTeamsState]);
 
   const agentTeamDetailState = useMemo<AgentTeamDetailState | null>(() => {
     if (activeAgentTeamKey === null) {
@@ -800,6 +872,7 @@ function App(): JSX.Element {
         void refresh(selectionRef.current);
       }}
       onRetryAgentTeams={() => setAgentTeamsRefreshNonce((current) => current + 1)}
+      onCreateAgentTeam={createAgentTeam}
       onOpenAgentTeam={openAgentTeam}
       onCloseAgentTeam={() => {
         setActiveAgentTeamKey(null);
@@ -808,6 +881,8 @@ function App(): JSX.Element {
       }}
       onSelectAgentTeamMember={selectAgentTeamMember}
       onChangeAgentTeamPrimaryAgent={changeAgentTeamPrimaryAgent}
+      onAddAgentTeamMember={addAgentTeamMember}
+      onUpdateAgentTeamInformation={updateAgentTeamInformation}
       onChangeAgentTeamMember={(teamKey, memberSlug, agentMarkdown) => {
         commitAgentTeamDraftState(updateAgentTeamMemberDraft(
           agentTeamDraftStateRef.current,

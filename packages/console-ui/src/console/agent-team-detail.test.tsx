@@ -23,6 +23,31 @@ describe("AgentTeamDetail", () => {
     expect(screen.queryByRole("link", { name: "测试" })).not.toBeInTheDocument();
   });
 
+  it("gives an unfinished draft a useful empty state and adds the first Agent in the current detail", async () => {
+    const onAddMember = vi.fn().mockResolvedValue(undefined);
+    const props = detailProps({ onAddMember });
+    render(<AgentTeamDetail
+      {...props}
+      team={{ ...props.team, primaryAgentSlug: null, memberOrder: [], members: [] }}
+      state={{ ...props.state, selectedMemberSlug: null, memberEditors: {} }}
+    />);
+
+    expect(screen.getByText("还没有团队成员")).toBeVisible();
+    expect(screen.getByText("添加第一个 Agent 来接收任务，成功后它会自动成为主 Agent。")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "添加第一个 Agent" }));
+    await waitFor(() => expect(onAddMember).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps Add Agent beside the member selector once a team already has members", async () => {
+    const onAddMember = vi.fn().mockResolvedValue(undefined);
+    renderDetail({ onAddMember });
+
+    fireEvent.click(screen.getByRole("button", { name: "添加 Agent" }));
+    await waitFor(() => expect(onAddMember).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "添加 Agent" })).toBeEnabled());
+  });
+
   it("shows per-member dirty markers and saves only the current member with Command/Ctrl+S", () => {
     const onChangeMember = vi.fn();
     const onSaveMember = vi.fn();

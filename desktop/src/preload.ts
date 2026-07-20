@@ -2,13 +2,17 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopStatusSnapshot } from "./status.js";
 import {
   TEAM_IPC_CHANNELS,
+  type AgentTeamCreateRequest,
   type AgentTeamDuplicateBuiltInRequest,
   type AgentTeamListItem,
   type AgentTeamListResponse,
   type AgentTeamMemberDocument,
+  type AgentTeamMemberAddRequest,
+  type AgentTeamMemberAddResponse,
   type AgentTeamMemberRequest,
   type AgentTeamMemberWriteRequest,
   type AgentTeamPrimaryAgentWriteRequest,
+  type AgentTeamUpdateInformationRequest,
 } from "./team-ipc.js";
 
 export interface AgentMoebiusDesktopApi {
@@ -22,8 +26,11 @@ export interface AgentMoebiusDesktopApi {
   selectFolderForRepair(projectId: string): Promise<string | null>;
   showInFolder(folderPath: string): Promise<void>;
   listAgentTeams(): Promise<AgentTeamListResponse>;
+  createAgentTeam(request: AgentTeamCreateRequest): Promise<AgentTeamListItem>;
   readAgentTeamMember(request: AgentTeamMemberRequest): Promise<AgentTeamMemberDocument>;
   writeAgentTeamMember(request: AgentTeamMemberWriteRequest): Promise<AgentTeamMemberDocument>;
+  addAgentTeamMember(request: AgentTeamMemberAddRequest): Promise<AgentTeamMemberAddResponse>;
+  updateAgentTeamInformation(request: AgentTeamUpdateInformationRequest): Promise<AgentTeamListItem>;
   setAgentTeamPrimaryAgent(request: AgentTeamPrimaryAgentWriteRequest): Promise<AgentTeamListItem>;
   duplicateBuiltInAgentTeam(request: AgentTeamDuplicateBuiltInRequest): Promise<AgentTeamListItem>;
 }
@@ -65,11 +72,20 @@ const api: AgentMoebiusDesktopApi = {
   listAgentTeams() {
     return ipcRenderer.invoke(TEAM_IPC_CHANNELS.list) as Promise<AgentTeamListResponse>;
   },
+  createAgentTeam(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.create, request) as Promise<AgentTeamListItem>;
+  },
   readAgentTeamMember(request) {
     return ipcRenderer.invoke(TEAM_IPC_CHANNELS.readMember, request) as Promise<AgentTeamMemberDocument>;
   },
   writeAgentTeamMember(request) {
     return ipcRenderer.invoke(TEAM_IPC_CHANNELS.writeMember, request) as Promise<AgentTeamMemberDocument>;
+  },
+  addAgentTeamMember(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.addMember, request) as Promise<AgentTeamMemberAddResponse>;
+  },
+  updateAgentTeamInformation(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.updateInformation, request) as Promise<AgentTeamListItem>;
   },
   setAgentTeamPrimaryAgent(request) {
     return ipcRenderer.invoke(TEAM_IPC_CHANNELS.setPrimaryAgent, request) as Promise<AgentTeamListItem>;

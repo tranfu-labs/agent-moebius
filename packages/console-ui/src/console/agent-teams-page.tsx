@@ -1,4 +1,4 @@
-import { AlertTriangle, LoaderCircle } from "lucide-react";
+import { AlertTriangle, LoaderCircle, Plus } from "lucide-react";
 import { useRef, useState } from "react";
 
 import {
@@ -8,6 +8,7 @@ import {
 } from "@/console/agent-team-detail";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
+import { Input } from "@/ui/input";
 
 export interface OperatorAgentTeamMember {
   slug: string;
@@ -34,6 +35,11 @@ export type OperatorAgentTeamsState =
   | { status: "configuration-error" }
   | { status: "ready"; teams: OperatorAgentTeam[] };
 
+export interface AgentTeamInformationInput {
+  name: string;
+  description: string;
+}
+
 export function AgentTeamsPage({
   state,
   selectedTeamKey,
@@ -41,10 +47,13 @@ export function AgentTeamsPage({
   detailState,
   useStackedRows,
   onRetry,
+  onCreateTeam,
   onOpenTeam,
   onCloseTeam,
   onSelectMember,
   onChangePrimaryAgent,
+  onAddMember,
+  onUpdateTeamInformation,
   onChangeMember,
   onSaveMember,
   onRetryMember,
@@ -60,10 +69,13 @@ export function AgentTeamsPage({
   detailState?: AgentTeamDetailState | null;
   useStackedRows: boolean;
   onRetry?: () => void;
+  onCreateTeam?: (information: AgentTeamInformationInput) => Promise<OperatorAgentTeam>;
   onOpenTeam?: (teamKey: string) => void;
   onCloseTeam?: () => void;
   onSelectMember?: (teamKey: string, memberSlug: string) => void;
   onChangePrimaryAgent?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onAddMember?: (teamKey: string) => void | Promise<void>;
+  onUpdateTeamInformation?: (teamKey: string, information: AgentTeamInformationInput) => void | Promise<void>;
   onChangeMember?: (teamKey: string, memberSlug: string, agentMarkdown: string) => void;
   onSaveMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onRetryMember?: (teamKey: string, memberSlug: string) => void;
@@ -78,6 +90,8 @@ export function AgentTeamsPage({
   const [openedTeamKey, setOpenedTeamKey] = useState<string | null>(null);
   const [duplicatingTeamKey, setDuplicatingTeamKey] = useState<string | null>(null);
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editingTeamInformation, setEditingTeamInformation] = useState<OperatorAgentTeam | null>(null);
   const openedTeam = state.status === "ready"
     ? state.teams.find((team) => team.teamKey === openedTeamKey)
     : undefined;
@@ -145,10 +159,6 @@ export function AgentTeamsPage({
               <AgentTeamDetail
                 team={openedTeam}
                 state={openedDetailState}
-                onChangePrimaryAgent={onChangePrimaryAgent === undefined
-                  ? undefined
-                  : (memberSlug) => onChangePrimaryAgent(openedTeam.teamKey, memberSlug)}
-                readOnly={openedTeam.ownership === "system"}
                 teamActions={openedTeam.ownership === "system" ? (
                   <div className="flex max-w-xs flex-col items-end gap-2">
                     <Button
@@ -165,7 +175,18 @@ export function AgentTeamsPage({
                       <p className="text-right text-sm leading-5 text-danger" role="alert">{duplicateError}</p>
                     ) : null}
                   </div>
+                ) : onUpdateTeamInformation !== undefined ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setEditingTeamInformation(openedTeam)}>
+                    修改信息
+                  </Button>
                 ) : undefined}
+                onChangePrimaryAgent={onChangePrimaryAgent === undefined
+                  ? undefined
+                  : (memberSlug) => onChangePrimaryAgent(openedTeam.teamKey, memberSlug)}
+                readOnly={openedTeam.ownership === "system"}
+                onAddMember={openedTeam.ownership === "user" && onAddMember !== undefined
+                  ? () => onAddMember(openedTeam.teamKey)
+                  : undefined}
                 onSelectMember={(memberSlug) => onSelectMember?.(openedTeam.teamKey, memberSlug)}
                 onChangeMember={(memberSlug, agentMarkdown) => onChangeMember?.(openedTeam.teamKey, memberSlug, agentMarkdown)}
                 onSaveMember={(memberSlug) => onSaveMember?.(openedTeam.teamKey, memberSlug)}
@@ -179,11 +200,21 @@ export function AgentTeamsPage({
           </div>
         ) : (
           <>
-            <p className="mb-2 text-xs font-medium text-hint">应用管理</p>
-            <h1 id="agent-teams-title" className="text-2xl font-semibold tracking-[-0.02em] text-ink">
-              Agent 团队
-            </h1>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-sub">查看和管理负责不同任务的 Agent 团队</p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="mb-2 text-xs font-medium text-hint">应用管理</p>
+                <h1 id="agent-teams-title" className="text-2xl font-semibold tracking-[-0.02em] text-ink">
+                  Agent 团队
+                </h1>
+                <p className="mt-3 max-w-xl text-sm leading-6 text-sub">查看和管理负责不同任务的 Agent 团队</p>
+              </div>
+              {state.status === "ready" && onCreateTeam !== undefined ? (
+                <Button type="button" className="mt-6 shrink-0" onClick={() => setCreateDialogOpen(true)}>
+                  <Plus className="mr-1.5 h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+                  新建团队
+                </Button>
+              ) : null}
+            </div>
 
             {state.status === "loading" ? <AgentTeamsLoading /> : null}
             {state.status === "error" ? (
@@ -228,7 +259,134 @@ export function AgentTeamsPage({
           </>
         )}
       </div>
+
+      {createDialogOpen && onCreateTeam !== undefined ? (
+        <TeamInformationDialog
+          title="新建团队"
+          description="先填写团队的基本信息。创建后可以在团队详情中逐步添加 Agent。"
+          confirmLabel="创建团队"
+          initialValue={{ name: "", description: "" }}
+          onCancel={() => setCreateDialogOpen(false)}
+          onConfirm={async (information) => {
+            const team = await onCreateTeam(information);
+            setCreateDialogOpen(false);
+            listScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? 0;
+            setOpenedTeamKey(team.teamKey);
+            if (scrollContainerRef.current !== null) {
+              scrollContainerRef.current.scrollTop = 0;
+            }
+          }}
+        />
+      ) : null}
+
+      {editingTeamInformation !== null && onUpdateTeamInformation !== undefined ? (
+        <TeamInformationDialog
+          title="修改团队信息"
+          description="这里只修改团队名称和一句话描述，不会改变成员或主 Agent。"
+          confirmLabel="保存"
+          initialValue={{
+            name: editingTeamInformation.name ?? "",
+            description: editingTeamInformation.description ?? "",
+          }}
+          onCancel={() => setEditingTeamInformation(null)}
+          onConfirm={async (information) => {
+            await onUpdateTeamInformation(editingTeamInformation.teamKey, information);
+            setEditingTeamInformation(null);
+          }}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function TeamInformationDialog({
+  title,
+  description,
+  confirmLabel,
+  initialValue,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  initialValue: AgentTeamInformationInput;
+  onCancel: () => void;
+  onConfirm: (information: AgentTeamInformationInput) => Promise<void>;
+}): JSX.Element {
+  const [name, setName] = useState(initialValue.name);
+  const [teamDescription, setTeamDescription] = useState(initialValue.description);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const canSubmit = name.trim().length > 0 && teamDescription.trim().length > 0 && !pending;
+
+  const submit = async () => {
+    if (!canSubmit) {
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onConfirm({ name: name.trim(), description: teamDescription.trim() });
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : String(submitError));
+      setPending(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !pending) {
+          onCancel();
+        }
+      }}
+    >
+      <form
+        className="w-full max-w-md rounded-xl border border-line bg-card p-5 text-ink shadow-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <h2 className="text-base font-semibold">{title}</h2>
+        <p className="mt-2 text-sm leading-6 text-sub">{description}</p>
+        <div className="mt-5 grid gap-4">
+          <label className="grid gap-1.5 text-sm font-medium text-ink">
+            团队名称
+            <Input
+              autoFocus
+              value={name}
+              disabled={pending}
+              maxLength={80}
+              onChange={(event) => setName(event.currentTarget.value)}
+            />
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium text-ink">
+            一句话描述
+            <Input
+              value={teamDescription}
+              disabled={pending}
+              maxLength={160}
+              onChange={(event) => setTeamDescription(event.currentTarget.value)}
+            />
+          </label>
+        </div>
+        {error !== null ? <p className="mt-3 text-sm text-danger" role="alert">{error}</p> : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="ghost" disabled={pending} onClick={onCancel}>
+            取消
+          </Button>
+          <Button type="submit" disabled={!canSubmit}>
+            {pending ? "正在保存…" : confirmLabel}
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }
 

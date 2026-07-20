@@ -17,6 +17,16 @@ export interface AgentMarkdownIdentity {
   description: string;
 }
 
+export interface TeamInformation {
+  name: string;
+  description: string;
+}
+
+export const DEFAULT_NEW_AGENT_IDENTITY: AgentMarkdownIdentity = {
+  displayName: "新 Agent",
+  description: "描述这个 Agent 负责什么。",
+};
+
 export type TeamRepairIssueCode =
   | "team-directory-missing"
   | "team-directory-unreadable"
@@ -113,6 +123,41 @@ export function parseAgentMarkdownIdentity(source: string): AgentMarkdownIdentit
       .find((line) => line.length > 0 && !line.startsWith("#") && !line.startsWith("<!--")) ?? "";
 
   return { displayName, description };
+}
+
+export function createInitialAgentMarkdown(identity: AgentMarkdownIdentity): string {
+  const displayName = identity.displayName.trim();
+  const description = identity.description.trim();
+  if (displayName.length === 0 || description.length === 0) {
+    throw new TeamDefinitionError("Agent display name and description are required");
+  }
+  if (/\r|\n/u.test(displayName) || /\r|\n/u.test(description)) {
+    throw new TeamDefinitionError("Agent display name and description must each fit on one line");
+  }
+  return `# ${displayName}\n\n${description}\n`;
+}
+
+export function createUniqueAgentSlug(displayName: string, existingSlugs: Iterable<string>): string {
+  const normalized = displayName
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 48)
+    .replace(/-+$/gu, "");
+  const baseSlug = normalized || "agent";
+  const occupied = new Set(existingSlugs);
+  if (!occupied.has(baseSlug)) {
+    return baseSlug;
+  }
+
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${baseSlug}-${suffix}`;
+    if (!occupied.has(candidate)) {
+      return candidate;
+    }
+  }
 }
 
 export function evaluateTeamStatus(input: TeamStatusInput): TeamStatusResult {

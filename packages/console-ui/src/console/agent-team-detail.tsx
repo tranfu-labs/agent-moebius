@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, LoaderCircle } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
@@ -57,6 +57,7 @@ export interface AgentTeamDetailProps {
   teamActions?: ReactNode;
   memberSelectorActions?: ReactNode;
   memberActions?: ReactNode;
+  onAddMember?(): void | Promise<void>;
   onChangePrimaryAgent?(memberSlug: string): void | Promise<void>;
   onSelectMember(memberSlug: string): void;
   onChangeMember(memberSlug: string, agentMarkdown: string): void;
@@ -75,6 +76,7 @@ export function AgentTeamDetail({
   teamActions,
   memberSelectorActions,
   memberActions,
+  onAddMember,
   onChangePrimaryAgent,
   onSelectMember,
   onChangeMember,
@@ -87,6 +89,8 @@ export function AgentTeamDetail({
 }: AgentTeamDetailProps): JSX.Element {
   const [leavePromptOpen, setLeavePromptOpen] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
+  const [addMemberStatus, setAddMemberStatus] = useState<"idle" | "adding" | "failed">("idle");
+  const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const orderedMembers = useMemo(() => orderAgentTeamMembers(team), [team]);
   const selectedMember = orderedMembers.find((member) => member.slug === state.selectedMemberSlug) ?? null;
   const selectedEditor = selectedMember === null ? undefined : state.memberEditors[selectedMember.slug];
@@ -103,6 +107,7 @@ export function AgentTeamDetail({
     && selectedEditor?.loadStatus === "ready"
     && selectedEditor.isDirty
     && selectedEditor.saveStatus !== "saving";
+  const canAddMember = !readOnly && team.ownership === "user" && onAddMember !== undefined;
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
@@ -138,6 +143,21 @@ export function AgentTeamDetail({
       }
     } finally {
       setSavingAll(false);
+    }
+  };
+
+  const addMember = async () => {
+    if (!canAddMember || addMemberStatus === "adding") {
+      return;
+    }
+    setAddMemberStatus("adding");
+    setAddMemberError(null);
+    try {
+      await onAddMember();
+      setAddMemberStatus("idle");
+    } catch (error) {
+      setAddMemberStatus("failed");
+      setAddMemberError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -237,7 +257,25 @@ export function AgentTeamDetail({
       <div className="border-b border-line py-6">
         <div className="mb-3 flex items-center justify-between gap-4">
           <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-hint">团队成员</h2>
-          {memberSelectorActions}
+          <div className="flex items-center gap-2">
+            {memberSelectorActions}
+            {canAddMember && orderedMembers.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={addMemberStatus === "adding"}
+                onClick={() => void addMember()}
+              >
+                {addMemberStatus === "adding" ? (
+                  <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" strokeWidth={1.5} aria-hidden="true" />
+                ) : (
+                  <Plus className="mr-1.5 h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+                )}
+                {addMemberStatus === "adding" ? "正在添加" : "添加 Agent"}
+              </Button>
+            ) : null}
+          </div>
         </div>
         <div
           className="scroll-thin flex min-w-0 flex-nowrap gap-2 overflow-x-auto pb-2"
@@ -273,6 +311,9 @@ export function AgentTeamDetail({
             );
           })}
         </div>
+        {addMemberStatus === "failed" && orderedMembers.length > 0 ? (
+          <p className="mt-2 text-sm text-danger" role="alert">添加失败：{addMemberError || "请重试"}</p>
+        ) : null}
       </div>
 
       <div className="pt-7" id="agent-team-member-editor" role="tabpanel">
@@ -295,7 +336,28 @@ export function AgentTeamDetail({
         ) : null}
 
         {selectedMember === null ? (
-          <div className="border-y border-line py-10 text-sm text-sub">这支团队还没有成员。</div>
+          <div className="border-y border-line px-6 py-12 text-center">
+            <p className="text-sm font-medium text-ink">还没有团队成员</p>
+            <p className="mt-2 text-sm text-sub">添加第一个 Agent 来接收任务，成功后它会自动成为主 Agent。</p>
+            {canAddMember ? (
+              <Button
+                type="button"
+                className="mt-5"
+                disabled={addMemberStatus === "adding"}
+                onClick={() => void addMember()}
+              >
+                {addMemberStatus === "adding" ? (
+                  <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" strokeWidth={1.5} aria-hidden="true" />
+                ) : (
+                  <Plus className="mr-1.5 h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+                )}
+                {addMemberStatus === "adding" ? "正在添加…" : "添加第一个 Agent"}
+              </Button>
+            ) : null}
+            {addMemberStatus === "failed" ? (
+              <p className="mt-3 text-sm text-danger" role="alert">添加失败：{addMemberError || "请重试"}</p>
+            ) : null}
+          </div>
         ) : selectedEditor?.loadStatus === "failed" ? (
           <div className="border-y border-line py-8" role="alert">
             <p className="text-sm font-medium text-danger">暂时无法读取 {selectedMember.displayName || `@${selectedMember.slug}`} 的 AGENT.md</p>

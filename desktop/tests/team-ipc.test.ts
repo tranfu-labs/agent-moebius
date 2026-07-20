@@ -4,10 +4,13 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TeamDefinition } from "../src/team-model.js";
 import {
+  addAgentTeamMember,
+  createAgentTeam,
   duplicateBuiltInAgentTeam,
   listAgentTeams,
   readAgentTeamMember,
   setAgentTeamPrimaryAgent,
+  updateAgentTeamInformation,
   writeAgentTeamMember,
 } from "../src/team-ipc.js";
 import {
@@ -67,6 +70,67 @@ describe("Agent team IPC service", () => {
     });
     expect(JSON.stringify(result)).not.toContain(dataRoot);
     expect(JSON.stringify(result)).not.toContain("# 开发经理");
+  });
+
+  it("creates a durable unfinished draft, then makes its first added Agent primary and usable", async () => {
+    const dataRoot = await makeDataRoot();
+    const builtIn = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    await createUsableTeam(builtIn);
+
+    const draft = await createAgentTeam(dataRoot, {
+      name: "新的开发团队",
+      description: "负责下一代产品",
+    });
+    expect(draft).toMatchObject({
+      ownership: "user",
+      status: "unfinished-draft",
+      canCreateConversation: false,
+      definition: { primaryAgentSlug: null, memberOrder: [] },
+    });
+    await expect(listAgentTeams({ dataRoot, seedPending: false })).resolves.toMatchObject({
+      status: "ready",
+      teams: [
+        { id: "development", ownership: "system" },
+        { id: draft.id, status: "unfinished-draft", canCreateConversation: false },
+      ],
+    });
+
+    const added = await addAgentTeamMember(dataRoot, { teamId: draft.id, ownership: "user" });
+    expect(added).toMatchObject({
+      member: {
+        slug: "agent",
+        displayName: "新 Agent",
+        description: "描述这个 Agent 负责什么。",
+        agentMarkdown: "# 新 Agent\n\n描述这个 Agent 负责什么。\n",
+      },
+      team: {
+        status: "usable",
+        canCreateConversation: true,
+        definition: { primaryAgentSlug: "agent", memberOrder: ["agent"] },
+      },
+    });
+  });
+
+  it("changes only user-team identity fields through the information endpoint", async () => {
+    const dataRoot = await makeDataRoot();
+    const user = resolveTeamLocation({ dataRoot, teamId: "my-team", ownership: "user" });
+    await createUsableTeam(user);
+
+    await expect(updateAgentTeamInformation(dataRoot, {
+      teamId: "my-team",
+      ownership: "user",
+      name: "新团队名",
+      description: "新的团队描述",
+      primaryAgentSlug: "attempted-overwrite",
+      memberOrder: [],
+    })).resolves.toMatchObject({
+      definition: {
+        name: "新团队名",
+        description: "新的团队描述",
+        primaryAgentSlug: "manager",
+        memberOrder: ["manager"],
+      },
+    });
   });
 
   it("reads and writes user member documents while preserving the store's built-in write rejection", async () => {

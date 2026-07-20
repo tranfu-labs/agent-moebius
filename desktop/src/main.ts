@@ -23,10 +23,13 @@ import { resolveShellPath } from "./shell-path.js";
 import type { DesktopStatusSnapshot } from "./status.js";
 import {
   TEAM_IPC_CHANNELS,
+  addAgentTeamMember,
+  createAgentTeam,
   duplicateBuiltInAgentTeam,
   listAgentTeams,
   readAgentTeamMember,
   setAgentTeamPrimaryAgent,
+  updateAgentTeamInformation,
   writeAgentTeamMember,
 } from "./team-ipc.js";
 import { seedBuiltInTeams } from "./team-seed.js";
@@ -269,11 +272,20 @@ ipcMain.handle(TEAM_IPC_CHANNELS.list, async () => listAgentTeams({
   seedPending: status.seed.status === "pending",
 }));
 
+ipcMain.handle(TEAM_IPC_CHANNELS.create, async (_event, request: unknown) =>
+  createAgentTeam(status.dataRoot, request));
+
 ipcMain.handle(TEAM_IPC_CHANNELS.readMember, async (_event, request: unknown) =>
   readAgentTeamMember(status.dataRoot, request));
 
 ipcMain.handle(TEAM_IPC_CHANNELS.writeMember, async (_event, request: unknown) =>
   writeAgentTeamMember(status.dataRoot, request));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.addMember, async (_event, request: unknown) =>
+  addAgentTeamMember(status.dataRoot, request));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.updateInformation, async (_event, request: unknown) =>
+  updateAgentTeamInformation(status.dataRoot, request));
 
 ipcMain.handle(TEAM_IPC_CHANNELS.setPrimaryAgent, async (_event, request: unknown) =>
   setAgentTeamPrimaryAgent(status.dataRoot, request));

@@ -4,7 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { serializeTeamDefinition, type TeamDefinition } from "../src/team-model.js";
 import {
+  addTeamMember,
   BuiltInTeamReadOnlyError,
+  createUserTeam,
   determineTeamOwnership,
   duplicateBuiltInTeamDirectory,
   getSystemTeamsRoot,
@@ -13,6 +15,7 @@ import {
   readTeamSnapshot,
   resolveTeamLocation,
   setTeamPrimaryAgent,
+  updateTeamInformation,
   writeMemberAgentMarkdown,
   writeTeamDefinition,
 } from "../src/team-store.js";
@@ -141,13 +144,15 @@ describe("team disk store", () => {
     expect(await fs.readFile(agentPath, "utf8")).toBe("# 外部修改的经理\n\n仍然是内置内容\n");
   });
 
-  it("copies every built-in team file into an independent user team without touching unrelated state", async () => {
+  it("copies a usable built-in team into an editable user team that can add Agents", async () => {
     const dataRoot = await makeDataRoot();
     const source = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
     await fs.mkdir(path.join(source.directory, "members", "manager", "references"), { recursive: true });
     await fs.mkdir(path.join(source.directory, "playbooks"), { recursive: true });
     await fs.writeFile(path.join(source.directory, "team.json"), serializeTeamDefinition(usableDefinition), "utf8");
     await fs.writeFile(path.join(source.directory, "members", "manager", "AGENT.md"), "# 开发经理\n\n默认接单\n", "utf8");
+    await fs.mkdir(path.join(source.directory, "members", "developer"), { recursive: true });
+    await fs.writeFile(path.join(source.directory, "members", "developer", "AGENT.md"), "# 开发\n\n负责实现\n", "utf8");
     await fs.writeFile(path.join(source.directory, "members", "manager", "references", "rules.md"), "规则\n", "utf8");
     await fs.writeFile(path.join(source.directory, "playbooks", "checklist.txt"), "check\n", "utf8");
     await fs.writeFile(path.join(source.directory, ".team-note"), "hidden\n", "utf8");
@@ -164,6 +169,20 @@ describe("team disk store", () => {
     await fs.writeFile(path.join(destination.directory, "playbooks", "checklist.txt"), "copied team edit\n", "utf8");
     expect(await fs.readFile(path.join(source.directory, "playbooks", "checklist.txt"), "utf8")).toBe("check\n");
     await expect(writeMemberAgentMarkdown(destination, "manager", "# 可编辑副本\n")).resolves.toBeUndefined();
+
+    await expect(readTeamSnapshot(destination)).resolves.toMatchObject({
+      status: "usable",
+      canCreateConversation: true,
+      definition: { primaryAgentSlug: "manager", memberOrder: ["manager", "developer"] },
+    });
+    await expect(addTeamMember(destination)).resolves.toMatchObject({
+      member: { slug: "agent" },
+      team: {
+        status: "usable",
+        canCreateConversation: true,
+        definition: { primaryAgentSlug: "manager", memberOrder: ["manager", "developer", "agent"] },
+      },
+    });
   });
 
   it("marks a new team with no primary agent as an unfinished draft, not a repair", async () => {
@@ -181,6 +200,76 @@ describe("team disk store", () => {
       canCreateConversation: false,
       issues: [],
     });
+  });
+
+  it("retains a newly created team as an unfinished draft until its first Agent is successfully added", async () => {
+    const dataRoot = await makeDataRoot();
+    const draft = await createUserTeam(dataRoot, {
+      name: "  新的开发团队  ",
+      description: "  负责新产品开发  ",
+    });
+
+    expect(draft).toMatchObject({
+      definition: {
+        name: "新的开发团队",
+        description: "负责新产品开发",
+        primaryAgentSlug: null,
+        memberOrder: [],
+      },
+      status: "unfinished-draft",
+      canCreateConversation: false,
+      issues: [],
+    });
+    await expect(readTeamSnapshot(draft.location)).resolves.toMatchObject({
+      status: "unfinished-draft",
+      canCreateConversation: false,
+    });
+
+    const first = await addTeamMember(draft.location);
+    expect(first.member).toMatchObject({
+      slug: "agent",
+      displayName: "新 Agent",
+      description: "描述这个 Agent 负责什么。",
+    });
+    expect(first.team).toMatchObject({
+      definition: { primaryAgentSlug: "agent", memberOrder: ["agent"] },
+      status: "usable",
+      canCreateConversation: true,
+    });
+  });
+
+  it("keeps member slugs stable when display names change and gives later members unique slugs", async () => {
+    const dataRoot = await makeDataRoot();
+    const draft = await createUserTeam(dataRoot, { name: "写作团队", description: "负责内容" });
+    const first = await addTeamMember(draft.location);
+    await writeMemberAgentMarkdown(draft.location, first.member.slug, "# 主编\n\n负责内容方向\n");
+
+    const renamed = await readTeamSnapshot(draft.location);
+    expect(renamed.definition).toMatchObject({ primaryAgentSlug: "agent", memberOrder: ["agent"] });
+    expect(renamed.members[0]).toMatchObject({ slug: "agent", displayName: "主编" });
+
+    const second = await addTeamMember(draft.location);
+    expect(second.member.slug).toBe("agent-2");
+    expect(second.team.definition).toMatchObject({
+      primaryAgentSlug: "agent",
+      memberOrder: ["agent", "agent-2"],
+    });
+  });
+
+  it("updates only team name and description without changing members or the primary Agent", async () => {
+    const dataRoot = await makeDataRoot();
+    const draft = await createUserTeam(dataRoot, { name: "旧名称", description: "旧描述" });
+    const first = await addTeamMember(draft.location);
+
+    const updated = await updateTeamInformation(draft.location, { name: "新名称", description: "新描述" });
+
+    expect(updated.definition).toEqual({
+      name: "新名称",
+      description: "新描述",
+      primaryAgentSlug: first.member.slug,
+      memberOrder: [first.member.slug],
+    });
+    expect(updated.members.map((member) => member.slug)).toEqual([first.member.slug]);
   });
 
   it("marks missing AGENT.md as needing repair and clears the state after restoration", async () => {

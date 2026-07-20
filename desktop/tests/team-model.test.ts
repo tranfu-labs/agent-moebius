@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  createInitialAgentMarkdown,
+  createUniqueAgentSlug,
   evaluateTeamStatus,
   parseAgentMarkdownIdentity,
   parseTeamDefinitionJson,
@@ -41,6 +43,15 @@ describe("team model", () => {
       displayName: "开发经理",
       description: "默认接单并组织团队推进",
     });
+  });
+
+  it("creates a team-unique slug without coupling it to later display-name edits", () => {
+    expect(createUniqueAgentSlug("QA Lead", [])).toBe("qa-lead");
+    expect(createUniqueAgentSlug("QA Lead", ["qa-lead", "qa-lead-2"])).toBe("qa-lead-3");
+    expect(createUniqueAgentSlug("新 Agent", ["agent"])).toBe("agent-2");
+    expect(createInitialAgentMarkdown({ displayName: "新 Agent", description: "描述职责" })).toBe(
+      "# 新 Agent\n\n描述职责\n",
+    );
   });
 
   it("does not make missing identity prose a structural failure", () => {

@@ -271,6 +271,32 @@ describe("OperatorConsole", () => {
     expect(screen.queryByText("删除团队")).not.toBeInTheDocument();
   });
 
+  it("creates a durable team draft from a short two-field dialog", async () => {
+    const onCreateAgentTeam = vi.fn().mockResolvedValue(draftTeam);
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [agentTeam, draftTeam] },
+      onCreateAgentTeam,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建团队" }));
+
+    const dialog = screen.getByRole("dialog", { name: "新建团队" });
+    expect(within(dialog).getAllByRole("textbox")).toHaveLength(2);
+    expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "团队名称" }), {
+      target: { value: "内容团队" },
+    });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "一句话描述" }), {
+      target: { value: "负责内容生产" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建团队" }));
+
+    await waitFor(() => expect(onCreateAgentTeam).toHaveBeenCalledWith({
+      name: "内容团队",
+      description: "负责内容生产",
+    }));
+  });
+
   it("keeps a single team row at narrow widths and compacts extra members behind ＋N", () => {
     setWindowWidth(1200);
     renderConsole({ agentTeamsState: { status: "ready", teams: [fiveMemberTeam] } });
@@ -385,6 +411,35 @@ describe("OperatorConsole", () => {
 
     fireEvent.click(within(detail).getByRole("button", { name: "Agent 团队" }));
     expect(onCloseAgentTeam).toHaveBeenCalledTimes(1);
+  });
+
+  it("edits only a user team's name and one-line description from Modify information", async () => {
+    const onUpdateAgentTeamInformation = vi.fn().mockResolvedValue(undefined);
+    const userTeam = { ...agentTeam, teamKey: "user:development", ownership: "user" as const };
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [userTeam] },
+      agentTeamDetailState: detailStateFor(userTeam.teamKey),
+      onUpdateAgentTeamInformation,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+    fireEvent.click(screen.getByTestId("agent-team-row"));
+    fireEvent.click(screen.getByRole("button", { name: "修改信息" }));
+
+    const dialog = screen.getByRole("dialog", { name: "修改团队信息" });
+    expect(within(dialog).getAllByRole("textbox")).toHaveLength(2);
+    expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "团队名称" }), {
+      target: { value: "研发团队" },
+    });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "一句话描述" }), {
+      target: { value: "负责研发交付" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(onUpdateAgentTeamInformation).toHaveBeenCalledWith(
+      userTeam.teamKey,
+      { name: "研发团队", description: "负责研发交付" },
+    ));
   });
 
   it("closes and restores the sidebar without remounting the timeline or active run", () => {

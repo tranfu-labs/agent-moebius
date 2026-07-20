@@ -21,6 +21,8 @@ import {
 } from "@/console/agent-team-detail";
 import {
   AgentTeamsPage,
+  type AgentTeamInformationInput,
+  type OperatorAgentTeam,
   type OperatorAgentTeamsState,
 } from "@/console/agent-teams-page";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
@@ -184,10 +186,13 @@ export interface OperatorConsoleProps {
   onOpenDiagnostics?: () => void;
   onRetryProjectList?: () => void;
   onRetryAgentTeams?: () => void;
+  onCreateAgentTeam?: (information: AgentTeamInformationInput) => Promise<OperatorAgentTeam>;
   onOpenAgentTeam?: (teamKey: string) => void;
   onCloseAgentTeam?: () => void;
   onSelectAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
   onChangeAgentTeamPrimaryAgent?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onAddAgentTeamMember?: (teamKey: string) => void | Promise<void>;
+  onUpdateAgentTeamInformation?: (teamKey: string, information: AgentTeamInformationInput) => void | Promise<void>;
   onChangeAgentTeamMember?: (teamKey: string, memberSlug: string, agentMarkdown: string) => void;
   onSaveAgentTeamMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onRetryAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
@@ -238,10 +243,13 @@ export function OperatorConsole({
   onOpenDiagnostics,
   onRetryProjectList,
   onRetryAgentTeams,
+  onCreateAgentTeam,
   onOpenAgentTeam,
   onCloseAgentTeam,
   onSelectAgentTeamMember,
   onChangeAgentTeamPrimaryAgent,
+  onAddAgentTeamMember,
+  onUpdateAgentTeamInformation,
   onChangeAgentTeamMember,
   onSaveAgentTeamMember,
   onRetryAgentTeamMember,
@@ -524,10 +532,13 @@ export function OperatorConsole({
             detailState={agentTeamDetailState}
             useStackedRows={useStackedTeamRows}
             onRetry={onRetryAgentTeams}
+            onCreateTeam={onCreateAgentTeam}
             onOpenTeam={onOpenAgentTeam}
             onCloseTeam={onCloseAgentTeam}
             onSelectMember={onSelectAgentTeamMember}
             onChangePrimaryAgent={onChangeAgentTeamPrimaryAgent}
+            onAddMember={onAddAgentTeamMember}
+            onUpdateTeamInformation={onUpdateAgentTeamInformation}
             onChangeMember={onChangeAgentTeamMember}
             onSaveMember={onSaveAgentTeamMember}
             onRetryMember={onRetryAgentTeamMember}
