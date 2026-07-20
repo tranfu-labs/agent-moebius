@@ -2,10 +2,12 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopStatusSnapshot } from "./status.js";
 import {
   TEAM_IPC_CHANNELS,
+  type AgentTeamListItem,
   type AgentTeamListResponse,
   type AgentTeamMemberDocument,
   type AgentTeamMemberRequest,
   type AgentTeamMemberWriteRequest,
+  type AgentTeamPrimaryAgentWriteRequest,
 } from "./team-ipc.js";
 
 export interface AgentMoebiusDesktopApi {
@@ -21,6 +23,7 @@ export interface AgentMoebiusDesktopApi {
   listAgentTeams(): Promise<AgentTeamListResponse>;
   readAgentTeamMember(request: AgentTeamMemberRequest): Promise<AgentTeamMemberDocument>;
   writeAgentTeamMember(request: AgentTeamMemberWriteRequest): Promise<AgentTeamMemberDocument>;
+  setAgentTeamPrimaryAgent(request: AgentTeamPrimaryAgentWriteRequest): Promise<AgentTeamListItem>;
 }
 
 const api: AgentMoebiusDesktopApi = {
@@ -65,6 +68,9 @@ const api: AgentMoebiusDesktopApi = {
   },
   writeAgentTeamMember(request) {
     return ipcRenderer.invoke(TEAM_IPC_CHANNELS.writeMember, request) as Promise<AgentTeamMemberDocument>;
+  },
+  setAgentTeamPrimaryAgent(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.setPrimaryAgent, request) as Promise<AgentTeamListItem>;
   },
 };
 

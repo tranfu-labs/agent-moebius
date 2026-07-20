@@ -6,6 +6,7 @@ import type { TeamDefinition } from "../src/team-model.js";
 import {
   listAgentTeams,
   readAgentTeamMember,
+  setAgentTeamPrimaryAgent,
   writeAgentTeamMember,
 } from "../src/team-ipc.js";
 import {
@@ -100,6 +101,32 @@ describe("Agent team IPC service", () => {
       memberSlug: "manager",
     })).rejects.toMatchObject({ code: "AGENT_TEAM_IPC_REQUEST_INVALID" });
   });
+
+  it("persists a user primary Agent and rejects a direct built-in write without changing its manifest", async () => {
+    const dataRoot = await makeDataRoot();
+    const builtIn = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    const user = resolveTeamLocation({ dataRoot, teamId: "my-team", ownership: "user" });
+    const twoMemberDefinition = { ...usableDefinition, memberOrder: ["manager", "developer"] };
+    await Promise.all([
+      createUsableTeam(builtIn, twoMemberDefinition),
+      createUsableTeam(user, twoMemberDefinition),
+    ]);
+    const builtInManifest = await fs.readFile(path.join(builtIn.directory, "team.json"), "utf8");
+
+    await expect(setAgentTeamPrimaryAgent(dataRoot, {
+      teamId: "my-team",
+      ownership: "user",
+      primaryAgentSlug: "developer",
+    })).resolves.toMatchObject({
+      definition: { primaryAgentSlug: "developer" },
+    });
+    await expect(setAgentTeamPrimaryAgent(dataRoot, {
+      teamId: "development",
+      ownership: "system",
+      primaryAgentSlug: "developer",
+    })).rejects.toMatchObject({ code: "BUILT_IN_TEAM_READ_ONLY" });
+    expect(await fs.readFile(path.join(builtIn.directory, "team.json"), "utf8")).toBe(builtInManifest);
+  });
 });
 
 async function makeDataRoot(): Promise<string> {
@@ -108,20 +135,22 @@ async function makeDataRoot(): Promise<string> {
   return root;
 }
 
-async function createUsableTeam(location: ReturnType<typeof resolveTeamLocation>): Promise<void> {
+async function createUsableTeam(
+  location: ReturnType<typeof resolveTeamLocation>,
+  definition: TeamDefinition = usableDefinition,
+): Promise<void> {
   await fs.mkdir(location.directory, { recursive: true });
-  await fs.writeFile(path.join(location.directory, "team.json"), `${JSON.stringify(usableDefinition, null, 2)}\n`, "utf8");
+  await fs.writeFile(path.join(location.directory, "team.json"), `${JSON.stringify(definition, null, 2)}\n`, "utf8");
   if (location.ownership === "user") {
-    await writeTeamDefinition(location, usableDefinition);
+    await writeTeamDefinition(location, definition);
   }
-  await fs.mkdir(path.join(location.directory, "members", "manager"), { recursive: true });
-  if (location.ownership === "user") {
-    await writeMemberAgentMarkdown(location, "manager", "# 开发经理\n\n默认接单\n");
-    return;
+  for (const slug of definition.memberOrder) {
+    const markdown = slug === "manager" ? "# 开发经理\n\n默认接单\n" : "# 开发\n\n负责实现\n";
+    await fs.mkdir(path.join(location.directory, "members", slug), { recursive: true });
+    if (location.ownership === "user") {
+      await writeMemberAgentMarkdown(location, slug, markdown);
+    } else {
+      await fs.writeFile(path.join(location.directory, "members", slug, "AGENT.md"), markdown, "utf8");
+    }
   }
-  await fs.writeFile(
-    path.join(location.directory, "members", "manager", "AGENT.md"),
-    "# 开发经理\n\n默认接单\n",
-    "utf8",
-  );
 }

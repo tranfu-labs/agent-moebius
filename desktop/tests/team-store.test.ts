@@ -11,6 +11,7 @@ import {
   listTeamLocations,
   readTeamSnapshot,
   resolveTeamLocation,
+  setTeamPrimaryAgent,
   writeMemberAgentMarkdown,
   writeTeamDefinition,
 } from "../src/team-store.js";
@@ -96,6 +97,30 @@ describe("team disk store", () => {
     });
     expect(await fs.readFile(manifestPath, "utf8")).toBe(serializeTeamDefinition(usableDefinition));
     expect(await fs.readFile(agentPath, "utf8")).toBe("# 原始经理\n\n原始描述\n");
+  });
+
+  it("switches the primary Agent only to a current member with a readable AGENT.md", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "my-development", ownership: "user" });
+    await writeTeamDefinition(location, usableDefinition);
+    await writeMemberAgentMarkdown(location, "manager", "# 开发经理\n\n默认接单\n");
+    await writeMemberAgentMarkdown(location, "developer", "# 开发\n\n负责实现\n");
+
+    await expect(setTeamPrimaryAgent(location, "developer")).resolves.toMatchObject({
+      definition: { primaryAgentSlug: "developer", memberOrder: ["manager", "developer"] },
+      status: "usable",
+    });
+    await expect(setTeamPrimaryAgent(location, "reviewer")).rejects.toMatchObject({
+      code: "TEAM_PRIMARY_AGENT_INVALID",
+    });
+
+    await fs.rm(path.join(location.directory, "members", "manager", "AGENT.md"));
+    await expect(setTeamPrimaryAgent(location, "manager")).rejects.toMatchObject({
+      code: "TEAM_PRIMARY_AGENT_INVALID",
+    });
+    expect(JSON.parse(await fs.readFile(path.join(location.directory, "team.json"), "utf8"))).toMatchObject({
+      primaryAgentSlug: "developer",
+    });
   });
 
   it("marks a new team with no primary agent as an unfinished draft, not a repair", async () => {

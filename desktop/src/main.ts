@@ -25,6 +25,7 @@ import {
   TEAM_IPC_CHANNELS,
   listAgentTeams,
   readAgentTeamMember,
+  setAgentTeamPrimaryAgent,
   writeAgentTeamMember,
 } from "./team-ipc.js";
 import { seedBuiltInTeams } from "./team-seed.js";
@@ -272,6 +273,9 @@ ipcMain.handle(TEAM_IPC_CHANNELS.readMember, async (_event, request: unknown) =>
 
 ipcMain.handle(TEAM_IPC_CHANNELS.writeMember, async (_event, request: unknown) =>
   writeAgentTeamMember(status.dataRoot, request));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.setPrimaryAgent, async (_event, request: unknown) =>
+  setAgentTeamPrimaryAgent(status.dataRoot, request));
 
 ipcMain.handle("project:select-folder", async () => {
   const options: OpenDialogOptions = {

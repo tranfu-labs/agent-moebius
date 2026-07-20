@@ -315,6 +315,7 @@ describe("OperatorConsole", () => {
 
   it("renders the controlled team detail and keeps member selection inside that page", () => {
     const onSelectAgentTeamMember = vi.fn();
+    const onChangeAgentTeamPrimaryAgent = vi.fn();
     const onCloseAgentTeam = vi.fn();
     const team = {
       ...agentTeam,
@@ -347,6 +348,7 @@ describe("OperatorConsole", () => {
         saveAllFailures: [],
       },
       onSelectAgentTeamMember,
+      onChangeAgentTeamPrimaryAgent,
       onCloseAgentTeam,
     });
 
@@ -354,6 +356,8 @@ describe("OperatorConsole", () => {
     fireEvent.click(screen.getByTestId("agent-team-row"));
     const detail = screen.getByRole("region", { name: "开发团队详情" });
     expect(detail).toBeVisible();
+    fireEvent.change(screen.getByRole("combobox", { name: "主 Agent" }), { target: { value: "dev" } });
+    expect(onChangeAgentTeamPrimaryAgent).toHaveBeenCalledWith("user:development", "dev");
     fireEvent.click(screen.getByRole("tab", { name: "开发" }));
     expect(onSelectAgentTeamMember).toHaveBeenCalledWith("user:development", "dev");
     expect(screen.queryByTestId("agent-team-list")).not.toBeInTheDocument();

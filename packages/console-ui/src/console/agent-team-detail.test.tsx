@@ -39,6 +39,57 @@ describe("AgentTeamDetail", () => {
     expect(screen.getAllByLabelText("未保存")).toHaveLength(1);
   });
 
+  it("keeps the user primary Agent selector visible, saves immediately, and preserves member drafts after reordering", () => {
+    const onChangePrimaryAgent = vi.fn();
+    const props = detailProps({ onChangePrimaryAgent });
+    const { rerender } = render(<AgentTeamDetail {...props} />);
+
+    const selector = screen.getByRole("combobox", { name: "主 Agent" });
+    expect(selector).toHaveValue("manager");
+    expect(within(selector).getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual([
+      "manager",
+      "dev",
+      "qa",
+    ]);
+    fireEvent.change(selector, { target: { value: "dev" } });
+    expect(onChangePrimaryAgent).toHaveBeenCalledWith("dev");
+
+    rerender(<AgentTeamDetail
+      {...props}
+      team={{ ...props.team, primaryAgentSlug: "dev" }}
+      state={{ ...props.state, primaryAgentChangeStatus: "saved" }}
+    />);
+    const tabs = within(screen.getByTestId("agent-team-member-selector")).getAllByRole("tab");
+    expect(tabs[0]).toHaveTextContent("开发· 主 Agent");
+    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toHaveValue("# 开发经理\n\n新职责\n");
+    expect(screen.getAllByLabelText("未保存")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("已保存");
+  });
+
+  it("shows primary Agent progress and errors without exposing a selector for built-in teams", () => {
+    const props = detailProps();
+    const { rerender } = render(<AgentTeamDetail
+      {...props}
+      state={{ ...props.state, primaryAgentChangeStatus: "saving" }}
+    />);
+    expect(screen.getByRole("combobox", { name: "主 Agent" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("正在保存");
+
+    rerender(<AgentTeamDetail
+      {...props}
+      state={{
+        ...props.state,
+        primaryAgentChangeStatus: "failed",
+        primaryAgentChangeError: "磁盘暂时不可写",
+      }}
+    />);
+    expect(screen.getByRole("alert")).toHaveTextContent("切换失败：磁盘暂时不可写");
+
+    rerender(<AgentTeamDetail {...props} team={{ ...props.team, ownership: "system" }} />);
+    expect(screen.queryByRole("combobox", { name: "主 Agent" })).not.toBeInTheDocument();
+    expect(screen.getByText("内置团队")).toBeVisible();
+  });
+
   it("disables duplicate saves while saving and retains a failed draft with retry", () => {
     const onSaveMember = vi.fn();
     const { rerender } = renderDetail({
@@ -108,6 +159,7 @@ function detailProps(overrides: Partial<AgentTeamDetailProps> = {}): AgentTeamDe
     },
     state: stateWith(managerEditor()),
     onSelectMember: vi.fn(),
+    onChangePrimaryAgent: vi.fn(),
     onChangeMember: vi.fn(),
     onSaveMember: vi.fn(),
     onRetryLoad: vi.fn(),

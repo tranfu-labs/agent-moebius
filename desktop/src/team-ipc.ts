@@ -3,6 +3,7 @@ import {
   listTeamLocations,
   readTeamSnapshot,
   resolveTeamLocation,
+  setTeamPrimaryAgent,
   writeMemberAgentMarkdown,
   type TeamMemberSnapshot,
   type TeamSnapshot,
@@ -12,6 +13,7 @@ export const TEAM_IPC_CHANNELS = {
   list: "agent-teams:list",
   readMember: "agent-teams:read-member",
   writeMember: "agent-teams:write-member",
+  setPrimaryAgent: "agent-teams:set-primary-agent",
 } as const;
 
 export interface AgentTeamMemberSummary {
@@ -43,6 +45,12 @@ export interface AgentTeamMemberRequest {
 
 export interface AgentTeamMemberWriteRequest extends AgentTeamMemberRequest {
   agentMarkdown: string;
+}
+
+export interface AgentTeamPrimaryAgentWriteRequest {
+  teamId: string;
+  ownership: TeamOwnership;
+  primaryAgentSlug: string;
 }
 
 export interface AgentTeamMemberDocument extends AgentTeamMemberSummary {
@@ -96,6 +104,21 @@ export async function writeAgentTeamMember(dataRoot: string, rawRequest: unknown
   await writeMemberAgentMarkdown(location, request.memberSlug, request.agentMarkdown);
   const snapshot = await readTeamSnapshot(location);
   return toMemberDocument(findMember(snapshot, request.memberSlug));
+}
+
+export async function setAgentTeamPrimaryAgent(
+  dataRoot: string,
+  rawRequest: unknown,
+): Promise<AgentTeamListItem> {
+  const request = parsePrimaryAgentWriteRequest(rawRequest);
+  const location = resolveTeamLocation({
+    dataRoot,
+    teamId: request.teamId,
+    ownership: request.ownership,
+  });
+
+  // The store validates both write ownership and membership validity.
+  return toListItem(await setTeamPrimaryAgent(location, request.primaryAgentSlug));
 }
 
 function toListItem(snapshot: TeamSnapshot): AgentTeamListItem {
@@ -153,6 +176,26 @@ function parseMemberWriteRequest(value: unknown): AgentTeamMemberWriteRequest {
     throw new AgentTeamIpcRequestError("AGENT.md content is required.");
   }
   return { ...request, agentMarkdown: value.agentMarkdown };
+}
+
+function parsePrimaryAgentWriteRequest(value: unknown): AgentTeamPrimaryAgentWriteRequest {
+  if (!isPlainObject(value)) {
+    throw new AgentTeamIpcRequestError("A primary Agent request is required.");
+  }
+  if (typeof value.teamId !== "string" || value.teamId.trim().length === 0) {
+    throw new AgentTeamIpcRequestError("A team id is required.");
+  }
+  if (value.ownership !== "system" && value.ownership !== "user") {
+    throw new AgentTeamIpcRequestError("A valid team ownership is required.");
+  }
+  if (typeof value.primaryAgentSlug !== "string" || value.primaryAgentSlug.trim().length === 0) {
+    throw new AgentTeamIpcRequestError("A primary Agent slug is required.");
+  }
+  return {
+    teamId: value.teamId,
+    ownership: value.ownership,
+    primaryAgentSlug: value.primaryAgentSlug,
+  };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

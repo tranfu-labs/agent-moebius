@@ -19,6 +19,7 @@ import type {
   AgentTeamMemberDocument,
   AgentTeamMemberRequest,
   AgentTeamMemberWriteRequest,
+  AgentTeamPrimaryAgentWriteRequest,
 } from "../team-ipc.js";
 import { parseAgentMarkdownIdentity } from "../team-model.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -69,6 +70,7 @@ interface DesktopApi {
   listAgentTeams?: () => Promise<AgentTeamListResponse>;
   readAgentTeamMember?: (request: AgentTeamMemberRequest) => Promise<AgentTeamMemberDocument>;
   writeAgentTeamMember?: (request: AgentTeamMemberWriteRequest) => Promise<AgentTeamMemberDocument>;
+  setAgentTeamPrimaryAgent?: (request: AgentTeamPrimaryAgentWriteRequest) => Promise<AgentTeamListItem>;
 }
 
 interface DesktopStatusSnapshot {
@@ -93,6 +95,12 @@ interface LocalConsoleState {
   activeRun: OperatorRunSnapshot | null;
   sqlitePath: string;
   lastError: string | null;
+}
+
+interface AgentTeamPrimaryAgentChangeState {
+  teamKey: string;
+  status: "saving" | "saved" | "failed";
+  error: string | null;
 }
 
 declare global {
@@ -121,6 +129,7 @@ function App(): JSX.Element {
   const [agentTeamDraftState, setAgentTeamDraftState] = useState<AgentTeamDraftState>(EMPTY_AGENT_TEAM_DRAFT_STATE);
   const agentTeamDraftStateRef = useRef(agentTeamDraftState);
   const [agentTeamSaveAllFailures, setAgentTeamSaveAllFailures] = useState<AgentTeamSaveAllFailure[]>([]);
+  const [primaryAgentChange, setPrimaryAgentChange] = useState<AgentTeamPrimaryAgentChangeState | null>(null);
   const [agentTeamsRefreshNonce, setAgentTeamsRefreshNonce] = useState(0);
   const [sidebarVisibilityPreference, setSidebarVisibilityPreference] = useState<SidebarVisibilityPreference>(() =>
     readSidebarVisibilityPreference(window.localStorage),
@@ -328,6 +337,37 @@ function App(): JSX.Element {
     void loadAgentTeamMember(teamKey, memberSlug);
   }, [agentTeamsState, loadAgentTeamMember]);
 
+  const changeAgentTeamPrimaryAgent = useCallback(async (teamKey: string, memberSlug: string): Promise<void> => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const setPrimaryAgent = window.agentMoebius?.setAgentTeamPrimaryAgent;
+    if (team === undefined || team.ownership !== "user" || setPrimaryAgent === undefined) {
+      return;
+    }
+    if (team.primaryAgentSlug === memberSlug || !team.members.some((member) => member.slug === memberSlug)) {
+      return;
+    }
+
+    setPrimaryAgentChange({ teamKey, status: "saving", error: null });
+    try {
+      const updatedTeam = await setPrimaryAgent({
+        teamId: team.id,
+        ownership: team.ownership,
+        primaryAgentSlug: memberSlug,
+      });
+      setAgentTeamsState((current) => current.status !== "ready"
+        ? current
+        : {
+            status: "ready",
+            teams: current.teams.map((candidate) => candidate.teamKey === teamKey
+              ? toOperatorAgentTeam(updatedTeam)
+              : candidate),
+          });
+      setPrimaryAgentChange({ teamKey, status: "saved", error: null });
+    } catch (error) {
+      setPrimaryAgentChange({ teamKey, status: "failed", error: formatError(error) });
+    }
+  }, [agentTeamsState]);
+
   const agentTeamDetailState = useMemo<AgentTeamDetailState | null>(() => {
     if (activeAgentTeamKey === null) {
       return null;
@@ -365,8 +405,21 @@ function App(): JSX.Element {
       selectedMemberSlug,
       memberEditors,
       saveAllFailures: agentTeamSaveAllFailures,
+      primaryAgentChangeStatus: primaryAgentChange?.teamKey === activeAgentTeamKey
+        ? primaryAgentChange.status
+        : "idle",
+      primaryAgentChangeError: primaryAgentChange?.teamKey === activeAgentTeamKey
+        ? primaryAgentChange.error
+        : null,
     };
-  }, [activeAgentTeamKey, agentTeamDraftState, agentTeamSaveAllFailures, agentTeamSelection, agentTeamsState]);
+  }, [
+    activeAgentTeamKey,
+    agentTeamDraftState,
+    agentTeamSaveAllFailures,
+    agentTeamSelection,
+    agentTeamsState,
+    primaryAgentChange,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -694,8 +747,10 @@ function App(): JSX.Element {
       onCloseAgentTeam={() => {
         setActiveAgentTeamKey(null);
         setAgentTeamSaveAllFailures([]);
+        setPrimaryAgentChange(null);
       }}
       onSelectAgentTeamMember={selectAgentTeamMember}
+      onChangeAgentTeamPrimaryAgent={changeAgentTeamPrimaryAgent}
       onChangeAgentTeamMember={(teamKey, memberSlug, agentMarkdown) => {
         commitAgentTeamDraftState(updateAgentTeamMemberDraft(
           agentTeamDraftStateRef.current,

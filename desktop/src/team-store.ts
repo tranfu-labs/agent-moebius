@@ -202,6 +202,25 @@ export async function writeMemberAgentMarkdown(
   await fs.writeFile(getMemberAgentPath(location, slug), agentMarkdown, "utf8");
 }
 
+export async function setTeamPrimaryAgent(location: TeamLocation, primaryAgentSlug: string): Promise<TeamSnapshot> {
+  assertTeamWritable(location);
+  const snapshot = await readTeamSnapshot(location);
+  if (snapshot.definition === null) {
+    throw new TeamPrimaryAgentError("团队信息当前不可用，无法切换主 Agent。");
+  }
+
+  const member = snapshot.members.find((candidate) => candidate.slug === primaryAgentSlug);
+  if (member === undefined) {
+    throw new TeamPrimaryAgentError("只能选择当前团队中可用的 Agent。");
+  }
+
+  await writeTeamDefinition(location, {
+    ...snapshot.definition,
+    primaryAgentSlug: member.slug,
+  });
+  return readTeamSnapshot(location);
+}
+
 export function assertTeamWritable(location: TeamLocation): void {
   assertLocationMatchesLayout(location);
   const actualOwnership = determineTeamOwnership(location.dataRoot, location.directory);
@@ -228,6 +247,15 @@ export class TeamPathError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "TeamPathError";
+  }
+}
+
+export class TeamPrimaryAgentError extends Error {
+  readonly code = "TEAM_PRIMARY_AGENT_INVALID";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "TeamPrimaryAgentError";
   }
 }
 

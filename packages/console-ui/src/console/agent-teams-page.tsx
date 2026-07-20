@@ -44,6 +44,7 @@ export function AgentTeamsPage({
   onOpenTeam,
   onCloseTeam,
   onSelectMember,
+  onChangePrimaryAgent,
   onChangeMember,
   onSaveMember,
   onRetryMember,
@@ -61,6 +62,7 @@ export function AgentTeamsPage({
   onOpenTeam?: (teamKey: string) => void;
   onCloseTeam?: () => void;
   onSelectMember?: (teamKey: string, memberSlug: string) => void;
+  onChangePrimaryAgent?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onChangeMember?: (teamKey: string, memberSlug: string, agentMarkdown: string) => void;
   onSaveMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onRetryMember?: (teamKey: string, memberSlug: string) => void;
@@ -121,6 +123,9 @@ export function AgentTeamsPage({
               <AgentTeamDetail
                 team={openedTeam}
                 state={openedDetailState}
+                onChangePrimaryAgent={onChangePrimaryAgent === undefined
+                  ? undefined
+                  : (memberSlug) => onChangePrimaryAgent(openedTeam.teamKey, memberSlug)}
                 onSelectMember={(memberSlug) => onSelectMember?.(openedTeam.teamKey, memberSlug)}
                 onChangeMember={(memberSlug, agentMarkdown) => onChangeMember?.(openedTeam.teamKey, memberSlug, agentMarkdown)}
                 onSaveMember={(memberSlug) => onSaveMember?.(openedTeam.teamKey, memberSlug)}

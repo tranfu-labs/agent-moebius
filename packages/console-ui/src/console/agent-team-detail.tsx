@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronLeft, LoaderCircle } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
@@ -42,6 +42,8 @@ export interface AgentTeamDetailState {
   selectedMemberSlug: string | null;
   memberEditors: Record<string, AgentTeamMemberEditorState | undefined>;
   saveAllFailures: AgentTeamSaveAllFailureView[];
+  primaryAgentChangeStatus?: "idle" | "saving" | "saved" | "failed";
+  primaryAgentChangeError?: string | null;
 }
 
 export interface AgentTeamDetailProps {
@@ -49,9 +51,9 @@ export interface AgentTeamDetailProps {
   state: AgentTeamDetailState;
   readOnly?: boolean;
   teamActions?: ReactNode;
-  primaryAgentControl?: ReactNode;
   memberSelectorActions?: ReactNode;
   memberActions?: ReactNode;
+  onChangePrimaryAgent?(memberSlug: string): void | Promise<void>;
   onSelectMember(memberSlug: string): void;
   onChangeMember(memberSlug: string, agentMarkdown: string): void;
   onSaveMember(memberSlug: string): void | Promise<void>;
@@ -67,9 +69,9 @@ export function AgentTeamDetail({
   state,
   readOnly = false,
   teamActions,
-  primaryAgentControl,
   memberSelectorActions,
   memberActions,
+  onChangePrimaryAgent,
   onSelectMember,
   onChangeMember,
   onSaveMember,
@@ -85,6 +87,8 @@ export function AgentTeamDetail({
   const selectedMember = orderedMembers.find((member) => member.slug === state.selectedMemberSlug) ?? null;
   const selectedEditor = selectedMember === null ? undefined : state.memberEditors[selectedMember.slug];
   const primaryMember = orderedMembers.find((member) => member.slug === team.primaryAgentSlug);
+  const primaryAgentChangeStatus = state.primaryAgentChangeStatus ?? "idle";
+  const primaryAgentChangeError = state.primaryAgentChangeError ?? null;
   const hasDirtyMembers = Object.values(state.memberEditors).some((editor) => editor?.isDirty === true);
   const hasSavingMembers = Object.values(state.memberEditors).some((editor) => editor?.saveStatus === "saving");
   const canSaveCurrent = !readOnly
@@ -160,11 +164,54 @@ export function AgentTeamDetail({
 
         <div className="mt-6 flex min-h-8 flex-wrap items-center gap-3 text-sm">
           <span className="text-hint">主 Agent</span>
-          {primaryAgentControl ?? (
+          {team.ownership === "user" ? (
+            <div className="relative">
+              <select
+                className="h-8 min-w-40 appearance-none rounded-md border border-line bg-card py-1 pl-2.5 pr-8 text-sm text-ink transition-colors hover:bg-hover disabled:cursor-wait disabled:text-sub"
+                aria-label="主 Agent"
+                value={primaryMember?.slug ?? ""}
+                disabled={
+                  onChangePrimaryAgent === undefined
+                  || primaryAgentChangeStatus === "saving"
+                  || orderedMembers.length === 0
+                }
+                onChange={(event) => void onChangePrimaryAgent?.(event.currentTarget.value)}
+              >
+                {primaryMember === undefined ? <option value="" disabled>暂未设置</option> : null}
+                {orderedMembers.map((member) => (
+                  <option key={member.slug} value={member.slug}>
+                    {member.displayName || `@${member.slug}`}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-hint"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+            </div>
+          ) : (
             <span className="rounded-md border border-line bg-card px-2.5 py-1.5 text-ink">
               {primaryMember?.displayName || "暂未设置"}
             </span>
           )}
+          <span className="min-h-5 text-xs text-sub" aria-live="polite">
+            {primaryAgentChangeStatus === "saving" ? (
+              <span className="inline-flex items-center" role="status">
+                <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" strokeWidth={1.5} aria-hidden="true" />
+                正在保存…
+              </span>
+            ) : null}
+            {primaryAgentChangeStatus === "saved" ? (
+              <span className="inline-flex items-center" role="status">
+                <Check className="mr-1.5 h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+                已保存
+              </span>
+            ) : null}
+            {primaryAgentChangeStatus === "failed" ? (
+              <span className="text-danger" role="alert">切换失败：{primaryAgentChangeError || "请重试"}</span>
+            ) : null}
+          </span>
         </div>
       </header>
 

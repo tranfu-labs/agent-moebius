@@ -187,6 +187,7 @@ export interface OperatorConsoleProps {
   onOpenAgentTeam?: (teamKey: string) => void;
   onCloseAgentTeam?: () => void;
   onSelectAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
+  onChangeAgentTeamPrimaryAgent?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onChangeAgentTeamMember?: (teamKey: string, memberSlug: string, agentMarkdown: string) => void;
   onSaveAgentTeamMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onRetryAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
@@ -239,6 +240,7 @@ export function OperatorConsole({
   onOpenAgentTeam,
   onCloseAgentTeam,
   onSelectAgentTeamMember,
+  onChangeAgentTeamPrimaryAgent,
   onChangeAgentTeamMember,
   onSaveAgentTeamMember,
   onRetryAgentTeamMember,
@@ -523,6 +525,7 @@ export function OperatorConsole({
             onOpenTeam={onOpenAgentTeam}
             onCloseTeam={onCloseAgentTeam}
             onSelectMember={onSelectAgentTeamMember}
+            onChangePrimaryAgent={onChangeAgentTeamPrimaryAgent}
             onChangeMember={onChangeAgentTeamMember}
             onSaveMember={onSaveAgentTeamMember}
             onRetryMember={onRetryAgentTeamMember}
