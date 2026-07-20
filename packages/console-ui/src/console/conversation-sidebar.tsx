@@ -1,7 +1,14 @@
 import * as React from "react";
-import { Folder, Plus } from "lucide-react";
+import { Folder, MoreHorizontal, Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/ui/dropdown-menu";
 
 export type ConversationSessionStatus = "waiting" | "running" | "idle";
 
@@ -26,6 +33,9 @@ export interface ConversationSidebarProps {
   selectedSessionId?: string;
   onSelectSession?: (sessionId: string, projectId: string) => void;
   onNewConversation?: (projectId: string) => void;
+  onShowProjectInFolder?: (project: ConversationSidebarProject) => void;
+  onRenameProject?: (project: ConversationSidebarProject) => void;
+  onRemoveProject?: (project: ConversationSidebarProject) => void;
   disabled?: boolean;
   disabledReason?: string;
   showProjectPath?: boolean;
@@ -39,9 +49,13 @@ const statusLabel: Record<ConversationSessionStatus, string> = {
 };
 
 export function projectDirectoryName(project: Pick<ConversationSidebarProject, "path" | "label">): string {
+  const displayName = project.label?.trim();
+  if (displayName) {
+    return displayName;
+  }
   const trimmed = project.path.trim().replace(/[\\/]+$/u, "");
   const directory = trimmed.split(/[\\/]/u).filter(Boolean).at(-1);
-  return directory || project.label || "未命名项目";
+  return directory || "未命名项目";
 }
 
 export function orderSessionsByCreatedAt<T extends { createdAt: string }>(sessions: readonly T[]): T[] {
@@ -59,6 +73,9 @@ export function ConversationSidebar({
   selectedSessionId,
   onSelectSession,
   onNewConversation,
+  onShowProjectInFolder,
+  onRenameProject,
+  onRemoveProject,
   disabled = false,
   disabledReason,
   showProjectPath = true,
@@ -100,6 +117,39 @@ export function ConversationSidebar({
                   >
                     <Plus className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
                   </button>
+                ) : null}
+                {onShowProjectInFolder || onRenameProject || onRemoveProject ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-40"
+                        aria-label={`${projectName} 项目菜单`}
+                        title={`${projectName} 项目菜单`}
+                        disabled={disabled}
+                      >
+                        <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" aria-label={`${projectName} 项目操作`} className="min-w-48">
+                      {onShowProjectInFolder ? (
+                        <DropdownMenuItem onSelect={() => onShowProjectInFolder(project)}>
+                          在文件管理器中显示
+                        </DropdownMenuItem>
+                      ) : null}
+                      {onRenameProject ? (
+                        <DropdownMenuItem onSelect={() => onRenameProject(project)}>
+                          修改显示名称
+                        </DropdownMenuItem>
+                      ) : null}
+                      {onRemoveProject ? <DropdownMenuSeparator /> : null}
+                      {onRemoveProject ? (
+                        <DropdownMenuItem className="text-danger focus:text-danger" onSelect={() => onRemoveProject(project)}>
+                          移除项目
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 ) : null}
               </div>
 

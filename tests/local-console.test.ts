@@ -210,6 +210,91 @@ describe("local console", () => {
     }
   });
 
+  it("renames and removes a project without deleting its history, then re-adds the same path as a new project", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const folderPath = path.join(root, "removable-project");
+    await fs.mkdir(folderPath, { recursive: true });
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    let removedProjectId = "";
+    await store.init();
+    try {
+      const project = await store.createProject({
+        folderPath,
+        worktreeMode: false,
+        now: "2026-07-20T00:00:00.000Z",
+      });
+      removedProjectId = project.projectId;
+      const session = await store.createSession({
+        sessionId: "local:removable-session",
+        projectId: project.projectId,
+        title: "kept history",
+        now: "2026-07-20T00:00:01.000Z",
+      });
+      await store.appendUserMessage({
+        sessionId: session.sessionId,
+        body: "history survives removal",
+        now: "2026-07-20T00:00:02.000Z",
+      });
+
+      await expect(store.renameProject!({
+        projectId: project.projectId,
+        title: "  显示名称  ",
+        now: "2026-07-20T00:00:03.000Z",
+      })).resolves.toMatchObject({ title: "显示名称", folderPath });
+      await expect(store.renameProject!({
+        projectId: project.projectId,
+        title: "   ",
+        now: "2026-07-20T00:00:04.000Z",
+      })).resolves.toMatchObject({ title: "removable-project" });
+
+      const claimed = await store.claimNextPendingMessage({
+        sessionId: session.sessionId,
+        runId: "run-removal",
+        now: "2026-07-20T00:00:05.000Z",
+      });
+      expect(claimed).not.toBeNull();
+      await expect(store.removeProject!({
+        projectId: project.projectId,
+        force: false,
+        now: "2026-07-20T00:00:06.000Z",
+      })).rejects.toThrow("PROJECT_HAS_RUNNING_AGENTS");
+      expect((await store.listProjects()).some((candidate) => candidate.projectId === project.projectId)).toBe(true);
+
+      await expect(store.removeProject!({
+        projectId: project.projectId,
+        force: true,
+        now: "2026-07-20T00:00:07.000Z",
+      })).resolves.toEqual({ projectId: project.projectId, archivedSessionIds: [session.sessionId] });
+      expect((await store.listProjects()).some((candidate) => candidate.projectId === project.projectId)).toBe(false);
+      expect((await store.listSessions()).some((candidate) => candidate.sessionId === session.sessionId)).toBe(false);
+      expect(await store.listMessages(session.sessionId)).toEqual([
+        expect.objectContaining({ body: "history survives removal" }),
+      ]);
+
+      const readded = await store.createProject({
+        folderPath,
+        worktreeMode: true,
+        now: "2026-07-20T00:00:08.000Z",
+      });
+      expect(readded).toMatchObject({ folderPath, title: "removable-project", sessions: [] });
+      expect(readded.projectId).not.toBe(project.projectId);
+    } finally {
+      await store.close();
+    }
+
+    const database = new DatabaseSync(sqlitePath, { readOnly: true });
+    try {
+      expect(database.prepare("SELECT original_folder_path, removed_at FROM projects WHERE project_id = ?").get(
+        removedProjectId,
+      )).toMatchObject({ original_folder_path: folderPath, removed_at: "2026-07-20T00:00:07.000Z" });
+      expect(database.prepare("SELECT archived_at FROM sessions WHERE session_id = ?").get("local:removable-session"))
+        .toMatchObject({ archived_at: "2026-07-20T00:00:07.000Z" });
+    } finally {
+      database.close();
+    }
+  });
+
   it("keeps sessions ordered by creation time when an older session is updated", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");

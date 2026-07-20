@@ -8,6 +8,7 @@ import {
   type LocalConsoleMessage,
   type LocalConsoleMessageStatus,
   type MoveEmptySessionResult,
+  type LocalConsoleProjectRemovalResult,
   type LocalConsoleProjectSummary,
   type LocalRouteDecisionRecord,
   type LocalConsoleSessionStatus,
@@ -53,6 +54,14 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
 
   async updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary> {
     return this.run({ kind: "local-update-project", ...input });
+  }
+
+  async renameProject(input: { projectId: string; title: string; now: string }): Promise<LocalConsoleProjectSummary> {
+    return this.run({ kind: "local-rename-project", ...input });
+  }
+
+  async removeProject(input: { projectId: string; force: boolean; now: string }): Promise<LocalConsoleProjectRemovalResult> {
+    return this.run({ kind: "local-remove-project", ...input });
   }
 
   async listProjects(): Promise<LocalConsoleProjectSummary[]> {

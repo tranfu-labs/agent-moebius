@@ -260,6 +260,13 @@ ipcMain.handle("project:select-folder", async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle("project:show-in-folder", (_event, folderPath: unknown) => {
+  if (typeof folderPath !== "string" || folderPath.trim() === "") {
+    throw new Error("project folder path is required");
+  }
+  shell.showItemInFolder(folderPath);
+});
+
 ipcMain.handle("action:open-data-root", async () => {
   await shell.openPath(status.dataRoot);
 });

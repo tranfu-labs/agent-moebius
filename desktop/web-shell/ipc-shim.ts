@@ -11,6 +11,7 @@ interface FakeApi {
   openDataRoot(): Promise<void>;
   checkUpdates(): Promise<void>;
   selectProjectFolder(): Promise<string | null>;
+  showInFolder(folderPath: string): Promise<void>;
 }
 
 const injected = (import.meta as unknown as { env: Record<string, string | undefined> }).env.VITE_LOCAL_CONSOLE_URL ?? "";
@@ -43,6 +44,9 @@ const api: FakeApi = {
   async selectProjectFolder() {
     const value = window.prompt("Web-shell: 贴项目文件夹绝对路径") ?? "";
     return value.trim() || null;
+  },
+  async showInFolder(folderPath) {
+    console.info(`[web-shell] showInFolder: ${folderPath}`);
   },
 };
 

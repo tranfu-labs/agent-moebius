@@ -104,6 +104,20 @@ export interface LocalConsoleProjectSummary {
   errorCount: number;
 }
 
+export interface LocalConsoleProjectRemovalResult {
+  projectId: string;
+  archivedSessionIds: string[];
+}
+
+export class LocalConsoleProjectRunningError extends Error {
+  readonly code = "PROJECT_HAS_RUNNING_AGENTS";
+
+  constructor() {
+    super("Project has running agents");
+    this.name = "LocalConsoleProjectRunningError";
+  }
+}
+
 export interface LocalConsoleRunSnapshot {
   sessionId: string;
   runId: string;
@@ -151,6 +165,8 @@ export interface LocalConsoleStore {
   close(): Promise<void>;
   createProject(input: { folderPath: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary>;
   updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary>;
+  renameProject?(input: { projectId: string; title: string; now: string }): Promise<LocalConsoleProjectSummary>;
+  removeProject?(input: { projectId: string; force: boolean; now: string }): Promise<LocalConsoleProjectRemovalResult>;
   listProjects(): Promise<LocalConsoleProjectSummary[]>;
   getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource>;
   recordProjectWorkspaceStatus(input: {

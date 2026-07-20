@@ -30,6 +30,7 @@ interface DesktopApi {
   onStatus?: (listener: (snapshot: DesktopStatusSnapshot) => void) => () => void;
   openStatusPage?: () => Promise<void>;
   selectProjectFolder?: () => Promise<string | null>;
+  showInFolder?: (folderPath: string) => Promise<void>;
 }
 
 interface DesktopStatusSnapshot {
@@ -74,6 +75,8 @@ function App(): JSX.Element {
   const [isSending, setIsSending] = useState(false);
   const [selectionMutationKind, setSelectionMutationKind] = useState<SelectionMutationKind | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
+  const [isProjectMutationPending, setIsProjectMutationPending] = useState(false);
+  const [isNewConversationWithoutProject, setIsNewConversationWithoutProject] = useState(false);
   const [sidebarVisibilityPreference, setSidebarVisibilityPreference] = useState<SidebarVisibilityPreference>(() =>
     readSidebarVisibilityPreference(window.localStorage),
   );
@@ -199,6 +202,72 @@ function App(): JSX.Element {
     }
   }, [apiBase, refresh]);
 
+  const showProjectInFolder = useCallback(async (folderPath: string) => {
+    try {
+      if (window.agentMoebius?.showInFolder === undefined) {
+        throw new Error("desktop file manager unavailable");
+      }
+      await window.agentMoebius.showInFolder(folderPath);
+      setClientError(null);
+    } catch (error) {
+      setClientError(formatError(error));
+    }
+  }, []);
+
+  const renameProject = useCallback(async (projectId: string, title: string) => {
+    if (apiBase === null) {
+      throw new Error("local console server unavailable");
+    }
+    setIsProjectMutationPending(true);
+    try {
+      const response = await fetch(endpoint(apiBase, `/api/local-console/projects/${encodeURIComponent(projectId)}`), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "rename project failed");
+      }
+      await refresh(selectionRef.current);
+      setClientError(null);
+    } catch (error) {
+      setClientError(formatError(error));
+      throw error;
+    } finally {
+      setIsProjectMutationPending(false);
+    }
+  }, [apiBase, refresh]);
+
+  const removeProject = useCallback(async (projectId: string, force: boolean) => {
+    if (apiBase === null) {
+      throw new Error("local console server unavailable");
+    }
+    setIsProjectMutationPending(true);
+    const wasCurrentProject = selectionRef.current.projectId === projectId;
+    try {
+      const response = await fetch(endpoint(apiBase, `/api/local-console/projects/${encodeURIComponent(projectId)}`), {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "remove project failed");
+      }
+      await refresh(selectionRef.current);
+      if (wasCurrentProject) {
+        setIsNewConversationWithoutProject(true);
+      }
+      setClientError(null);
+    } catch (error) {
+      setClientError(formatError(error));
+      throw error;
+    } finally {
+      setIsProjectMutationPending(false);
+    }
+  }, [apiBase, refresh]);
+
   const interrupt = useCallback(async (sessionId: string, runId: string) => {
     if (apiBase === null) {
       return;
@@ -251,13 +320,21 @@ function App(): JSX.Element {
       onSend={actions.sendMessage}
       onOpenProject={actions.openProject}
       onToggleProjectWorktree={toggleProjectWorktree}
-      onSelectSession={actions.selectSession}
+      onSelectSession={(nextSelection) => {
+        setIsNewConversationWithoutProject(false);
+        actions.selectSession(nextSelection);
+      }}
       onChangeSessionProject={actions.rebindSessionProject}
+      onShowProjectInFolder={showProjectInFolder}
+      onRenameProject={renameProject}
+      onRemoveProject={removeProject}
       onInterrupt={interrupt}
       onOpenDiagnostics={openDiagnostics}
       isSending={isSending}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}
+      isProjectMutationPending={isProjectMutationPending}
+      isNewConversationWithoutProject={isNewConversationWithoutProject}
       sidebarOpen={sidebarVisibilityPreference === "open"}
       isFirstRunOnboarding={isFirstRunOnboarding(state?.projects ?? null)}
       onSidebarOpenChange={setSidebarOpen}

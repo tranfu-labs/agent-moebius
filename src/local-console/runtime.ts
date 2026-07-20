@@ -46,6 +46,8 @@ import {
   LocalConsoleStoreTimeoutError,
   type LocalConsoleMessage,
   type LocalConsoleProjectSummary,
+  type LocalConsoleProjectRemovalResult,
+  LocalConsoleProjectRunningError,
   type LocalConsoleRunSnapshot,
   type LocalConsoleSessionSummary,
   type LocalConsoleSnapshot,
@@ -111,6 +113,7 @@ export class LocalConsoleRuntime {
   private readonly processingSessions = new Set<string>();
   private readonly pendingProcessSessions = new Set<string>();
   private readonly activeRuns = new Map<string, ActiveLocalRun>();
+  private readonly inactiveSessions = new Set<string>();
   private lastError: string | null = null;
 
   constructor(private readonly options: LocalConsoleRuntimeOptions) {
@@ -167,6 +170,58 @@ export class LocalConsoleRuntime {
         now: this.nowIso(),
       }),
     );
+  }
+
+  async renameProject(input: { projectId: string; title: string }): Promise<LocalConsoleProjectSummary> {
+    if (this.options.store.renameProject === undefined) {
+      throw new Error("local console project rename unavailable");
+    }
+    return await this.storeCall("local-console-store-rename-project", () =>
+      this.options.store.renameProject!({
+        projectId: input.projectId,
+        title: input.title,
+        now: this.nowIso(),
+      }),
+    );
+  }
+
+  async removeProject(input: { projectId: string; force: boolean }): Promise<LocalConsoleProjectRemovalResult> {
+    if (this.options.store.removeProject === undefined) {
+      throw new Error("local console project removal unavailable");
+    }
+    const project = (await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects()))
+      .find((candidate) => candidate.projectId === input.projectId);
+    if (project === undefined) {
+      throw new Error(`local console project not found: ${input.projectId}`);
+    }
+    if (project.runningCount > 0 && !input.force) {
+      throw new LocalConsoleProjectRunningError();
+    }
+
+    const sessionIds = project.sessions.map((session) => session.sessionId);
+    for (const sessionId of sessionIds) {
+      this.inactiveSessions.add(sessionId);
+      if (input.force) {
+        this.activeRuns.get(sessionId)?.controller.abort("project-removed");
+      }
+    }
+    try {
+      return await this.storeCall("local-console-store-remove-project", () =>
+        this.options.store.removeProject!({
+          projectId: input.projectId,
+          force: input.force,
+          now: this.nowIso(),
+        }),
+      );
+    } catch (error) {
+      for (const sessionId of sessionIds) {
+        this.inactiveSessions.delete(sessionId);
+      }
+      if (error instanceof Error && error.message.includes("PROJECT_HAS_RUNNING_AGENTS")) {
+        throw new LocalConsoleProjectRunningError();
+      }
+      throw error;
+    }
   }
 
   async createSession(title?: string, projectId?: string): Promise<LocalConsoleSessionSummary> {
@@ -318,6 +373,9 @@ export class LocalConsoleRuntime {
   }
 
   async processPending(sessionId = this.sessionId): Promise<void> {
+    if (this.inactiveSessions.has(sessionId)) {
+      return;
+    }
     if (this.processingSessions.has(sessionId)) {
       this.pendingProcessSessions.add(sessionId);
       return;
@@ -327,6 +385,9 @@ export class LocalConsoleRuntime {
 
     try {
       while (true) {
+        if (this.inactiveSessions.has(sessionId)) {
+          return;
+        }
         await this.repairStaleRunning(sessionId);
         if (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId))) {
           return;

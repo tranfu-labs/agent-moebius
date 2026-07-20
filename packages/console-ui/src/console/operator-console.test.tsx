@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -369,7 +369,80 @@ describe("OperatorConsole", () => {
     expect(onSelectSession).not.toHaveBeenCalled();
     expect(onSend).not.toHaveBeenCalled();
   });
+
+  it("binds each project menu action to the project and supports rename reset plus safe removal", async () => {
+    const onShowProjectInFolder = vi.fn();
+    const onRenameProject = vi.fn().mockResolvedValue(undefined);
+    const onRemoveProject = vi.fn().mockResolvedValue(undefined);
+    renderConsole({
+      project: { ...project, runningCount: 0 },
+      onShowProjectInFolder,
+      onRenameProject,
+      onRemoveProject,
+    });
+
+    await openProjectMenu("agent-moebius");
+    expect(screen.getByRole("menu")).toBeVisible();
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "在文件管理器中显示",
+      "修改显示名称",
+      "移除项目",
+    ]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "在文件管理器中显示" }));
+    expect(onShowProjectInFolder).toHaveBeenCalledWith("/Users/example/agent-moebius");
+
+    await openProjectMenu("agent-moebius");
+    fireEvent.click(screen.getByRole("menuitem", { name: "修改显示名称" }));
+    const renameDialog = screen.getByRole("dialog", { name: "修改显示名称" });
+    expect(renameDialog).toHaveTextContent("不会重命名磁盘文件夹");
+    fireEvent.change(screen.getByRole("textbox", { name: "显示名称" }), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(onRenameProject).toHaveBeenCalledWith("local", ""));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "修改显示名称" })).not.toBeInTheDocument());
+
+    await openProjectMenu("agent-moebius");
+    fireEvent.click(screen.getByRole("menuitem", { name: "移除项目" }));
+    const removeDialog = screen.getByRole("dialog", { name: "移除项目？" });
+    expect(removeDialog).toHaveTextContent("绝不会删除或修改磁盘上的项目文件夹");
+    expect(removeDialog).toHaveTextContent("/Users/example/agent-moebius");
+    fireEvent.click(screen.getByRole("button", { name: "移除项目" }));
+    await waitFor(() => expect(onRemoveProject).toHaveBeenCalledWith("local", false));
+  });
+
+  it("warns independently before forcing running agents to stop and remove the project", async () => {
+    const onRemoveProject = vi.fn().mockResolvedValue(undefined);
+    renderConsole({ onRemoveProject });
+
+    await openProjectMenu("agent-moebius");
+    fireEvent.click(screen.getByRole("menuitem", { name: "移除项目" }));
+    const warning = screen.getByRole("dialog", { name: "项目中仍有 Agent 正在运行" });
+    expect(warning).toHaveTextContent("可以取消");
+    expect(screen.queryByRole("dialog", { name: "移除项目？" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "强制中止并继续" }));
+    expect(screen.queryByRole("dialog", { name: "项目中仍有 Agent 正在运行" })).not.toBeInTheDocument();
+    const confirmation = screen.getByRole("dialog", { name: "移除项目？" });
+    expect(confirmation).toHaveTextContent("绝不会删除或修改磁盘上的项目文件夹");
+    fireEvent.click(screen.getByRole("button", { name: "中止并移除" }));
+    await waitFor(() => expect(onRemoveProject).toHaveBeenCalledWith("local", true));
+  });
+
+  it("shows an unselected new-conversation state after the current project is removed", () => {
+    renderConsole({ isNewConversationWithoutProject: true, onRemoveProject: vi.fn() });
+
+    expect(screen.getByRole("region", { name: "新建对话" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "新建对话" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "项目：未选择" })).toHaveTextContent("未选择项目");
+    expect(screen.queryByRole("region", { name: "会话时间线" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "默认会话，运行中" })).not.toHaveAttribute("aria-current");
+  });
 });
+
+async function openProjectMenu(projectName: string): Promise<void> {
+  const trigger = screen.getByRole("button", { name: `${projectName} 项目菜单` });
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  await screen.findByRole("menu");
+}
 
 function renderConsole(overrides: Partial<OperatorConsoleProps> = {}) {
   return render(<OperatorConsole {...baseProps(overrides)} />);

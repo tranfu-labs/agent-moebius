@@ -117,6 +117,10 @@ function runCommand(input: WorkerInput): unknown {
         return createLocalProject(database, input.command);
       case "local-update-project":
         return updateLocalProject(database, input.command);
+      case "local-rename-project":
+        return renameLocalProject(database, input.command);
+      case "local-remove-project":
+        return removeLocalProject(database, input.command);
       case "local-list-projects":
         return listLocalProjects(database);
       case "local-get-session-workspace":
@@ -215,6 +219,8 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       worktree_path TEXT,
       worktree_unavailable_reason TEXT,
       workspace_updated_at TEXT,
+      original_folder_path TEXT,
+      removed_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -228,6 +234,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       parent_session_id TEXT,
       title TEXT,
       status TEXT NOT NULL,
+      archived_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       CHECK (source_type <> 'local' OR project_id IS NOT NULL)
@@ -365,6 +372,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   ensureDefaultLocalProject(database, defaultLocalProjectFolderPath(sqlitePath), now);
   migrateSessionsCreatedAt(database, now);
   migrateSessionsProjectId(database, now);
+  migrateMainSidebarProjectRemoval(database);
   database.exec(
     "CREATE INDEX IF NOT EXISTS idx_sessions_local_project_created_at ON sessions(project_id, created_at DESC, session_id ASC) WHERE source_type = 'local'",
   );
@@ -372,6 +380,19 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   markSchemaMigration(database, "t46-local-project-workspace-source");
   markSchemaMigration(database, "t5-local-console-facts");
   markSchemaMigration(database, "main-sidebar-t2-session-created-at");
+  markSchemaMigration(database, "main-sidebar-t8-project-removal");
+}
+
+function migrateMainSidebarProjectRemoval(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "projects", "original_folder_path")) {
+    database.exec("ALTER TABLE projects ADD COLUMN original_folder_path TEXT");
+  }
+  if (!tableHasColumn(database, "projects", "removed_at")) {
+    database.exec("ALTER TABLE projects ADD COLUMN removed_at TEXT");
+  }
+  if (!tableHasColumn(database, "sessions", "archived_at")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN archived_at TEXT");
+  }
 }
 
 function migrateSessionsCreatedAt(database: SqliteDatabase, now: string): void {
@@ -848,17 +869,21 @@ function createLocalProject(
 ): unknown {
   return transaction(database, () => {
     const folderPath = path.resolve(input.folderPath);
-    const projectId = projectIdForFolder(folderPath);
+    const activeProject = database
+      .prepare("SELECT project_id FROM projects WHERE folder_path = ? AND removed_at IS NULL")
+      .get(folderPath);
+    if (isRecord(activeProject)) {
+      database
+        .prepare("UPDATE projects SET worktree_mode = ?, updated_at = ? WHERE project_id = ?")
+        .run(input.worktreeMode ? 1 : 0, input.now, readString(activeProject.project_id, "project_id"));
+      return requireLocalProject(database, readString(activeProject.project_id, "project_id"));
+    }
+    const projectId = nextProjectIdForFolder(database, folderPath, input.now);
     database
       .prepare(
         `INSERT INTO projects
           (project_id, source_type, title, folder_path, worktree_mode, workspace_cwd, workspace_mode, worktree_path, worktree_unavailable_reason, workspace_updated_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)
-         ON CONFLICT(folder_path)
-         DO UPDATE SET
-           title = excluded.title,
-           worktree_mode = excluded.worktree_mode,
-           updated_at = excluded.updated_at`,
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
       )
       .run(
         projectId,
@@ -870,6 +895,77 @@ function createLocalProject(
         input.now,
       );
     return requireLocalProjectByFolderPath(database, folderPath);
+  });
+}
+
+function renameLocalProject(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-rename-project" }>,
+): unknown {
+  return transaction(database, () => {
+    const project = database
+      .prepare("SELECT folder_path FROM projects WHERE project_id = ? AND removed_at IS NULL")
+      .get(input.projectId);
+    if (!isRecord(project)) {
+      throw new Error(`local console project not found: ${input.projectId}`);
+    }
+    const title = input.title.trim() || projectTitleFromFolder(readString(project.folder_path, "folder_path"));
+    database
+      .prepare("UPDATE projects SET title = ?, updated_at = ? WHERE project_id = ?")
+      .run(title, input.now, input.projectId);
+    return requireLocalProject(database, input.projectId);
+  });
+}
+
+function removeLocalProject(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-remove-project" }>,
+): unknown {
+  return transaction(database, () => {
+    const project = database
+      .prepare("SELECT folder_path FROM projects WHERE project_id = ? AND removed_at IS NULL")
+      .get(input.projectId);
+    if (!isRecord(project)) {
+      throw new Error(`local console project not found: ${input.projectId}`);
+    }
+    const running = database
+      .prepare(
+        `SELECT 1 AS found
+         FROM session_messages m
+         JOIN sessions s ON s.session_id = m.session_id
+         WHERE s.project_id = ? AND s.archived_at IS NULL AND m.status = 'running'
+         LIMIT 1`,
+      )
+      .get(input.projectId);
+    if (running !== undefined && !input.force) {
+      throw new Error("PROJECT_HAS_RUNNING_AGENTS");
+    }
+    const sessionRows = database
+      .prepare("SELECT session_id FROM sessions WHERE project_id = ? AND source_type = 'local' AND archived_at IS NULL")
+      .all(input.projectId);
+    const archivedSessionIds = sessionRows.map((row) => {
+      if (!isRecord(row)) {
+        throw new Error("Invalid local console session row");
+      }
+      return readString(row.session_id, "session_id");
+    });
+    const originalFolderPath = readString(project.folder_path, "folder_path");
+    const releasedFolderPath = `${originalFolderPath}#removed:${input.projectId}:${input.now}`;
+    database
+      .prepare(
+        `UPDATE projects
+         SET original_folder_path = ?, folder_path = ?, removed_at = ?, updated_at = ?
+         WHERE project_id = ?`,
+      )
+      .run(originalFolderPath, releasedFolderPath, input.now, input.now, input.projectId);
+    database
+      .prepare(
+        `UPDATE sessions
+         SET archived_at = ?, updated_at = ?
+         WHERE project_id = ? AND source_type = 'local' AND archived_at IS NULL`,
+      )
+      .run(input.now, input.now, input.projectId);
+    return { projectId: input.projectId, archivedSessionIds };
   });
 }
 
@@ -889,12 +985,7 @@ function updateLocalProject(
 }
 
 function listLocalProjects(database: SqliteDatabase): unknown[] {
-  const rows = database.prepare("SELECT * FROM projects ORDER BY updated_at DESC, created_at DESC").all();
-  if (rows.length === 0) {
-    const now = new Date().toISOString();
-    ensureDefaultLocalProject(database, process.cwd(), now);
-    return [requireLocalProject(database, LOCAL_CONSOLE_PROJECT_ID)];
-  }
+  const rows = database.prepare("SELECT * FROM projects WHERE removed_at IS NULL ORDER BY created_at DESC, project_id ASC").all();
   return rows.map((row) => readLocalProjectRow(database, row));
 }
 
@@ -945,6 +1036,12 @@ function createLocalSession(
   input: Extract<SqliteStateCommand, { kind: "local-create-session" }>,
 ): unknown {
   return transaction(database, () => {
+    const project = database
+      .prepare("SELECT 1 AS found FROM projects WHERE project_id = ? AND removed_at IS NULL")
+      .get(input.projectId);
+    if (project === undefined) {
+      throw new Error(`local console project not found: ${input.projectId}`);
+    }
     ensureSession(database, input.sessionId, input.now, input.title, input.projectId);
     ensureLocalCursor(database, input.sessionId, input.now);
     return requireLocalSession(database, input.sessionId);
@@ -963,7 +1060,7 @@ function moveEmptyLocalSession(
       return { ok: false, code: "LOCAL_SESSION_NOT_FOUND" };
     }
 
-    const project = database.prepare("SELECT project_id FROM projects WHERE project_id = ?").get(input.projectId);
+    const project = database.prepare("SELECT project_id FROM projects WHERE project_id = ? AND removed_at IS NULL").get(input.projectId);
     if (!isRecord(project)) {
       return { ok: false, code: "LOCAL_PROJECT_NOT_FOUND" };
     }
@@ -1056,12 +1153,8 @@ function createLocalChildSession(
 
 function listLocalSessions(database: SqliteDatabase): unknown[] {
   const rows = database
-    .prepare("SELECT * FROM sessions WHERE source_type = 'local' ORDER BY created_at DESC, session_id ASC")
+    .prepare("SELECT * FROM sessions WHERE source_type = 'local' AND archived_at IS NULL ORDER BY created_at DESC, session_id ASC")
     .all();
-  if (rows.length === 0) {
-    ensureSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID, new Date().toISOString(), "默认会话", LOCAL_CONSOLE_PROJECT_ID);
-    return [requireLocalSession(database, LOCAL_CONSOLE_DEFAULT_SESSION_ID)];
-  }
   return rows.map((row) => readLocalSessionRow(database, row));
 }
 
@@ -1927,7 +2020,7 @@ function requireLocalProject(database: SqliteDatabase, projectId: string): unkno
 }
 
 function requireLocalProjectByFolderPath(database: SqliteDatabase, folderPath: string): unknown {
-  const row = database.prepare("SELECT * FROM projects WHERE folder_path = ?").get(folderPath);
+  const row = database.prepare("SELECT * FROM projects WHERE folder_path = ? AND removed_at IS NULL").get(folderPath);
   if (row === undefined) {
     throw new Error(`local console project not found for folder: ${folderPath}`);
   }
@@ -1940,7 +2033,7 @@ function readLocalProjectRow(database: SqliteDatabase, row: unknown): unknown {
   }
   const projectId = readString(row.project_id, "project_id");
   const sessions = database
-    .prepare("SELECT * FROM sessions WHERE source_type = 'local' AND project_id = ? ORDER BY created_at DESC, session_id ASC")
+    .prepare("SELECT * FROM sessions WHERE source_type = 'local' AND project_id = ? AND archived_at IS NULL ORDER BY created_at DESC, session_id ASC")
     .all(projectId)
     .map((sessionRow) => readLocalSessionRow(database, sessionRow));
   const counts = { running: 0, waiting: 0, stuck: 0, failed: 0 };
@@ -1957,7 +2050,7 @@ function readLocalProjectRow(database: SqliteDatabase, row: unknown): unknown {
     projectId,
     sourceType: readString(row.source_type, "source_type"),
     title: readString(row.title, "title"),
-    folderPath: readString(row.folder_path, "folder_path"),
+    folderPath: readNullableString(row.original_folder_path, "original_folder_path") ?? readString(row.folder_path, "folder_path"),
     worktreeMode: readBooleanNumber(row.worktree_mode, "worktree_mode"),
     workspaceCwd: readNullableString(row.workspace_cwd, "workspace_cwd"),
     workspaceMode: readNullableString(row.workspace_mode, "workspace_mode"),
@@ -2138,6 +2231,23 @@ function titleFromMessage(body: string): string {
 
 function projectIdForFolder(folderPath: string): string {
   return `local-project:${createHash("sha1").update(path.resolve(folderPath)).digest("hex").slice(0, 16)}`;
+}
+
+function nextProjectIdForFolder(database: SqliteDatabase, folderPath: string, now: string): string {
+  const baseId = projectIdForFolder(folderPath);
+  if (database.prepare("SELECT 1 AS found FROM projects WHERE project_id = ?").get(baseId) === undefined) {
+    return baseId;
+  }
+  for (let attempt = 0; attempt < 10_000; attempt += 1) {
+    const candidate = `local-project:${createHash("sha1")
+      .update(`${path.resolve(folderPath)}\0${now}\0${String(attempt)}`)
+      .digest("hex")
+      .slice(0, 16)}`;
+    if (database.prepare("SELECT 1 AS found FROM projects WHERE project_id = ?").get(candidate) === undefined) {
+      return candidate;
+    }
+  }
+  throw new Error(`Unable to allocate local project id for folder: ${folderPath}`);
 }
 
 function projectTitleFromFolder(folderPath: string): string {

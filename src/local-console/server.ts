@@ -18,6 +18,7 @@ import { listLocalT5Facts } from "./t5-store.js";
 import type { LocalRouteJudgment } from "./route-bus.js";
 import {
   LocalConsoleBusyError,
+  LocalConsoleProjectRunningError,
   LocalConsoleSessionProjectError,
   type LocalConsoleStore,
 } from "./types.js";
@@ -162,15 +163,42 @@ async function handleRequest(
     const projectMatch = matchProjectRoute(url.pathname);
     if (request.method === "PATCH" && projectMatch !== null) {
       const payload = await readJsonBody(request);
-      if (!isRecord(payload) || typeof payload.worktreeMode !== "boolean") {
-        sendJson(response, 400, { error: "Expected JSON body with a boolean worktreeMode field" });
+      if (!isRecord(payload)) {
+        sendJson(response, 400, { error: "Expected JSON object body" });
         return;
       }
-      const project = await runtime.updateProject({
-        projectId: projectMatch.projectId,
-        worktreeMode: payload.worktreeMode,
-      });
+      const project = typeof payload.title === "string"
+        ? await runtime.renameProject({ projectId: projectMatch.projectId, title: payload.title })
+        : typeof payload.worktreeMode === "boolean"
+          ? await runtime.updateProject({ projectId: projectMatch.projectId, worktreeMode: payload.worktreeMode })
+          : null;
+      if (project === null) {
+        sendJson(response, 400, { error: "Expected a string title or boolean worktreeMode field" });
+        return;
+      }
       sendJson(response, 200, { project });
+      return;
+    }
+
+    if (request.method === "DELETE" && projectMatch !== null) {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload) || (payload.force !== undefined && typeof payload.force !== "boolean")) {
+        sendJson(response, 400, { error: "Expected JSON body with an optional boolean force field" });
+        return;
+      }
+      try {
+        const result = await runtime.removeProject({
+          projectId: projectMatch.projectId,
+          force: payload.force === true,
+        });
+        sendJson(response, 200, result);
+      } catch (error) {
+        if (error instanceof LocalConsoleProjectRunningError) {
+          sendJson(response, 409, { error: error.message, code: error.code });
+          return;
+        }
+        throw error;
+      }
       return;
     }
 
@@ -341,7 +369,7 @@ async function readJsonBody(request: http.IncomingMessage): Promise<unknown> {
 function sendHtml(response: http.ServerResponse, body: string): void {
   response.writeHead(200, {
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "access-control-allow-headers": "content-type",
     "content-type": "text/html; charset=utf-8",
   });
@@ -351,7 +379,7 @@ function sendHtml(response: http.ServerResponse, body: string): void {
 function sendJson(response: http.ServerResponse, statusCode: number, body: unknown): void {
   response.writeHead(statusCode, {
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "access-control-allow-headers": "content-type",
     "content-type": "application/json; charset=utf-8",
   });
@@ -361,7 +389,7 @@ function sendJson(response: http.ServerResponse, statusCode: number, body: unkno
 function sendNoContent(response: http.ServerResponse): void {
   response.writeHead(204, {
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "access-control-allow-headers": "content-type",
   });
   response.end();

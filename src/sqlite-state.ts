@@ -23,6 +23,8 @@ export type SqliteStateCommand =
   | { kind: "local-init" }
   | { kind: "local-create-project"; folderPath: string; worktreeMode: boolean; now: string }
   | { kind: "local-update-project"; projectId: string; worktreeMode: boolean; now: string }
+  | { kind: "local-rename-project"; projectId: string; title: string; now: string }
+  | { kind: "local-remove-project"; projectId: string; force: boolean; now: string }
   | { kind: "local-list-projects" }
   | { kind: "local-get-session-workspace"; sessionId: string }
   | {

@@ -9,10 +9,11 @@ import {
 } from "./conversation-sidebar";
 
 describe("ConversationSidebar", () => {
-  it("derives the project name from the directory path", () => {
+  it("uses a display name when present and otherwise derives the project name from the directory path", () => {
     expect(projectDirectoryName({ path: "/Users/example/agent-moebius/" })).toBe("agent-moebius");
     expect(projectDirectoryName({ path: "C:\\Users\\example\\tranfu-site" })).toBe("tranfu-site");
-    expect(projectDirectoryName({ path: "///", label: "fallback" })).toBe("fallback");
+    expect(projectDirectoryName({ path: "/Users/example/agent-moebius/", label: "  展示名称  " })).toBe("展示名称");
+    expect(projectDirectoryName({ path: "/Users/example/agent-moebius/", label: "   " })).toBe("agent-moebius");
   });
 
   it("orders sessions by createdAt descending without mutating input and preserves ties", () => {

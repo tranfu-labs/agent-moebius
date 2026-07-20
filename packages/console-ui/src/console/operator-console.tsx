@@ -9,9 +9,10 @@ import {
   Plus,
   Search,
   Settings,
+  AlertTriangle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { AgentMessage } from "@/console/agent-message";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
@@ -25,6 +26,7 @@ import { RunBlock } from "@/console/run-block";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
+import { Input } from "@/ui/input";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -142,11 +144,16 @@ export interface OperatorConsoleProps {
   onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
   onChangeSessionProject?: (sessionId: string, projectId: string) => void;
+  onShowProjectInFolder?: (folderPath: string) => void | Promise<void>;
+  onRenameProject?: (projectId: string, title: string) => void | Promise<void>;
+  onRemoveProject?: (projectId: string, force: boolean) => void | Promise<void>;
   onInterrupt(sessionId: string, runId: string): void;
   onOpenDiagnostics?: () => void;
   isSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
+  isProjectMutationPending?: boolean;
+  isNewConversationWithoutProject?: boolean;
   sidebarOpen?: boolean;
   isFirstRunOnboarding?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
@@ -169,11 +176,16 @@ export function OperatorConsole({
   onToggleProjectWorktree,
   onSelectSession,
   onChangeSessionProject,
+  onShowProjectInFolder,
+  onRenameProject,
+  onRemoveProject,
   onInterrupt,
   onOpenDiagnostics,
   isSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
+  isProjectMutationPending = false,
+  isNewConversationWithoutProject = false,
   sidebarOpen,
   isFirstRunOnboarding = false,
   onSidebarOpenChange,
@@ -182,6 +194,11 @@ export function OperatorConsole({
   const [uncontrolledSidebarOpen, setUncontrolledSidebarOpen] = useState(true);
   const [applicationView, setApplicationView] = useState<OperatorApplicationView>("conversation");
   const [applicationOverlay, setApplicationOverlay] = useState<OperatorApplicationOverlay | null>(null);
+  const [renameTarget, setRenameTarget] = useState<OperatorProject | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [runningRemovalTarget, setRunningRemovalTarget] = useState<OperatorProject | null>(null);
+  const [removalRequest, setRemovalRequest] = useState<{ project: OperatorProject; force: boolean } | null>(null);
+  const [projectActionError, setProjectActionError] = useState<string | null>(null);
   const visibleProjects = projects ?? [project];
   const activeProjectId = selectedProjectId ?? project.projectId;
   const activeProject = visibleProjects.find((item) => item.projectId === activeProjectId) ?? project;
@@ -259,7 +276,7 @@ export function OperatorConsole({
         <div className="shrink-0 px-4 pb-1 pt-2 text-xs font-medium text-hint">项目</div>
         <ConversationSidebar
           projects={sidebarProjects}
-          selectedSessionId={selectedSessionId}
+          selectedSessionId={isNewConversationWithoutProject ? undefined : selectedSessionId}
           showProjectPath={false}
           onSelectSession={(sessionId, projectId) => {
             if (!isSelectionMutationPending) {
@@ -271,7 +288,33 @@ export function OperatorConsole({
               openNewConversation({ projectId });
             }
           }}
-          disabled={isSelectionMutationPending}
+          onShowProjectInFolder={onShowProjectInFolder === undefined ? undefined : (sidebarProject) => {
+            const target = visibleProjects.find((candidate) => candidate.projectId === sidebarProject.id);
+            if (target) {
+              void onShowProjectInFolder(target.folderPath);
+            }
+          }}
+          onRenameProject={onRenameProject === undefined ? undefined : (sidebarProject) => {
+            const target = visibleProjects.find((candidate) => candidate.projectId === sidebarProject.id);
+            if (target) {
+              setProjectActionError(null);
+              setRenameTarget(target);
+              setRenameValue(target.title);
+            }
+          }}
+          onRemoveProject={onRemoveProject === undefined ? undefined : (sidebarProject) => {
+            const target = visibleProjects.find((candidate) => candidate.projectId === sidebarProject.id);
+            if (!target) {
+              return;
+            }
+            setProjectActionError(null);
+            if (target.runningCount > 0) {
+              setRunningRemovalTarget(target);
+            } else {
+              setRemovalRequest({ project: target, force: false });
+            }
+          }}
+          disabled={isSelectionMutationPending || isProjectMutationPending}
           disabledReason="项目正在变更，请稍后再试"
           className="min-h-0 w-full flex-1 overflow-hidden border-0"
         />
@@ -303,8 +346,16 @@ export function OperatorConsole({
           <AgentTeamsStub onBack={() => setApplicationView("conversation")} />
         ) : (
           <>
-            <section className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-44 pt-16" aria-label="会话时间线">
-              {emptyConversation ? (
+            <section
+              className={cn(
+                "scroll-thin min-h-0 flex-1 overflow-auto px-8 pt-16",
+                isNewConversationWithoutProject ? "pb-8" : "pb-44",
+              )}
+              aria-label={isNewConversationWithoutProject ? "新建对话" : "会话时间线"}
+            >
+              {isNewConversationWithoutProject ? (
+                <NewConversationWithoutProject />
+              ) : emptyConversation ? (
                 <ConversationEmptyState projectName={activeProject.title} />
               ) : (
                 <div className="mx-auto max-w-[760px]">
@@ -341,34 +392,36 @@ export function OperatorConsole({
               )}
             </section>
 
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
-              <RoleComposer
-                value={composerValue}
-                onValueChange={onComposerChange}
-                onSubmit={submitComposer}
-                disabled={activeRun !== null || isSending || isSessionProjectUpdating}
-                placeholder={activeRun ? "当前 agent 正在执行…" : "描述你的目标，@ 一个角色开始…"}
-                statusText={activeRun ? "当前正在执行，完成后可继续发送" : undefined}
-                context={
-                  <ComposerContext
-                    project={activeProject}
-                    projects={visibleProjects}
-                    selectedSession={selectedSession}
-                    canChangeProject={
-                      selectedSession !== null &&
-                      messages.length === 0 &&
-                      activeRun === null &&
-                      !selectedSession.parentSessionId &&
-                      (selectedSession.childCount ?? 0) === 0
-                    }
-                    disabled={isSelectionMutationPending}
-                    onChangeSessionProject={onChangeSessionProject}
-                    onToggleProjectWorktree={onToggleProjectWorktree}
-                  />
-                }
-                className="pointer-events-auto mx-auto max-w-[720px]"
-              />
-            </div>
+            {!isNewConversationWithoutProject ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
+                <RoleComposer
+                  value={composerValue}
+                  onValueChange={onComposerChange}
+                  onSubmit={submitComposer}
+                  disabled={activeRun !== null || isSending || isSessionProjectUpdating}
+                  placeholder={activeRun ? "当前 agent 正在执行…" : "描述你的目标，@ 一个角色开始…"}
+                  statusText={activeRun ? "当前正在执行，完成后可继续发送" : undefined}
+                  context={
+                    <ComposerContext
+                      project={activeProject}
+                      projects={visibleProjects}
+                      selectedSession={selectedSession}
+                      canChangeProject={
+                        selectedSession !== null &&
+                        messages.length === 0 &&
+                        activeRun === null &&
+                        !selectedSession.parentSessionId &&
+                        (selectedSession.childCount ?? 0) === 0
+                      }
+                      disabled={isSelectionMutationPending}
+                      onChangeSessionProject={onChangeSessionProject}
+                      onToggleProjectWorktree={onToggleProjectWorktree}
+                    />
+                  }
+                  className="pointer-events-auto mx-auto max-w-[720px]"
+                />
+              </div>
+            ) : null}
           </>
         )}
       </main>
@@ -381,8 +434,213 @@ export function OperatorConsole({
           onClose={() => setApplicationOverlay(null)}
         />
       ) : null}
+
+      {renameTarget ? (
+        <ProjectActionDialog
+          title="修改显示名称"
+          description="只修改 Moebius 中显示的名称，不会重命名磁盘文件夹。留空会恢复为文件夹名。"
+          error={projectActionError}
+          onCancel={() => {
+            if (!isProjectMutationPending) {
+              setRenameTarget(null);
+            }
+          }}
+        >
+          <label className="grid gap-1.5 text-sm font-medium text-ink">
+            显示名称
+            <Input
+              autoFocus
+              value={renameValue}
+              disabled={isProjectMutationPending}
+              onChange={(event) => setRenameValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void submitProjectRename(renameTarget, renameValue, onRenameProject, setProjectActionError, setRenameTarget);
+                }
+              }}
+            />
+          </label>
+          <DialogButtons
+            pending={isProjectMutationPending}
+            confirmLabel="保存"
+            onCancel={() => setRenameTarget(null)}
+            onConfirm={() => {
+              void submitProjectRename(renameTarget, renameValue, onRenameProject, setProjectActionError, setRenameTarget);
+            }}
+          />
+        </ProjectActionDialog>
+      ) : null}
+
+      {runningRemovalTarget ? (
+        <ProjectActionDialog
+          title="项目中仍有 Agent 正在运行"
+          description={`“${runningRemovalTarget.title}”中的运行必须先停止。你可以取消，或继续到强制中止与移除确认。`}
+          icon={<AlertTriangle className="h-5 w-5 text-danger" strokeWidth={1.5} aria-hidden="true" />}
+          onCancel={() => setRunningRemovalTarget(null)}
+        >
+          <DialogButtons
+            pending={false}
+            confirmLabel="强制中止并继续"
+            danger
+            onCancel={() => setRunningRemovalTarget(null)}
+            onConfirm={() => {
+              setRemovalRequest({ project: runningRemovalTarget, force: true });
+              setRunningRemovalTarget(null);
+            }}
+          />
+        </ProjectActionDialog>
+      ) : null}
+
+      {removalRequest ? (
+        <ProjectActionDialog
+          title="移除项目？"
+          description={`“${removalRequest.project.title}”会从侧边栏消失，其对话将归档并保留。此操作绝不会删除或修改磁盘上的项目文件夹。`}
+          error={projectActionError}
+          onCancel={() => {
+            if (!isProjectMutationPending) {
+              setRemovalRequest(null);
+            }
+          }}
+        >
+          <p className="rounded-md border border-line bg-rail px-3 py-2 text-xs text-sub">
+            磁盘文件夹将保留：{removalRequest.project.folderPath}
+          </p>
+          <DialogButtons
+            pending={isProjectMutationPending}
+            confirmLabel={removalRequest.force ? "中止并移除" : "移除项目"}
+            danger
+            onCancel={() => setRemovalRequest(null)}
+            onConfirm={() => {
+              void submitProjectRemoval(removalRequest, onRemoveProject, setProjectActionError, setRemovalRequest);
+            }}
+          />
+        </ProjectActionDialog>
+      ) : null}
     </div>
   );
+}
+
+function NewConversationWithoutProject(): JSX.Element {
+  return (
+    <div className="mx-auto mt-16 max-w-md rounded-xl border border-line bg-card p-6 shadow-card">
+      <h1 className="text-lg font-semibold text-ink">新建对话</h1>
+      <p className="mt-1 text-sm text-sub">当前项目已移除。选择一个项目后再开始新的对话。</p>
+      <div className="mt-5 grid gap-1.5">
+        <span className="text-xs font-medium text-sub">项目</span>
+        <button
+          type="button"
+          className="flex h-9 w-full items-center justify-between rounded-lg border border-line bg-input px-3 text-sm text-hint"
+          aria-label="项目：未选择"
+        >
+          未选择项目
+          <ChevronDown className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProjectActionDialog({
+  title,
+  description,
+  icon,
+  error,
+  onCancel,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon?: JSX.Element;
+  error?: string | null;
+  onCancel(): void;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-6"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onCancel();
+        }
+      }}
+    >
+      <div className="w-full max-w-md rounded-xl border border-line bg-card p-5 text-ink shadow-overlay" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="flex items-start gap-3">
+          {icon}
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold">{title}</h2>
+            <p className="mt-1 text-sm leading-5 text-sub">{description}</p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-4">
+          {children}
+          {error ? <p className="text-sm text-danger" role="alert">{error}</p> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DialogButtons({
+  pending,
+  confirmLabel,
+  danger = false,
+  onCancel,
+  onConfirm,
+}: {
+  pending: boolean;
+  confirmLabel: string;
+  danger?: boolean;
+  onCancel(): void;
+  onConfirm(): void;
+}): JSX.Element {
+  return (
+    <div className="flex justify-end gap-2">
+      <Button type="button" variant="ghost" disabled={pending} onClick={onCancel}>取消</Button>
+      <Button type="button" variant={danger ? "danger" : "default"} disabled={pending} onClick={onConfirm}>
+        {pending ? "处理中…" : confirmLabel}
+      </Button>
+    </div>
+  );
+}
+
+async function submitProjectRename(
+  project: OperatorProject,
+  title: string,
+  onRenameProject: OperatorConsoleProps["onRenameProject"],
+  setError: (error: string | null) => void,
+  close: (value: OperatorProject | null) => void,
+): Promise<void> {
+  if (!onRenameProject) {
+    return;
+  }
+  setError(null);
+  try {
+    await onRenameProject(project.projectId, title);
+    close(null);
+  } catch (error) {
+    setError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function submitProjectRemoval(
+  request: { project: OperatorProject; force: boolean },
+  onRemoveProject: OperatorConsoleProps["onRemoveProject"],
+  setError: (error: string | null) => void,
+  close: (value: { project: OperatorProject; force: boolean } | null) => void,
+): Promise<void> {
+  if (!onRemoveProject) {
+    return;
+  }
+  setError(null);
+  try {
+    await onRemoveProject(request.project.projectId, request.force);
+    close(null);
+  } catch (error) {
+    setError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 function MoebiusLogo(): JSX.Element {
