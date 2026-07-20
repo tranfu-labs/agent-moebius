@@ -13,6 +13,7 @@
 ```text
 docs/product/
 ├── AGENTS.md                 # 产品文档编写规则、模板与事实源边界
+├── prompt.md                 # PRD 采访提示词，开新会话前整段粘给 codex/Claude
 ├── prd.md                    # 总 PRD
 ├── pages/                    # 页面级 PRD，一页一个文件
 │   └── <page>.md
