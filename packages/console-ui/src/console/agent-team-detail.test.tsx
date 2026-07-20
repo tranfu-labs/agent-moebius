@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -28,9 +28,10 @@ describe("AgentTeamDetail", () => {
     const onSaveMember = vi.fn();
     renderDetail({ onChangeMember, onSaveMember });
 
-    fireEvent.change(screen.getByRole("textbox", { name: "开发经理 AGENT.md" }), {
-      target: { value: "# 开发经理\n\n新的职责\n" },
-    });
+    replaceEditorText(
+      screen.getByRole("textbox", { name: "开发经理 AGENT.md" }),
+      "# 开发经理\n\n新的职责\n",
+    );
     expect(onChangeMember).toHaveBeenCalledWith("manager", "# 开发经理\n\n新的职责\n");
 
     fireEvent.keyDown(window, { key: "s", metaKey: true });
@@ -41,7 +42,16 @@ describe("AgentTeamDetail", () => {
 
   it("keeps the user primary Agent selector visible, saves immediately, and preserves member drafts after reordering", () => {
     const onChangePrimaryAgent = vi.fn();
-    const props = detailProps({ onChangePrimaryAgent });
+    const onSaveMember = vi.fn();
+    const onChangeMember = vi.fn();
+    const props = detailProps({
+      onChangePrimaryAgent,
+      onSaveMember,
+      onChangeMember,
+      state: stateWith(managerEditor({
+        draftMarkdown: "# 开发经理\n\n下一步交给 @dev。\n",
+      })),
+    });
     const { rerender } = render(<AgentTeamDetail {...props} />);
 
     const selector = screen.getByRole("combobox", { name: "主 Agent" });
@@ -53,6 +63,8 @@ describe("AgentTeamDetail", () => {
     ]);
     fireEvent.change(selector, { target: { value: "dev" } });
     expect(onChangePrimaryAgent).toHaveBeenCalledWith("dev");
+    expect(onSaveMember).not.toHaveBeenCalled();
+    expect(onChangeMember).not.toHaveBeenCalled();
 
     rerender(<AgentTeamDetail
       {...props}
@@ -61,7 +73,9 @@ describe("AgentTeamDetail", () => {
     />);
     const tabs = within(screen.getByTestId("agent-team-member-selector")).getAllByRole("tab");
     expect(tabs[0]).toHaveTextContent("开发· 主 Agent");
-    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toHaveValue("# 开发经理\n\n新职责\n");
+    expect(screen.getByRole("button", { name: "开发，复制 @dev" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" }))
+      .toHaveAttribute("data-raw-markdown", "# 开发经理\n\n下一步交给 @dev。\n");
     expect(screen.getAllByLabelText("未保存")).toHaveLength(1);
     expect(screen.getByRole("status")).toHaveTextContent("已保存");
   });
@@ -99,16 +113,63 @@ describe("AgentTeamDetail", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("正在保存");
     expect(screen.getByRole("button", { name: "正在保存" })).toBeDisabled();
-    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" }))
+      .toHaveAttribute("aria-disabled", "true");
 
     rerender(<AgentTeamDetail {...detailProps({
       onSaveMember,
       state: stateWith(managerEditor({ saveStatus: "failed", saveError: "文件被占用" })),
     })} />);
     expect(screen.getByRole("alert")).toHaveTextContent("保存失败：文件被占用");
-    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toHaveValue("# 开发经理\n\n新职责\n");
+    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" }))
+      .toHaveAttribute("data-raw-markdown", "# 开发经理\n\n新职责\n");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(onSaveMember).toHaveBeenCalledWith("manager");
+  });
+
+  it("updates an existing mention from another member's AGENT.md identity without changing its slug", () => {
+    const baseState = stateWith(managerEditor({
+      draftMarkdown: "# 开发经理\n\n下一步交给 @dev。\n",
+    }));
+    const { rerender } = renderDetail({ state: baseState });
+
+    expect(screen.getByRole("button", { name: "开发，复制 @dev" })).toBeVisible();
+    const rawMarkdown = screen.getByRole("textbox", { name: "开发经理 AGENT.md" });
+    expect(rawMarkdown).toHaveAttribute("data-raw-markdown", "# 开发经理\n\n下一步交给 @dev。\n");
+
+    rerender(<AgentTeamDetail {...detailProps({
+      state: {
+        ...baseState,
+        memberEditors: {
+          ...baseState.memberEditors,
+          dev: {
+            ...baseState.memberEditors.dev!,
+            displayName: "软件工程师",
+            draftMarkdown: "# 软件工程师\n\n负责实现\n",
+          },
+        },
+      },
+    })} />);
+
+    expect(screen.getByRole("button", { name: "软件工程师，复制 @dev" })).toBeVisible();
+    expect(rawMarkdown).toHaveAttribute("data-raw-markdown", "# 开发经理\n\n下一步交给 @dev。\n");
+  });
+
+  it("keeps the current member @slug visible and copyable", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderDetail();
+
+    const copySlug = screen.getByRole("button", { name: "复制 @manager" });
+    expect(copySlug).toHaveTextContent("@manager");
+    await act(async () => {
+      fireEvent.click(copySlug);
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledWith("@manager");
   });
 
   it("offers all three leave choices and stays when save-all reports a partial failure", async () => {
@@ -153,7 +214,8 @@ describe("AgentTeamDetail", () => {
     expect(screen.getByRole("note")).toHaveTextContent("这是软件自带的只读团队");
     expect(screen.getByRole("note")).toHaveTextContent("请先复制一份独立团队");
     expect(screen.getByRole("button", { name: "复制并编辑" })).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toHaveAttribute("readonly");
+    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" }))
+      .toHaveAttribute("aria-readonly", "true");
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "放弃修改" })).not.toBeInTheDocument();
     expect(screen.queryByText("复制 Agent")).not.toBeInTheDocument();
@@ -235,4 +297,9 @@ function managerEditor(overrides: Partial<AgentTeamMemberEditorState> = {}): Age
     description: "新职责",
     ...overrides,
   };
+}
+
+function replaceEditorText(editor: HTMLElement, value: string): void {
+  editor.textContent = value;
+  fireEvent.input(editor);
 }

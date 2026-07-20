@@ -305,7 +305,8 @@ describe("OperatorConsole", () => {
     expect(screen.getByTestId("agent-team-detail")).toBeVisible();
     expect(screen.getByText("内置团队")).toBeVisible();
     expect(screen.getByText("只读")).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toHaveAttribute("readonly");
+    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" }))
+      .toHaveAttribute("aria-readonly", "true");
     expect(screen.getByRole("button", { name: "复制并编辑" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("agent-team-list")).not.toBeInTheDocument();

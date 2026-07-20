@@ -1,6 +1,10 @@
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import {
+  AgentMarkdownMentionEditor,
+  CopyableAgentSlug,
+} from "@/console/agent-markdown-mention-editor";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
 
@@ -89,6 +93,10 @@ export function AgentTeamDetail({
   const primaryMember = orderedMembers.find((member) => member.slug === team.primaryAgentSlug);
   const primaryAgentChangeStatus = state.primaryAgentChangeStatus ?? "idle";
   const primaryAgentChangeError = state.primaryAgentChangeError ?? null;
+  const mentionMembers = useMemo(() => orderedMembers.map((member) => ({
+    slug: member.slug,
+    displayName: state.memberEditors[member.slug]?.displayName || member.displayName,
+  })), [orderedMembers, state.memberEditors]);
   const hasDirtyMembers = Object.values(state.memberEditors).some((editor) => editor?.isDirty === true);
   const hasSavingMembers = Object.values(state.memberEditors).some((editor) => editor?.saveStatus === "saving");
   const canSaveCurrent = !readOnly
@@ -322,17 +330,19 @@ export function AgentTeamDetail({
               <label htmlFor="agent-team-markdown-editor" className="text-xs font-semibold uppercase tracking-[0.08em] text-hint">
                 AGENT.md
               </label>
-              <span className="text-xs text-hint">{readOnly ? "只读 · " : ""}@{selectedMember.slug}</span>
+              <div className="flex items-center gap-1 text-xs text-hint">
+                {readOnly ? <span>只读 ·</span> : null}
+                <CopyableAgentSlug slug={selectedMember.slug} />
+              </div>
             </div>
-            <textarea
+            <AgentMarkdownMentionEditor
               id="agent-team-markdown-editor"
-              className="mt-2 min-h-[300px] w-full resize-y border border-line-strong bg-input px-4 py-3 font-sans text-sm leading-6 text-ink placeholder:text-hint read-only:cursor-default read-only:bg-sunken read-only:text-sub disabled:cursor-not-allowed disabled:bg-sunken disabled:text-sub"
-              aria-label={`${selectedEditor.displayName || selectedMember.displayName || selectedMember.slug} AGENT.md`}
               value={selectedEditor.draftMarkdown}
+              members={mentionMembers}
+              label={`${selectedEditor.displayName || selectedMember.displayName || selectedMember.slug} AGENT.md`}
               readOnly={readOnly}
               disabled={selectedEditor.saveStatus === "saving"}
-              spellCheck={false}
-              onChange={(event) => onChangeMember(selectedMember.slug, event.currentTarget.value)}
+              onValueChange={(agentMarkdown) => onChangeMember(selectedMember.slug, agentMarkdown)}
             />
 
             {selectedEditor.saveStatus === "failed" ? (
