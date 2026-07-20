@@ -51,19 +51,51 @@ describe("OperatorConsole", () => {
   });
 
   it("opens the new-conversation placeholder without creating a persisted session", () => {
-    const onCreateSession = vi.fn();
-    renderConsole({ onCreateSession });
+    renderConsole();
 
     fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
 
     expect(screen.getByRole("dialog", { name: "新建对话" })).toBeVisible();
     expect(screen.getByText("此入口不会直接创建空白对话。", { exact: false })).toBeVisible();
     expect(screen.getByRole("button", { name: "创建对话" })).toBeDisabled();
-    expect(onCreateSession).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("dialog", { name: "新建对话" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "默认会话，运行中" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("opens the same new-conversation placeholder with the owning project preselected", () => {
+    const secondProject: OperatorProject = {
+      ...project,
+      projectId: "project-b",
+      title: "project-b",
+      folderPath: "/Users/example/project-b",
+      sessions: [],
+    };
+    renderConsole({ projects: [project, secondProject] });
+
+    fireEvent.click(screen.getByRole("button", { name: "在 project-b 中新建会话" }));
+
+    const dialog = screen.getByRole("dialog", { name: "新建对话" });
+    expect(dialog).toBeVisible();
+    expect(screen.getByTestId("preselected-project")).toHaveTextContent("已预选项目");
+    expect(screen.getByTestId("preselected-project")).toHaveTextContent("project-b");
+    expect(screen.getByText("此入口不会直接创建空白对话。", { exact: false })).toBeVisible();
+  });
+
+  it("keeps a project with an unavailable directory out of the new-conversation flow", () => {
+    renderConsole({
+      project: {
+        ...project,
+        newConversationDisabledReason: "当前项目本地文件夹不可用，无法新建对话",
+      },
+    });
+
+    const projectNewConversation = screen.getByRole("button", { name: "在 agent-moebius 中新建会话" });
+    expect(projectNewConversation).toBeDisabled();
+    expect(projectNewConversation).toHaveAttribute("title", "当前项目本地文件夹不可用，无法新建对话");
+    fireEvent.click(projectNewConversation);
+    expect(screen.queryByRole("dialog", { name: "新建对话" })).not.toBeInTheDocument();
   });
 
   it("offers project setup from the new-conversation placeholder when no project exists", () => {
@@ -315,12 +347,10 @@ describe("OperatorConsole", () => {
   });
 
   it("blocks every selection entry while pending and additionally blocks send during rebind", () => {
-    const onCreateSession = vi.fn();
     const onSelectSession = vi.fn();
     const onSend = vi.fn();
     renderConsole({
       messages: [],
-      onCreateSession,
       onSelectSession,
       onChangeSessionProject: vi.fn(),
       onSend,
@@ -329,12 +359,13 @@ describe("OperatorConsole", () => {
     });
 
     expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" }))
+      .toHaveAttribute("title", "项目正在变更，请稍后再试");
     expect(screen.getByRole("button", { name: "默认会话，运行中" })).toBeDisabled();
     expect(screen.getByLabelText("项目：agent-moebius，点击切换")).toBeDisabled();
     const composer = screen.getByRole("textbox");
     expect(composer).toBeDisabled();
     fireEvent.keyDown(composer, { key: "Enter" });
-    expect(onCreateSession).not.toHaveBeenCalled();
     expect(onSelectSession).not.toHaveBeenCalled();
     expect(onSend).not.toHaveBeenCalled();
   });
@@ -357,7 +388,6 @@ function baseProps(overrides: Partial<OperatorConsoleProps> = {}): OperatorConso
     lastError: null,
     onComposerChange: vi.fn(),
     onSend: vi.fn(),
-    onCreateSession: vi.fn(),
     onSelectSession: vi.fn(),
     onInterrupt: vi.fn(),
     ...overrides,

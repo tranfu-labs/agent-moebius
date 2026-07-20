@@ -17,6 +17,7 @@ export interface ConversationSidebarProject {
   id: string;
   path: string;
   label?: string;
+  newConversationDisabledReason?: string | null;
   sessions: ConversationSidebarSession[];
 }
 
@@ -24,8 +25,9 @@ export interface ConversationSidebarProps {
   projects: ConversationSidebarProject[];
   selectedSessionId?: string;
   onSelectSession?: (sessionId: string, projectId: string) => void;
-  onCreateSession?: (projectId: string) => void;
+  onNewConversation?: (projectId: string) => void;
   disabled?: boolean;
+  disabledReason?: string;
   showProjectPath?: boolean;
   className?: string;
 }
@@ -56,8 +58,9 @@ export function ConversationSidebar({
   projects,
   selectedSessionId,
   onSelectSession,
-  onCreateSession,
+  onNewConversation,
   disabled = false,
+  disabledReason,
   showProjectPath = true,
   className
 }: ConversationSidebarProps): JSX.Element {
@@ -70,6 +73,8 @@ export function ConversationSidebar({
         {projects.map((project) => {
           const projectName = projectDirectoryName(project);
           const orderedSessions = orderSessionsByCreatedAt(project.sessions);
+          const newConversationDisabledReason = project.newConversationDisabledReason
+            ?? (disabled ? disabledReason ?? "项目正在变更，请稍后再试" : null);
 
           return (
             <section key={project.id} className="mb-2" aria-label={`${projectName} 项目`}>
@@ -79,15 +84,17 @@ export function ConversationSidebar({
                   <h2 className="truncate text-sm font-semibold leading-5">{projectName}</h2>
                   {showProjectPath ? <p className="truncate text-xs text-hint">{project.path}</p> : null}
                 </div>
-                {onCreateSession ? (
+                {onNewConversation ? (
                   <button
                     type="button"
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-40"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label={`在 ${projectName} 中新建会话`}
-                    disabled={disabled}
+                    aria-description={newConversationDisabledReason ?? undefined}
+                    title={newConversationDisabledReason ?? `在 ${projectName} 中新建会话`}
+                    disabled={newConversationDisabledReason !== null}
                     onClick={() => {
-                      if (!disabled) {
-                        onCreateSession(project.id);
+                      if (newConversationDisabledReason === null) {
+                        onNewConversation(project.id);
                       }
                     }}
                   >

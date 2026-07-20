@@ -50,7 +50,12 @@ export type OperatorSessionStatus =
   | "interrupted";
 export type OperatorRunnerStatus = "starting" | "running" | "stopped" | "crashed" | "error";
 export type OperatorApplicationView = "conversation" | "agent-teams";
-export type OperatorApplicationOverlay = "new-conversation" | "search";
+export interface NewConversationOptions {
+  projectId?: string;
+}
+export type OperatorApplicationOverlay =
+  | { kind: "new-conversation"; options: NewConversationOptions }
+  | { kind: "search" };
 
 export interface OperatorSession {
   sessionId: string;
@@ -79,6 +84,7 @@ export interface OperatorProject {
   worktreePath: string | null;
   worktreeUnavailableReason: string | null;
   workspaceUpdatedAt: string | null;
+  newConversationDisabledReason?: string | null;
   sessions: OperatorSession[];
   runningCount: number;
   waitingCount: number;
@@ -132,7 +138,6 @@ export interface OperatorConsoleProps {
   lastError?: string | null;
   onComposerChange(value: string): void;
   onSend(): void;
-  onCreateSession(projectId: string): void;
   onOpenProject?: () => void;
   onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
@@ -160,7 +165,6 @@ export function OperatorConsole({
   lastError,
   onComposerChange,
   onSend,
-  onCreateSession,
   onOpenProject,
   onToggleProjectWorktree,
   onSelectSession,
@@ -203,6 +207,10 @@ export function OperatorConsole({
     }
   };
 
+  const openNewConversation = (options: NewConversationOptions = {}) => {
+    setApplicationOverlay({ kind: "new-conversation", options });
+  };
+
   return (
     <div className={cn("relative flex h-screen min-h-[560px] overflow-hidden bg-canvas text-ink", className)}>
       <aside
@@ -237,9 +245,9 @@ export function OperatorConsole({
           <SidebarAction
             icon={Plus}
             label="新建对话"
-            onClick={() => setApplicationOverlay("new-conversation")}
+            onClick={() => openNewConversation()}
           />
-          <SidebarAction icon={Search} label="搜索" onClick={() => setApplicationOverlay("search")} />
+          <SidebarAction icon={Search} label="搜索" onClick={() => setApplicationOverlay({ kind: "search" })} />
           <SidebarAction
             icon={Diamond}
             label="Agent 团队"
@@ -258,12 +266,13 @@ export function OperatorConsole({
               onSelectSession({ sessionId, projectId });
             }
           }}
-          onCreateSession={(projectId) => {
+          onNewConversation={(projectId) => {
             if (!isSelectionMutationPending) {
-              onCreateSession(projectId);
+              openNewConversation({ projectId });
             }
           }}
           disabled={isSelectionMutationPending}
+          disabledReason="项目正在变更，请稍后再试"
           className="min-h-0 w-full flex-1 overflow-hidden border-0"
         />
 
@@ -366,8 +375,8 @@ export function OperatorConsole({
 
       {applicationOverlay ? (
         <ApplicationPlaceholder
-          kind={applicationOverlay}
-          hasProjects={visibleProjects.length > 0}
+          overlay={applicationOverlay}
+          projects={visibleProjects}
           onAddProject={onOpenProject}
           onClose={() => setApplicationOverlay(null)}
         />
@@ -443,17 +452,21 @@ function AgentTeamsStub({ onBack }: { onBack: () => void }): JSX.Element {
 }
 
 function ApplicationPlaceholder({
-  kind,
-  hasProjects,
+  overlay,
+  projects,
   onAddProject,
   onClose,
 }: {
-  kind: OperatorApplicationOverlay;
-  hasProjects: boolean;
+  overlay: OperatorApplicationOverlay;
+  projects: OperatorProject[];
   onAddProject?: () => void;
   onClose: () => void;
 }): JSX.Element {
-  const isNewConversation = kind === "new-conversation";
+  const isNewConversation = overlay.kind === "new-conversation";
+  const hasProjects = projects.length > 0;
+  const preselectedProject = isNewConversation && overlay.options.projectId !== undefined
+    ? projects.find((project) => project.projectId === overlay.options.projectId)
+    : undefined;
   const title = isNewConversation ? "新建对话" : "全局搜索";
   const description = isNewConversation
     ? "新建对话窗口将在后续任务中提供。此入口不会直接创建空白对话。"
@@ -471,6 +484,14 @@ function ApplicationPlaceholder({
           {title}
         </h1>
         <p className="mt-2 text-sm leading-6 text-sub">{description}</p>
+        {preselectedProject ? (
+          <div className="mt-4 rounded-lg border border-line bg-rail p-3" data-testid="preselected-project">
+            <p className="text-xs font-medium text-sub">已预选项目</p>
+            <p className="mt-1 truncate text-sm font-medium text-ink" title={preselectedProject.title}>
+              {preselectedProject.title}
+            </p>
+          </div>
+        ) : null}
         {isNewConversation && !hasProjects ? (
           <div className="mt-4 rounded-lg border border-line bg-rail p-3">
             <p className="text-sm font-medium text-ink">还没有项目</p>
@@ -639,6 +660,7 @@ function toSidebarProject(project: OperatorProject): ConversationSidebarProject 
     id: project.projectId,
     path: project.folderPath,
     label: project.title,
+    newConversationDisabledReason: project.newConversationDisabledReason,
     sessions: project.sessions.map((session) => ({
       id: session.sessionId,
       title: session.title,

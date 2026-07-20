@@ -249,7 +249,6 @@ function App(): JSX.Element {
       lastError={lastError}
       onComposerChange={setComposerValue}
       onSend={actions.sendMessage}
-      onCreateSession={actions.createSession}
       onOpenProject={actions.openProject}
       onToggleProjectWorktree={toggleProjectWorktree}
       onSelectSession={actions.selectSession}

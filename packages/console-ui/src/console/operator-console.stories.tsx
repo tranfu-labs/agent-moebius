@@ -131,7 +131,6 @@ const sample: OperatorConsoleProps = {
   lastError: null,
   onComposerChange: () => undefined,
   onSend: () => undefined,
-  onCreateSession: () => undefined,
   onSelectSession: () => undefined,
   onInterrupt: () => undefined,
 };

@@ -91,40 +91,63 @@ describe("ConversationSidebar", () => {
     expect(onSelectSession).toHaveBeenCalledWith("running-progress", "agent-moebius");
   });
 
-  it("creates a session for the project row that owns the button", () => {
-    const onCreateSession = vi.fn();
+  it("requests a new conversation for the project row that owns the button", () => {
+    const onNewConversation = vi.fn();
     const secondProject = {
       id: "second-project",
       path: "/Users/example/work/second-project",
       sessions: [],
     };
-    render(<ConversationSidebar projects={[project, secondProject]} onCreateSession={onCreateSession} />);
+    render(<ConversationSidebar projects={[project, secondProject]} onNewConversation={onNewConversation} />);
 
     fireEvent.click(screen.getByRole("button", { name: "在 second-project 中新建会话" }));
-    expect(onCreateSession).toHaveBeenCalledWith("second-project");
-    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    expect(onNewConversation).toHaveBeenCalledWith("second-project");
+    expect(onNewConversation).toHaveBeenCalledTimes(1);
   });
 
   it("blocks project creation and session selection while a selection mutation is pending", () => {
-    const onCreateSession = vi.fn();
+    const onNewConversation = vi.fn();
     const onSelectSession = vi.fn();
     render(
       <ConversationSidebar
         projects={[project]}
-        onCreateSession={onCreateSession}
+        onNewConversation={onNewConversation}
         onSelectSession={onSelectSession}
         disabled
+        disabledReason="项目正在变更，请稍后再试"
       />,
     );
 
     const createButton = screen.getByRole("button", { name: "在 agent-moebius 中新建会话" });
     const sessionButton = screen.getByRole("button", { name: "导出功能重构，静止" });
     expect(createButton).toBeDisabled();
+    expect(createButton).toHaveAttribute("title", "项目正在变更，请稍后再试");
+    expect(createButton).toHaveAttribute("aria-description", "项目正在变更，请稍后再试");
     expect(sessionButton).toBeDisabled();
     fireEvent.click(createButton);
     fireEvent.click(sessionButton);
-    expect(onCreateSession).not.toHaveBeenCalled();
+    expect(onNewConversation).not.toHaveBeenCalled();
     expect(onSelectSession).not.toHaveBeenCalled();
+  });
+
+  it("explains why a project with an unavailable directory cannot start a conversation", () => {
+    const onNewConversation = vi.fn();
+    render(
+      <ConversationSidebar
+        projects={[{
+          ...project,
+          newConversationDisabledReason: "当前项目本地文件夹不可用，无法新建对话",
+        }]}
+        onNewConversation={onNewConversation}
+      />,
+    );
+
+    const createButton = screen.getByRole("button", { name: "在 agent-moebius 中新建会话" });
+    expect(createButton).toBeDisabled();
+    expect(createButton).toHaveAttribute("title", "当前项目本地文件夹不可用，无法新建对话");
+    expect(createButton).toHaveAttribute("aria-description", "当前项目本地文件夹不可用，无法新建对话");
+    fireEvent.click(createButton);
+    expect(onNewConversation).not.toHaveBeenCalled();
   });
 });
 
