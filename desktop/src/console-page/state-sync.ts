@@ -3,7 +3,7 @@ export interface ConsoleSelection {
   sessionId: string;
 }
 
-export type SelectionMutationKind = "create-session" | "open-project" | "rebind-session";
+export type SelectionMutationKind = "create-session" | "open-project" | "rebind-session" | "archive-session";
 
 export interface SelectionMutationToken {
   readonly id: number;
@@ -179,6 +179,13 @@ interface ProjectOrderResponse {
   error?: string;
 }
 
+interface ArchiveSessionResponse {
+  sessionId?: string;
+  projectId?: string;
+  selectedSessionId?: string | null;
+  error?: string;
+}
+
 export interface ConsoleStateActionsOptions {
   apiBase: string | null;
   coordinator: ConsoleStateCoordinator;
@@ -333,6 +340,38 @@ export class ConsoleStateActions {
     } catch (error) {
       this.options.setError(formatError(error));
       return false;
+    }
+  };
+
+  readonly archiveSession = async (sessionId: string, projectId: string): Promise<void> => {
+    if (this.options.apiBase === null) {
+      this.options.setError("local console server unavailable");
+      return;
+    }
+    const token = this.beginMutation("archive-session");
+    if (token === null) {
+      return;
+    }
+    try {
+      const fetch = this.options.fetch;
+      const response = await fetch(
+        endpoint(this.options.apiBase, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/archive`),
+        { method: "POST" },
+      );
+      const body = await response.json() as ArchiveSessionResponse;
+      if (!response.ok || body.sessionId !== sessionId || body.projectId !== projectId) {
+        throw new Error(body.error ?? "archive session failed");
+      }
+      const currentSelection = this.options.getSelection();
+      const nextSelection = currentSelection.sessionId === sessionId
+        ? { projectId, sessionId: body.selectedSessionId ?? sessionId }
+        : currentSelection;
+      this.options.commitSelection(nextSelection);
+      await this.options.refresh(nextSelection, token);
+    } catch (error) {
+      this.options.setError(formatError(error));
+    } finally {
+      this.finishMutation(token);
     }
   };
 

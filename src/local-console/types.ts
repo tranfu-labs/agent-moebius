@@ -139,12 +139,27 @@ export interface LocalConsoleProjectRemovalResult {
   archivedSessionIds: string[];
 }
 
+export interface LocalConsoleSessionArchiveResult {
+  sessionId: string;
+  projectId: string;
+  selectedSessionId: string | null;
+}
+
 export class LocalConsoleProjectRunningError extends Error {
   readonly code = "PROJECT_HAS_RUNNING_AGENTS";
 
   constructor() {
     super("Project has running agents");
     this.name = "LocalConsoleProjectRunningError";
+  }
+}
+
+export class LocalConsoleSessionRunningError extends Error {
+  readonly code = "SESSION_HAS_RUNNING_AGENT";
+
+  constructor() {
+    super("Running sessions cannot be archived");
+    this.name = "LocalConsoleSessionRunningError";
   }
 }
 
@@ -215,6 +230,8 @@ export interface LocalConsoleStore {
     projectId: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary>;
+  archiveSession?(input: { sessionId: string; now: string }): Promise<LocalConsoleSessionArchiveResult>;
+  restoreSession?(input: { sessionId: string; now: string }): Promise<LocalConsoleSessionSummary>;
   listSessions(): Promise<LocalConsoleSessionSummary[]>;
   markSessionResultRead(input: { sessionId: string; unreadSince: string; now: string }): Promise<boolean>;
   appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage>;

@@ -254,6 +254,45 @@ describe("ConsoleStateActions", () => {
     expect(coordinator.isSelectionMutationPending).toBe(false);
   });
 
+  it("archives the current session and refreshes the API-selected adjacent session in the same project", async () => {
+    const coordinator = new ConsoleStateCoordinator();
+    const fetch = vi.fn(async () => jsonResponse({
+      sessionId: "session-a",
+      projectId: "project-a",
+      selectedSessionId: "session-b",
+    }));
+    const refresh = vi.fn(async () => true);
+    const harness = actionHarness({ coordinator, fetch, refresh });
+
+    await harness.actions.archiveSession("session-a", "project-a");
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("http://127.0.0.1:8787/api/local-console/sessions/session-a/archive"),
+      { method: "POST" },
+    );
+    expect(harness.selection()).toEqual({ projectId: "project-a", sessionId: "session-b" });
+    expect(refresh).toHaveBeenCalledWith(
+      { projectId: "project-a", sessionId: "session-b" },
+      expect.objectContaining({ kind: "archive-session" }),
+    );
+    expect(harness.mutationKinds).toEqual(["archive-session", null]);
+  });
+
+  it("keeps selection when the archive API rejects a running session", async () => {
+    const coordinator = new ConsoleStateCoordinator();
+    const fetch = vi.fn(async () => jsonResponse({
+      error: "Running sessions cannot be archived",
+      code: "SESSION_HAS_RUNNING_AGENT",
+    }, 409));
+    const harness = actionHarness({ coordinator, fetch });
+
+    await harness.actions.archiveSession("session-a", "project-a");
+
+    expect(harness.selection()).toEqual({ projectId: "project-a", sessionId: "session-a" });
+    expect(harness.errors).toEqual(["Running sessions cannot be archived"]);
+    expect(coordinator.isSelectionMutationPending).toBe(false);
+  });
+
   it("persists a complete project order and refreshes without changing selection", async () => {
     const coordinator = new ConsoleStateCoordinator();
     const fetch = vi.fn(async () => jsonResponse({
@@ -323,6 +362,7 @@ describe("ConsoleStateActions", () => {
     expect(owner).not.toBeNull();
     expect(coordinator.beginSelectionMutation("open-project")).toBeNull();
     expect(coordinator.beginSelectionMutation("rebind-session")).toBeNull();
+    expect(coordinator.beginSelectionMutation("archive-session")).toBeNull();
     expect(coordinator.endSelectionMutation({ id: 999, kind: "create-session" })).toBe(false);
     expect(coordinator.isSelectionMutationPending).toBe(true);
     expect(coordinator.endSelectionMutation(owner!)).toBe(true);

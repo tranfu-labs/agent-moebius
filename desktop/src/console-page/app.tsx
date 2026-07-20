@@ -392,6 +392,7 @@ function App(): JSX.Element {
       onRemoveProject={removeProject}
       onSelectFolderForRepair={selectFolderForRepair}
       onRepairProjectFolder={repairProjectFolder}
+      onArchiveSession={actions.archiveSession}
       onInterrupt={interrupt}
       onOpenDiagnostics={openDiagnostics}
       isSending={isSending}

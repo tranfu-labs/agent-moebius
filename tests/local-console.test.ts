@@ -8,6 +8,7 @@ import { resolveTrigger } from "../src/triggers/index.js";
 import { buildLocalConsoleTimeline } from "../src/local-console/timeline.js";
 import { createSqliteLocalConsoleStore } from "../src/local-console/store.js";
 import { startLocalConsoleServer } from "../src/local-console/server.js";
+import type { LocalConsoleAgentFile } from "../src/local-console/runtime.js";
 import { readLocalConsoleOutputTail } from "../src/local-console/output-tail.js";
 import { parseLocalAcceptanceWalkthrough } from "../src/local-console/acceptance-loop.js";
 import {
@@ -186,6 +187,124 @@ describe("local console", () => {
         .run(LOCAL_CONSOLE_DEFAULT_SESSION_ID)).toThrow();
     } finally {
       database.close();
+    }
+  });
+
+  it("archives without consuming the handoff cursor, preserves attention state, and restores from the same position", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    try {
+      const projectId = (await store.listProjects())[0]!.projectId;
+      const target = await store.createSession({
+        sessionId: "local:archive-target",
+        projectId,
+        title: "archive target",
+        now: "2030-01-02T00:00:00.000Z",
+      });
+      const neighbor = await store.createSession({
+        sessionId: "local:archive-neighbor",
+        projectId,
+        title: "archive neighbor",
+        now: "2030-01-01T00:00:00.000Z",
+      });
+      const user = await store.appendUserMessage({
+        sessionId: target.sessionId,
+        body: "@dev prepare a handoff",
+        now: "2030-01-02T00:00:01.000Z",
+      });
+      await store.claimNextPendingMessage({
+        sessionId: target.sessionId,
+        runId: "run-archive-user",
+        now: "2030-01-02T00:00:02.000Z",
+      });
+      await store.recordAgentResponse({
+        userMessageId: user.id,
+        sessionId: target.sessionId,
+        role: "dev",
+        body: "@qa 请继续验收\n等待真人：请确认后续安排",
+        runId: "run-archive-user",
+        runDir: "/tmp/run-archive-user",
+        now: "2030-01-02T00:00:03.000Z",
+      });
+      const handoff = await store.claimNextPendingMessage({
+        sessionId: target.sessionId,
+        runId: "run-archive-handoff",
+        now: "2030-01-02T00:00:04.000Z",
+      });
+      expect(handoff).toMatchObject({ speaker: "agent", role: "dev", status: "displayed" });
+
+      await expect(store.archiveSession!({
+        sessionId: target.sessionId,
+        now: "2030-01-02T00:00:05.000Z",
+      })).resolves.toEqual({
+        sessionId: target.sessionId,
+        projectId,
+        selectedSessionId: neighbor.sessionId,
+      });
+      expect((await store.listSessions()).map((session) => session.sessionId)).not.toContain(target.sessionId);
+
+      const database = new DatabaseSync(sqlitePath, { readOnly: true });
+      try {
+        expect(database.prepare(
+          `SELECT s.archived_at, s.awaits_human_reason, s.unread_since,
+                  c.processed_through_message_id, c.active_message_id, c.active_run_id
+           FROM sessions s JOIN local_message_cursors c ON c.session_id = s.session_id
+           WHERE s.session_id = ?`,
+        ).get(target.sessionId)).toMatchObject({
+          archived_at: "2030-01-02T00:00:05.000Z",
+          awaits_human_reason: "confirmation",
+          unread_since: "2030-01-02T00:00:03.000Z",
+          processed_through_message_id: user.id,
+          active_message_id: null,
+          active_run_id: null,
+        });
+      } finally {
+        database.close();
+      }
+
+      await expect(store.claimNextPendingMessage({
+        sessionId: target.sessionId,
+        runId: "run-while-archived",
+        now: "2030-01-02T00:00:06.000Z",
+      })).resolves.toBeNull();
+      await expect(store.restoreSession!({
+        sessionId: target.sessionId,
+        now: "2030-01-02T00:00:07.000Z",
+      })).resolves.toMatchObject({
+        sessionId: target.sessionId,
+        awaitsHumanReason: "confirmation",
+        unreadSince: "2030-01-02T00:00:03.000Z",
+      });
+      await expect(store.claimNextPendingMessage({
+        sessionId: target.sessionId,
+        runId: "run-restored-handoff",
+        now: "2030-01-02T00:00:08.000Z",
+      })).resolves.toMatchObject({ id: handoff!.id, speaker: "agent", role: "dev" });
+
+      const running = await store.createSession({
+        sessionId: "local:archive-running",
+        projectId,
+        title: "running",
+        now: "2030-01-03T00:00:00.000Z",
+      });
+      await store.appendUserMessage({
+        sessionId: running.sessionId,
+        body: "@dev still running",
+        now: "2030-01-03T00:00:01.000Z",
+      });
+      await store.claimNextPendingMessage({
+        sessionId: running.sessionId,
+        runId: "run-still-running",
+        now: "2030-01-03T00:00:02.000Z",
+      });
+      await expect(store.archiveSession!({
+        sessionId: running.sessionId,
+        now: "2030-01-03T00:00:03.000Z",
+      })).rejects.toMatchObject({ code: "SESSION_HAS_RUNNING_AGENT" });
+    } finally {
+      await store.close();
     }
   });
 
@@ -1529,6 +1648,79 @@ describe("local console", () => {
     }
   }, 10_000);
 
+  it("stops an already-claimed handoff drain on archive and resumes that handoff only after restore", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "qa", "# QA\n\nROLE:qa");
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    const user = await store.appendUserMessage({
+      sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+      body: "@dev prepare QA",
+      now: "2026-07-20T00:00:00.000Z",
+    });
+    await store.claimNextPendingMessage({
+      sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+      runId: "run-seed",
+      now: "2026-07-20T00:00:01.000Z",
+    });
+    await store.recordAgentResponse({
+      userMessageId: user.id,
+      sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+      role: "dev",
+      body: "@qa 请继续验收",
+      runId: "run-seed",
+      runDir: "/tmp/run-seed",
+      now: "2026-07-20T00:00:02.000Z",
+    });
+
+    const releaseAgentList = deferred<LocalConsoleAgentFile[]>();
+    let listCallCount = 0;
+    const listAgentFiles = vi.fn(async () => {
+      listCallCount += 1;
+      if (listCallCount === 1) {
+        return await releaseAgentList.promise;
+      }
+      return [{ name: "qa", path: path.join(root, "agents", "qa.md") }];
+    });
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "QA resumed"));
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      store,
+      listAgentFiles,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `archive-handoff-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      await waitFor(() => listAgentFiles.mock.calls.length === 1);
+      const archive = await fetch(
+        new URL(`/api/local-console/sessions/${encodeURIComponent(LOCAL_CONSOLE_DEFAULT_SESSION_ID)}/archive`, started.url),
+        { method: "POST" },
+      );
+      expect(archive.status).toBe(200);
+      releaseAgentList.resolve([{ name: "qa", path: path.join(root, "agents", "qa.md") }]);
+      await waitFor(() => !(started.runtime as unknown as { processingSessions: Set<string> }).processingSessions.has(
+        LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+      ));
+      expect(runCodex).not.toHaveBeenCalled();
+
+      const restore = await fetch(
+        new URL(`/api/local-console/sessions/${encodeURIComponent(LOCAL_CONSOLE_DEFAULT_SESSION_ID)}/restore`, started.url),
+        { method: "POST" },
+      );
+      expect(restore.status).toBe(200);
+      const state = await waitForState(started.url, LOCAL_CONSOLE_DEFAULT_SESSION_ID, (data) =>
+        data.messages.some((message) => message.speaker === "agent" && message.role === "qa" && message.body === "QA resumed"),
+      );
+      expect(runCodex).toHaveBeenCalledTimes(1);
+      expect(state.messages.filter((message) => message.speaker === "agent").map((message) => message.role)).toEqual(["dev", "qa"]);
+    } finally {
+      await started.close();
+    }
+  });
+
   it("routes a clear local handoff without mention through a visible CEO handoff and next-drain trigger", async () => {
     const root = await makeFixtureRoot();
     for (const role of ["ceo", "dev"]) {
@@ -2381,6 +2573,13 @@ describe("local console", () => {
       await waitForSnapshot(started.url, (data) => data.status === "running");
       await waitFor(() => runCodex.mock.calls.length === 1);
 
+      const archive = await fetch(
+        new URL(`/api/local-console/sessions/${encodeURIComponent(LOCAL_CONSOLE_DEFAULT_SESSION_ID)}/archive`, started.url),
+        { method: "POST" },
+      );
+      expect(archive.status).toBe(409);
+      await expect(archive.json()).resolves.toMatchObject({ code: "SESSION_HAS_RUNNING_AGENT" });
+
       const second = await postMessage(started.url, "@dev should not run");
       expect(second.status).toBe(409);
       expect(runCodex).toHaveBeenCalledTimes(1);
@@ -2404,6 +2603,14 @@ describe("local console", () => {
 });
 
 type LocalRunCodex = (options: CodexRunOptions) => Promise<CodexRunResult>;
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 async function makeFixtureRoot(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-local-console-"));

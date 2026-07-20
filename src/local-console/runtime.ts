@@ -49,6 +49,8 @@ import {
   type LocalConsoleProjectSummary,
   type LocalConsoleProjectRemovalResult,
   LocalConsoleProjectRunningError,
+  type LocalConsoleSessionArchiveResult,
+  LocalConsoleSessionRunningError,
   type LocalConsoleRunSnapshot,
   type LocalConsoleSessionSummary,
   type LocalConsoleSnapshot,
@@ -296,6 +298,36 @@ export class LocalConsoleRuntime {
     );
   }
 
+  async archiveSession(sessionId: string): Promise<LocalConsoleSessionArchiveResult> {
+    if (this.options.store.archiveSession === undefined) {
+      throw new Error("local console session archive unavailable");
+    }
+    if (this.activeRuns.has(sessionId)) {
+      throw new LocalConsoleSessionRunningError();
+    }
+    this.inactiveSessions.add(sessionId);
+    try {
+      return await this.storeCall("local-console-store-archive-session", () =>
+        this.options.store.archiveSession!({ sessionId, now: this.nowIso() }),
+      );
+    } catch (error) {
+      this.inactiveSessions.delete(sessionId);
+      throw error;
+    }
+  }
+
+  async restoreSession(sessionId: string): Promise<LocalConsoleSessionSummary> {
+    if (this.options.store.restoreSession === undefined) {
+      throw new Error("local console session restore unavailable");
+    }
+    const session = await this.storeCall("local-console-store-restore-session", () =>
+      this.options.store.restoreSession!({ sessionId, now: this.nowIso() }),
+    );
+    this.inactiveSessions.delete(sessionId);
+    void this.processPending(sessionId);
+    return session;
+  }
+
   async createChildSession(input: {
     parentSessionId: string;
     childSessionId: string;
@@ -474,6 +506,9 @@ export class LocalConsoleRuntime {
           if (activeMessage === null) {
             return;
           }
+          if (this.inactiveSessions.has(sessionId)) {
+            return;
+          }
           const claimedMessage = activeMessage;
           let acceptanceHandled = false;
           try {
@@ -488,8 +523,14 @@ export class LocalConsoleRuntime {
             activeRunId = null;
             continue;
           }
+          if (this.inactiveSessions.has(sessionId)) {
+            return;
+          }
 
           const agentFiles = await this.options.listAgentFiles();
+          if (this.inactiveSessions.has(sessionId)) {
+            return;
+          }
           const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
           const timelineMessages = messages.filter((message) => message.id <= claimedMessage.id);
           const timeline = buildLocalConsoleTimeline(
@@ -580,6 +621,9 @@ export class LocalConsoleRuntime {
 
           const controller = new AbortController();
           const workspace = await this.resolveWorkspace(sessionId, controller.signal);
+          if (this.inactiveSessions.has(sessionId)) {
+            return;
+          }
           this.activeRuns.set(sessionId, {
             sessionId,
             runId: nextRunId,

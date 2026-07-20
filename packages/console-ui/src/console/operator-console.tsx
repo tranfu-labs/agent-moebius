@@ -153,6 +153,7 @@ export interface OperatorConsoleProps {
   onRemoveProject?: (projectId: string, force: boolean) => void | Promise<void>;
   onSelectFolderForRepair?: (projectId: string) => Promise<string | null>;
   onRepairProjectFolder?: (projectId: string, folderPath: string) => void | Promise<void>;
+  onArchiveSession?: (sessionId: string, projectId: string) => void | Promise<void>;
   onInterrupt(sessionId: string, runId: string): void;
   onOpenDiagnostics?: () => void;
   isSending?: boolean;
@@ -188,6 +189,7 @@ export function OperatorConsole({
   onRemoveProject,
   onSelectFolderForRepair,
   onRepairProjectFolder,
+  onArchiveSession,
   onInterrupt,
   onOpenDiagnostics,
   isSending = false,
@@ -329,6 +331,9 @@ export function OperatorConsole({
             } else {
               setRemovalRequest({ project: target, force: false });
             }
+          }}
+          onArchiveSession={onArchiveSession === undefined ? undefined : (sessionId, projectId) => {
+            void onArchiveSession(sessionId, projectId);
           }}
           onReorderProjects={isSelectionMutationPending || isProjectMutationPending ? undefined : onReorderProjects}
           onRepairProject={onSelectFolderForRepair === undefined ? undefined : (sidebarProject) => {

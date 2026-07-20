@@ -21,6 +21,7 @@ import {
   LocalConsoleProjectFolderError,
   LocalConsoleProjectRunningError,
   LocalConsoleSessionProjectError,
+  LocalConsoleSessionRunningError,
   type LocalConsoleStore,
 } from "./types.js";
 import { formatLocalError, LocalConsoleRuntime, type LocalConsoleAgentFile } from "./runtime.js";
@@ -322,6 +323,27 @@ async function handleRequest(
         unreadSince: payload.unreadSince,
       });
       sendJson(response, 200, { cleared });
+      return;
+    }
+
+    const sessionArchiveMatch = matchSessionRoute(url.pathname, "archive");
+    if (request.method === "POST" && sessionArchiveMatch !== null) {
+      try {
+        sendJson(response, 200, await runtime.archiveSession(sessionArchiveMatch.sessionId));
+      } catch (error) {
+        if (error instanceof LocalConsoleSessionRunningError) {
+          sendJson(response, 409, { error: error.message, code: error.code });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+
+    const sessionRestoreMatch = matchSessionRoute(url.pathname, "restore");
+    if (request.method === "POST" && sessionRestoreMatch !== null) {
+      const session = await runtime.restoreSession(sessionRestoreMatch.sessionId);
+      sendJson(response, 200, { session });
       return;
     }
 
@@ -642,7 +664,7 @@ function matchProjectRoute(pathname: string): { projectId: string } | null {
 
 function matchSessionRoute(
   pathname: string,
-  action: "messages" | "read" | "interrupt" | "project",
+  action: "messages" | "read" | "interrupt" | "project" | "archive" | "restore",
 ): { sessionId: string } | null {
   const match = new RegExp(`^/api/local-console/sessions/(.+)/${action}$`, "u").exec(pathname);
   if (match === null) {

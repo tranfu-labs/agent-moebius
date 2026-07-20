@@ -40,6 +40,7 @@ export interface ConversationSidebarProps {
   onShowProjectInFolder?: (project: ConversationSidebarProject) => void;
   onRenameProject?: (project: ConversationSidebarProject) => void;
   onRemoveProject?: (project: ConversationSidebarProject) => void;
+  onArchiveSession?: (sessionId: string, projectId: string) => void;
   onReorderProjects?: (projectIds: string[]) => boolean | void | Promise<boolean | void>;
   onRepairProject?: (project: ConversationSidebarProject) => void;
   disabled?: boolean;
@@ -163,6 +164,7 @@ export function ConversationSidebar({
   onShowProjectInFolder,
   onRenameProject,
   onRemoveProject,
+  onArchiveSession,
   onReorderProjects,
   onRepairProject,
   disabled = false,
@@ -475,6 +477,7 @@ export function ConversationSidebar({
                       session={session}
                       selected={session.id === selectedSessionId}
                       onSelectSession={onSelectSession}
+                      onArchiveSession={onArchiveSession}
                       disabled={disabled}
                     />
                   ))}
@@ -493,40 +496,80 @@ function SessionRow({
   session,
   selected,
   onSelectSession,
+  onArchiveSession,
   disabled
 }: {
   projectId: string;
   session: ConversationSidebarSession;
   selected: boolean;
   onSelectSession?: (sessionId: string, projectId: string) => void;
+  onArchiveSession?: (sessionId: string, projectId: string) => void;
   disabled: boolean;
 }): JSX.Element {
+  const [menuOpen, setMenuOpen] = React.useState(false);
   const status = deriveStatusDot(session);
   const accessibleName = status === "none" ? session.title : `${session.title}，${statusLabel[status]}`;
+  const archiveDisabledReason = session.isRunning ? "当前对话正在运行，请先中止或等待运行结束" : null;
   return (
-    <button
-      type="button"
-      data-testid="conversation-sidebar-session"
-      data-session-id={session.id}
-      data-status-dot={status}
-      className={cn(
-        "grid h-8 w-full grid-cols-[minmax(0,1fr)_18px] items-center gap-1.5 rounded-md px-2 text-left text-sm hover:bg-hover",
-        selected ? "bg-sel" : "bg-transparent"
-      )}
-      aria-current={selected ? "page" : undefined}
-      aria-label={accessibleName}
-      disabled={disabled}
-      onClick={() => {
-        if (!disabled) {
-          onSelectSession?.(session.id, projectId);
-        }
-      }}
-    >
-      <span className="min-w-0">
-        <span className="block truncate text-[13px] font-normal leading-4">{session.title}</span>
-      </span>
-      <StatusIcon status={status} />
-    </button>
+    <div className="group relative flex h-8 min-w-0 items-center" data-testid="conversation-sidebar-session-row">
+      <button
+        type="button"
+        data-testid="conversation-sidebar-session"
+        data-session-id={session.id}
+        data-status-dot={status}
+        className={cn(
+          "grid h-8 w-full grid-cols-[minmax(0,1fr)_18px] items-center gap-1.5 rounded-md px-2 text-left text-sm hover:bg-hover",
+          selected ? "bg-sel" : "bg-transparent"
+        )}
+        aria-current={selected ? "page" : undefined}
+        aria-label={accessibleName}
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) {
+            onSelectSession?.(session.id, projectId);
+          }
+        }}
+        onContextMenu={(event) => {
+          if (!disabled && onArchiveSession !== undefined) {
+            event.preventDefault();
+            setMenuOpen(true);
+          }
+        }}
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-[13px] font-normal leading-4">{session.title}</span>
+        </span>
+        <StatusIcon status={status} />
+      </button>
+      {onArchiveSession ? (
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "absolute right-1 flex h-6 w-6 items-center justify-center rounded-md bg-rail text-sub opacity-0 shadow-sm hover:bg-hover hover:text-ink focus:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent group-hover:opacity-100 group-focus-within:opacity-100",
+                menuOpen && "opacity-100",
+              )}
+              aria-label={`${session.title} 对话菜单`}
+              title={`${session.title} 对话菜单`}
+              disabled={disabled}
+            >
+              <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" aria-label={`${session.title} 对话操作`} className="min-w-32">
+            <DropdownMenuItem
+              disabled={archiveDisabledReason !== null}
+              aria-description={archiveDisabledReason ?? undefined}
+              title={archiveDisabledReason ?? "归档"}
+              onSelect={() => onArchiveSession(session.id, projectId)}
+            >
+              归档
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </div>
   );
 }
 

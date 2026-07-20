@@ -204,6 +204,34 @@ describe("ConversationSidebar", () => {
     expect(screen.getByRole("button", { name: "agent-moebius 项目，已展开" })).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("offers the single archive action from a focusable hover menu and the row context menu", async () => {
+    const onArchiveSession = vi.fn();
+    render(<ConversationSidebar projects={[project]} onArchiveSession={onArchiveSession} />);
+
+    const menuTrigger = screen.getByRole("button", { name: "导出功能重构 对话菜单" });
+    fireEvent.focus(menuTrigger);
+    expect(menuTrigger).toHaveClass("focus:opacity-100");
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "导出功能重构" }));
+    const archiveItem = await screen.findByRole("menuitem", { name: "归档" });
+    expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+    fireEvent.click(archiveItem);
+
+    expect(onArchiveSession).toHaveBeenCalledWith("idle-refactor", "agent-moebius");
+  });
+
+  it("keeps archive visible but disabled while the session is running", async () => {
+    const onArchiveSession = vi.fn();
+    render(<ConversationSidebar projects={[project]} onArchiveSession={onArchiveSession} />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "进度提示，正在运行" }));
+    const archiveItem = await screen.findByRole("menuitem", { name: "归档" });
+    expect(archiveItem).toHaveAttribute("aria-disabled", "true");
+    expect(archiveItem).toHaveAttribute("title", "当前对话正在运行，请先中止或等待运行结束");
+    fireEvent.click(archiveItem);
+    expect(onArchiveSession).not.toHaveBeenCalled();
+  });
+
   it("requests a new conversation for the project row that owns the button", () => {
     const onNewConversation = vi.fn();
     const secondProject = {

@@ -136,6 +136,10 @@ function runCommand(input: WorkerInput): unknown {
         return createLocalSession(database, input.command);
       case "local-move-empty-session":
         return moveEmptyLocalSession(database, input.command);
+      case "local-archive-session":
+        return archiveLocalSession(database, input.command);
+      case "local-restore-session":
+        return restoreLocalSession(database, input.command);
       case "local-create-child-session":
         return createLocalChildSession(database, input.command);
       case "local-list-sessions":
@@ -396,6 +400,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   markSchemaMigration(database, "t5-local-console-facts");
   markSchemaMigration(database, "main-sidebar-t2-session-created-at");
   markSchemaMigration(database, "main-sidebar-t8-project-removal");
+  markSchemaMigration(database, "main-sidebar-t11-session-archive");
   markSchemaMigration(database, "main-sidebar-t3-session-attention-state");
 }
 
@@ -1231,6 +1236,81 @@ function moveEmptyLocalSession(
   });
 }
 
+function archiveLocalSession(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-archive-session" }>,
+): unknown {
+  return transaction(database, () => {
+    const row = database
+      .prepare("SELECT session_id, project_id, archived_at FROM sessions WHERE session_id = ? AND source_type = 'local'")
+      .get(input.sessionId);
+    if (!isRecord(row)) {
+      throw new Error(`local console session not found: ${input.sessionId}`);
+    }
+    if (row.archived_at !== null) {
+      throw new Error(`local console session already archived: ${input.sessionId}`);
+    }
+    const running = database
+      .prepare("SELECT 1 AS found FROM session_messages WHERE session_id = ? AND status = 'running' LIMIT 1")
+      .get(input.sessionId);
+    if (running !== undefined) {
+      throw new Error("SESSION_HAS_RUNNING_AGENT");
+    }
+
+    const projectId = readString(row.project_id, "project_id");
+    const visibleSessionIds = database
+      .prepare(
+        `SELECT session_id FROM sessions
+         WHERE source_type = 'local' AND project_id = ? AND archived_at IS NULL
+         ORDER BY created_at DESC, session_id ASC`,
+      )
+      .all(projectId)
+      .map((visibleRow) => {
+        if (!isRecord(visibleRow)) {
+          throw new Error("Invalid local console session row during archive");
+        }
+        return readString(visibleRow.session_id, "session_id");
+      });
+    const archivedIndex = visibleSessionIds.indexOf(input.sessionId);
+    if (archivedIndex < 0) {
+      throw new Error(`local console session is not visible: ${input.sessionId}`);
+    }
+    const selectedSessionId = visibleSessionIds[archivedIndex + 1]
+      ?? visibleSessionIds[archivedIndex - 1]
+      ?? null;
+
+    database
+      .prepare("UPDATE sessions SET archived_at = ?, updated_at = ? WHERE session_id = ? AND archived_at IS NULL")
+      .run(input.now, input.now, input.sessionId);
+    clearLocalCursorActive(database, input.sessionId, input.now);
+    return { sessionId: input.sessionId, projectId, selectedSessionId };
+  });
+}
+
+function restoreLocalSession(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-restore-session" }>,
+): unknown {
+  return transaction(database, () => {
+    const row = database
+      .prepare(
+        `SELECT s.session_id
+         FROM sessions s
+         JOIN projects p ON p.project_id = s.project_id
+         WHERE s.session_id = ? AND s.source_type = 'local' AND s.archived_at IS NOT NULL AND p.removed_at IS NULL`,
+      )
+      .get(input.sessionId);
+    if (!isRecord(row)) {
+      throw new Error(`local console archived session not found: ${input.sessionId}`);
+    }
+    database
+      .prepare("UPDATE sessions SET archived_at = NULL, updated_at = ? WHERE session_id = ?")
+      .run(input.now, input.sessionId);
+    ensureLocalCursor(database, input.sessionId, input.now);
+    return requireLocalSession(database, input.sessionId);
+  });
+}
+
 function createLocalChildSession(
   database: SqliteDatabase,
   input: Extract<SqliteStateCommand, { kind: "local-create-child-session" }>,
@@ -1359,6 +1439,12 @@ function claimNextPendingMessage(
   input: Extract<SqliteStateCommand, { kind: "local-claim-next" }>,
 ): unknown | null {
   return transaction(database, () => {
+    const session = database
+      .prepare("SELECT archived_at FROM sessions WHERE session_id = ? AND source_type = 'local'")
+      .get(input.sessionId);
+    if (!isRecord(session) || session.archived_at !== null) {
+      return null;
+    }
     ensureLocalCursor(database, input.sessionId, input.now);
     const active = database
       .prepare("SELECT active_message_id FROM local_message_cursors WHERE session_id = ? AND active_message_id IS NOT NULL")

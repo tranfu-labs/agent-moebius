@@ -5,12 +5,14 @@ import { runSqliteStateCommand, type SqliteStateCommand } from "../sqlite-state.
 import {
   LOCAL_CONSOLE_PROJECT_ID,
   LocalConsoleSessionProjectError,
+  LocalConsoleSessionRunningError,
   type LocalConsoleMessage,
   type LocalConsoleMessageStatus,
   type LocalConsoleAwaitsHumanReason,
   type MoveEmptySessionResult,
   type LocalConsoleProjectRemovalResult,
   type LocalConsoleProjectSummary,
+  type LocalConsoleSessionArchiveResult,
   type LocalRouteDecisionRecord,
   type LocalConsoleSessionStatus,
   type LocalConsoleSessionSummary,
@@ -109,6 +111,21 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
       throw new LocalConsoleSessionProjectError(result.code);
     }
     return result.session;
+  }
+
+  async archiveSession(input: { sessionId: string; now: string }): Promise<LocalConsoleSessionArchiveResult> {
+    try {
+      return await this.run({ kind: "local-archive-session", ...input });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("SESSION_HAS_RUNNING_AGENT")) {
+        throw new LocalConsoleSessionRunningError();
+      }
+      throw error;
+    }
+  }
+
+  async restoreSession(input: { sessionId: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    return this.run({ kind: "local-restore-session", ...input });
   }
 
   async listSessions(): Promise<LocalConsoleSessionSummary[]> {
@@ -394,6 +411,13 @@ function normalizeResult(value: unknown): unknown {
 function normalizeStoreRecordIfNeeded(value: unknown): unknown {
   if (isRecord(value) && "routeKey" in value && "outcome" in value) {
     return normalizeRouteDecision(value);
+  }
+  if (isRecord(value) && "selectedSessionId" in value && "sessionId" in value && "projectId" in value) {
+    return {
+      sessionId: readString(value.sessionId, "sessionId"),
+      projectId: readString(value.projectId, "projectId"),
+      selectedSessionId: readNullableString(value.selectedSessionId, "selectedSessionId"),
+    } satisfies LocalConsoleSessionArchiveResult;
   }
   if (!isRecord(value) || !("sessionId" in value)) {
     return value;
