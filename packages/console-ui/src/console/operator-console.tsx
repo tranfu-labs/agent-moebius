@@ -52,6 +52,28 @@ export type OperatorSessionStatus =
 export type OperatorRunnerStatus = "starting" | "running" | "stopped" | "crashed" | "error";
 export type OperatorApplicationView = "conversation" | "agent-teams";
 export type OperatorProjectListState = "ready" | "loading" | "error";
+export interface OperatorAgentTeamMember {
+  slug: string;
+  displayName: string;
+  description: string;
+}
+export interface OperatorAgentTeam {
+  teamKey: string;
+  id: string;
+  ownership: "system" | "user";
+  name: string | null;
+  description: string | null;
+  primaryAgentSlug: string | null;
+  memberOrder: string[];
+  members: OperatorAgentTeamMember[];
+  status: "usable" | "unfinished-draft" | "needs-repair";
+  canCreateConversation: boolean;
+}
+export type OperatorAgentTeamsState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "configuration-error" }
+  | { status: "ready"; teams: OperatorAgentTeam[] };
 export interface NewConversationOptions {
   projectId?: string;
 }
@@ -154,6 +176,9 @@ export interface OperatorConsoleProps {
   sqlitePath?: string;
   lastError?: string | null;
   projectListState?: OperatorProjectListState;
+  agentTeamsState?: OperatorAgentTeamsState;
+  selectedAgentTeamKey?: string | null;
+  selectedAgentTeamMemberSlug?: string | null;
   onComposerChange(value: string): void;
   onSend(): void;
   onOpenProject?: () => void;
@@ -170,6 +195,7 @@ export interface OperatorConsoleProps {
   onInterrupt(sessionId: string, runId: string): void;
   onOpenDiagnostics?: () => void;
   onRetryProjectList?: () => void;
+  onRetryAgentTeams?: () => void;
   isSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
@@ -192,6 +218,9 @@ export function OperatorConsole({
   composerValue,
   lastError,
   projectListState = "ready",
+  agentTeamsState = { status: "loading" },
+  selectedAgentTeamKey,
+  selectedAgentTeamMemberSlug,
   onComposerChange,
   onSend,
   onOpenProject,
@@ -208,6 +237,7 @@ export function OperatorConsole({
   onInterrupt,
   onOpenDiagnostics,
   onRetryProjectList,
+  onRetryAgentTeams,
   isSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
@@ -472,7 +502,13 @@ export function OperatorConsole({
         ) : null}
 
         {applicationView === "agent-teams" ? (
-          <AgentTeamsStub onBack={() => setApplicationView("conversation")} />
+          <AgentTeamsPage
+            state={agentTeamsState}
+            selectedTeamKey={selectedAgentTeamKey}
+            selectedMemberSlug={selectedAgentTeamMemberSlug}
+            onRetry={onRetryAgentTeams}
+            onBack={() => setApplicationView("conversation")}
+          />
         ) : (
           <>
             <section
@@ -884,7 +920,19 @@ function SidebarAction({
   );
 }
 
-function AgentTeamsStub({ onBack }: { onBack: () => void }): JSX.Element {
+function AgentTeamsPage({
+  state,
+  selectedTeamKey,
+  selectedMemberSlug,
+  onRetry,
+  onBack,
+}: {
+  state: OperatorAgentTeamsState;
+  selectedTeamKey?: string | null;
+  selectedMemberSlug?: string | null;
+  onRetry?: () => void;
+  onBack: () => void;
+}): JSX.Element {
   return (
     <section className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-12 pt-16" aria-labelledby="agent-teams-title">
       <div className="mx-auto max-w-[760px]">
@@ -892,14 +940,88 @@ function AgentTeamsStub({ onBack }: { onBack: () => void }): JSX.Element {
         <h1 id="agent-teams-title" className="text-2xl font-semibold tracking-[-0.02em] text-ink">
           Agent 团队
         </h1>
-        <p className="mt-3 max-w-xl text-sm leading-6 text-sub">
-          Agent 团队管理界面将在后续任务中提供。当前入口与返回路径已经接通。
-        </p>
-        <Button type="button" variant="outline" className="mt-6" onClick={onBack}>
-          返回当前对话
-        </Button>
+        <p className="mt-3 max-w-xl text-sm leading-6 text-sub">查看和管理负责不同任务的 Agent 团队</p>
+
+        {state.status === "loading" ? <AgentTeamsLoading /> : null}
+        {state.status === "error" ? (
+          <AgentTeamsFailure
+            title="暂时无法加载 Agent 团队"
+            description="团队数据没有被清空，稍后重试即可。"
+            onRetry={onRetry}
+          />
+        ) : null}
+        {state.status === "configuration-error" ? (
+          <AgentTeamsFailure
+            title="应用配置异常"
+            description="软件自带的 Agent 团队无法读取。请重试；如果问题持续，请打开诊断信息寻求帮助。"
+            onRetry={onRetry}
+          />
+        ) : null}
+        {state.status === "ready" ? (
+          <div
+            className="mt-8 min-h-40"
+            aria-label="团队数据已载入"
+            data-testid="agent-teams-data-container"
+            data-team-count={state.teams.length}
+            data-selected-team-key={selectedTeamKey ?? undefined}
+            data-selected-member-slug={selectedMemberSlug ?? undefined}
+          >
+            <p className="text-sm text-sub">已载入 {state.teams.length} 支团队</p>
+          </div>
+        ) : null}
+
+        <Button type="button" variant="outline" className="mt-6" onClick={onBack}>返回当前对话</Button>
       </div>
     </section>
+  );
+}
+
+function AgentTeamsLoading(): JSX.Element {
+  return (
+    <div className="mt-8 space-y-4" role="status" aria-label="Agent 团队正在加载">
+      {[0, 1].map((index) => (
+        <div
+          key={index}
+          className="grid min-h-28 animate-pulse grid-cols-[minmax(0,1fr)_minmax(180px,0.65fr)] overflow-hidden rounded-xl border border-line"
+          data-testid="agent-team-loading-row"
+        >
+          <div className="space-y-3 border-r border-line p-5">
+            <div className="h-4 w-32 rounded bg-hover" />
+            <div className="h-3 w-48 max-w-full rounded bg-hover" />
+            <div className="h-3 w-24 rounded bg-hover" />
+          </div>
+          <div className="flex items-center gap-2 p-5">
+            <div className="h-9 w-16 rounded-md bg-hover" />
+            <div className="h-9 w-16 rounded-md bg-hover" />
+            <div className="h-9 w-16 rounded-md bg-hover" />
+          </div>
+        </div>
+      ))}
+      <span className="sr-only">正在读取团队信息…</span>
+    </div>
+  );
+}
+
+function AgentTeamsFailure({
+  title,
+  description,
+  onRetry,
+}: {
+  title: string;
+  description: string;
+  onRetry?: () => void;
+}): JSX.Element {
+  return (
+    <div className="mt-8 rounded-xl border border-line bg-rail p-5" role="alert">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-ink">{title}</p>
+          <p className="mt-1 text-sm leading-6 text-sub">{description}</p>
+          <Button type="button" variant="outline" size="sm" className="mt-4" onClick={onRetry}>重试</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

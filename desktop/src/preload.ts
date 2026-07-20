@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopStatusSnapshot } from "./status.js";
+import {
+  TEAM_IPC_CHANNELS,
+  type AgentTeamListResponse,
+  type AgentTeamMemberDocument,
+  type AgentTeamMemberRequest,
+  type AgentTeamMemberWriteRequest,
+} from "./team-ipc.js";
 
 export interface AgentMoebiusDesktopApi {
   onStatus(listener: (snapshot: DesktopStatusSnapshot) => void): () => void;
@@ -11,6 +18,9 @@ export interface AgentMoebiusDesktopApi {
   selectProjectFolder(): Promise<string | null>;
   selectFolderForRepair(projectId: string): Promise<string | null>;
   showInFolder(folderPath: string): Promise<void>;
+  listAgentTeams(): Promise<AgentTeamListResponse>;
+  readAgentTeamMember(request: AgentTeamMemberRequest): Promise<AgentTeamMemberDocument>;
+  writeAgentTeamMember(request: AgentTeamMemberWriteRequest): Promise<AgentTeamMemberDocument>;
 }
 
 const api: AgentMoebiusDesktopApi = {
@@ -46,6 +56,15 @@ const api: AgentMoebiusDesktopApi = {
   },
   showInFolder(folderPath) {
     return ipcRenderer.invoke("project:show-in-folder", folderPath) as Promise<void>;
+  },
+  listAgentTeams() {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.list) as Promise<AgentTeamListResponse>;
+  },
+  readAgentTeamMember(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.readMember, request) as Promise<AgentTeamMemberDocument>;
+  },
+  writeAgentTeamMember(request) {
+    return ipcRenderer.invoke(TEAM_IPC_CHANNELS.writeMember, request) as Promise<AgentTeamMemberDocument>;
   },
 };
 

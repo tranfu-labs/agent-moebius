@@ -187,20 +187,63 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toBe(selectedSession);
   });
 
-  it("routes Agent Teams to a selected stub page and restores the current conversation", () => {
-    renderConsole();
+  it("routes Agent Teams to the real data container and restores the current conversation", () => {
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [agentTeam] },
+      selectedAgentTeamKey: "system:development",
+      selectedAgentTeamMemberSlug: "manager",
+    });
     const teamsEntry = screen.getByRole("button", { name: "Agent 团队" });
 
     fireEvent.click(teamsEntry);
 
     expect(teamsEntry).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("heading", { name: "Agent 团队" })).toBeVisible();
+    expect(screen.getByLabelText("团队数据已载入")).toHaveAttribute("data-team-count", "1");
+    expect(screen.getByLabelText("团队数据已载入")).toHaveAttribute("data-selected-team-key", "system:development");
+    expect(screen.getByLabelText("团队数据已载入")).toHaveAttribute("data-selected-member-slug", "manager");
     expect(screen.queryByRole("region", { name: "会话时间线" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "返回当前对话" }));
     expect(teamsEntry).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("region", { name: "会话时间线" })).toBeVisible();
     expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps the horizontal team-row structure while Agent teams are loading", () => {
+    renderConsole({ agentTeamsState: { status: "loading" } });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+
+    expect(screen.getByRole("status", { name: "Agent 团队正在加载" })).toBeVisible();
+    expect(screen.getAllByTestId("agent-team-loading-row")).toHaveLength(2);
+    expect(screen.queryByText(/没有团队/u)).not.toBeInTheDocument();
+  });
+
+  it("preserves the page frame and offers retry when team loading fails", () => {
+    const onRetryAgentTeams = vi.fn();
+    renderConsole({ agentTeamsState: { status: "error" }, onRetryAgentTeams });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+
+    expect(screen.getByRole("heading", { name: "Agent 团队" })).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("暂时无法加载 Agent 团队");
+    expect(screen.getByRole("alert")).toHaveTextContent("团队数据没有被清空");
+    expect(screen.queryByText(/没有团队/u)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(onRetryAgentTeams).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls out an application configuration error when built-in teams cannot load", () => {
+    const onRetryAgentTeams = vi.fn();
+    renderConsole({ agentTeamsState: { status: "configuration-error" }, onRetryAgentTeams });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+
+    expect(screen.getByRole("heading", { name: "Agent 团队" })).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("应用配置异常");
+    expect(screen.getByRole("alert")).toHaveTextContent("软件自带的 Agent 团队无法读取");
+    expect(screen.queryByRole("button", { name: "新建团队" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/没有团队/u)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(onRetryAgentTeams).toHaveBeenCalledTimes(1);
   });
 
   it("closes and restores the sidebar without remounting the timeline or active run", () => {
@@ -737,6 +780,19 @@ const project: OperatorProject = {
   waitingCount: 0,
   stuckCount: 0,
   errorCount: 1,
+};
+
+const agentTeam = {
+  teamKey: "system:development",
+  id: "development",
+  ownership: "system" as const,
+  name: "开发团队",
+  description: "负责软件开发任务",
+  primaryAgentSlug: "manager",
+  memberOrder: ["manager"],
+  members: [{ slug: "manager", displayName: "开发经理", description: "默认接单" }],
+  status: "usable" as const,
+  canCreateConversation: true,
 };
 
 const runSnapshot: OperatorRunSnapshot = {

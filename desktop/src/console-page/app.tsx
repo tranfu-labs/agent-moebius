@@ -3,11 +3,14 @@ import "@agent-moebius/console-ui/globals.css";
 import {
   OperatorConsole,
   type OperatorMessage,
+  type OperatorAgentTeam,
+  type OperatorAgentTeamsState,
   type OperatorProject,
   type OperatorRunSnapshot,
   type OperatorRunnerStatus,
   type OperatorSession,
 } from "@agent-moebius/console-ui";
+import type { AgentTeamListItem, AgentTeamListResponse } from "../team-ipc.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -25,6 +28,11 @@ import {
   writeSidebarVisibilityPreference,
   type SidebarVisibilityPreference,
 } from "./sidebar-preference.js";
+import {
+  getAgentTeamKey,
+  reconcileAgentTeamSelection,
+  type AgentTeamSelection,
+} from "./team-state.js";
 
 interface DesktopApi {
   getLocalConsoleUrl?: () => Promise<string | null>;
@@ -33,6 +41,7 @@ interface DesktopApi {
   selectProjectFolder?: () => Promise<string | null>;
   selectFolderForRepair?: (projectId: string) => Promise<string | null>;
   showInFolder?: (folderPath: string) => Promise<void>;
+  listAgentTeams?: () => Promise<AgentTeamListResponse>;
 }
 
 interface DesktopStatusSnapshot {
@@ -79,10 +88,61 @@ function App(): JSX.Element {
   const [clientError, setClientError] = useState<string | null>(null);
   const [isProjectMutationPending, setIsProjectMutationPending] = useState(false);
   const [isNewConversationWithoutProject, setIsNewConversationWithoutProject] = useState(false);
+  const [agentTeamsState, setAgentTeamsState] = useState<OperatorAgentTeamsState>({ status: "loading" });
+  const [agentTeamSelection, setAgentTeamSelection] = useState<AgentTeamSelection | null>(null);
+  const [agentTeamsRefreshNonce, setAgentTeamsRefreshNonce] = useState(0);
   const [sidebarVisibilityPreference, setSidebarVisibilityPreference] = useState<SidebarVisibilityPreference>(() =>
     readSidebarVisibilityPreference(window.localStorage),
   );
   const resultAcknowledgementsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    let cancelled = false;
+    let loadingTimer: number | undefined;
+
+    async function loadTeams(): Promise<void> {
+      const listTeams = window.agentMoebius?.listAgentTeams;
+      if (listTeams === undefined) {
+        if (!cancelled) {
+          setAgentTeamsState({ status: "error" });
+        }
+        return;
+      }
+
+      try {
+        const result = await listTeams();
+        if (cancelled) {
+          return;
+        }
+        if (result.status === "loading") {
+          setAgentTeamsState({ status: "loading" });
+          loadingTimer = window.setTimeout(() => void loadTeams(), 250);
+          return;
+        }
+        if (result.status === "configuration-error") {
+          setAgentTeamsState({ status: "configuration-error" });
+          setAgentTeamSelection(null);
+          return;
+        }
+
+        setAgentTeamsState({ status: "ready", teams: result.teams.map(toOperatorAgentTeam) });
+        setAgentTeamSelection((current) => reconcileAgentTeamSelection(result.teams, current));
+      } catch {
+        if (!cancelled) {
+          setAgentTeamsState({ status: "error" });
+        }
+      }
+    }
+
+    setAgentTeamsState({ status: "loading" });
+    void loadTeams();
+    return () => {
+      cancelled = true;
+      if (loadingTimer !== undefined) {
+        window.clearTimeout(loadingTimer);
+      }
+    };
+  }, [agentTeamsRefreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -379,6 +439,9 @@ function App(): JSX.Element {
       sqlitePath={sqlitePath}
       lastError={lastError}
       projectListState={projectListState}
+      agentTeamsState={agentTeamsState}
+      selectedAgentTeamKey={agentTeamSelection?.teamKey}
+      selectedAgentTeamMemberSlug={agentTeamSelection?.memberSlug}
       onComposerChange={setComposerValue}
       onSend={actions.sendMessage}
       onOpenProject={actions.openProject}
@@ -401,6 +464,7 @@ function App(): JSX.Element {
         setClientError(null);
         void refresh(selectionRef.current);
       }}
+      onRetryAgentTeams={() => setAgentTeamsRefreshNonce((current) => current + 1)}
       isSending={isSending}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}
@@ -435,6 +499,21 @@ const emptyProject: OperatorProject = {
 
 function endpoint(base: string, path: string): URL {
   return new URL(path.replace(/^\//u, ""), base.endsWith("/") ? base : `${base}/`);
+}
+
+function toOperatorAgentTeam(team: AgentTeamListItem): OperatorAgentTeam {
+  return {
+    teamKey: getAgentTeamKey(team),
+    id: team.id,
+    ownership: team.ownership,
+    name: team.definition?.name ?? null,
+    description: team.definition?.description ?? null,
+    primaryAgentSlug: team.definition?.primaryAgentSlug ?? null,
+    memberOrder: team.definition?.memberOrder ?? [],
+    members: team.members,
+    status: team.status,
+    canCreateConversation: team.canCreateConversation,
+  };
 }
 
 function readQueryApiBase(): string | null {

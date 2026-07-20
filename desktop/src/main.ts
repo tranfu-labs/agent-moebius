@@ -21,6 +21,12 @@ import { RunnerSupervisor, type RunnerProcess } from "./runner-supervisor.js";
 import { DESKTOP_RUNNER_ARGS } from "./runner-launch.js";
 import { resolveShellPath } from "./shell-path.js";
 import type { DesktopStatusSnapshot } from "./status.js";
+import {
+  TEAM_IPC_CHANNELS,
+  listAgentTeams,
+  readAgentTeamMember,
+  writeAgentTeamMember,
+} from "./team-ipc.js";
 import { seedBuiltInTeams } from "./team-seed.js";
 import { decideUpdate, type ReleaseMetadata } from "./updater.js";
 
@@ -255,6 +261,17 @@ ipcMain.handle("action:open-status-page", async () => {
 });
 
 ipcMain.handle("local-console:get-url", async () => status.localConsole.url ?? null);
+
+ipcMain.handle(TEAM_IPC_CHANNELS.list, async () => listAgentTeams({
+  dataRoot: status.dataRoot,
+  seedPending: status.seed.status === "pending",
+}));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.readMember, async (_event, request: unknown) =>
+  readAgentTeamMember(status.dataRoot, request));
+
+ipcMain.handle(TEAM_IPC_CHANNELS.writeMember, async (_event, request: unknown) =>
+  writeAgentTeamMember(status.dataRoot, request));
 
 ipcMain.handle("project:select-folder", async () => {
   const options: OpenDialogOptions = {
