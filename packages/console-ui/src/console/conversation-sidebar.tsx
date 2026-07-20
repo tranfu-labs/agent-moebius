@@ -70,6 +70,26 @@ export function deriveStatusDot(
   return "none";
 }
 
+export function deriveProjectStatusDot(
+  sessions: readonly Pick<ConversationSidebarSession, "awaitsHumanReason" | "unreadSince" | "isRunning">[],
+): ConversationSessionStatus {
+  let highestStatus: ConversationSessionStatus = "none";
+
+  for (const session of sessions) {
+    const status = deriveStatusDot(session);
+    if (status === "red") {
+      return "red";
+    }
+    if (status === "blue") {
+      highestStatus = "blue";
+    } else if (status === "blink" && highestStatus === "none") {
+      highestStatus = "blink";
+    }
+  }
+
+  return highestStatus;
+}
+
 export function projectDirectoryName(project: Pick<ConversationSidebarProject, "path" | "label">): string {
   const displayName = project.label?.trim();
   if (displayName) {
@@ -270,6 +290,11 @@ export function ConversationSidebar({
           const projectName = projectDirectoryName(project);
           const orderedSessions = orderSessionsByCreatedAt(project.sessions);
           const expanded = !collapsedProjectIds.has(project.id);
+          const aggregatedStatus = expanded ? "none" : deriveProjectStatusDot(project.sessions);
+          const conversationListId = `project-${project.id}-conversations`;
+          const projectAccessibleName = `${projectName} 项目，${expanded ? "已展开" : "已折叠"}${
+            aggregatedStatus === "none" ? "" : `，${statusLabel[aggregatedStatus]}`
+          }`;
           const newConversationDisabledReason = project.newConversationDisabledReason
             ?? (disabled ? disabledReason ?? "项目正在变更，请稍后再试" : null);
 
@@ -336,7 +361,11 @@ export function ConversationSidebar({
                   role="button"
                   tabIndex={0}
                   aria-expanded={expanded}
-                  aria-label={`${projectName} 项目，${expanded ? "已展开" : "已折叠"}`}
+                  aria-controls={conversationListId}
+                  aria-label={projectAccessibleName}
+                  data-testid="conversation-sidebar-project-toggle"
+                  data-project-id={project.id}
+                  data-status-dot={aggregatedStatus}
                   className="flex min-w-0 flex-1 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
@@ -362,6 +391,7 @@ export function ConversationSidebar({
                     <h2 className="truncate text-sm font-semibold leading-5">{projectName}</h2>
                     {showProjectPath ? <p className="truncate text-xs text-hint">{project.path}</p> : null}
                   </div>
+                  {!expanded ? <StatusIcon status={aggregatedStatus} /> : null}
                 </div>
                 {project.directoryAvailable === false && onRepairProject ? (
                   <button
@@ -409,6 +439,7 @@ export function ConversationSidebar({
                         title={`${projectName} 项目菜单`}
                         data-project-row-action="project-menu"
                         disabled={disabled}
+                        onClick={(event) => event.stopPropagation()}
                       >
                         <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
                       </button>
@@ -435,18 +466,20 @@ export function ConversationSidebar({
                 ) : null}
               </div>
 
-              {expanded ? <div className="space-y-0.5" role="list" aria-label={`${projectName} 对话`}>
-                {orderedSessions.map((session) => (
-                  <SessionRow
-                    key={session.id}
-                    projectId={project.id}
-                    session={session}
-                    selected={session.id === selectedSessionId}
-                    onSelectSession={onSelectSession}
-                    disabled={disabled}
-                  />
-                ))}
-              </div> : null}
+              {expanded ? (
+                <div id={conversationListId} className="space-y-0.5" role="list" aria-label={`${projectName} 对话`}>
+                  {orderedSessions.map((session) => (
+                    <SessionRow
+                      key={session.id}
+                      projectId={project.id}
+                      session={session}
+                      selected={session.id === selectedSessionId}
+                      onSelectSession={onSelectSession}
+                      disabled={disabled}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </section>
           );
         })}

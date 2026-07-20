@@ -172,6 +172,32 @@ describe("OperatorConsole", () => {
     expect(screen.getByTestId("active-run-block")).toBe(activeRunBlock);
   });
 
+  it("keeps the selected conversation mounted when its project is collapsed", () => {
+    const onSelectSession = vi.fn();
+    renderConsole({ onSelectSession });
+
+    const timeline = screen.getByRole("region", { name: "会话时间线" });
+    expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toHaveAttribute("aria-current", "page");
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "agent-moebius 项目，已展开" }), { key: "Enter" });
+
+    expect(screen.getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" })).toHaveAttribute(
+      "data-status-dot",
+      "red",
+    );
+    expect(screen.queryByRole("button", { name: "默认会话，正在运行" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
+    expect(onSelectSession).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" }), {
+      key: "Enter",
+    });
+
+    expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
+    expect(onSelectSession).not.toHaveBeenCalled();
+  });
+
   it("keeps the sidebar visible throughout first-run onboarding", () => {
     const onSidebarOpenChange = vi.fn();
     renderConsole({

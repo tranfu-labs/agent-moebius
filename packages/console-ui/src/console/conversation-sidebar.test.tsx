@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ConversationSidebar,
+  deriveProjectStatusDot,
   deriveStatusDot,
   orderProjectIdsForPointer,
   orderSessionsByCreatedAt,
@@ -55,6 +56,19 @@ describe("ConversationSidebar", () => {
       { id: "gamma", top: 80, bottom: 120 },
     ])).toEqual(["gamma", "alpha", "beta"]);
     expect(projectIds).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  it("aggregates project status with red, blue, blink, none priority", () => {
+    const none = { awaitsHumanReason: null, unreadSince: null, isRunning: false };
+    const blink = { ...none, isRunning: true };
+    const blue = { ...none, unreadSince: "2026-07-09T00:02:00.000Z" };
+    const red = { ...none, awaitsHumanReason: "acceptance" };
+
+    expect(deriveProjectStatusDot([blink, blue, red])).toBe("red");
+    expect(deriveProjectStatusDot([blink, blue])).toBe("blue");
+    expect(deriveProjectStatusDot([none, blink])).toBe("blink");
+    expect(deriveProjectStatusDot([none])).toBe("none");
+    expect(deriveProjectStatusDot([])).toBe("none");
   });
 
   it("renders every session in createdAt descending order without a completed group", () => {
@@ -127,6 +141,67 @@ describe("ConversationSidebar", () => {
     expect(screen.getByRole("button", { name: "文档记录，有新结果" })).toHaveAttribute("data-status-dot", "blue");
     expect(screen.getByRole("button", { name: "进度提示，正在运行" })).toHaveAttribute("data-status-dot", "blink");
     expect(screen.getByRole("button", { name: "导出功能重构" })).toHaveAttribute("data-status-dot", "none");
+  });
+
+  it("toggles a project independently and only shows its aggregated status while collapsed", () => {
+    const secondProject: ConversationSidebarProject = {
+      id: "second-project",
+      path: "/Users/example/work/second-project",
+      sessions: [{
+        id: "second-running",
+        title: "第二项目运行",
+        awaitsHumanReason: null,
+        unreadSince: null,
+        isRunning: true,
+        createdAt: "2026-07-09T00:00:00.000Z",
+      }],
+    };
+    render(<ConversationSidebar projects={[project, secondProject]} selectedSessionId="idle-refactor" />);
+
+    const [firstRow] = screen.getAllByTestId("conversation-sidebar-project");
+    const firstToggle = screen.getByRole("button", { name: "agent-moebius 项目，已展开" });
+    const secondToggle = screen.getByRole("button", { name: "second-project 项目，已展开" });
+    expect(firstToggle).toHaveAttribute("aria-expanded", "true");
+    expect(firstToggle).toHaveAttribute("data-status-dot", "none");
+    expect(secondToggle).toHaveAttribute("aria-expanded", "true");
+
+    firePointer(firstRow!, "pointerdown", { pointerId: 10, button: 0, clientX: 10, clientY: 10 });
+    firePointer(firstRow!, "pointerup", { pointerId: 10, button: 0, clientX: 10, clientY: 10 });
+
+    const collapsedToggle = screen.getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" });
+    expect(collapsedToggle).toHaveAttribute("aria-expanded", "false");
+    expect(collapsedToggle).toHaveAttribute("data-status-dot", "red");
+    expect(screen.queryByRole("list", { name: "agent-moebius 对话" })).not.toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "second-project 对话" })).toBeVisible();
+    expect(secondToggle).toHaveAttribute("aria-expanded", "true");
+
+    firePointer(collapsedToggle, "pointerdown", { pointerId: 11, button: 0, clientX: 10, clientY: 10 });
+    firePointer(collapsedToggle, "pointerup", { pointerId: 11, button: 0, clientX: 10, clientY: 10 });
+
+    expect(screen.getByRole("button", { name: "agent-moebius 项目，已展开" })).toHaveAttribute("data-status-dot", "none");
+    expect(screen.getByRole("button", { name: "导出功能重构" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps project action buttons from bubbling into the project disclosure", () => {
+    const onNewConversation = vi.fn();
+    const onShowProjectInFolder = vi.fn();
+    const onOuterClick = vi.fn();
+    render(
+      <div onClick={onOuterClick}>
+        <ConversationSidebar
+          projects={[project]}
+          onNewConversation={onNewConversation}
+          onShowProjectInFolder={onShowProjectInFolder}
+        />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" }));
+    fireEvent.click(screen.getByRole("button", { name: "agent-moebius 项目菜单" }));
+
+    expect(onNewConversation).toHaveBeenCalledWith("agent-moebius");
+    expect(onOuterClick).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "agent-moebius 项目，已展开" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("requests a new conversation for the project row that owns the button", () => {
@@ -202,11 +277,18 @@ describe("ConversationSidebar", () => {
       firePointer(firstRow!, "pointerup", { pointerId: 2, button: 0, clientX: 10, clientY: 90 });
 
       expect(onReorderProjects).toHaveBeenCalledWith(["second-project", "agent-moebius"]);
-      expect(within(firstRow!).getByRole("button", { name: "agent-moebius 项目，已展开" })).toHaveAttribute(
+      const projectToggle = within(firstRow!).getByRole("button", { name: "agent-moebius 项目，已展开" });
+      expect(projectToggle).toHaveAttribute(
         "aria-expanded",
         "true",
       );
       await act(async () => Promise.resolve());
+
+      firePointer(projectToggle, "pointerdown", { pointerId: 5, button: 0, clientX: 10, clientY: 10 });
+      firePointer(projectToggle, "pointerup", { pointerId: 5, button: 0, clientX: 10, clientY: 10 });
+      expect(
+        within(firstRow!).getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" }),
+      ).toHaveAttribute("aria-expanded", "false");
     } finally {
       vi.useRealTimers();
     }
@@ -228,7 +310,10 @@ describe("ConversationSidebar", () => {
     const rows = screen.getAllByTestId("conversation-sidebar-project");
     expect(rows.map((row) => row.dataset.projectId)).toEqual(["new-top-project", "agent-moebius"]);
     expect(screen.getByRole("button", { name: "new-top-project 项目，已展开" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("button", { name: "agent-moebius 项目，已折叠" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
   });
 
   it("blocks project creation and session selection while a selection mutation is pending", () => {
