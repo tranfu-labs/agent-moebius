@@ -134,13 +134,17 @@ describe("ConversationSidebar", () => {
     expect(onSelectSession).toHaveBeenCalledWith("running-progress", "agent-moebius");
   });
 
-  it("exposes red, blue, and blinking meanings without relying on color while none has no status suffix", () => {
+  it("exposes red, blue, blinking, and no-dot meanings without relying on color", () => {
     render(<ConversationSidebar projects={[project]} />);
 
     expect(screen.getByRole("button", { name: "失败汇总，需要你处理" })).toHaveAttribute("data-status-dot", "red");
     expect(screen.getByRole("button", { name: "文档记录，有新结果" })).toHaveAttribute("data-status-dot", "blue");
     expect(screen.getByRole("button", { name: "进度提示，正在运行" })).toHaveAttribute("data-status-dot", "blink");
     expect(screen.getByRole("button", { name: "导出功能重构" })).toHaveAttribute("data-status-dot", "none");
+    expect(screen.getByRole("img", { name: "需要你处理" })).toHaveAttribute("title", "需要你处理");
+    expect(screen.getByRole("img", { name: "有新结果" })).toHaveAttribute("title", "有新结果");
+    expect(screen.getByRole("img", { name: "正在运行" })).toHaveAttribute("title", "正在运行");
+    expect(screen.getByRole("img", { name: "当前静止" })).toHaveAttribute("title", "当前静止");
   });
 
   it("toggles a project independently and only shows its aggregated status while collapsed", () => {

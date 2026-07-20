@@ -16,6 +16,7 @@ export type ConversationSidebarDataState = "ready" | "loading" | "error";
 export interface ConversationSidebarSession {
   id: string;
   title: string;
+  parentTitle?: string;
   awaitsHumanReason: string | null;
   unreadSince: string | null;
   isRunning: boolean;
@@ -58,7 +59,7 @@ const statusLabel: Record<ConversationSessionStatus, string> = {
   red: "需要你处理",
   blue: "有新结果",
   blink: "正在运行",
-  none: ""
+  none: "当前静止"
 };
 
 export function deriveStatusDot(
@@ -384,6 +385,7 @@ export function ConversationSidebar({
                   aria-expanded={expanded}
                   aria-controls={conversationListId}
                   aria-label={projectAccessibleName}
+                  title={projectAccessibleName}
                   data-testid="conversation-sidebar-project-toggle"
                   data-project-id={project.id}
                   data-status-dot={aggregatedStatus}
@@ -570,7 +572,11 @@ function SessionRow({
 }): JSX.Element {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const status = deriveStatusDot(session);
-  const accessibleName = status === "none" ? session.title : `${session.title}，${statusLabel[status]}`;
+  const lineageLabel = session.parentTitle === undefined ? null : `来自：${session.parentTitle}`;
+  const accessibleName = [session.title, lineageLabel, status === "none" ? null : statusLabel[status]]
+    .filter((part): part is string => part !== null)
+    .join("，");
+  const hoverTitle = lineageLabel === null ? session.title : `${session.title}（${lineageLabel}）`;
   const archiveDisabledReason = session.isRunning ? "当前对话正在运行，请先中止或等待运行结束" : null;
   return (
     <div className="group relative flex h-8 min-w-0 items-center" data-testid="conversation-sidebar-session-row">
@@ -585,7 +591,7 @@ function SessionRow({
         )}
         aria-current={selected ? "page" : undefined}
         aria-label={accessibleName}
-        title={session.title}
+        title={hoverTitle}
         disabled={disabled}
         onClick={() => {
           if (!disabled) {
@@ -637,29 +643,17 @@ function SessionRow({
 }
 
 function StatusIcon({ status }: { status: ConversationSessionStatus }): JSX.Element {
-  if (status === "red") {
-    return (
-      <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
-        <span className="h-2 w-2 rounded-full bg-danger" />
-      </span>
-    );
-  }
-
-  if (status === "blue") {
-    return (
-      <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
-        <span className="h-2 w-2 rounded-full bg-accent" />
-      </span>
-    );
-  }
-
-  if (status === "blink") {
-    return (
-      <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
-        <span className="h-2 w-2 rounded-full bg-sub animate-breathe" />
-      </span>
-    );
-  }
-
-  return <span className="h-4 w-4" aria-hidden="true" />;
+  return (
+    <span
+      className="flex h-4 w-4 items-center justify-center"
+      role="img"
+      aria-label={statusLabel[status]}
+      title={statusLabel[status]}
+      data-status-indicator={status}
+    >
+      {status === "red" ? <span className="h-2 w-2 rounded-full bg-danger" aria-hidden="true" /> : null}
+      {status === "blue" ? <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" /> : null}
+      {status === "blink" ? <span className="h-2 w-2 rounded-full bg-sub animate-breathe" aria-hidden="true" /> : null}
+    </span>
+  );
 }

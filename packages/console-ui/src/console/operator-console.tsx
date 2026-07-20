@@ -1025,7 +1025,7 @@ function SidebarAction({
       aria-label={label}
       aria-current={selected ? "page" : undefined}
       aria-description={disabled ? disabledReason : undefined}
-      title={disabled ? disabledReason : undefined}
+      title={disabled ? disabledReason ?? label : label}
       disabled={disabled}
       onClick={onClick}
     >
@@ -1444,6 +1444,7 @@ function TimelineEntry({
 }
 
 function toSidebarProject(project: OperatorProject): ConversationSidebarProject {
+  const sessionsById = new Map(project.sessions.map((session) => [session.sessionId, session]));
   return {
     id: project.projectId,
     path: project.folderPath,
@@ -1454,6 +1455,11 @@ function toSidebarProject(project: OperatorProject): ConversationSidebarProject 
     sessions: project.sessions.map((session) => ({
       id: session.sessionId,
       title: session.title,
+      parentTitle: session.parentSessionId !== undefined
+        && session.parentSessionId !== null
+        && session.parentSessionId !== session.sessionId
+        ? sessionsById.get(session.parentSessionId)?.title
+        : undefined,
       awaitsHumanReason: session.awaitsHumanReason,
       unreadSince: session.unreadSince,
       isRunning: session.status === "running" || session.runningCount > 0,

@@ -42,6 +42,10 @@ describe("OperatorConsole", () => {
       screen.getByRole("button", { name }),
     );
     expect(new Set(appEntries.map((entry) => entry.className)).size).toBe(1);
+    for (const [index, entry] of appEntries.entries()) {
+      expect(entry).toHaveAttribute("aria-label", ["新建对话", "搜索", "Agent 团队"][index]);
+      expect(entry).toHaveAttribute("title", ["新建对话", "搜索", "Agent 团队"][index]);
+    }
     expect(projectHeading).toBeVisible();
     expect(screen.getByRole("button", { name: "设置" })).toBeVisible();
 
@@ -59,6 +63,37 @@ describe("OperatorConsole", () => {
     expect(screen.queryByRole("button", { name: "打开项目" })).not.toBeInTheDocument();
     expect(screen.queryByText("开发者诊断")).not.toBeInTheDocument();
     expect(screen.queryByText(/本地引擎/u)).not.toBeInTheDocument();
+  });
+
+  it("keeps sidebar icon controls keyboard-focusable in visual order with readable names and hover titles", () => {
+    renderConsole({
+      onShowProjectInFolder: vi.fn(),
+      onRenameProject: vi.fn(),
+      onRemoveProject: vi.fn(),
+      onArchiveSession: vi.fn(),
+    });
+
+    const sidebar = screen.getByTestId("operator-sidebar");
+    const controls = Array.from(sidebar.querySelectorAll<HTMLElement>("button, [role='button']"));
+    expect(controls.map((control) => control.getAttribute("aria-label") ?? control.textContent?.trim())).toEqual([
+      "关闭侧边栏",
+      "新建对话",
+      "搜索",
+      "Agent 团队",
+      "agent-moebius 项目，已展开",
+      "在 agent-moebius 中新建会话",
+      "agent-moebius 项目菜单",
+      "默认会话，正在运行",
+      "默认会话 对话菜单",
+      "验收会话，需要你处理",
+      "验收会话 对话菜单",
+      "设置",
+    ]);
+    for (const control of controls) {
+      expect(control.tabIndex).toBeGreaterThanOrEqual(0);
+      expect(control.getAttribute("aria-label") ?? control.textContent?.trim()).not.toBe("");
+      expect(control).toHaveAttribute("title");
+    }
   });
 
   it("keeps all three application entries available when there are no projects", () => {
@@ -760,7 +795,7 @@ describe("OperatorConsole", () => {
     expect(onOpenDiagnostics).toHaveBeenCalledTimes(1);
   });
 
-  it("renders derived sessions as peers with no parent breadcrumb or tree controls", () => {
+  it("renders derived sessions as peers while exposing their parent through hover and assistive text", () => {
     const childSession = { ...sessions[1], parentSessionId: sessions[0].sessionId, title: "裂变会话" };
     renderConsole({
       selectedSessionId: childSession.sessionId,
@@ -776,6 +811,8 @@ describe("OperatorConsole", () => {
     expect(derivedRow).toBeDefined();
     expect(rootRow!.className.replace("bg-transparent", "bg-sel")).toBe(derivedRow!.className);
     expect(screen.getByText("裂变会话")).toBeVisible();
+    expect(screen.getByRole("button", { name: "裂变会话，来自：默认会话，需要你处理" }))
+      .toHaveAttribute("title", "裂变会话（来自：默认会话）");
     expect(screen.queryByText(/属于：/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/子会话/u)).not.toBeInTheDocument();
   });
