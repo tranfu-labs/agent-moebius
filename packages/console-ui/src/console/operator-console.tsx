@@ -12,7 +12,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { AgentMessage } from "@/console/agent-message";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
@@ -58,6 +58,17 @@ export interface NewConversationOptions {
 export type OperatorApplicationOverlay =
   | { kind: "new-conversation"; options: NewConversationOptions }
   | { kind: "search" };
+
+export const DEFAULT_SIDEBAR_WIDTH_PX = 248;
+export const MIN_SIDEBAR_WIDTH_PX = 220;
+export const MAX_SIDEBAR_WIDTH_PX = 360;
+export const NARROW_WINDOW_WIDTH_PX = 760;
+
+interface SidebarResizeGesture {
+  pointerId: number;
+  startX: number;
+  startWidth: number;
+}
 
 export interface OperatorSession {
   sessionId: string;
@@ -208,6 +219,9 @@ export function OperatorConsole({
   className,
 }: OperatorConsoleProps): JSX.Element {
   const [uncontrolledSidebarOpen, setUncontrolledSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH_PX);
+  const [isNarrowWindow, setIsNarrowWindow] = useState(() => viewportIsNarrow());
+  const sidebarResizeGestureRef = useRef<SidebarResizeGesture | null>(null);
   const [applicationView, setApplicationView] = useState<OperatorApplicationView>("conversation");
   const [applicationOverlay, setApplicationOverlay] = useState<OperatorApplicationOverlay | null>(null);
   const [renameTarget, setRenameTarget] = useState<OperatorProject | null>(null);
@@ -227,7 +241,14 @@ export function OperatorConsole({
   const canSend = composerValue.trim() !== "" && activeRun === null && !isSending && !isSessionProjectUpdating && !activeProjectUnavailable;
   const emptyConversation = messages.length === 0 && activeRun === null;
   const requestedSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
-  const effectiveSidebarOpen = isFirstRunOnboarding || requestedSidebarOpen;
+  const sidebarAutoCollapsed = !isFirstRunOnboarding && requestedSidebarOpen && isNarrowWindow;
+  const effectiveSidebarOpen = isFirstRunOnboarding || (requestedSidebarOpen && !isNarrowWindow);
+
+  useEffect(() => {
+    const updateNarrowWindow = () => setIsNarrowWindow(viewportIsNarrow());
+    window.addEventListener("resize", updateNarrowWindow);
+    return () => window.removeEventListener("resize", updateNarrowWindow);
+  }, []);
 
   const setSidebarOpen = (open: boolean) => {
     if (isFirstRunOnboarding && !open) {
@@ -249,15 +270,33 @@ export function OperatorConsole({
     setApplicationOverlay({ kind: "new-conversation", options });
   };
 
+  const resizeSidebar = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = sidebarResizeGestureRef.current;
+    if (gesture === null || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+    setSidebarWidth(clampSidebarWidth(gesture.startWidth + event.clientX - gesture.startX));
+  };
+
+  const finishSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = sidebarResizeGestureRef.current;
+    if (gesture === null || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+    sidebarResizeGestureRef.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
+
   return (
     <div className={cn("relative flex h-screen min-h-[560px] overflow-hidden bg-canvas text-ink", className)}>
       <aside
         className={cn(
-          "relative w-[248px] shrink-0 flex-col overflow-hidden border-r border-line bg-rail",
+          "relative shrink-0 flex-col overflow-hidden border-r border-line bg-rail",
           effectiveSidebarOpen ? "flex" : "hidden",
         )}
         data-testid="operator-sidebar"
         hidden={!effectiveSidebarOpen}
+        style={{ width: `${sidebarWidth}px` }}
       >
         <header
           className="window-drag-region flex h-10 shrink-0 items-center gap-2 pl-[76px] pr-2"
@@ -382,12 +421,42 @@ export function OperatorConsole({
         <footer className="shrink-0 border-t border-line p-2" data-testid="sidebar-footer">
           <SidebarAction icon={Settings} label="设置" />
         </footer>
+
+        <div
+          className="window-no-drag group absolute inset-y-0 right-0 z-30 w-1 cursor-col-resize touch-none"
+          role="separator"
+          aria-label="调整侧边栏宽度"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_SIDEBAR_WIDTH_PX}
+          aria-valuemax={MAX_SIDEBAR_WIDTH_PX}
+          aria-valuenow={sidebarWidth}
+          aria-valuetext={`${sidebarWidth} 像素`}
+          data-testid="sidebar-resize-handle"
+          onPointerDown={(event) => {
+            if (event.button !== 0) {
+              return;
+            }
+            event.preventDefault();
+            sidebarResizeGestureRef.current = {
+              pointerId: event.pointerId,
+              startX: event.clientX,
+              startWidth: sidebarWidth,
+            };
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+          }}
+          onPointerMove={resizeSidebar}
+          onPointerUp={finishSidebarResize}
+          onPointerCancel={finishSidebarResize}
+        >
+          <span className="absolute inset-y-0 right-0 w-px bg-line transition-colors group-hover:bg-accent group-active:bg-accent" />
+        </div>
       </aside>
 
       <main
         className="relative flex min-w-0 flex-1 flex-col bg-canvas"
         data-testid="operator-main"
         data-sidebar-open={effectiveSidebarOpen ? "true" : "false"}
+        data-sidebar-auto-collapsed={sidebarAutoCollapsed ? "true" : "false"}
       >
         <div className="window-drag-region absolute inset-x-0 top-0 z-10 h-9" aria-hidden="true" />
         {!effectiveSidebarOpen ? (
@@ -611,6 +680,14 @@ export function OperatorConsole({
       ) : null}
     </div>
   );
+}
+
+function viewportIsNarrow(): boolean {
+  return typeof window !== "undefined" && window.innerWidth < NARROW_WINDOW_WIDTH_PX;
+}
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(MAX_SIDEBAR_WIDTH_PX, Math.max(MIN_SIDEBAR_WIDTH_PX, width));
 }
 
 function NewConversationWithoutProject(): JSX.Element {

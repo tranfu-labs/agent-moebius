@@ -409,8 +409,8 @@ export function ConversationSidebar({
                     aria-hidden="true"
                   />
                   <div className="min-w-0 flex-1">
-                    <h2 className="truncate text-sm font-semibold leading-5">{projectName}</h2>
-                    {showProjectPath ? <p className="truncate text-xs text-hint">{project.path}</p> : null}
+                    <h2 className="truncate text-sm font-semibold leading-5" title={projectName}>{projectName}</h2>
+                    {showProjectPath ? <p className="truncate text-xs text-hint" title={project.path}>{project.path}</p> : null}
                   </div>
                   {!expanded ? <StatusIcon status={aggregatedStatus} /> : null}
                 </div>
@@ -585,6 +585,7 @@ function SessionRow({
         )}
         aria-current={selected ? "page" : undefined}
         aria-label={accessibleName}
+        title={session.title}
         disabled={disabled}
         onClick={() => {
           if (!disabled) {

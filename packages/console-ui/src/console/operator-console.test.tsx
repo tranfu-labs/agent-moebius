@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_SIDEBAR_WIDTH_PX,
+  MAX_SIDEBAR_WIDTH_PX,
+  MIN_SIDEBAR_WIDTH_PX,
+  NARROW_WINDOW_WIDTH_PX,
   OperatorConsole,
   type OperatorConsoleProps,
   type OperatorMessage,
@@ -9,6 +13,12 @@ import {
   type OperatorRunSnapshot,
   type OperatorSession,
 } from "./operator-console";
+
+const originalWindowWidth = window.innerWidth;
+
+afterEach(() => {
+  setWindowWidth(originalWindowWidth);
+});
 
 describe("OperatorConsole", () => {
   it("renders the fixed sidebar skeleton around the only scrolling project region", () => {
@@ -224,6 +234,71 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toBe(selectedSessionRow);
     expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
     expect(screen.getByTestId("active-run-block")).toBe(activeRunBlock);
+  });
+
+  it("resizes the sidebar from its right boundary within the supported width range", () => {
+    renderConsole();
+
+    const sidebar = screen.getByTestId("operator-sidebar");
+    const resizeHandle = screen.getByRole("separator", { name: "调整侧边栏宽度" });
+    expect(sidebar).toHaveStyle({ width: `${DEFAULT_SIDEBAR_WIDTH_PX}px` });
+    expect(resizeHandle).toHaveAttribute("aria-valuemin", String(MIN_SIDEBAR_WIDTH_PX));
+    expect(resizeHandle).toHaveAttribute("aria-valuemax", String(MAX_SIDEBAR_WIDTH_PX));
+
+    firePointer(resizeHandle, "pointerdown", { pointerId: 7, button: 0, clientX: DEFAULT_SIDEBAR_WIDTH_PX });
+    firePointer(resizeHandle, "pointermove", { pointerId: 7, button: 0, clientX: -1_000 });
+    expect(sidebar).toHaveStyle({ width: `${MIN_SIDEBAR_WIDTH_PX}px` });
+    expect(resizeHandle).toHaveAttribute("aria-valuenow", String(MIN_SIDEBAR_WIDTH_PX));
+
+    firePointer(resizeHandle, "pointermove", { pointerId: 7, button: 0, clientX: 1_000 });
+    expect(sidebar).toHaveStyle({ width: `${MAX_SIDEBAR_WIDTH_PX}px` });
+    expect(resizeHandle).toHaveAttribute("aria-valuenow", String(MAX_SIDEBAR_WIDTH_PX));
+    firePointer(resizeHandle, "pointerup", { pointerId: 7, button: 0, clientX: 1_000 });
+  });
+
+  it("auto-collapses only for a narrow window and restores from the explicit user preference", () => {
+    setWindowWidth(NARROW_WINDOW_WIDTH_PX + 100);
+    const onSidebarOpenChange = vi.fn();
+    const { rerender } = renderConsole({ sidebarOpen: true, onSidebarOpenChange });
+    const sidebar = screen.getByTestId("operator-sidebar");
+    const main = screen.getByTestId("operator-main");
+    expect(sidebar).toBeVisible();
+
+    setWindowWidth(NARROW_WINDOW_WIDTH_PX - 1);
+    expect(sidebar).not.toBeVisible();
+    expect(main).toHaveAttribute("data-sidebar-auto-collapsed", "true");
+    expect(onSidebarOpenChange).not.toHaveBeenCalled();
+
+    setWindowWidth(NARROW_WINDOW_WIDTH_PX + 100);
+    expect(sidebar).toBeVisible();
+    expect(main).toHaveAttribute("data-sidebar-auto-collapsed", "false");
+    expect(onSidebarOpenChange).not.toHaveBeenCalled();
+
+    rerender(<OperatorConsole {...baseProps({ sidebarOpen: false, onSidebarOpenChange })} />);
+    setWindowWidth(NARROW_WINDOW_WIDTH_PX - 1);
+    setWindowWidth(NARROW_WINDOW_WIDTH_PX + 100);
+    expect(sidebar).not.toBeVisible();
+    expect(main).toHaveAttribute("data-sidebar-auto-collapsed", "false");
+    expect(onSidebarOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps long project and conversation names on one line with their full text available on hover", () => {
+    const longProjectName = "这是一个非常长的项目显示名称，用来验证侧边栏缩窄后仍然保持单行";
+    const longSessionName = "这是一个非常长的对话标题，用来验证用户悬停时可以查看完整内容";
+    renderConsole({
+      project: {
+        ...project,
+        title: longProjectName,
+        sessions: [{ ...sessions[0], title: longSessionName }],
+      },
+      selectedSession: { ...sessions[0], title: longSessionName },
+    });
+
+    const projectName = screen.getByTitle(longProjectName);
+    const sessionRow = screen.getByRole("button", { name: `${longSessionName}，正在运行` });
+    expect(projectName).toHaveClass("truncate");
+    expect(sessionRow).toHaveAttribute("title", longSessionName);
+    expect(sessionRow.querySelector(".truncate")).toHaveTextContent(longSessionName);
   });
 
   it("keeps the selected conversation mounted when its project is collapsed", () => {
@@ -570,6 +645,26 @@ async function openProjectMenu(projectName: string): Promise<void> {
 
 function renderConsole(overrides: Partial<OperatorConsoleProps> = {}) {
   return render(<OperatorConsole {...baseProps(overrides)} />);
+}
+
+function setWindowWidth(width: number): void {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  fireEvent(window, new Event("resize"));
+}
+
+function firePointer(
+  element: Element,
+  type: "pointerdown" | "pointermove" | "pointerup",
+  input: { pointerId: number; button: number; clientX: number },
+): void {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: input.button,
+    clientX: input.clientX,
+  });
+  Object.defineProperty(event, "pointerId", { value: input.pointerId });
+  fireEvent(element, event);
 }
 
 function baseProps(overrides: Partial<OperatorConsoleProps> = {}): OperatorConsoleProps {
