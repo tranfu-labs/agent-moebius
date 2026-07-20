@@ -6,6 +6,11 @@ import {
   type AgentTeamFileManagerRequest,
 } from "./team-file-manager.js";
 import {
+  TEAM_EXTERNAL_CHANGE_IPC_CHANNEL,
+  type AgentTeamExternalChangeRequest,
+  type AgentTeamExternalChangeResponse,
+} from "./team-external-change.js";
+import {
   TEAM_IPC_CHANNELS,
   type AgentTeamCreateRequest,
   type AgentTeamDuplicateBuiltInRequest,
@@ -48,6 +53,9 @@ export interface AgentMoebiusDesktopApi {
   duplicateAgentTeamMember(request: AgentTeamMemberDuplicateRequest): Promise<AgentTeamMemberAddResponse>;
   trashAgentTeamMember(request: AgentTeamMemberTrashRequest): Promise<AgentTeamListItem>;
   trashUserAgentTeam(request: AgentTeamTrashUserRequest): Promise<void>;
+  checkAgentTeamMemberExternalChange(
+    request: AgentTeamExternalChangeRequest,
+  ): Promise<AgentTeamExternalChangeResponse>;
 }
 
 const api: AgentMoebiusDesktopApi = {
@@ -123,6 +131,12 @@ const api: AgentMoebiusDesktopApi = {
   },
   trashUserAgentTeam(request) {
     return ipcRenderer.invoke(TEAM_IPC_CHANNELS.trashUserTeam, request) as Promise<void>;
+  },
+  checkAgentTeamMemberExternalChange(request) {
+    return ipcRenderer.invoke(
+      TEAM_EXTERNAL_CHANGE_IPC_CHANNEL,
+      request,
+    ) as Promise<AgentTeamExternalChangeResponse>;
   },
 };
 

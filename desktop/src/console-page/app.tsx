@@ -32,6 +32,10 @@ import type {
   AgentTeamTrashUserRequest,
 } from "../team-ipc.js";
 import type { AgentTeamFileManagerRequest } from "../team-file-manager.js";
+import type {
+  AgentTeamExternalChangeRequest,
+  AgentTeamExternalChangeResponse,
+} from "../team-external-change.js";
 import { parseAgentMarkdownIdentity } from "../team-model.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -51,6 +55,8 @@ import {
   type SidebarVisibilityPreference,
 } from "./sidebar-preference.js";
 import {
+  applyAgentTeamMemberExternalChange,
+  clearAgentTeamMemberExternalChange,
   discardAgentTeamMemberDraft,
   discardAllAgentTeamDrafts,
   EMPTY_AGENT_TEAM_DRAFT_STATE,
@@ -62,11 +68,13 @@ import {
   getDirtyAgentTeamMemberSlugs,
   getAgentTeamMemberDraft,
   isAgentTeamMemberDirty,
+  loadAgentTeamMemberExternalVersion,
   reconcileAgentTeamSelection,
   removeAgentTeamDrafts,
   removeAgentTeamMemberDraft,
   saveAllAgentTeamDrafts,
   startAgentTeamMemberLoad,
+  startAgentTeamMemberExternalOverwrite,
   startAgentTeamMemberSave,
   updateAgentTeamMemberDraft,
   type AgentTeamDraftState,
@@ -95,6 +103,9 @@ interface DesktopApi {
   duplicateAgentTeamMember?: (request: AgentTeamMemberDuplicateRequest) => Promise<AgentTeamMemberAddResponse>;
   trashAgentTeamMember?: (request: AgentTeamMemberTrashRequest) => Promise<AgentTeamListItem>;
   trashUserAgentTeam?: (request: AgentTeamTrashUserRequest) => Promise<void>;
+  checkAgentTeamMemberExternalChange?: (
+    request: AgentTeamExternalChangeRequest,
+  ) => Promise<AgentTeamExternalChangeResponse>;
 }
 
 interface DesktopStatusSnapshot {
@@ -152,6 +163,7 @@ function App(): JSX.Element {
   const [activeAgentTeamKey, setActiveAgentTeamKey] = useState<string | null>(null);
   const [agentTeamDraftState, setAgentTeamDraftState] = useState<AgentTeamDraftState>(EMPTY_AGENT_TEAM_DRAFT_STATE);
   const agentTeamDraftStateRef = useRef(agentTeamDraftState);
+  const checkingAgentTeamExternalChangesRef = useRef(new Set<string>());
   const [agentTeamSaveAllFailures, setAgentTeamSaveAllFailures] = useState<AgentTeamSaveAllFailure[]>([]);
   const [primaryAgentChange, setPrimaryAgentChange] = useState<AgentTeamPrimaryAgentChangeState | null>(null);
   const [agentTeamsRefreshNonce, setAgentTeamsRefreshNonce] = useState(0);
@@ -263,6 +275,61 @@ function App(): JSX.Element {
         });
   }, []);
 
+  const checkAgentTeamMemberExternalChange = useCallback(async (teamKey: string, memberSlug: string): Promise<void> => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const current = getAgentTeamMemberDraft(agentTeamDraftStateRef.current, teamKey, memberSlug);
+    const checkExternalChange = window.agentMoebius?.checkAgentTeamMemberExternalChange;
+    if (
+      team?.ownership !== "user"
+      || current?.loadStatus !== "ready"
+      || current.savedMarkdown === null
+      || current.saveStatus === "saving"
+      || checkExternalChange === undefined
+    ) {
+      return;
+    }
+
+    const checkKey = `${teamKey}\u0000${memberSlug}`;
+    if (checkingAgentTeamExternalChangesRef.current.has(checkKey)) {
+      return;
+    }
+    checkingAgentTeamExternalChangesRef.current.add(checkKey);
+    try {
+      const result = await checkExternalChange({
+        teamId: team.id,
+        ownership: team.ownership,
+        memberSlug,
+        knownAgentMarkdown: current.savedMarkdown,
+      });
+      if (result.status === "unchanged") {
+        commitAgentTeamDraftState(clearAgentTeamMemberExternalChange(
+          agentTeamDraftStateRef.current,
+          teamKey,
+          memberSlug,
+        ));
+        return;
+      }
+      if (result.status !== "changed") {
+        return;
+      }
+
+      const nextState = applyAgentTeamMemberExternalChange(
+        agentTeamDraftStateRef.current,
+        teamKey,
+        memberSlug,
+        result.document.agentMarkdown,
+      );
+      commitAgentTeamDraftState(nextState);
+      if (getAgentTeamMemberDraft(nextState, teamKey, memberSlug)?.externalChangeStatus === "reloaded") {
+        updateAgentTeamMemberSummary(teamKey, result.document);
+      }
+    } catch {
+      // File availability and repair feedback belong to T13; focus checks stay quiet here.
+    } finally {
+      checkingAgentTeamExternalChangesRef.current.delete(checkKey);
+    }
+  }, [agentTeamsState, commitAgentTeamDraftState, updateAgentTeamMemberSummary]);
+
   const persistAgentTeamMember = useCallback(async (
     teamKey: string,
     memberSlug: string,
@@ -305,6 +372,57 @@ function App(): JSX.Element {
       ));
       setAgentTeamSaveAllFailures((currentFailures) =>
         currentFailures.filter((failure) => failure.memberSlug !== memberSlug));
+    } catch (error) {
+      commitAgentTeamDraftState(failAgentTeamMemberSave(
+        agentTeamDraftStateRef.current,
+        teamKey,
+        memberSlug,
+        formatError(error),
+      ));
+    }
+  }, [commitAgentTeamDraftState, persistAgentTeamMember]);
+
+  const loadAgentTeamMemberExternalChange = useCallback((teamKey: string, memberSlug: string): void => {
+    const current = getAgentTeamMemberDraft(agentTeamDraftStateRef.current, teamKey, memberSlug);
+    if (current?.externalChangeStatus !== "conflict" || current.externalMarkdown === null) {
+      return;
+    }
+    const externalMarkdown = current.externalMarkdown;
+    commitAgentTeamDraftState(loadAgentTeamMemberExternalVersion(
+      agentTeamDraftStateRef.current,
+      teamKey,
+      memberSlug,
+    ));
+    updateAgentTeamMemberSummary(teamKey, {
+      slug: memberSlug,
+      agentMarkdown: externalMarkdown,
+      ...parseAgentMarkdownIdentity(externalMarkdown),
+    });
+  }, [commitAgentTeamDraftState, updateAgentTeamMemberSummary]);
+
+  const overwriteAgentTeamMemberExternalChange = useCallback(async (
+    teamKey: string,
+    memberSlug: string,
+  ): Promise<void> => {
+    commitAgentTeamDraftState(startAgentTeamMemberExternalOverwrite(
+      agentTeamDraftStateRef.current,
+      teamKey,
+      memberSlug,
+    ));
+    const saving = getAgentTeamMemberDraft(agentTeamDraftStateRef.current, teamKey, memberSlug);
+    const requestedMarkdown = saving?.saveRequestedMarkdown;
+    if (saving?.saveStatus !== "saving" || requestedMarkdown === null || requestedMarkdown === undefined) {
+      return;
+    }
+
+    try {
+      const document = await persistAgentTeamMember(teamKey, memberSlug, requestedMarkdown);
+      commitAgentTeamDraftState(finishAgentTeamMemberSave(
+        agentTeamDraftStateRef.current,
+        teamKey,
+        memberSlug,
+        document.agentMarkdown,
+      ));
     } catch (error) {
       commitAgentTeamDraftState(failAgentTeamMemberSave(
         agentTeamDraftStateRef.current,
@@ -664,6 +782,7 @@ function App(): JSX.Element {
         isDirty: isAgentTeamMemberDirty(editor),
         saveStatus: editor.saveStatus,
         saveError: editor.saveError,
+        externalChangeStatus: editor.externalChangeStatus,
         displayName: identity.displayName,
         description: identity.description,
       };
@@ -1031,6 +1150,9 @@ function App(): JSX.Element {
         ));
       }}
       onSaveAgentTeamMember={saveAgentTeamMember}
+      onCheckAgentTeamMemberExternalChange={checkAgentTeamMemberExternalChange}
+      onLoadAgentTeamMemberExternalVersion={loadAgentTeamMemberExternalChange}
+      onOverwriteAgentTeamMemberExternalVersion={overwriteAgentTeamMemberExternalChange}
       onRetryAgentTeamMember={(teamKey, memberSlug) => {
         void loadAgentTeamMember(teamKey, memberSlug);
       }}

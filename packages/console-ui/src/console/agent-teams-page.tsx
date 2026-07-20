@@ -72,6 +72,9 @@ export function AgentTeamsPage({
   onUpdateTeamInformation,
   onChangeMember,
   onSaveMember,
+  onCheckMemberExternalChange,
+  onLoadMemberExternalVersion,
+  onOverwriteMemberExternalVersion,
   onRetryMember,
   onDiscardMember,
   onDiscardAll,
@@ -100,6 +103,9 @@ export function AgentTeamsPage({
   onUpdateTeamInformation?: (teamKey: string, information: AgentTeamInformationInput) => void | Promise<void>;
   onChangeMember?: (teamKey: string, memberSlug: string, agentMarkdown: string) => void;
   onSaveMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onCheckMemberExternalChange?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onLoadMemberExternalVersion?: (teamKey: string, memberSlug: string) => void;
+  onOverwriteMemberExternalVersion?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onRetryMember?: (teamKey: string, memberSlug: string) => void;
   onDiscardMember?: (teamKey: string, memberSlug: string) => void;
   onDiscardAll?: (teamKey: string) => void;
@@ -397,6 +403,12 @@ export function AgentTeamsPage({
                   onSelectMember={(memberSlug) => onSelectMember?.(openedTeam.teamKey, memberSlug)}
                   onChangeMember={(memberSlug, agentMarkdown) => onChangeMember?.(openedTeam.teamKey, memberSlug, agentMarkdown)}
                   onSaveMember={(memberSlug) => onSaveMember?.(openedTeam.teamKey, memberSlug)}
+                  onCheckExternalChange={openedTeam.ownership === "user" && onCheckMemberExternalChange !== undefined
+                    ? (memberSlug) => onCheckMemberExternalChange(openedTeam.teamKey, memberSlug)
+                    : undefined}
+                  onLoadExternalVersion={(memberSlug) => onLoadMemberExternalVersion?.(openedTeam.teamKey, memberSlug)}
+                  onOverwriteExternalVersion={(memberSlug) =>
+                    onOverwriteMemberExternalVersion?.(openedTeam.teamKey, memberSlug)}
                   onRetryLoad={(memberSlug) => onRetryMember?.(openedTeam.teamKey, memberSlug)}
                   onDiscardMember={(memberSlug) => onDiscardMember?.(openedTeam.teamKey, memberSlug)}
                   onDiscardAll={() => onDiscardAll?.(openedTeam.teamKey)}

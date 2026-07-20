@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyAgentTeamMemberExternalChange,
+  clearAgentTeamMemberExternalChange,
   EMPTY_AGENT_TEAM_DRAFT_STATE,
   failAgentTeamMemberSave,
   finishAgentTeamMemberLoad,
@@ -7,8 +9,10 @@ import {
   getAgentTeamMemberDraft,
   getDirtyAgentTeamMemberSlugs,
   isAgentTeamMemberDirty,
+  loadAgentTeamMemberExternalVersion,
   saveAllAgentTeamDrafts,
   startAgentTeamMemberSave,
+  startAgentTeamMemberExternalOverwrite,
   updateAgentTeamMemberDraft,
 } from "../src/console-page/team-state.js";
 
@@ -91,6 +95,79 @@ describe("Agent team per-member draft state", () => {
     expect(result.failures).toContainEqual({
       memberSlug: "manager",
       reason: "该成员仍在保存，请稍后重试。",
+    });
+  });
+
+  it("reloads an external version when the member has no unsaved draft", () => {
+    const state = applyAgentTeamMemberExternalChange(
+      loadMember(EMPTY_AGENT_TEAM_DRAFT_STATE, "manager", "# 经理\n\n旧职责\n"),
+      teamKey,
+      "manager",
+      "# 新经理\n\n外部职责\n",
+    );
+
+    expect(getAgentTeamMemberDraft(state, teamKey, "manager")).toMatchObject({
+      savedMarkdown: "# 新经理\n\n外部职责\n",
+      draftMarkdown: "# 新经理\n\n外部职责\n",
+      externalChangeStatus: "reloaded",
+      externalMarkdown: null,
+    });
+    expect(isAgentTeamMemberDirty(getAgentTeamMemberDraft(state, teamKey, "manager"))).toBe(false);
+  });
+
+  it("preserves a draft until the user loads the external version", () => {
+    let state = loadMember(EMPTY_AGENT_TEAM_DRAFT_STATE, "manager", "# 经理\n\n旧职责\n");
+    state = updateAgentTeamMemberDraft(state, teamKey, "manager", "# 经理\n\n软件内草稿\n");
+    state = applyAgentTeamMemberExternalChange(state, teamKey, "manager", "# 经理\n\n外部职责\n");
+
+    expect(getAgentTeamMemberDraft(state, teamKey, "manager")).toMatchObject({
+      savedMarkdown: "# 经理\n\n旧职责\n",
+      draftMarkdown: "# 经理\n\n软件内草稿\n",
+      externalChangeStatus: "conflict",
+      externalMarkdown: "# 经理\n\n外部职责\n",
+    });
+
+    state = loadAgentTeamMemberExternalVersion(state, teamKey, "manager");
+    expect(getAgentTeamMemberDraft(state, teamKey, "manager")).toMatchObject({
+      savedMarkdown: "# 经理\n\n外部职责\n",
+      draftMarkdown: "# 经理\n\n外部职责\n",
+      externalChangeStatus: "reloaded",
+      externalMarkdown: null,
+    });
+  });
+
+  it("overwrites with the exact current draft only after the explicit choice", () => {
+    let state = loadMember(EMPTY_AGENT_TEAM_DRAFT_STATE, "manager", "# 经理\n\n旧职责\n");
+    state = updateAgentTeamMemberDraft(state, teamKey, "manager", "# 经理\n\n软件内草稿\n");
+    state = applyAgentTeamMemberExternalChange(state, teamKey, "manager", "# 经理\n\n外部职责\n");
+    state = startAgentTeamMemberExternalOverwrite(state, teamKey, "manager");
+
+    expect(getAgentTeamMemberDraft(state, teamKey, "manager")).toMatchObject({
+      saveStatus: "saving",
+      saveRequestedMarkdown: "# 经理\n\n软件内草稿\n",
+      externalChangeStatus: "conflict",
+    });
+
+    state = finishAgentTeamMemberSave(state, teamKey, "manager", "# 经理\n\n软件内草稿\n");
+    expect(getAgentTeamMemberDraft(state, teamKey, "manager")).toMatchObject({
+      savedMarkdown: "# 经理\n\n软件内草稿\n",
+      draftMarkdown: "# 经理\n\n软件内草稿\n",
+      saveStatus: "idle",
+      externalChangeStatus: "none",
+      externalMarkdown: null,
+    });
+  });
+
+  it("clears a conflict if the external file returns to the saved version", () => {
+    let state = loadMember(EMPTY_AGENT_TEAM_DRAFT_STATE, "manager", "# 经理\n\n旧职责\n");
+    state = updateAgentTeamMemberDraft(state, teamKey, "manager", "# 经理\n\n软件内草稿\n");
+    state = applyAgentTeamMemberExternalChange(state, teamKey, "manager", "# 经理\n\n外部职责\n");
+    state = clearAgentTeamMemberExternalChange(state, teamKey, "manager");
+
+    expect(getAgentTeamMemberDraft(state, teamKey, "manager")).toMatchObject({
+      draftMarkdown: "# 经理\n\n软件内草稿\n",
+      externalChangeStatus: "none",
+      externalMarkdown: null,
     });
   });
 });

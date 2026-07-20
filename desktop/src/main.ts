@@ -41,6 +41,10 @@ import {
   writeAgentTeamMember,
 } from "./team-ipc.js";
 import { seedBuiltInTeams } from "./team-seed.js";
+import {
+  TEAM_EXTERNAL_CHANGE_IPC_CHANNEL,
+  checkAgentTeamMemberExternalChange,
+} from "./team-external-change.js";
 import { decideUpdate, type ReleaseMetadata } from "./updater.js";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -319,6 +323,9 @@ ipcMain.handle(TEAM_IPC_CHANNELS.trashMember, async (_event, request: unknown) =
 
 ipcMain.handle(TEAM_IPC_CHANNELS.trashUserTeam, async (_event, request: unknown) =>
   trashUserAgentTeam(status.dataRoot, request, (targetPath) => shell.trashItem(targetPath)));
+
+ipcMain.handle(TEAM_EXTERNAL_CHANGE_IPC_CHANNEL, async (_event, request: unknown) =>
+  checkAgentTeamMemberExternalChange(status.dataRoot, request));
 
 ipcMain.handle("project:select-folder", async () => {
   const options: OpenDialogOptions = {

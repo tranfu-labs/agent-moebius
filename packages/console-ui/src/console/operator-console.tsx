@@ -195,6 +195,9 @@ export interface OperatorConsoleProps {
   onUpdateAgentTeamInformation?: (teamKey: string, information: AgentTeamInformationInput) => void | Promise<void>;
   onChangeAgentTeamMember?: (teamKey: string, memberSlug: string, agentMarkdown: string) => void;
   onSaveAgentTeamMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onCheckAgentTeamMemberExternalChange?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onLoadAgentTeamMemberExternalVersion?: (teamKey: string, memberSlug: string) => void;
+  onOverwriteAgentTeamMemberExternalVersion?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onRetryAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
   onDiscardAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
   onDiscardAllAgentTeamDrafts?: (teamKey: string) => void;
@@ -258,6 +261,9 @@ export function OperatorConsole({
   onUpdateAgentTeamInformation,
   onChangeAgentTeamMember,
   onSaveAgentTeamMember,
+  onCheckAgentTeamMemberExternalChange,
+  onLoadAgentTeamMemberExternalVersion,
+  onOverwriteAgentTeamMemberExternalVersion,
   onRetryAgentTeamMember,
   onDiscardAgentTeamMember,
   onDiscardAllAgentTeamDrafts,
@@ -553,6 +559,9 @@ export function OperatorConsole({
             onUpdateTeamInformation={onUpdateAgentTeamInformation}
             onChangeMember={onChangeAgentTeamMember}
             onSaveMember={onSaveAgentTeamMember}
+            onCheckMemberExternalChange={onCheckAgentTeamMemberExternalChange}
+            onLoadMemberExternalVersion={onLoadAgentTeamMemberExternalVersion}
+            onOverwriteMemberExternalVersion={onOverwriteAgentTeamMemberExternalVersion}
             onRetryMember={onRetryAgentTeamMember}
             onDiscardMember={onDiscardAgentTeamMember}
             onDiscardAll={onDiscardAllAgentTeamDrafts}

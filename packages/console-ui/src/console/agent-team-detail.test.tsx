@@ -249,6 +249,56 @@ describe("AgentTeamDetail", () => {
     fireEvent.keyDown(window, { key: "s", metaKey: true });
     expect(onSaveMember).not.toHaveBeenCalled();
   });
+
+  it("quietly reports an automatically loaded external version", () => {
+    renderDetail({
+      state: stateWith(managerEditor({
+        isDirty: false,
+        externalChangeStatus: "reloaded",
+      })),
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent("文件在软件外面改过了，已载入最新内容");
+    expect(screen.queryByRole("button", { name: "载入外部版本" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "用当前内容覆盖" })).not.toBeInTheDocument();
+  });
+
+  it("shows exactly the two external-conflict choices and keeps normal save paths out", () => {
+    const onLoadExternalVersion = vi.fn();
+    const onOverwriteExternalVersion = vi.fn();
+    const onSaveMember = vi.fn();
+    const onLeave = vi.fn();
+    renderDetail({
+      state: stateWith(managerEditor({ externalChangeStatus: "conflict" })),
+      onLoadExternalVersion,
+      onOverwriteExternalVersion,
+      onSaveMember,
+      onLeave,
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("文件在软件外面被改过了");
+    fireEvent.click(screen.getByRole("button", { name: "载入外部版本" }));
+    fireEvent.click(screen.getByRole("button", { name: "用当前内容覆盖" }));
+    expect(onLoadExternalVersion).toHaveBeenCalledWith("manager");
+    expect(onOverwriteExternalVersion).toHaveBeenCalledWith("manager");
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "放弃修改" })).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "s", metaKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+    expect(onSaveMember).not.toHaveBeenCalled();
+    expect(onLeave).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "还有未保存的修改" })).not.toBeInTheDocument();
+  });
+
+  it("checks the selected user AGENT.md when the window regains focus", () => {
+    const onCheckExternalChange = vi.fn();
+    renderDetail({ onCheckExternalChange });
+
+    expect(onCheckExternalChange).toHaveBeenCalledTimes(1);
+    fireEvent.focus(window);
+    expect(onCheckExternalChange).toHaveBeenCalledTimes(2);
+    expect(onCheckExternalChange).toHaveBeenLastCalledWith("manager");
+  });
 });
 
 function renderDetail(overrides: Partial<AgentTeamDetailProps> = {}) {
@@ -318,6 +368,7 @@ function managerEditor(overrides: Partial<AgentTeamMemberEditorState> = {}): Age
     isDirty: true,
     saveStatus: "idle",
     saveError: null,
+    externalChangeStatus: "none",
     displayName: "开发经理",
     description: "新职责",
     ...overrides,

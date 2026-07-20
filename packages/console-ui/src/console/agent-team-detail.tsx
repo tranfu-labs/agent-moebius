@@ -32,6 +32,7 @@ export interface AgentTeamMemberEditorState {
   isDirty: boolean;
   saveStatus: "idle" | "saving" | "failed";
   saveError: string | null;
+  externalChangeStatus: "none" | "reloaded" | "conflict";
   displayName: string;
   description: string;
 }
@@ -62,6 +63,9 @@ export interface AgentTeamDetailProps {
   onSelectMember(memberSlug: string): void;
   onChangeMember(memberSlug: string, agentMarkdown: string): void;
   onSaveMember(memberSlug: string): void | Promise<void>;
+  onCheckExternalChange?(memberSlug: string): void | Promise<void>;
+  onLoadExternalVersion?(memberSlug: string): void;
+  onOverwriteExternalVersion?(memberSlug: string): void | Promise<void>;
   onRetryLoad(memberSlug: string): void;
   onDiscardMember(memberSlug: string): void;
   onDiscardAll(): void;
@@ -81,6 +85,9 @@ export function AgentTeamDetail({
   onSelectMember,
   onChangeMember,
   onSaveMember,
+  onCheckExternalChange,
+  onLoadExternalVersion,
+  onOverwriteExternalVersion,
   onRetryLoad,
   onDiscardMember,
   onDiscardAll,
@@ -102,10 +109,13 @@ export function AgentTeamDetail({
     displayName: state.memberEditors[member.slug]?.displayName || member.displayName,
   })), [orderedMembers, state.memberEditors]);
   const hasDirtyMembers = Object.values(state.memberEditors).some((editor) => editor?.isDirty === true);
+  const hasExternalConflicts = Object.values(state.memberEditors)
+    .some((editor) => editor?.externalChangeStatus === "conflict");
   const hasSavingMembers = Object.values(state.memberEditors).some((editor) => editor?.saveStatus === "saving");
   const canSaveCurrent = !readOnly
     && selectedEditor?.loadStatus === "ready"
     && selectedEditor.isDirty
+    && selectedEditor.externalChangeStatus !== "conflict"
     && selectedEditor.saveStatus !== "saving";
   const canAddMember = !readOnly && team.ownership === "user" && onAddMember !== undefined;
 
@@ -122,7 +132,24 @@ export function AgentTeamDetail({
     return () => window.removeEventListener("keydown", handleSaveShortcut);
   }, [canSaveCurrent, onSaveMember, selectedMember]);
 
+  useEffect(() => {
+    if (
+      selectedMember === null
+      || selectedEditor?.loadStatus !== "ready"
+      || onCheckExternalChange === undefined
+    ) {
+      return;
+    }
+    const check = () => void onCheckExternalChange(selectedMember.slug);
+    check();
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, [onCheckExternalChange, selectedEditor?.loadStatus, selectedMember]);
+
   const requestLeave = () => {
+    if (hasExternalConflicts) {
+      return;
+    }
     if (hasDirtyMembers) {
       setLeavePromptOpen(true);
       return;
@@ -407,7 +434,42 @@ export function AgentTeamDetail({
               onValueChange={(agentMarkdown) => onChangeMember(selectedMember.slug, agentMarkdown)}
             />
 
-            {selectedEditor.saveStatus === "failed" ? (
+            {selectedEditor.externalChangeStatus === "reloaded" ? (
+              <div className="mt-3 border-l-2 border-line-strong bg-sunken px-3 py-2 text-sm text-sub" role="status">
+                文件在软件外面改过了，已载入最新内容。
+              </div>
+            ) : null}
+
+            {selectedEditor.externalChangeStatus === "conflict" ? (
+              <div className="mt-3 border border-line bg-sunken px-3 py-3" role="alert">
+                <p className="text-sm font-medium text-ink">文件在软件外面被改过了</p>
+                <p className="mt-1 text-sm leading-6 text-sub">
+                  当前未保存内容已为你保留。请选择要继续使用哪个版本。
+                </p>
+                {selectedEditor.saveStatus === "failed" ? (
+                  <p className="mt-2 text-sm text-danger">覆盖失败：{selectedEditor.saveError}</p>
+                ) : null}
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={selectedEditor.saveStatus === "saving"}
+                    onClick={() => onLoadExternalVersion?.(selectedMember.slug)}
+                  >
+                    载入外部版本
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={selectedEditor.saveStatus === "saving"}
+                    onClick={() => void onOverwriteExternalVersion?.(selectedMember.slug)}
+                  >
+                    {selectedEditor.saveStatus === "saving" ? "正在覆盖…" : "用当前内容覆盖"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {selectedEditor.saveStatus === "failed" && selectedEditor.externalChangeStatus !== "conflict" ? (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-danger/30 bg-danger/5 px-3 py-2.5" role="alert">
                 <span className="text-sm text-danger">保存失败：{selectedEditor.saveError}</span>
                 <Button type="button" variant="outline" size="sm" onClick={() => void onSaveMember(selectedMember.slug)}>
@@ -416,7 +478,7 @@ export function AgentTeamDetail({
               </div>
             ) : null}
 
-            {!readOnly ? (
+            {!readOnly && selectedEditor.externalChangeStatus !== "conflict" ? (
               <div className="mt-4 flex items-center justify-end gap-2">
                 {selectedEditor.saveStatus === "saving" ? (
                   <span className="mr-auto inline-flex items-center text-sm text-sub" role="status">

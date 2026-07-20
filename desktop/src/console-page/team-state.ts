@@ -7,6 +7,7 @@ export interface AgentTeamSelection {
 
 export type AgentTeamMemberLoadStatus = "idle" | "loading" | "ready" | "failed";
 export type AgentTeamMemberSaveStatus = "idle" | "saving" | "failed";
+export type AgentTeamMemberExternalChangeStatus = "none" | "reloaded" | "conflict";
 
 export interface AgentTeamMemberDraft {
   teamKey: string;
@@ -18,6 +19,8 @@ export interface AgentTeamMemberDraft {
   saveStatus: AgentTeamMemberSaveStatus;
   saveError: string | null;
   saveRequestedMarkdown: string | null;
+  externalChangeStatus: AgentTeamMemberExternalChangeStatus;
+  externalMarkdown: string | null;
 }
 
 export interface AgentTeamDraftState {
@@ -78,6 +81,8 @@ export function startAgentTeamMemberLoad(
     saveStatus: "idle",
     saveError: null,
     saveRequestedMarkdown: null,
+    externalChangeStatus: "none",
+    externalMarkdown: null,
   });
 }
 
@@ -97,6 +102,8 @@ export function finishAgentTeamMemberLoad(
     saveStatus: "idle",
     saveError: null,
     saveRequestedMarkdown: null,
+    externalChangeStatus: "none",
+    externalMarkdown: null,
   });
 }
 
@@ -117,6 +124,8 @@ export function failAgentTeamMemberLoad(
     saveStatus: "idle",
     saveError: null,
     saveRequestedMarkdown: null,
+    externalChangeStatus: "none",
+    externalMarkdown: null,
   });
 }
 
@@ -135,6 +144,9 @@ export function updateAgentTeamMemberDraft(
     draftMarkdown,
     saveStatus: current.saveStatus === "failed" ? "idle" : current.saveStatus,
     saveError: null,
+    externalChangeStatus: current.externalChangeStatus === "reloaded"
+      ? "none"
+      : current.externalChangeStatus,
   });
 }
 
@@ -171,6 +183,8 @@ export function finishAgentTeamMemberSave(
     saveStatus: "idle",
     saveError: null,
     saveRequestedMarkdown: null,
+    externalChangeStatus: "none",
+    externalMarkdown: null,
   });
 }
 
@@ -218,6 +232,100 @@ export function discardAllAgentTeamDrafts(state: AgentTeamDraftState, teamKey: s
     }
   }
   return nextState;
+}
+
+export function applyAgentTeamMemberExternalChange(
+  state: AgentTeamDraftState,
+  teamKey: string,
+  memberSlug: string,
+  externalMarkdown: string,
+): AgentTeamDraftState {
+  const current = getAgentTeamMemberDraft(state, teamKey, memberSlug);
+  if (
+    current?.loadStatus !== "ready"
+    || current.savedMarkdown === null
+    || current.saveStatus === "saving"
+    || externalMarkdown === current.savedMarkdown
+  ) {
+    return state;
+  }
+
+  if (isAgentTeamMemberDirty(current)) {
+    return setMember(state, {
+      ...current,
+      externalChangeStatus: "conflict",
+      externalMarkdown,
+    });
+  }
+
+  return setMember(state, {
+    ...current,
+    savedMarkdown: externalMarkdown,
+    draftMarkdown: externalMarkdown,
+    externalChangeStatus: "reloaded",
+    externalMarkdown: null,
+    saveStatus: "idle",
+    saveError: null,
+    saveRequestedMarkdown: null,
+  });
+}
+
+export function clearAgentTeamMemberExternalChange(
+  state: AgentTeamDraftState,
+  teamKey: string,
+  memberSlug: string,
+): AgentTeamDraftState {
+  const current = getAgentTeamMemberDraft(state, teamKey, memberSlug);
+  if (current === undefined || current.externalChangeStatus === "none") {
+    return state;
+  }
+  return setMember(state, {
+    ...current,
+    externalChangeStatus: "none",
+    externalMarkdown: null,
+  });
+}
+
+export function loadAgentTeamMemberExternalVersion(
+  state: AgentTeamDraftState,
+  teamKey: string,
+  memberSlug: string,
+): AgentTeamDraftState {
+  const current = getAgentTeamMemberDraft(state, teamKey, memberSlug);
+  if (current?.loadStatus !== "ready" || current.externalChangeStatus !== "conflict" || current.externalMarkdown === null) {
+    return state;
+  }
+  return setMember(state, {
+    ...current,
+    savedMarkdown: current.externalMarkdown,
+    draftMarkdown: current.externalMarkdown,
+    saveStatus: "idle",
+    saveError: null,
+    saveRequestedMarkdown: null,
+    externalChangeStatus: "reloaded",
+    externalMarkdown: null,
+  });
+}
+
+export function startAgentTeamMemberExternalOverwrite(
+  state: AgentTeamDraftState,
+  teamKey: string,
+  memberSlug: string,
+): AgentTeamDraftState {
+  const current = getAgentTeamMemberDraft(state, teamKey, memberSlug);
+  if (
+    current?.loadStatus !== "ready"
+    || current.externalChangeStatus !== "conflict"
+    || current.saveStatus === "saving"
+  ) {
+    return state;
+  }
+  return setMember(state, {
+    ...current,
+    saveStatus: "saving",
+    saveError: null,
+    saveRequestedMarkdown: current.draftMarkdown,
+  });
 }
 
 export function removeAgentTeamMemberDraft(
