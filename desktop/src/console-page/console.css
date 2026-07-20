@@ -12,3 +12,7 @@ body {
 .window-drag-region {
   -webkit-app-region: drag;
 }
+
+.window-no-drag {
+  -webkit-app-region: no-drag;
+}

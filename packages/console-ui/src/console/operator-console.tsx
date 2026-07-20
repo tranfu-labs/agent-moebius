@@ -1,4 +1,16 @@
-import { ChevronDown, Circle, FolderOpen, GitBranch, Laptop, PanelLeft, Search, Settings2 } from "lucide-react";
+import {
+  ChevronDown,
+  Diamond,
+  FolderOpen,
+  GitBranch,
+  Laptop,
+  PanelLeft,
+  PanelLeftClose,
+  Plus,
+  Search,
+  Settings,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import { AgentMessage } from "@/console/agent-message";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
@@ -140,12 +152,10 @@ export function OperatorConsole({
   messages,
   activeRun,
   composerValue,
-  runnerStatus = "stopped",
   lastError,
   onComposerChange,
   onSend,
   onCreateSession,
-  onOpenProject,
   onToggleProjectWorktree,
   onSelectSession,
   onChangeSessionProject,
@@ -171,35 +181,35 @@ export function OperatorConsole({
 
   return (
     <div className={cn("flex h-screen min-h-[560px] overflow-hidden bg-canvas text-ink", className)}>
-      <aside className="relative flex w-[248px] shrink-0 flex-col border-r border-line bg-rail">
-        <div className="window-drag-region absolute inset-x-0 top-0 h-9" aria-hidden="true" />
-
-        <div className="px-2 pb-2 pt-10">
-          <div className="flex h-9 items-center justify-between px-2">
-            <div className="text-base font-semibold tracking-[-0.01em]">Moebius</div>
-            <span className="flex h-7 w-7 items-center justify-center text-sub" aria-hidden="true">
-              <Search className="h-4 w-4" strokeWidth={1.5} />
-            </span>
+      <aside
+        className="relative flex w-[248px] shrink-0 flex-col overflow-hidden border-r border-line bg-rail"
+        data-testid="operator-sidebar"
+      >
+        <header
+          className="window-drag-region flex h-10 shrink-0 items-center gap-2 pl-[76px] pr-2"
+          data-testid="sidebar-brand-region"
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <MoebiusLogo />
+            <span className="truncate text-sm font-semibold tracking-[-0.01em]">Moebius</span>
           </div>
+          <button
+            type="button"
+            className="window-no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
+            aria-label="关闭侧边栏"
+            title="关闭侧边栏"
+          >
+            <PanelLeftClose className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          </button>
+        </header>
 
-          {onOpenProject ? (
-            <button
-              type="button"
-              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-ink hover:bg-hover"
-              disabled={isSelectionMutationPending}
-              onClick={() => {
-                if (!isSelectionMutationPending) {
-                  onOpenProject();
-                }
-              }}
-            >
-              <FolderOpen className="h-4 w-4 text-sub" strokeWidth={1.5} aria-hidden="true" />
-              打开项目
-            </button>
-          ) : null}
-        </div>
+        <nav className="shrink-0 px-2 pb-2 pt-1" aria-label="应用导航" data-testid="sidebar-app-actions">
+          <SidebarAction icon={Plus} label="新建对话" />
+          <SidebarAction icon={Search} label="搜索" />
+          <SidebarAction icon={Diamond} label="Agent 团队" />
+        </nav>
 
-        <div className="px-4 pb-1 pt-2 text-xs font-medium text-hint">项目</div>
+        <div className="shrink-0 px-4 pb-1 pt-2 text-xs font-medium text-hint">项目</div>
         <ConversationSidebar
           projects={sidebarProjects}
           selectedSessionId={selectedSessionId}
@@ -215,25 +225,12 @@ export function OperatorConsole({
             }
           }}
           disabled={isSelectionMutationPending}
-          className="min-h-0 w-full flex-1 border-0"
+          className="min-h-0 w-full flex-1 overflow-hidden border-0"
         />
 
-        <div className="border-t border-line p-2">
-          {onOpenDiagnostics ? (
-            <button
-              type="button"
-              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-sub hover:bg-hover hover:text-ink"
-              onClick={onOpenDiagnostics}
-            >
-              <Settings2 className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-              开发者诊断
-            </button>
-          ) : null}
-          <div className="flex h-8 items-center gap-2 px-2 text-xs text-hint">
-            <Circle className={cn("h-2.5 w-2.5", runnerStatus === "running" ? "fill-sub text-sub" : "text-hint")} />
-            本地引擎{runnerStatusLabel(runnerStatus)}
-          </div>
-        </div>
+        <footer className="shrink-0 border-t border-line p-2" data-testid="sidebar-footer">
+          <SidebarAction icon={Settings} label="设置" />
+        </footer>
       </aside>
 
       <main className="relative flex min-w-0 flex-1 flex-col bg-canvas">
@@ -308,6 +305,38 @@ export function OperatorConsole({
         </div>
       </main>
     </div>
+  );
+}
+
+function MoebiusLogo(): JSX.Element {
+  return (
+    <span
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-ink text-rail"
+      role="img"
+      aria-label="Moebius Logo"
+    >
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M7.25 16.25C4.9 16.25 3 14.35 3 12s1.9-4.25 4.25-4.25C11.2 7.75 12.8 16.25 16.75 16.25 19.1 16.25 21 14.35 21 12s-1.9-4.25-4.25-4.25C12.8 7.75 11.2 16.25 7.25 16.25Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  );
+}
+
+function SidebarAction({ icon: Icon, label }: { icon: LucideIcon; label: string }): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-normal text-ink hover:bg-hover"
+    >
+      <Icon className="h-4 w-4 shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -535,21 +564,6 @@ function safeRunSummary(summary: string | null | undefined): string {
 
 function runRawOutput(activeRun: OperatorRunSnapshot): string {
   return [activeRun.stdoutTail, activeRun.stderrTail, activeRun.tailDiagnostic].filter(nonBlank).join("\n");
-}
-
-function runnerStatusLabel(status: OperatorRunnerStatus): string {
-  switch (status) {
-    case "running":
-      return "运行中";
-    case "starting":
-      return "启动中";
-    case "crashed":
-      return "已崩溃";
-    case "error":
-      return "异常";
-    case "stopped":
-      return "已停止";
-  }
 }
 
 function formatElapsed(elapsedMs: number): string {

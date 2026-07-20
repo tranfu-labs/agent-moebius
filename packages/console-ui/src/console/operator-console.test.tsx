@@ -11,6 +11,45 @@ import {
 } from "./operator-console";
 
 describe("OperatorConsole", () => {
+  it("renders the fixed sidebar skeleton around the only scrolling project region", () => {
+    renderConsole({ onOpenProject: vi.fn(), onOpenDiagnostics: vi.fn() });
+
+    const sidebar = screen.getByTestId("operator-sidebar");
+    const brandRegion = screen.getByTestId("sidebar-brand-region");
+    const appActions = screen.getByTestId("sidebar-app-actions");
+    const projectList = screen.getByRole("navigation", { name: "项目列表" });
+    const footer = screen.getByTestId("sidebar-footer");
+    const projectHeading = screen.getByText("项目");
+
+    expect(screen.getByRole("img", { name: "Moebius Logo" })).toBeVisible();
+    expect(screen.getByText("Moebius")).toBeVisible();
+    expect(brandRegion).toHaveClass("window-drag-region", "pl-[76px]");
+    expect(screen.getByRole("button", { name: "关闭侧边栏" })).toHaveClass("window-no-drag");
+    expect(screen.getByRole("button", { name: "关闭侧边栏" })).toHaveAttribute("title", "关闭侧边栏");
+
+    const appEntries = ["新建对话", "搜索", "Agent 团队"].map((name) =>
+      screen.getByRole("button", { name }),
+    );
+    expect(new Set(appEntries.map((entry) => entry.className)).size).toBe(1);
+    expect(projectHeading).toBeVisible();
+    expect(screen.getByRole("button", { name: "设置" })).toBeVisible();
+
+    expect(sidebar).toContainElement(brandRegion);
+    expect(sidebar).toContainElement(appActions);
+    expect(sidebar).toContainElement(projectHeading);
+    expect(sidebar).toContainElement(projectList);
+    expect(sidebar).toContainElement(footer);
+    expect(projectList).toHaveClass("overflow-auto");
+    expect(projectList).not.toContainElement(brandRegion);
+    expect(projectList).not.toContainElement(appActions);
+    expect(projectList).not.toContainElement(projectHeading);
+    expect(projectList).not.toContainElement(footer);
+
+    expect(screen.queryByRole("button", { name: "打开项目" })).not.toBeInTheDocument();
+    expect(screen.queryByText("开发者诊断")).not.toBeInTheDocument();
+    expect(screen.queryByText(/本地引擎/u)).not.toBeInTheDocument();
+  });
+
   it("renders the Codex frame, flat session rail, bottom context, and live run controls", () => {
     const onInterrupt = vi.fn();
     renderConsole({ activeRun: runSnapshot, onInterrupt });
@@ -170,13 +209,11 @@ describe("OperatorConsole", () => {
 
   it("blocks every selection entry while pending and additionally blocks send during rebind", () => {
     const onCreateSession = vi.fn();
-    const onOpenProject = vi.fn();
     const onSelectSession = vi.fn();
     const onSend = vi.fn();
     renderConsole({
       messages: [],
       onCreateSession,
-      onOpenProject,
       onSelectSession,
       onChangeSessionProject: vi.fn(),
       onSend,
@@ -185,14 +222,12 @@ describe("OperatorConsole", () => {
     });
 
     expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "打开项目" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "默认会话，运行中" })).toBeDisabled();
     expect(screen.getByLabelText("项目：agent-moebius，点击切换")).toBeDisabled();
     const composer = screen.getByRole("textbox");
     expect(composer).toBeDisabled();
     fireEvent.keyDown(composer, { key: "Enter" });
     expect(onCreateSession).not.toHaveBeenCalled();
-    expect(onOpenProject).not.toHaveBeenCalled();
     expect(onSelectSession).not.toHaveBeenCalled();
     expect(onSend).not.toHaveBeenCalled();
   });
