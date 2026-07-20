@@ -32,6 +32,10 @@ proposed
 当前不为了消除 `ExperimentalWarning` 单独迁移到 `better-sqlite3`，继续使用 Node/Electron 自带的 `node:sqlite`，保持零第三方原生数据库依赖和
 现有三平台打包路径。
 
+在持久 Worker 改造落地前，根 `package.json` 的 `start` 与 `desktop` 开发入口通过 `cross-env` 设置
+`NODE_OPTIONS=--disable-warning=ExperimentalWarning`，作为减少终端与桌面开发态重复 SQLite 实验警告的临时运维例外。该设置覆盖入口进程及其 Node
+子进程，因此也会隐藏非 SQLite 模块产生的同类实验警告；这是已接受的过渡期可观测性损失，不扩展到其他 warning 类型。
+
 状态层后续应从“每条命令一个 Worker”演进为“每个运行时、每个 SQLite 文件一个持久 Worker”：
 
 1. 主线程通过 request / response 协议把状态命令发送到持久 Worker。
@@ -40,8 +44,8 @@ proposed
 4. 失败后的下一条操作按需创建新 Worker、重新打开数据库并执行幂等 schema migration。
 5. Worker 重建期间不得伪造成功，不得永久占用 local session、GitHub issue in-flight 或 observer 读取。
 
-在 `node:sqlite` 仍产生实验警告期间，可以仅对 SQLite Worker 定向禁用 `ExperimentalWarning`。不得把进程级全局屏蔽当成持久 Worker 改造的替代品，
-也不得因此隐藏其他类型的运行时 warning。
+持久 Worker 改造落地时，应把警告屏蔽收窄到 SQLite Worker 边界，并移除根启动脚本的全局 `NODE_OPTIONS`。不得把上述临时例外当成持久 Worker
+改造的替代品，也不得因此屏蔽其他类型的运行时 warning。
 
 若未来出现以下任一条件，可以用新的 ADR 重新评估 `better-sqlite3`：
 
@@ -64,3 +68,4 @@ proposed
 - Worker 被终止时，所有尚未完成的排队命令都必须收到明确失败，调用方需要按既有规则重试或进入可见失败路径。
 - 在该改造落地前，当前实现仍会为每条状态命令创建 Worker；本 ADR 不把拟议结构描述为现状。
 - 项目暂时继续依赖仍带实验标记的 Node API，需要固定并验证支持 `node:sqlite` 的 Node/Electron 最低版本。
+- 过渡期根启动脚本会屏蔽进程树内全部 `ExperimentalWarning`，可能降低发现非 SQLite 实验 API 使用的可见性。
