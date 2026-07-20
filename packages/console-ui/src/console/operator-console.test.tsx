@@ -210,6 +210,58 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("shows one accessible repair indicator and identifies every affected team after opening the page", () => {
+    const secondRepairTeam = {
+      ...repairTeam,
+      teamKey: "user:repair-two",
+      id: "repair-two",
+      name: "内容团队",
+    };
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [draftTeam, repairTeam, secondRepairTeam] },
+    });
+
+    const indicators = screen.getAllByRole("img", { name: "有 Agent 团队需要修复" });
+    expect(indicators).toHaveLength(1);
+    expect(indicators[0]).toHaveAttribute("title", "有 Agent 团队需要修复");
+    expect(indicators[0]).toHaveTextContent("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+
+    const rows = screen.getAllByTestId("agent-team-row");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]).getByText("未完成")).toBeVisible();
+    expect(within(rows[0]).queryByText("需要修复")).not.toBeInTheDocument();
+    expect(within(rows[1]).getByText("需要修复")).toBeVisible();
+    expect(within(rows[2]).getByText("需要修复")).toBeVisible();
+  });
+
+  it("does not show the sidebar repair indicator for unfinished drafts", () => {
+    renderConsole({ agentTeamsState: { status: "ready", teams: [draftTeam] } });
+
+    expect(screen.queryByRole("img", { name: "有 Agent 团队需要修复" })).not.toBeInTheDocument();
+  });
+
+  it("keeps session history visible while a selected team needing repair blocks sending", () => {
+    const onSend = vi.fn();
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [repairTeam] },
+      selectedAgentTeamKey: repairTeam.teamKey,
+      onSend,
+    });
+
+    expect(screen.getByRole("region", { name: "会话时间线" })).toHaveTextContent("@dev hello");
+    const teamButton = screen.getByRole("button", { name: "Agent 团队：客户支持团队，需要修复" });
+    expect(teamButton).toHaveClass("text-danger");
+    expect(teamButton).toHaveTextContent("客户支持团队需要修复");
+    expect(screen.getByRole("textbox", { name: "消息内容" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+    expect(screen.getByText("历史对话仍可查看；修复团队后可继续发送")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it("keeps the horizontal team-row structure while Agent teams are loading", () => {
     renderConsole({ agentTeamsState: { status: "loading" } });
     fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));

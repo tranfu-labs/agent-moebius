@@ -74,6 +74,7 @@ export const MIN_SIDEBAR_WIDTH_PX = 220;
 export const MAX_SIDEBAR_WIDTH_PX = 360;
 export const NARROW_WINDOW_WIDTH_PX = 760;
 export const STACKED_TEAM_ROW_WINDOW_WIDTH_PX = 1024;
+const AGENT_TEAMS_REPAIR_INDICATOR_LABEL = "有 Agent 团队需要修复";
 
 interface SidebarResizeGesture {
   pointerId: number;
@@ -312,7 +313,18 @@ export function OperatorConsole({
   const projectListUnavailable = projectListState !== "ready";
   const projectConfigurationPending = isProjectMutationPending;
   const sidebarProjects = visibleProjects.map(toSidebarProject);
-  const canSend = composerValue.trim() !== "" && activeRun === null && !isSending && !isSessionProjectUpdating && !activeProjectUnavailable;
+  const hasAgentTeamNeedingRepair = agentTeamsState.status === "ready"
+    && agentTeamsState.teams.some((team) => team.status === "needs-repair");
+  const selectedAgentTeam = agentTeamsState.status === "ready"
+    ? agentTeamsState.teams.find((team) => team.teamKey === selectedAgentTeamKey)
+    : undefined;
+  const selectedAgentTeamNeedsRepair = selectedAgentTeam?.status === "needs-repair";
+  const canSend = composerValue.trim() !== ""
+    && activeRun === null
+    && !isSending
+    && !isSessionProjectUpdating
+    && !activeProjectUnavailable
+    && !selectedAgentTeamNeedsRepair;
   const emptyConversation = messages.length === 0 && activeRun === null;
   const requestedSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
   const sidebarAutoCollapsed = !isFirstRunOnboarding && requestedSidebarOpen && isNarrowWindow;
@@ -416,6 +428,7 @@ export function OperatorConsole({
             icon={Diamond}
             label="Agent 团队"
             selected={applicationView === "agent-teams"}
+            statusIndicatorLabel={hasAgentTeamNeedingRepair ? AGENT_TEAMS_REPAIR_INDICATOR_LABEL : undefined}
             disabled={activeProjectUnavailable}
             disabledReason={activeProject.directoryUnavailableReason ?? undefined}
             onClick={() => setApplicationView("agent-teams")}
@@ -638,14 +651,27 @@ export function OperatorConsole({
                   value={composerValue}
                   onValueChange={onComposerChange}
                   onSubmit={submitComposer}
-                  disabled={activeRun !== null || isSending || isSessionProjectUpdating || activeProjectUnavailable}
-                  placeholder={activeProjectUnavailable ? "项目文件夹不可用，请先使用红色扳手修复" : activeRun ? "当前 agent 正在执行…" : "描述你的目标，@ 一个角色开始…"}
-                  statusText={activeProjectUnavailable ? "历史对话只读；修复文件夹后可继续" : activeRun ? "当前正在执行，完成后可继续发送" : undefined}
+                  disabled={activeRun !== null || isSending || isSessionProjectUpdating || activeProjectUnavailable || selectedAgentTeamNeedsRepair}
+                  placeholder={activeProjectUnavailable
+                    ? "项目文件夹不可用，请先使用红色扳手修复"
+                    : selectedAgentTeamNeedsRepair
+                      ? "当前 Agent 团队需要修复"
+                      : activeRun
+                        ? "当前 agent 正在执行…"
+                        : "描述你的目标，@ 一个角色开始…"}
+                  statusText={activeProjectUnavailable
+                    ? "历史对话只读；修复文件夹后可继续"
+                    : selectedAgentTeamNeedsRepair
+                      ? "历史对话仍可查看；修复团队后可继续发送"
+                      : activeRun
+                        ? "当前正在执行，完成后可继续发送"
+                        : undefined}
                   context={
                     <ComposerContext
                       project={activeProject}
                       projects={visibleProjects}
                       selectedSession={selectedSession}
+                      agentTeam={selectedAgentTeam}
                       canChangeProject={
                         selectedSession !== null &&
                         messages.length === 0 &&
@@ -969,6 +995,7 @@ function SidebarAction({
   icon: Icon,
   label,
   selected = false,
+  statusIndicatorLabel,
   onClick,
   disabled = false,
   disabledReason,
@@ -976,6 +1003,7 @@ function SidebarAction({
   icon: LucideIcon;
   label: string;
   selected?: boolean;
+  statusIndicatorLabel?: string;
   onClick?: () => void;
   disabled?: boolean;
   disabledReason?: string;
@@ -987,6 +1015,7 @@ function SidebarAction({
         "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-normal text-ink hover:bg-hover",
         selected ? "bg-sel" : "bg-transparent",
       )}
+      aria-label={label}
       aria-current={selected ? "page" : undefined}
       aria-description={disabled ? disabledReason : undefined}
       title={disabled ? disabledReason : undefined}
@@ -995,6 +1024,14 @@ function SidebarAction({
     >
       <Icon className="h-4 w-4 shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
       <span>{label}</span>
+      {statusIndicatorLabel ? (
+        <span
+          className="ml-auto h-2 w-2 shrink-0 rounded-full bg-danger"
+          role="img"
+          aria-label={statusIndicatorLabel}
+          title={statusIndicatorLabel}
+        />
+      ) : null}
     </button>
   );
 }
@@ -1068,6 +1105,7 @@ function ComposerContext({
   project,
   projects,
   selectedSession,
+  agentTeam,
   canChangeProject,
   disabled,
   onChangeSessionProject,
@@ -1076,6 +1114,7 @@ function ComposerContext({
   project: OperatorProject;
   projects: OperatorProject[];
   selectedSession: OperatorSession | null;
+  agentTeam?: OperatorAgentTeam;
   canChangeProject: boolean;
   disabled: boolean;
   onChangeSessionProject?: (sessionId: string, projectId: string) => void;
@@ -1133,6 +1172,7 @@ function ComposerContext({
           <span className="truncate">{project.title}</span>
         </span>
       )}
+      {agentTeam ? <SessionAgentTeamButton team={agentTeam} /> : null}
       {onToggleProjectWorktree ? (
         <button
           type="button"
@@ -1157,6 +1197,34 @@ function ComposerContext({
         {project.worktreeMode ? "会话分支" : "当前分支"}
       </span>
     </div>
+  );
+}
+
+function SessionAgentTeamButton({ team }: { team: OperatorAgentTeam }): JSX.Element {
+  const teamLabel = team.name?.trim() || "未命名团队";
+  const needsRepair = team.status === "needs-repair";
+  const accessibleLabel = needsRepair
+    ? `Agent 团队：${teamLabel}，需要修复`
+    : `Agent 团队：${teamLabel}`;
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        "inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1",
+        needsRepair ? "bg-danger/10 text-danger" : "text-sub",
+      )}
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
+    >
+      {needsRepair ? (
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      ) : (
+        <Diamond className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      )}
+      <span className="truncate">{teamLabel}</span>
+      {needsRepair ? <span className="whitespace-nowrap font-medium">需要修复</span> : null}
+    </button>
   );
 }
 
