@@ -1,6 +1,11 @@
 import { AlertTriangle } from "lucide-react";
 import { useRef, useState } from "react";
 
+import {
+  AgentTeamDetail,
+  type AgentTeamDetailState,
+  type AgentTeamSaveAllFailureView,
+} from "@/console/agent-team-detail";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
 
@@ -33,17 +38,35 @@ export function AgentTeamsPage({
   state,
   selectedTeamKey,
   selectedMemberSlug,
+  detailState,
   useStackedRows,
   onRetry,
   onOpenTeam,
+  onCloseTeam,
+  onSelectMember,
+  onChangeMember,
+  onSaveMember,
+  onRetryMember,
+  onDiscardMember,
+  onDiscardAll,
+  onSaveAll,
   onBack,
 }: {
   state: OperatorAgentTeamsState;
   selectedTeamKey?: string | null;
   selectedMemberSlug?: string | null;
+  detailState?: AgentTeamDetailState | null;
   useStackedRows: boolean;
   onRetry?: () => void;
   onOpenTeam?: (teamKey: string) => void;
+  onCloseTeam?: () => void;
+  onSelectMember?: (teamKey: string, memberSlug: string) => void;
+  onChangeMember?: (teamKey: string, memberSlug: string, agentMarkdown: string) => void;
+  onSaveMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onRetryMember?: (teamKey: string, memberSlug: string) => void;
+  onDiscardMember?: (teamKey: string, memberSlug: string) => void;
+  onDiscardAll?: (teamKey: string) => void;
+  onSaveAll?: (teamKey: string) => Promise<{ failures: AgentTeamSaveAllFailureView[] }>;
   onBack: () => void;
 }): JSX.Element {
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -52,6 +75,11 @@ export function AgentTeamsPage({
   const openedTeam = state.status === "ready"
     ? state.teams.find((team) => team.teamKey === openedTeamKey)
     : undefined;
+  const openedDetailState = detailState !== undefined
+    && detailState !== null
+    && detailState.teamKey === openedTeam?.teamKey
+    ? detailState
+    : null;
 
   const openTeam = (teamKey: string) => {
     listScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? 0;
@@ -63,6 +91,7 @@ export function AgentTeamsPage({
   };
 
   const returnToList = () => {
+    onCloseTeam?.();
     setOpenedTeamKey(null);
     if (scrollContainerRef.current !== null) {
       scrollContainerRef.current.scrollTop = listScrollTopRef.current;
@@ -80,13 +109,28 @@ export function AgentTeamsPage({
           <div
             className="min-h-40"
             role="region"
-            aria-label={`${teamName(openedTeam)}团队详情入口`}
-            data-testid="agent-team-detail-entry"
+            aria-label={`${teamName(openedTeam)}详情`}
+            data-testid="agent-team-detail-view"
             data-team-key={openedTeam.teamKey}
           >
-            <Button type="button" variant="ghost" size="sm" onClick={returnToList}>
-              返回 Agent 团队
-            </Button>
+            {openedDetailState === null ? (
+              <div className="flex min-h-40 items-center justify-center text-sm text-sub" role="status">
+                正在读取团队详情…
+              </div>
+            ) : (
+              <AgentTeamDetail
+                team={openedTeam}
+                state={openedDetailState}
+                onSelectMember={(memberSlug) => onSelectMember?.(openedTeam.teamKey, memberSlug)}
+                onChangeMember={(memberSlug, agentMarkdown) => onChangeMember?.(openedTeam.teamKey, memberSlug, agentMarkdown)}
+                onSaveMember={(memberSlug) => onSaveMember?.(openedTeam.teamKey, memberSlug)}
+                onRetryLoad={(memberSlug) => onRetryMember?.(openedTeam.teamKey, memberSlug)}
+                onDiscardMember={(memberSlug) => onDiscardMember?.(openedTeam.teamKey, memberSlug)}
+                onDiscardAll={() => onDiscardAll?.(openedTeam.teamKey)}
+                onSaveAll={() => onSaveAll?.(openedTeam.teamKey) ?? Promise.resolve({ failures: [] })}
+                onLeave={returnToList}
+              />
+            )}
           </div>
         ) : (
           <>

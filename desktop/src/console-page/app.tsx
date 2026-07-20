@@ -2,6 +2,9 @@ import "@agent-moebius/console-ui/globals.css";
 
 import {
   OperatorConsole,
+  type AgentTeamDetailState,
+  type AgentTeamMemberEditorState,
+  type AgentTeamSaveAllFailureView,
   type OperatorMessage,
   type OperatorAgentTeam,
   type OperatorAgentTeamsState,
@@ -10,7 +13,14 @@ import {
   type OperatorRunnerStatus,
   type OperatorSession,
 } from "@agent-moebius/console-ui";
-import type { AgentTeamListItem, AgentTeamListResponse } from "../team-ipc.js";
+import type {
+  AgentTeamListItem,
+  AgentTeamListResponse,
+  AgentTeamMemberDocument,
+  AgentTeamMemberRequest,
+  AgentTeamMemberWriteRequest,
+} from "../team-ipc.js";
+import { parseAgentMarkdownIdentity } from "../team-model.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -29,8 +39,23 @@ import {
   type SidebarVisibilityPreference,
 } from "./sidebar-preference.js";
 import {
+  discardAgentTeamMemberDraft,
+  discardAllAgentTeamDrafts,
+  EMPTY_AGENT_TEAM_DRAFT_STATE,
+  failAgentTeamMemberLoad,
+  failAgentTeamMemberSave,
+  finishAgentTeamMemberLoad,
+  finishAgentTeamMemberSave,
   getAgentTeamKey,
+  getAgentTeamMemberDraft,
+  isAgentTeamMemberDirty,
   reconcileAgentTeamSelection,
+  saveAllAgentTeamDrafts,
+  startAgentTeamMemberLoad,
+  startAgentTeamMemberSave,
+  updateAgentTeamMemberDraft,
+  type AgentTeamDraftState,
+  type AgentTeamSaveAllFailure,
   type AgentTeamSelection,
 } from "./team-state.js";
 
@@ -42,6 +67,8 @@ interface DesktopApi {
   selectFolderForRepair?: (projectId: string) => Promise<string | null>;
   showInFolder?: (folderPath: string) => Promise<void>;
   listAgentTeams?: () => Promise<AgentTeamListResponse>;
+  readAgentTeamMember?: (request: AgentTeamMemberRequest) => Promise<AgentTeamMemberDocument>;
+  writeAgentTeamMember?: (request: AgentTeamMemberWriteRequest) => Promise<AgentTeamMemberDocument>;
 }
 
 interface DesktopStatusSnapshot {
@@ -90,11 +117,20 @@ function App(): JSX.Element {
   const [isNewConversationWithoutProject, setIsNewConversationWithoutProject] = useState(false);
   const [agentTeamsState, setAgentTeamsState] = useState<OperatorAgentTeamsState>({ status: "loading" });
   const [agentTeamSelection, setAgentTeamSelection] = useState<AgentTeamSelection | null>(null);
+  const [activeAgentTeamKey, setActiveAgentTeamKey] = useState<string | null>(null);
+  const [agentTeamDraftState, setAgentTeamDraftState] = useState<AgentTeamDraftState>(EMPTY_AGENT_TEAM_DRAFT_STATE);
+  const agentTeamDraftStateRef = useRef(agentTeamDraftState);
+  const [agentTeamSaveAllFailures, setAgentTeamSaveAllFailures] = useState<AgentTeamSaveAllFailure[]>([]);
   const [agentTeamsRefreshNonce, setAgentTeamsRefreshNonce] = useState(0);
   const [sidebarVisibilityPreference, setSidebarVisibilityPreference] = useState<SidebarVisibilityPreference>(() =>
     readSidebarVisibilityPreference(window.localStorage),
   );
   const resultAcknowledgementsRef = useRef(new Set<string>());
+
+  const commitAgentTeamDraftState = useCallback((nextState: AgentTeamDraftState) => {
+    agentTeamDraftStateRef.current = nextState;
+    setAgentTeamDraftState(nextState);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,6 +179,194 @@ function App(): JSX.Element {
       }
     };
   }, [agentTeamsRefreshNonce]);
+
+  const loadAgentTeamMember = useCallback(async (teamKey: string, memberSlug: string) => {
+    const current = getAgentTeamMemberDraft(agentTeamDraftStateRef.current, teamKey, memberSlug);
+    if (current?.loadStatus === "ready" || current?.loadStatus === "loading") {
+      return;
+    }
+
+    commitAgentTeamDraftState(startAgentTeamMemberLoad(agentTeamDraftStateRef.current, teamKey, memberSlug));
+    try {
+      const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+      const readMember = window.agentMoebius?.readAgentTeamMember;
+      if (team === undefined || readMember === undefined) {
+        throw new Error("当前无法读取 Agent 内容，请稍后重试。");
+      }
+      const document = await readMember({ teamId: team.id, ownership: team.ownership, memberSlug });
+      commitAgentTeamDraftState(finishAgentTeamMemberLoad(
+        agentTeamDraftStateRef.current,
+        teamKey,
+        memberSlug,
+        document.agentMarkdown,
+      ));
+    } catch (error) {
+      commitAgentTeamDraftState(failAgentTeamMemberLoad(
+        agentTeamDraftStateRef.current,
+        teamKey,
+        memberSlug,
+        formatError(error),
+      ));
+    }
+  }, [agentTeamsState, commitAgentTeamDraftState]);
+
+  const updateAgentTeamMemberSummary = useCallback((teamKey: string, document: AgentTeamMemberDocument) => {
+    setAgentTeamsState((current) => current.status !== "ready"
+      ? current
+      : {
+          status: "ready",
+          teams: current.teams.map((team) => team.teamKey !== teamKey
+            ? team
+            : {
+                ...team,
+                members: team.members.map((member) => member.slug === document.slug
+                  ? {
+                      slug: document.slug,
+                      displayName: document.displayName,
+                      description: document.description,
+                    }
+                  : member),
+              }),
+        });
+  }, []);
+
+  const persistAgentTeamMember = useCallback(async (
+    teamKey: string,
+    memberSlug: string,
+    agentMarkdown: string,
+  ): Promise<AgentTeamMemberDocument> => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const writeMember = window.agentMoebius?.writeAgentTeamMember;
+    if (team === undefined || writeMember === undefined) {
+      throw new Error("当前无法保存 Agent 内容，请稍后重试。");
+    }
+    const document = await writeMember({
+      teamId: team.id,
+      ownership: team.ownership,
+      memberSlug,
+      agentMarkdown,
+    });
+    updateAgentTeamMemberSummary(teamKey, document);
+    return document;
+  }, [agentTeamsState, updateAgentTeamMemberSummary]);
+
+  const saveAgentTeamMember = useCallback(async (teamKey: string, memberSlug: string): Promise<void> => {
+    const current = getAgentTeamMemberDraft(agentTeamDraftStateRef.current, teamKey, memberSlug);
+    if (!isAgentTeamMemberDirty(current) || current?.saveStatus === "saving") {
+      return;
+    }
+    commitAgentTeamDraftState(startAgentTeamMemberSave(agentTeamDraftStateRef.current, teamKey, memberSlug));
+    const saving = getAgentTeamMemberDraft(agentTeamDraftStateRef.current, teamKey, memberSlug);
+    const requestedMarkdown = saving?.saveRequestedMarkdown;
+    if (requestedMarkdown === null || requestedMarkdown === undefined) {
+      return;
+    }
+
+    try {
+      const document = await persistAgentTeamMember(teamKey, memberSlug, requestedMarkdown);
+      commitAgentTeamDraftState(finishAgentTeamMemberSave(
+        agentTeamDraftStateRef.current,
+        teamKey,
+        memberSlug,
+        document.agentMarkdown,
+      ));
+      setAgentTeamSaveAllFailures((currentFailures) =>
+        currentFailures.filter((failure) => failure.memberSlug !== memberSlug));
+    } catch (error) {
+      commitAgentTeamDraftState(failAgentTeamMemberSave(
+        agentTeamDraftStateRef.current,
+        teamKey,
+        memberSlug,
+        formatError(error),
+      ));
+    }
+  }, [commitAgentTeamDraftState, persistAgentTeamMember]);
+
+  const saveAllDraftsAndLeave = useCallback(async (
+    teamKey: string,
+  ): Promise<{ failures: AgentTeamSaveAllFailureView[] }> => {
+    const result = await saveAllAgentTeamDrafts({
+      state: agentTeamDraftStateRef.current,
+      teamKey,
+      saveMember: async (memberSlug, agentMarkdown) => {
+        const document = await persistAgentTeamMember(teamKey, memberSlug, agentMarkdown);
+        return document.agentMarkdown;
+      },
+      onTransition: commitAgentTeamDraftState,
+    });
+    commitAgentTeamDraftState(result.state);
+    setAgentTeamSaveAllFailures(result.failures);
+    return { failures: result.failures };
+  }, [commitAgentTeamDraftState, persistAgentTeamMember]);
+
+  const openAgentTeam = useCallback((teamKey: string) => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    if (team === undefined) {
+      return;
+    }
+    const currentMemberSlug = agentTeamSelection?.teamKey === teamKey
+      && agentTeamSelection.memberSlug !== null
+      && team.members.some((member) => member.slug === agentTeamSelection.memberSlug)
+      ? agentTeamSelection.memberSlug
+      : team.primaryAgentSlug !== null && team.members.some((member) => member.slug === team.primaryAgentSlug)
+        ? team.primaryAgentSlug
+        : team.members[0]?.slug ?? null;
+    setActiveAgentTeamKey(teamKey);
+    setAgentTeamSelection({ teamKey, memberSlug: currentMemberSlug });
+    setAgentTeamSaveAllFailures([]);
+    if (currentMemberSlug !== null) {
+      void loadAgentTeamMember(teamKey, currentMemberSlug);
+    }
+  }, [agentTeamSelection, agentTeamsState, loadAgentTeamMember]);
+
+  const selectAgentTeamMember = useCallback((teamKey: string, memberSlug: string) => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    if (team === undefined || !team.members.some((member) => member.slug === memberSlug)) {
+      return;
+    }
+    setAgentTeamSelection({ teamKey, memberSlug });
+    void loadAgentTeamMember(teamKey, memberSlug);
+  }, [agentTeamsState, loadAgentTeamMember]);
+
+  const agentTeamDetailState = useMemo<AgentTeamDetailState | null>(() => {
+    if (activeAgentTeamKey === null) {
+      return null;
+    }
+    const team = findOperatorAgentTeam(agentTeamsState, activeAgentTeamKey);
+    if (team === undefined) {
+      return null;
+    }
+    const selectedMemberSlug = agentTeamSelection?.teamKey === activeAgentTeamKey
+      ? agentTeamSelection.memberSlug
+      : null;
+    const memberEditors: Record<string, AgentTeamMemberEditorState | undefined> = {};
+    for (const member of team.members) {
+      const editor = getAgentTeamMemberDraft(agentTeamDraftState, activeAgentTeamKey, member.slug);
+      if (editor === undefined) {
+        continue;
+      }
+      const identity = editor.loadStatus === "ready"
+        ? parseAgentMarkdownIdentity(editor.draftMarkdown)
+        : { displayName: member.displayName, description: member.description };
+      memberEditors[member.slug] = {
+        memberSlug: member.slug,
+        loadStatus: editor.loadStatus,
+        loadError: editor.loadError,
+        draftMarkdown: editor.draftMarkdown,
+        isDirty: isAgentTeamMemberDirty(editor),
+        saveStatus: editor.saveStatus,
+        saveError: editor.saveError,
+        displayName: identity.displayName,
+        description: identity.description,
+      };
+    }
+    return {
+      teamKey: activeAgentTeamKey,
+      selectedMemberSlug,
+      memberEditors,
+      saveAllFailures: agentTeamSaveAllFailures,
+    };
+  }, [activeAgentTeamKey, agentTeamDraftState, agentTeamSaveAllFailures, agentTeamSelection, agentTeamsState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -442,6 +666,7 @@ function App(): JSX.Element {
       agentTeamsState={agentTeamsState}
       selectedAgentTeamKey={agentTeamSelection?.teamKey}
       selectedAgentTeamMemberSlug={agentTeamSelection?.memberSlug}
+      agentTeamDetailState={agentTeamDetailState}
       onComposerChange={setComposerValue}
       onSend={actions.sendMessage}
       onOpenProject={actions.openProject}
@@ -465,21 +690,36 @@ function App(): JSX.Element {
         void refresh(selectionRef.current);
       }}
       onRetryAgentTeams={() => setAgentTeamsRefreshNonce((current) => current + 1)}
-      onOpenAgentTeam={(teamKey) => {
-        if (agentTeamsState.status !== "ready") {
-          return;
-        }
-        const team = agentTeamsState.teams.find((candidate) => candidate.teamKey === teamKey);
-        if (team === undefined) {
-          return;
-        }
-        const primaryAgentAvailable = team.primaryAgentSlug !== null
-          && team.members.some((member) => member.slug === team.primaryAgentSlug);
-        setAgentTeamSelection({
-          teamKey,
-          memberSlug: primaryAgentAvailable ? team.primaryAgentSlug : team.members[0]?.slug ?? null,
-        });
+      onOpenAgentTeam={openAgentTeam}
+      onCloseAgentTeam={() => {
+        setActiveAgentTeamKey(null);
+        setAgentTeamSaveAllFailures([]);
       }}
+      onSelectAgentTeamMember={selectAgentTeamMember}
+      onChangeAgentTeamMember={(teamKey, memberSlug, agentMarkdown) => {
+        commitAgentTeamDraftState(updateAgentTeamMemberDraft(
+          agentTeamDraftStateRef.current,
+          teamKey,
+          memberSlug,
+          agentMarkdown,
+        ));
+      }}
+      onSaveAgentTeamMember={saveAgentTeamMember}
+      onRetryAgentTeamMember={(teamKey, memberSlug) => {
+        void loadAgentTeamMember(teamKey, memberSlug);
+      }}
+      onDiscardAgentTeamMember={(teamKey, memberSlug) => {
+        commitAgentTeamDraftState(discardAgentTeamMemberDraft(
+          agentTeamDraftStateRef.current,
+          teamKey,
+          memberSlug,
+        ));
+      }}
+      onDiscardAllAgentTeamDrafts={(teamKey) => {
+        commitAgentTeamDraftState(discardAllAgentTeamDrafts(agentTeamDraftStateRef.current, teamKey));
+        setAgentTeamSaveAllFailures([]);
+      }}
+      onSaveAllAgentTeamDrafts={saveAllDraftsAndLeave}
       isSending={isSending}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}
@@ -529,6 +769,12 @@ function toOperatorAgentTeam(team: AgentTeamListItem): OperatorAgentTeam {
     status: team.status,
     canCreateConversation: team.canCreateConversation,
   };
+}
+
+function findOperatorAgentTeam(state: OperatorAgentTeamsState, teamKey: string): OperatorAgentTeam | undefined {
+  return state.status === "ready"
+    ? state.teams.find((team) => team.teamKey === teamKey)
+    : undefined;
 }
 
 function readQueryApiBase(): string | null {

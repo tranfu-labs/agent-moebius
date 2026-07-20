@@ -1,5 +1,6 @@
 export * from "./console/accept-card";
 export * from "./console/agent-message";
+export * from "./console/agent-team-detail";
 export * from "./console/agent-teams-page";
 export * from "./console/conversation-empty-state";
 export * from "./console/conversation-sidebar";

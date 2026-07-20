@@ -16,6 +16,10 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 
 import { AgentMessage } from "@/console/agent-message";
 import {
+  type AgentTeamDetailState,
+  type AgentTeamSaveAllFailureView,
+} from "@/console/agent-team-detail";
+import {
   AgentTeamsPage,
   type OperatorAgentTeamsState,
 } from "@/console/agent-teams-page";
@@ -162,6 +166,7 @@ export interface OperatorConsoleProps {
   agentTeamsState?: OperatorAgentTeamsState;
   selectedAgentTeamKey?: string | null;
   selectedAgentTeamMemberSlug?: string | null;
+  agentTeamDetailState?: AgentTeamDetailState | null;
   onComposerChange(value: string): void;
   onSend(): void;
   onOpenProject?: () => void;
@@ -180,6 +185,14 @@ export interface OperatorConsoleProps {
   onRetryProjectList?: () => void;
   onRetryAgentTeams?: () => void;
   onOpenAgentTeam?: (teamKey: string) => void;
+  onCloseAgentTeam?: () => void;
+  onSelectAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
+  onChangeAgentTeamMember?: (teamKey: string, memberSlug: string, agentMarkdown: string) => void;
+  onSaveAgentTeamMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
+  onRetryAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
+  onDiscardAgentTeamMember?: (teamKey: string, memberSlug: string) => void;
+  onDiscardAllAgentTeamDrafts?: (teamKey: string) => void;
+  onSaveAllAgentTeamDrafts?: (teamKey: string) => Promise<{ failures: AgentTeamSaveAllFailureView[] }>;
   isSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
@@ -205,6 +218,7 @@ export function OperatorConsole({
   agentTeamsState = { status: "loading" },
   selectedAgentTeamKey,
   selectedAgentTeamMemberSlug,
+  agentTeamDetailState,
   onComposerChange,
   onSend,
   onOpenProject,
@@ -223,6 +237,14 @@ export function OperatorConsole({
   onRetryProjectList,
   onRetryAgentTeams,
   onOpenAgentTeam,
+  onCloseAgentTeam,
+  onSelectAgentTeamMember,
+  onChangeAgentTeamMember,
+  onSaveAgentTeamMember,
+  onRetryAgentTeamMember,
+  onDiscardAgentTeamMember,
+  onDiscardAllAgentTeamDrafts,
+  onSaveAllAgentTeamDrafts,
   isSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
@@ -495,9 +517,18 @@ export function OperatorConsole({
             state={agentTeamsState}
             selectedTeamKey={selectedAgentTeamKey}
             selectedMemberSlug={selectedAgentTeamMemberSlug}
+            detailState={agentTeamDetailState}
             useStackedRows={useStackedTeamRows}
             onRetry={onRetryAgentTeams}
             onOpenTeam={onOpenAgentTeam}
+            onCloseTeam={onCloseAgentTeam}
+            onSelectMember={onSelectAgentTeamMember}
+            onChangeMember={onChangeAgentTeamMember}
+            onSaveMember={onSaveAgentTeamMember}
+            onRetryMember={onRetryAgentTeamMember}
+            onDiscardMember={onDiscardAgentTeamMember}
+            onDiscardAll={onDiscardAllAgentTeamDrafts}
+            onSaveAll={onSaveAllAgentTeamDrafts}
             onBack={() => setApplicationView("conversation")}
           />
         ) : (

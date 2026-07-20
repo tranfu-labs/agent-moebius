@@ -285,11 +285,14 @@ describe("OperatorConsole", () => {
     expect(within(row).getByLabelText("还有 2 名成员")).toHaveTextContent("＋2");
   });
 
-  it("opens the detail entry for the whole row and restores list scroll on return", () => {
+  it("opens the real detail editor for the whole row and restores list scroll on return", () => {
     const onOpenAgentTeam = vi.fn();
+    const onCloseAgentTeam = vi.fn();
     renderConsole({
       agentTeamsState: { status: "ready", teams: [fiveMemberTeam] },
+      agentTeamDetailState: detailStateFor(fiveMemberTeam.teamKey),
       onOpenAgentTeam,
+      onCloseAgentTeam,
     });
     fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
 
@@ -298,13 +301,65 @@ describe("OperatorConsole", () => {
     fireEvent.click(screen.getByTestId("agent-team-row"));
 
     expect(onOpenAgentTeam).toHaveBeenCalledWith("system:development");
-    expect(screen.getByTestId("agent-team-detail-entry")).toHaveAttribute("data-team-key", "system:development");
+    expect(screen.getByTestId("agent-team-detail-view")).toHaveAttribute("data-team-key", "system:development");
+    expect(screen.getByTestId("agent-team-detail")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "开发经理 AGENT.md" })).toBeVisible();
     expect(screen.queryByTestId("agent-team-list")).not.toBeInTheDocument();
     expect(listPage.scrollTop).toBe(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "返回 Agent 团队" }));
+    fireEvent.click(within(screen.getByTestId("agent-team-detail-view")).getByRole("button", { name: "Agent 团队" }));
+    expect(onCloseAgentTeam).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("agent-team-list")).toBeVisible();
     expect(listPage.scrollTop).toBe(187);
+  });
+
+  it("renders the controlled team detail and keeps member selection inside that page", () => {
+    const onSelectAgentTeamMember = vi.fn();
+    const onCloseAgentTeam = vi.fn();
+    const team = {
+      ...agentTeam,
+      ownership: "user" as const,
+      teamKey: "user:development",
+      memberOrder: ["manager", "dev"],
+      members: [
+        { slug: "manager", displayName: "开发经理", description: "默认接单" },
+        { slug: "dev", displayName: "开发", description: "负责实现" },
+      ],
+    };
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [team] },
+      agentTeamDetailState: {
+        teamKey: team.teamKey,
+        selectedMemberSlug: "manager",
+        memberEditors: {
+          manager: {
+            memberSlug: "manager",
+            loadStatus: "ready",
+            loadError: null,
+            draftMarkdown: "# 开发经理\n\n默认接单\n",
+            isDirty: false,
+            saveStatus: "idle",
+            saveError: null,
+            displayName: "开发经理",
+            description: "默认接单",
+          },
+        },
+        saveAllFailures: [],
+      },
+      onSelectAgentTeamMember,
+      onCloseAgentTeam,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+    fireEvent.click(screen.getByTestId("agent-team-row"));
+    const detail = screen.getByRole("region", { name: "开发团队详情" });
+    expect(detail).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "开发" }));
+    expect(onSelectAgentTeamMember).toHaveBeenCalledWith("user:development", "dev");
+    expect(screen.queryByTestId("agent-team-list")).not.toBeInTheDocument();
+
+    fireEvent.click(within(detail).getByRole("button", { name: "Agent 团队" }));
+    expect(onCloseAgentTeam).toHaveBeenCalledTimes(1);
   });
 
   it("closes and restores the sidebar without remounting the timeline or active run", () => {
@@ -867,6 +922,27 @@ const fiveMemberTeam = {
     { slug: "security", displayName: "安全", description: "安全审查" },
   ],
 };
+
+function detailStateFor(teamKey: string) {
+  return {
+    teamKey,
+    selectedMemberSlug: "manager",
+    memberEditors: {
+      manager: {
+        memberSlug: "manager",
+        loadStatus: "ready" as const,
+        loadError: null,
+        draftMarkdown: "# 开发经理\n\n默认接单\n",
+        isDirty: false,
+        saveStatus: "idle" as const,
+        saveError: null,
+        displayName: "开发经理",
+        description: "默认接单",
+      },
+    },
+    saveAllFailures: [],
+  };
+}
 
 const draftTeam = {
   teamKey: "user:draft",
