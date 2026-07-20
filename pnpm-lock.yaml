@@ -49,6 +49,9 @@ importers:
       '@types/react-dom':
         specifier: ^18.3.1
         version: 18.3.7(@types/react@18.3.31)
+      '@vitejs/plugin-react':
+        specifier: ^4.3.4
+        version: 4.7.0(vite@5.4.21(@types/node@22.20.0))
       electron:
         specifier: ^38.0.0
         version: 38.8.6
@@ -61,6 +64,9 @@ importers:
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
+      vite:
+        specifier: ^5.4.11
+        version: 5.4.21(@types/node@22.20.0)
       vitest:
         specifier: ^3.0.0
         version: 3.2.6(@types/debug@4.1.13)(@types/node@22.20.0)(jiti@2.7.0)(jsdom@25.0.1)(tsx@4.22.4)
@@ -6937,16 +6943,15 @@ snapshots:
 
   uuid@9.0.1: {}
 
-  vite-node@3.2.4(@types/node@22.20.0)(jiti@1.21.7)(tsx@4.22.4):
+  vite-node@3.2.4(@types/node@22.20.0):
     dependencies:
       cac: 6.7.14
       debug: 4.4.3
       es-module-lexer: 1.7.0
       pathe: 2.0.3
-      vite: 7.3.6(@types/node@22.20.0)(jiti@1.21.7)(tsx@4.22.4)
+      vite: 5.4.21(@types/node@22.20.0)
     transitivePeerDependencies:
       - '@types/node'
-      - jiti
       - less
       - lightningcss
       - sass
@@ -6955,29 +6960,6 @@ snapshots:
       - sugarss
       - supports-color
       - terser
-      - tsx
-      - yaml
-
-  vite-node@3.2.4(@types/node@22.20.0)(jiti@2.7.0)(tsx@4.22.4):
-    dependencies:
-      cac: 6.7.14
-      debug: 4.4.3
-      es-module-lexer: 1.7.0
-      pathe: 2.0.3
-      vite: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)(tsx@4.22.4)
-    transitivePeerDependencies:
-      - '@types/node'
-      - jiti
-      - less
-      - lightningcss
-      - sass
-      - sass-embedded
-      - stylus
-      - sugarss
-      - supports-color
-      - terser
-      - tsx
-      - yaml
 
   vite@5.4.21(@types/node@22.20.0):
     dependencies:
@@ -7039,7 +7021,7 @@ snapshots:
       tinypool: 1.1.1
       tinyrainbow: 2.0.0
       vite: 7.3.6(@types/node@22.20.0)(jiti@1.21.7)(tsx@4.22.4)
-      vite-node: 3.2.4(@types/node@22.20.0)(jiti@1.21.7)(tsx@4.22.4)
+      vite-node: 3.2.4(@types/node@22.20.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/debug': 4.1.13
@@ -7082,7 +7064,7 @@ snapshots:
       tinypool: 1.1.1
       tinyrainbow: 2.0.0
       vite: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)(tsx@4.22.4)
-      vite-node: 3.2.4(@types/node@22.20.0)(jiti@2.7.0)(tsx@4.22.4)
+      vite-node: 3.2.4(@types/node@22.20.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/debug': 4.1.13
