@@ -61,6 +61,10 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     return this.run({ kind: "local-rename-project", ...input });
   }
 
+  async repairProjectFolder(input: { projectId: string; folderPath: string; now: string }): Promise<LocalConsoleProjectSummary> {
+    return this.run({ kind: "local-repair-project-folder", ...input });
+  }
+
   async removeProject(input: { projectId: string; force: boolean; now: string }): Promise<LocalConsoleProjectRemovalResult> {
     return this.run({ kind: "local-remove-project", ...input });
   }

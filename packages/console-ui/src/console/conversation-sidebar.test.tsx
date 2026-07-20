@@ -275,6 +275,34 @@ describe("ConversationSidebar", () => {
     fireEvent.click(createButton);
     expect(onNewConversation).not.toHaveBeenCalled();
   });
+
+  it("renders folder repair as an independent red wrench outside the project menu", async () => {
+    const onRepairProject = vi.fn();
+    render(
+      <ConversationSidebar
+        projects={[{
+          ...project,
+          directoryAvailable: false,
+          directoryUnavailableReason: "当前项目本地文件夹未找到，可以指定新的文件夹",
+        }]}
+        onRepairProject={onRepairProject}
+        onShowProjectInFolder={vi.fn()}
+        onRenameProject={vi.fn()}
+        onRemoveProject={vi.fn()}
+      />,
+    );
+
+    const repair = screen.getByRole("button", { name: "修复 agent-moebius 项目文件夹" });
+    expect(repair).toHaveClass("text-danger");
+    expect(repair).toHaveAttribute("title", "当前项目本地文件夹未找到，可以指定新的文件夹");
+    fireEvent.click(repair);
+    expect(onRepairProject).toHaveBeenCalledWith(expect.objectContaining({ id: "agent-moebius" }));
+
+    const menuTrigger = screen.getByRole("button", { name: "agent-moebius 项目菜单" });
+    fireEvent.keyDown(menuTrigger, { key: "ArrowDown" });
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).queryByText(/修复/u)).not.toBeInTheDocument();
+  });
 });
 
 const project: ConversationSidebarProject = {

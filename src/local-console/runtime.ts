@@ -43,6 +43,7 @@ import { buildLocalConsoleTimeline } from "./timeline.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
   LocalConsoleBusyError,
+  LocalConsoleProjectFolderError,
   LocalConsoleStoreTimeoutError,
   type LocalConsoleMessage,
   type LocalConsoleProjectSummary,
@@ -163,6 +164,7 @@ export class LocalConsoleRuntime {
   }
 
   async updateProject(input: { projectId: string; worktreeMode: boolean }): Promise<LocalConsoleProjectSummary> {
+    await this.assertProjectDirectoryAvailable(input.projectId);
     return await this.storeCall("local-console-store-update-project", () =>
       this.options.store.updateProject({
         projectId: input.projectId,
@@ -170,6 +172,44 @@ export class LocalConsoleRuntime {
         now: this.nowIso(),
       }),
     );
+  }
+
+  async repairProjectFolder(input: { projectId: string; folderPath: string }): Promise<LocalConsoleProjectSummary> {
+    if (this.options.store.repairProjectFolder === undefined) {
+      throw new Error("local console project folder repair unavailable");
+    }
+    const folderPath = path.resolve(input.folderPath);
+    if (!(await directoryAvailable(folderPath))) {
+      throw new LocalConsoleProjectFolderError(
+        "PROJECT_DIRECTORY_UNAVAILABLE",
+        "所选文件夹不可访问，请重新选择",
+      );
+    }
+    try {
+      const repaired = await this.storeCall("local-console-store-repair-project-folder", () =>
+        this.options.store.repairProjectFolder!({
+          projectId: input.projectId,
+          folderPath,
+          now: this.nowIso(),
+        }),
+      );
+      for (const session of repaired.sessions) {
+        void this.processPending(session.sessionId);
+      }
+      return this.withDirectoryAvailability(repaired, true);
+    } catch (error) {
+      const message = formatLocalError(error);
+      if (message.includes("PROJECT_FOLDER_ALREADY_BOUND")) {
+        throw new LocalConsoleProjectFolderError(
+          "PROJECT_FOLDER_ALREADY_BOUND",
+          "该文件夹已绑定其他项目，不能合并项目记录；请转到已有项目或重新选择",
+        );
+      }
+      if (message.includes("LOCAL_PROJECT_NOT_FOUND")) {
+        throw new LocalConsoleProjectFolderError("LOCAL_PROJECT_NOT_FOUND", "项目不存在或已移除");
+      }
+      throw error;
+    }
   }
 
   async renameProject(input: { projectId: string; title: string }): Promise<LocalConsoleProjectSummary> {
@@ -233,6 +273,7 @@ export class LocalConsoleRuntime {
   async createSession(title?: string, projectId?: string): Promise<LocalConsoleSessionSummary> {
     const sessionId = `local:${this.now().toISOString()}-${Math.random().toString(36).slice(2, 8)}`;
     const resolvedProjectId = projectId ?? (await this.defaultProjectId());
+    await this.assertProjectDirectoryAvailable(resolvedProjectId);
     return await this.storeCall("local-console-store-create-session", () =>
       this.options.store.createSession({
         sessionId,
@@ -265,6 +306,7 @@ export class LocalConsoleRuntime {
     initialBody: string;
     initialRole?: string | null;
   }): Promise<LocalConsoleSessionSummary> {
+    await this.assertProjectDirectoryAvailable(input.projectId);
     try {
       return await this.storeCall("local-console-store-create-child-session", () =>
         createLocalChildSession(
@@ -298,6 +340,7 @@ export class LocalConsoleRuntime {
     if (trimmed === "") {
       throw new Error("Message body must not be empty");
     }
+    await this.assertSessionProjectDirectoryAvailable(sessionId);
 
     if (
       this.activeRuns.has(sessionId) ||
@@ -357,7 +400,9 @@ export class LocalConsoleRuntime {
   async state(selected: string | { sessionId?: string; projectId?: string } = this.sessionId): Promise<LocalConsoleStateSnapshot> {
     const selectedSessionId = typeof selected === "string" ? selected : (selected.sessionId ?? this.sessionId);
     const requestedProjectId = typeof selected === "string" ? undefined : selected.projectId;
-    const projects = await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects());
+    const storedProjects = await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects());
+    const projects = await Promise.all(storedProjects.map((project) => this.withDirectoryAvailability(project)));
+    await this.stopDirectRunsWithUnavailableDirectories(projects);
     const sessions = projects.flatMap((project) => project.sessions);
     const requestedProject = requestedProjectId === undefined ? undefined : projects.find((project) => project.projectId === requestedProjectId);
     const requestedSession = (requestedProject?.sessions ?? sessions).find((session) => session.sessionId === selectedSessionId);
@@ -402,6 +447,9 @@ export class LocalConsoleRuntime {
     try {
       while (true) {
         if (this.inactiveSessions.has(sessionId)) {
+          return;
+        }
+        if (!(await this.sessionProjectDirectoryAvailable(sessionId))) {
           return;
         }
         await this.repairStaleRunning(sessionId);
@@ -563,7 +611,9 @@ export class LocalConsoleRuntime {
             return;
           }
 
-          if (trigger.role === "ceo") {
+          const sourceDirectoryAvailable = await this.sessionProjectDirectoryAvailable(sessionId);
+
+          if (sourceDirectoryAvailable && trigger.role === "ceo") {
             await this.executeLocalCeoChildSessionOrchestrationIfNeeded({
               sessionId,
               runId: nextRunId,
@@ -573,7 +623,9 @@ export class LocalConsoleRuntime {
             });
           }
 
-          await this.recordWorkspaceDiffIfNeeded(sessionId, nextRunId, resolvedRunDir, workspace, result.finalText, controller.signal);
+          if (sourceDirectoryAvailable) {
+            await this.recordWorkspaceDiffIfNeeded(sessionId, nextRunId, resolvedRunDir, workspace, result.finalText, controller.signal);
+          }
 
           try {
             await this.storeCall("local-console-store-record-agent-response", () =>
@@ -601,6 +653,20 @@ export class LocalConsoleRuntime {
             throw error;
           }
           this.lastError = null;
+          if (!sourceDirectoryAvailable) {
+            await this.storeCall("local-console-store-directory-unavailable", () =>
+              this.options.store.recordSystemMessage({
+                sessionId,
+                body: "项目文件夹不可用；隔离工作区已完成当前步骤，修复项目文件夹后才能继续。",
+                runId: nextRunId,
+                runDir: result.runDir,
+                error: "PROJECT_DIRECTORY_UNAVAILABLE",
+                status: "failed",
+                now: this.nowIso(),
+              }),
+            );
+            return;
+          }
         } catch (error) {
           this.lastError = formatLocalError(error);
           if (activeMessage !== null && activeRunId !== null) {
@@ -651,6 +717,66 @@ export class LocalConsoleRuntime {
       throw new Error("local console project list is empty");
     }
     return firstProject.projectId;
+  }
+
+  private async assertProjectDirectoryAvailable(projectId: string): Promise<void> {
+    const project = (await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects()))
+      .find((candidate) => candidate.projectId === projectId);
+    if (project === undefined) {
+      throw new LocalConsoleProjectFolderError("LOCAL_PROJECT_NOT_FOUND", "项目不存在或已移除");
+    }
+    if (!(await directoryAvailable(project.folderPath))) {
+      throw new LocalConsoleProjectFolderError(
+        "PROJECT_DIRECTORY_UNAVAILABLE",
+        "当前项目本地文件夹不可用，请先使用红色扳手修复",
+      );
+    }
+  }
+
+  private async assertSessionProjectDirectoryAvailable(sessionId: string): Promise<void> {
+    if (!(await this.sessionProjectDirectoryAvailable(sessionId))) {
+      throw new LocalConsoleProjectFolderError(
+        "PROJECT_DIRECTORY_UNAVAILABLE",
+        "当前项目本地文件夹不可用，请先使用红色扳手修复",
+      );
+    }
+  }
+
+  private async sessionProjectDirectoryAvailable(sessionId: string): Promise<boolean> {
+    const source = await this.storeCall("local-console-store-session-workspace", () =>
+      this.options.store.getSessionWorkspace(sessionId),
+    );
+    return directoryAvailable(source.folderPath);
+  }
+
+  private async withDirectoryAvailability(
+    project: LocalConsoleProjectSummary,
+    knownAvailable?: boolean,
+  ): Promise<LocalConsoleProjectSummary> {
+    const available = knownAvailable ?? await directoryAvailable(project.folderPath);
+    return {
+      ...project,
+      directoryAvailable: available,
+      directoryUnavailableReason: available ? null : "当前项目本地文件夹未找到，可以指定新的文件夹",
+      newConversationDisabledReason: available ? null : "当前项目本地文件夹不可用，无法新建对话",
+    };
+  }
+
+  private async stopDirectRunsWithUnavailableDirectories(projects: LocalConsoleProjectSummary[]): Promise<void> {
+    const unavailableProjectIds = new Set(
+      projects.filter((project) => project.directoryAvailable === false).map((project) => project.projectId),
+    );
+    for (const active of this.activeRuns.values()) {
+      if (active.workspaceMode !== "direct") {
+        continue;
+      }
+      const source = await this.storeCall("local-console-store-session-workspace", () =>
+        this.options.store.getSessionWorkspace(active.sessionId),
+      );
+      if (unavailableProjectIds.has(source.projectId)) {
+        active.controller.abort("project-directory-unavailable");
+      }
+    }
   }
 
   private async resolveWorkspace(sessionId: string, signal: AbortSignal): Promise<ResolvedLocalWorkspace> {
@@ -1285,6 +1411,19 @@ export async function withLocalConsoleTimeout<T>(
 
 export function formatLocalError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function directoryAvailable(folderPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(folderPath);
+    if (!stat.isDirectory()) {
+      return false;
+    }
+    await fs.access(folderPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function collectLocalCeoLedgerTaskIds(finalText: string): string[] {

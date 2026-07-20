@@ -427,6 +427,50 @@ describe("OperatorConsole", () => {
     await waitFor(() => expect(onRemoveProject).toHaveBeenCalledWith("local", true));
   });
 
+  it("keeps history readable while blocking work and confirms folder repair with both paths", async () => {
+    const onSelectSession = vi.fn();
+    const onSend = vi.fn();
+    const onSelectFolderForRepair = vi.fn().mockResolvedValue("/Users/example/moved-agent-moebius");
+    const onRepairProjectFolder = vi.fn().mockResolvedValue(undefined);
+    renderConsole({
+      project: {
+        ...project,
+        directoryAvailable: false,
+        directoryUnavailableReason: "当前项目本地文件夹未找到，可以指定新的文件夹",
+        newConversationDisabledReason: "当前项目本地文件夹不可用，无法新建对话",
+      },
+      activeRun: null,
+      onSelectSession,
+      onSend,
+      onToggleProjectWorktree: vi.fn(),
+      onSelectFolderForRepair,
+      onRepairProjectFolder,
+    });
+
+    expect(screen.getByRole("button", { name: "新建对话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Agent 团队" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
+    expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.getByText("历史对话只读；修复文件夹后可继续")).toBeVisible();
+    expect(screen.getByRole("button", { name: "工作区：隔离工作区，点击切换" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "默认会话，正在运行" }));
+    expect(onSelectSession).toHaveBeenCalledWith({ sessionId: "session-a", projectId: "local" });
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "修复 agent-moebius 项目文件夹" }));
+    expect(onSelectFolderForRepair).toHaveBeenCalledWith("local");
+    const dialog = await screen.findByRole("dialog", { name: "修复项目文件夹" });
+    expect(dialog).toHaveTextContent("不会移动、复制或重命名任何磁盘文件");
+    expect(screen.getByTestId("repair-original-folder")).toHaveTextContent("/Users/example/agent-moebius");
+    expect(screen.getByTestId("repair-new-folder")).toHaveTextContent("/Users/example/moved-agent-moebius");
+
+    fireEvent.click(screen.getByRole("button", { name: "确认新位置" }));
+    await waitFor(() => expect(onRepairProjectFolder).toHaveBeenCalledWith("local", "/Users/example/moved-agent-moebius"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "修复项目文件夹" })).not.toBeInTheDocument());
+
+  });
+
   it("shows an unselected new-conversation state after the current project is removed", () => {
     renderConsole({ isNewConversationWithoutProject: true, onRemoveProject: vi.fn() });
 
@@ -511,6 +555,8 @@ const project: OperatorProject = {
   worktreePath: "/tmp/agent-moebius-local-worktree",
   worktreeUnavailableReason: null,
   workspaceUpdatedAt: "2026-07-09T00:00:01.000Z",
+  directoryAvailable: true,
+  directoryUnavailableReason: null,
   sessions,
   runningCount: 1,
   waitingCount: 0,

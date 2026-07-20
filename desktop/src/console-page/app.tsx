@@ -31,6 +31,7 @@ interface DesktopApi {
   onStatus?: (listener: (snapshot: DesktopStatusSnapshot) => void) => () => void;
   openStatusPage?: () => Promise<void>;
   selectProjectFolder?: () => Promise<string | null>;
+  selectFolderForRepair?: (projectId: string) => Promise<string | null>;
   showInFolder?: (folderPath: string) => Promise<void>;
 }
 
@@ -296,6 +297,38 @@ function App(): JSX.Element {
     }
   }, [apiBase, refresh]);
 
+  const selectFolderForRepair = useCallback(async (projectId: string): Promise<string | null> => {
+    if (window.agentMoebius?.selectFolderForRepair === undefined) {
+      throw new Error("desktop repair folder picker unavailable");
+    }
+    return window.agentMoebius.selectFolderForRepair(projectId);
+  }, []);
+
+  const repairProjectFolder = useCallback(async (projectId: string, folderPath: string) => {
+    if (apiBase === null) {
+      throw new Error("local console server unavailable");
+    }
+    setIsProjectMutationPending(true);
+    try {
+      const response = await fetch(endpoint(apiBase, `/api/local-console/projects/${encodeURIComponent(projectId)}`), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ folderPath }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "repair project folder failed");
+      }
+      await refresh(selectionRef.current);
+      setClientError(null);
+    } catch (error) {
+      setClientError(formatError(error));
+      throw error;
+    } finally {
+      setIsProjectMutationPending(false);
+    }
+  }, [apiBase, refresh]);
+
   const interrupt = useCallback(async (sessionId: string, runId: string) => {
     if (apiBase === null) {
       return;
@@ -357,6 +390,8 @@ function App(): JSX.Element {
       onShowProjectInFolder={showProjectInFolder}
       onRenameProject={renameProject}
       onRemoveProject={removeProject}
+      onSelectFolderForRepair={selectFolderForRepair}
+      onRepairProjectFolder={repairProjectFolder}
       onInterrupt={interrupt}
       onOpenDiagnostics={openDiagnostics}
       isSending={isSending}
@@ -382,6 +417,8 @@ const emptyProject: OperatorProject = {
   worktreePath: null,
   worktreeUnavailableReason: null,
   workspaceUpdatedAt: null,
+  directoryAvailable: true,
+  directoryUnavailableReason: null,
   sessions: [],
   runningCount: 0,
   waitingCount: 0,

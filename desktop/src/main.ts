@@ -260,6 +260,23 @@ ipcMain.handle("project:select-folder", async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle("project:select-folder-for-repair", async (_event, projectId: unknown) => {
+  if (typeof projectId !== "string" || projectId.trim() === "") {
+    throw new Error("project id is required for folder repair");
+  }
+  const options: OpenDialogOptions = {
+    properties: ["openDirectory"],
+    title: "为项目指定新的本地文件夹",
+    buttonLabel: "选择新位置",
+  };
+  const result =
+    mainWindow === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(mainWindow, options);
+  if (result.canceled || result.filePaths[0] === undefined) {
+    return null;
+  }
+  return result.filePaths[0];
+});
+
 ipcMain.handle("project:show-in-folder", (_event, folderPath: unknown) => {
   if (typeof folderPath !== "string" || folderPath.trim() === "") {
     throw new Error("project folder path is required");

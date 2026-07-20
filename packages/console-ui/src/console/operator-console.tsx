@@ -87,6 +87,8 @@ export interface OperatorProject {
   worktreePath: string | null;
   worktreeUnavailableReason: string | null;
   workspaceUpdatedAt: string | null;
+  directoryAvailable?: boolean;
+  directoryUnavailableReason?: string | null;
   newConversationDisabledReason?: string | null;
   sessions: OperatorSession[];
   runningCount: number;
@@ -149,6 +151,8 @@ export interface OperatorConsoleProps {
   onShowProjectInFolder?: (folderPath: string) => void | Promise<void>;
   onRenameProject?: (projectId: string, title: string) => void | Promise<void>;
   onRemoveProject?: (projectId: string, force: boolean) => void | Promise<void>;
+  onSelectFolderForRepair?: (projectId: string) => Promise<string | null>;
+  onRepairProjectFolder?: (projectId: string, folderPath: string) => void | Promise<void>;
   onInterrupt(sessionId: string, runId: string): void;
   onOpenDiagnostics?: () => void;
   isSending?: boolean;
@@ -182,6 +186,8 @@ export function OperatorConsole({
   onShowProjectInFolder,
   onRenameProject,
   onRemoveProject,
+  onSelectFolderForRepair,
+  onRepairProjectFolder,
   onInterrupt,
   onOpenDiagnostics,
   isSending = false,
@@ -201,12 +207,15 @@ export function OperatorConsole({
   const [renameValue, setRenameValue] = useState("");
   const [runningRemovalTarget, setRunningRemovalTarget] = useState<OperatorProject | null>(null);
   const [removalRequest, setRemovalRequest] = useState<{ project: OperatorProject; force: boolean } | null>(null);
+  const [repairRequest, setRepairRequest] = useState<{ project: OperatorProject; folderPath: string } | null>(null);
+  const [repairPickerProjectId, setRepairPickerProjectId] = useState<string | null>(null);
   const [projectActionError, setProjectActionError] = useState<string | null>(null);
   const visibleProjects = projects ?? [project];
   const activeProjectId = selectedProjectId ?? project.projectId;
   const activeProject = visibleProjects.find((item) => item.projectId === activeProjectId) ?? project;
+  const activeProjectUnavailable = activeProject.directoryAvailable === false;
   const sidebarProjects = visibleProjects.map(toSidebarProject);
-  const canSend = composerValue.trim() !== "" && activeRun === null && !isSending && !isSessionProjectUpdating;
+  const canSend = composerValue.trim() !== "" && activeRun === null && !isSending && !isSessionProjectUpdating && !activeProjectUnavailable;
   const emptyConversation = messages.length === 0 && activeRun === null;
   const requestedSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
   const effectiveSidebarOpen = isFirstRunOnboarding || requestedSidebarOpen;
@@ -265,6 +274,8 @@ export function OperatorConsole({
           <SidebarAction
             icon={Plus}
             label="新建对话"
+            disabled={activeProjectUnavailable}
+            disabledReason={activeProject.directoryUnavailableReason ?? undefined}
             onClick={() => openNewConversation()}
           />
           <SidebarAction icon={Search} label="搜索" onClick={() => setApplicationOverlay({ kind: "search" })} />
@@ -272,6 +283,8 @@ export function OperatorConsole({
             icon={Diamond}
             label="Agent 团队"
             selected={applicationView === "agent-teams"}
+            disabled={activeProjectUnavailable}
+            disabledReason={activeProject.directoryUnavailableReason ?? undefined}
             onClick={() => setApplicationView("agent-teams")}
           />
         </nav>
@@ -318,6 +331,22 @@ export function OperatorConsole({
             }
           }}
           onReorderProjects={isSelectionMutationPending || isProjectMutationPending ? undefined : onReorderProjects}
+          onRepairProject={onSelectFolderForRepair === undefined ? undefined : (sidebarProject) => {
+            const target = visibleProjects.find((candidate) => candidate.projectId === sidebarProject.id);
+            if (!target || repairPickerProjectId !== null) {
+              return;
+            }
+            setProjectActionError(null);
+            setRepairPickerProjectId(target.projectId);
+            void onSelectFolderForRepair(target.projectId)
+              .then((folderPath) => {
+                if (folderPath !== null) {
+                  setRepairRequest({ project: target, folderPath });
+                }
+              })
+              .catch((error: unknown) => setProjectActionError(error instanceof Error ? error.message : String(error)))
+              .finally(() => setRepairPickerProjectId(null));
+          }}
           disabled={isSelectionMutationPending || isProjectMutationPending}
           disabledReason="项目正在变更，请稍后再试"
           className="min-h-0 w-full flex-1 overflow-hidden border-0"
@@ -402,9 +431,9 @@ export function OperatorConsole({
                   value={composerValue}
                   onValueChange={onComposerChange}
                   onSubmit={submitComposer}
-                  disabled={activeRun !== null || isSending || isSessionProjectUpdating}
-                  placeholder={activeRun ? "当前 agent 正在执行…" : "描述你的目标，@ 一个角色开始…"}
-                  statusText={activeRun ? "当前正在执行，完成后可继续发送" : undefined}
+                  disabled={activeRun !== null || isSending || isSessionProjectUpdating || activeProjectUnavailable}
+                  placeholder={activeProjectUnavailable ? "项目文件夹不可用，请先使用红色扳手修复" : activeRun ? "当前 agent 正在执行…" : "描述你的目标，@ 一个角色开始…"}
+                  statusText={activeProjectUnavailable ? "历史对话只读；修复文件夹后可继续" : activeRun ? "当前正在执行，完成后可继续发送" : undefined}
                   context={
                     <ComposerContext
                       project={activeProject}
@@ -417,7 +446,7 @@ export function OperatorConsole({
                         !selectedSession.parentSessionId &&
                         (selectedSession.childCount ?? 0) === 0
                       }
-                      disabled={isSelectionMutationPending}
+                      disabled={isSelectionMutationPending || activeProjectUnavailable}
                       onChangeSessionProject={onChangeSessionProject}
                       onToggleProjectWorktree={onToggleProjectWorktree}
                     />
@@ -471,6 +500,38 @@ export function OperatorConsole({
             onCancel={() => setRenameTarget(null)}
             onConfirm={() => {
               void submitProjectRename(renameTarget, renameValue, onRenameProject, setProjectActionError, setRenameTarget);
+            }}
+          />
+        </ProjectActionDialog>
+      ) : null}
+
+      {repairRequest ? (
+        <ProjectActionDialog
+          title="修复项目文件夹"
+          description="确认后，Moebius 将从新位置继续使用原项目历史；不会移动、复制或重命名任何磁盘文件。"
+          error={projectActionError}
+          onCancel={() => {
+            if (!isProjectMutationPending) {
+              setRepairRequest(null);
+            }
+          }}
+        >
+          <dl className="grid gap-3 rounded-lg border border-line bg-rail p-3 text-xs">
+            <div className="grid gap-1">
+              <dt className="font-medium text-sub">原位置</dt>
+              <dd className="break-all text-ink" data-testid="repair-original-folder">{repairRequest.project.folderPath}</dd>
+            </div>
+            <div className="grid gap-1 border-t border-line pt-3">
+              <dt className="font-medium text-sub">新位置</dt>
+              <dd className="break-all text-ink" data-testid="repair-new-folder">{repairRequest.folderPath}</dd>
+            </div>
+          </dl>
+          <DialogButtons
+            pending={isProjectMutationPending}
+            confirmLabel="确认新位置"
+            onCancel={() => setRepairRequest(null)}
+            onConfirm={() => {
+              void submitProjectFolderRepair(repairRequest, onRepairProjectFolder, setProjectActionError, setRepairRequest);
             }}
           />
         </ProjectActionDialog>
@@ -647,6 +708,24 @@ async function submitProjectRemoval(
   }
 }
 
+async function submitProjectFolderRepair(
+  request: { project: OperatorProject; folderPath: string },
+  onRepairProjectFolder: OperatorConsoleProps["onRepairProjectFolder"],
+  setError: (error: string | null) => void,
+  close: (value: { project: OperatorProject; folderPath: string } | null) => void,
+): Promise<void> {
+  if (!onRepairProjectFolder) {
+    return;
+  }
+  setError(null);
+  try {
+    await onRepairProjectFolder(request.project.projectId, request.folderPath);
+    close(null);
+  } catch (error) {
+    setError(error instanceof Error ? error.message : String(error));
+  }
+}
+
 function MoebiusLogo(): JSX.Element {
   return (
     <span
@@ -672,11 +751,15 @@ function SidebarAction({
   label,
   selected = false,
   onClick,
+  disabled = false,
+  disabledReason,
 }: {
   icon: LucideIcon;
   label: string;
   selected?: boolean;
   onClick?: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
 }): JSX.Element {
   return (
     <button
@@ -686,6 +769,9 @@ function SidebarAction({
         selected ? "bg-sel" : "bg-transparent",
       )}
       aria-current={selected ? "page" : undefined}
+      aria-description={disabled ? disabledReason : undefined}
+      title={disabled ? disabledReason : undefined}
+      disabled={disabled}
       onClick={onClick}
     >
       <Icon className="h-4 w-4 shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
@@ -853,6 +939,8 @@ function ComposerContext({
           className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink"
           aria-label={`工作区：${workspaceLabel}，点击切换`}
           aria-pressed={project.worktreeMode}
+          disabled={disabled}
+          title={disabled ? project.directoryUnavailableReason ?? "项目当前不可用" : undefined}
           onClick={() => onToggleProjectWorktree(project.projectId, !project.worktreeMode)}
         >
           <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
@@ -923,6 +1011,8 @@ function toSidebarProject(project: OperatorProject): ConversationSidebarProject 
     path: project.folderPath,
     label: project.title,
     newConversationDisabledReason: project.newConversationDisabledReason,
+    directoryAvailable: project.directoryAvailable,
+    directoryUnavailableReason: project.directoryUnavailableReason,
     sessions: project.sessions.map((session) => ({
       id: session.sessionId,
       title: session.title,

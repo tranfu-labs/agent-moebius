@@ -120,6 +120,8 @@ function runCommand(input: WorkerInput): unknown {
         return updateLocalProject(database, input.command);
       case "local-rename-project":
         return renameLocalProject(database, input.command);
+      case "local-repair-project-folder":
+        return repairLocalProjectFolder(database, input.command);
       case "local-remove-project":
         return removeLocalProject(database, input.command);
       case "local-reorder-projects":
@@ -994,6 +996,42 @@ function renameLocalProject(
     database
       .prepare("UPDATE projects SET title = ?, updated_at = ? WHERE project_id = ?")
       .run(title, input.now, input.projectId);
+    return requireLocalProject(database, input.projectId);
+  });
+}
+
+function repairLocalProjectFolder(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-repair-project-folder" }>,
+): unknown {
+  return transaction(database, () => {
+    const project = database
+      .prepare("SELECT project_id FROM projects WHERE project_id = ? AND removed_at IS NULL")
+      .get(input.projectId);
+    if (!isRecord(project)) {
+      throw new Error("LOCAL_PROJECT_NOT_FOUND");
+    }
+    const folderPath = path.resolve(input.folderPath);
+    const conflict = database
+      .prepare("SELECT project_id FROM projects WHERE folder_path = ? AND removed_at IS NULL AND project_id <> ?")
+      .get(folderPath, input.projectId);
+    if (isRecord(conflict)) {
+      throw new Error(`PROJECT_FOLDER_ALREADY_BOUND:${readString(conflict.project_id, "project_id")}`);
+    }
+    database
+      .prepare(
+        `UPDATE projects
+         SET folder_path = ?,
+             original_folder_path = NULL,
+             workspace_cwd = NULL,
+             workspace_mode = NULL,
+             worktree_path = NULL,
+             worktree_unavailable_reason = NULL,
+             workspace_updated_at = NULL,
+             updated_at = ?
+         WHERE project_id = ?`,
+      )
+      .run(folderPath, input.now, input.projectId);
     return requireLocalProject(database, input.projectId);
   });
 }

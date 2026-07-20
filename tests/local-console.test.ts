@@ -404,6 +404,149 @@ describe("local console", () => {
     await reopened.close();
   });
 
+  it("repairs an unavailable project folder in place and rejects an active folder binding conflict", async () => {
+    const root = await makeFixtureRoot();
+    const oldFolder = path.join(root, "repair-old");
+    const movedFolder = path.join(root, "repair-moved");
+    const occupiedFolder = path.join(root, "repair-occupied");
+    await fs.mkdir(oldFolder, { recursive: true });
+    await fs.mkdir(occupiedFolder, { recursive: true });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex: vi.fn(async (options: CodexRunOptions) => codexOk(options, "unused")),
+      makeRunDir: (count) => path.join(root, "runs", `repair-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const project = await createProject(started.url, oldFolder, false);
+      const session = await createProjectSession(started.url, "repair history", project.projectId);
+      await createProject(started.url, occupiedFolder, false);
+      await fs.rename(oldFolder, movedFolder);
+
+      const unavailable = await getState(started.url, session.sessionId);
+      expect(unavailable.project).toMatchObject({
+        projectId: project.projectId,
+        folderPath: oldFolder,
+        directoryAvailable: false,
+        directoryUnavailableReason: "当前项目本地文件夹未找到，可以指定新的文件夹",
+      });
+
+      const blockedSession = await fetch(new URL("/api/local-console/sessions", started.url), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "blocked", projectId: project.projectId }),
+      });
+      expect(blockedSession.status).toBe(409);
+      await expect(blockedSession.json()).resolves.toMatchObject({ code: "PROJECT_DIRECTORY_UNAVAILABLE" });
+
+      const blockedSend = await postSessionMessage(started.url, session.sessionId, "@dev blocked");
+      expect(blockedSend.status).toBe(409);
+      await expect(blockedSend.json()).resolves.toMatchObject({ code: "PROJECT_DIRECTORY_UNAVAILABLE" });
+
+      const conflict = await repairProjectFolder(started.url, project.projectId, occupiedFolder);
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({ code: "PROJECT_FOLDER_ALREADY_BOUND" });
+      expect((await getState(started.url, session.sessionId)).project.folderPath).toBe(oldFolder);
+
+      const repaired = await repairProjectFolder(started.url, project.projectId, movedFolder);
+      expect(repaired.status).toBe(200);
+      await expect(repaired.json()).resolves.toMatchObject({
+        project: {
+          projectId: project.projectId,
+          folderPath: movedFolder,
+          directoryAvailable: true,
+          sessions: [expect.objectContaining({ sessionId: session.sessionId })],
+        },
+      });
+      const restored = await getState(started.url, session.sessionId);
+      expect(restored.project).toMatchObject({
+        projectId: project.projectId,
+        folderPath: movedFolder,
+        directoryAvailable: true,
+      });
+      expect(restored.project.sessions.map((entry) => entry.sessionId)).toContain(session.sessionId);
+      await expect(createProjectSession(started.url, "restored", project.projectId)).resolves.toMatchObject({
+        projectId: project.projectId,
+      });
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("interrupts an in-place run when its project folder disappears", async () => {
+    const root = await makeFixtureRoot();
+    const folderPath = path.join(root, "direct-disappears");
+    await fs.mkdir(folderPath, { recursive: true });
+    await writeAgent(root, "dev", "# Dev\n\nROLE:dev");
+    const runCodex = vi.fn(waitForAbortResult);
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `direct-disappears-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const project = await createProject(started.url, folderPath, false);
+      const session = await createProjectSession(started.url, "direct disappears", project.projectId);
+      await postSessionMessage(started.url, session.sessionId, "@dev keep running");
+      await waitForState(started.url, session.sessionId, (state) => state.activeRun?.workspaceMode === "direct");
+
+      await fs.rm(folderPath, { recursive: true });
+      const unavailable = await getState(started.url, session.sessionId);
+      expect(unavailable.project.directoryAvailable).toBe(false);
+      const interrupted = await waitForState(started.url, session.sessionId, (state) =>
+        state.messages.some((message) => message.status === "interrupted"),
+      );
+      expect(interrupted.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ status: "interrupted", error: "interrupted:project-directory-unavailable" }),
+      ]));
+      expect(runCodex).toHaveBeenCalledTimes(1);
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("lets a worktree finish its current step after source loss, then stops the handoff", async () => {
+    const root = await makeFixtureRoot();
+    const folderPath = path.join(root, "worktree-disappears");
+    const movedFolder = path.join(root, "worktree-moved");
+    await createGitRepo(folderPath);
+    await writeAgent(root, "dev", "# Dev\n\nROLE:dev");
+    await writeAgent(root, "qa", "# QA\n\nROLE:qa");
+    const roles: string[] = [];
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      roles.push(roleFromPrompt(options.prompt));
+      await fs.rename(folderPath, movedFolder);
+      return codexOk(options, "@qa verify next");
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      workdirRoot: path.join(root, "workdir"),
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `worktree-disappears-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const project = await createProject(started.url, folderPath, true);
+      const session = await createProjectSession(started.url, "worktree disappears", project.projectId);
+      await postSessionMessage(started.url, session.sessionId, "@dev run once");
+      const stopped = await waitForState(started.url, session.sessionId, (state) =>
+        state.messages.some((message) => message.speaker === "system" && message.error === "PROJECT_DIRECTORY_UNAVAILABLE"),
+      );
+      expect(roles).toEqual(["dev"]);
+      expect(stopped.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ speaker: "agent", role: "dev", body: "@qa verify next" }),
+        expect.objectContaining({ speaker: "system", status: "failed", error: "PROJECT_DIRECTORY_UNAVAILABLE" }),
+      ]));
+      expect(stopped.project.directoryAvailable).toBe(false);
+    } finally {
+      await started.close();
+    }
+  });
+
   it("keeps sessions ordered by creation time when an older session is updated", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
@@ -2483,6 +2626,14 @@ async function patchSessionProject(url: string, sessionId: string, projectId: st
   });
 }
 
+async function repairProjectFolder(url: string, projectId: string, folderPath: string): Promise<Response> {
+  return await fetch(new URL(`/api/local-console/projects/${encodeURIComponent(projectId)}`, url), {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ folderPath }),
+  });
+}
+
 async function interruptRun(url: string, sessionId: string, runId: string): Promise<Response> {
   return await fetch(new URL(`/api/local-console/sessions/${encodeURIComponent(sessionId)}/interrupt`, url), {
     method: "POST",
@@ -2554,6 +2705,8 @@ interface LocalStateResponse {
     folderPath: string;
     worktreeMode: boolean;
     worktreeUnavailableReason: string | null;
+    directoryAvailable?: boolean;
+    directoryUnavailableReason?: string | null;
     sessions: LocalConsoleSessionSummary[];
   }>;
   project: {
@@ -2562,6 +2715,8 @@ interface LocalStateResponse {
     folderPath: string;
     worktreeMode: boolean;
     worktreeUnavailableReason: string | null;
+    directoryAvailable?: boolean;
+    directoryUnavailableReason?: string | null;
     sessions: LocalConsoleSessionSummary[];
   };
   selectedProjectId: string;

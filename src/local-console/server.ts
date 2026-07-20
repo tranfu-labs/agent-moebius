@@ -18,6 +18,7 @@ import { listLocalT5Facts } from "./t5-store.js";
 import type { LocalRouteJudgment } from "./route-bus.js";
 import {
   LocalConsoleBusyError,
+  LocalConsoleProjectFolderError,
   LocalConsoleProjectRunningError,
   LocalConsoleSessionProjectError,
   type LocalConsoleStore,
@@ -180,6 +181,8 @@ async function handleRequest(
       }
       const project = typeof payload.title === "string"
         ? await runtime.renameProject({ projectId: projectMatch.projectId, title: payload.title })
+        : typeof payload.folderPath === "string"
+          ? await runtime.repairProjectFolder({ projectId: projectMatch.projectId, folderPath: payload.folderPath })
         : typeof payload.worktreeMode === "boolean"
           ? await runtime.updateProject({ projectId: projectMatch.projectId, worktreeMode: payload.worktreeMode })
           : null;
@@ -358,6 +361,13 @@ async function handleRequest(
 
     sendJson(response, 404, { error: "Not found" });
   } catch (error) {
+    if (error instanceof LocalConsoleProjectFolderError) {
+      sendJson(response, error.code === "LOCAL_PROJECT_NOT_FOUND" ? 404 : 409, {
+        error: error.message,
+        code: error.code,
+      });
+      return;
+    }
     sendJson(response, 500, { error: formatLocalError(error) });
   }
 }
@@ -374,6 +384,10 @@ async function submitMessage(
   } catch (error) {
     if (error instanceof LocalConsoleBusyError) {
       sendJson(response, 409, { error: error.message });
+      return;
+    }
+    if (error instanceof LocalConsoleProjectFolderError) {
+      sendJson(response, 409, { error: error.message, code: error.code });
       return;
     }
     sendJson(response, 503, { error: formatLocalError(error) });

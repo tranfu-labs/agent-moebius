@@ -106,11 +106,32 @@ export interface LocalConsoleProjectSummary {
   worktreePath: string | null;
   worktreeUnavailableReason: string | null;
   workspaceUpdatedAt: string | null;
+  directoryAvailable?: boolean;
+  directoryUnavailableReason?: string | null;
+  newConversationDisabledReason?: string | null;
   sessions: LocalConsoleSessionSummary[];
   runningCount: number;
   waitingCount: number;
   stuckCount: number;
   errorCount: number;
+}
+
+export const LOCAL_PROJECT_FOLDER_ERROR_CODES = [
+  "PROJECT_DIRECTORY_UNAVAILABLE",
+  "PROJECT_FOLDER_ALREADY_BOUND",
+  "LOCAL_PROJECT_NOT_FOUND",
+] as const;
+
+export type LocalConsoleProjectFolderErrorCode = (typeof LOCAL_PROJECT_FOLDER_ERROR_CODES)[number];
+
+export class LocalConsoleProjectFolderError extends Error {
+  constructor(
+    readonly code: LocalConsoleProjectFolderErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "LocalConsoleProjectFolderError";
+  }
 }
 
 export interface LocalConsoleProjectRemovalResult {
@@ -175,6 +196,7 @@ export interface LocalConsoleStore {
   createProject(input: { folderPath: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary>;
   updateProject(input: { projectId: string; worktreeMode: boolean; now: string }): Promise<LocalConsoleProjectSummary>;
   renameProject?(input: { projectId: string; title: string; now: string }): Promise<LocalConsoleProjectSummary>;
+  repairProjectFolder?(input: { projectId: string; folderPath: string; now: string }): Promise<LocalConsoleProjectSummary>;
   removeProject?(input: { projectId: string; force: boolean; now: string }): Promise<LocalConsoleProjectRemovalResult>;
   reorderProjects(projectIds: string[]): Promise<LocalConsoleProjectSummary[]>;
   listProjects(): Promise<LocalConsoleProjectSummary[]>;

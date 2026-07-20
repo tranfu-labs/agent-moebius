@@ -9,6 +9,7 @@ export interface AgentMoebiusDesktopApi {
   openDataRoot(): Promise<void>;
   checkUpdates(): Promise<void>;
   selectProjectFolder(): Promise<string | null>;
+  selectFolderForRepair(projectId: string): Promise<string | null>;
   showInFolder(folderPath: string): Promise<void>;
 }
 
@@ -39,6 +40,9 @@ const api: AgentMoebiusDesktopApi = {
   },
   selectProjectFolder() {
     return ipcRenderer.invoke("project:select-folder") as Promise<string | null>;
+  },
+  selectFolderForRepair(projectId) {
+    return ipcRenderer.invoke("project:select-folder-for-repair", projectId) as Promise<string | null>;
   },
   showInFolder(folderPath) {
     return ipcRenderer.invoke("project:show-in-folder", folderPath) as Promise<void>;

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronRight, MoreHorizontal, Plus } from "lucide-react";
+import { ChevronRight, MoreHorizontal, Plus, Wrench } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -27,6 +27,8 @@ export interface ConversationSidebarProject {
   path: string;
   label?: string;
   newConversationDisabledReason?: string | null;
+  directoryAvailable?: boolean;
+  directoryUnavailableReason?: string | null;
   sessions: ConversationSidebarSession[];
 }
 
@@ -39,6 +41,7 @@ export interface ConversationSidebarProps {
   onRenameProject?: (project: ConversationSidebarProject) => void;
   onRemoveProject?: (project: ConversationSidebarProject) => void;
   onReorderProjects?: (projectIds: string[]) => boolean | void | Promise<boolean | void>;
+  onRepairProject?: (project: ConversationSidebarProject) => void;
   disabled?: boolean;
   disabledReason?: string;
   showProjectPath?: boolean;
@@ -141,6 +144,7 @@ export function ConversationSidebar({
   onRenameProject,
   onRemoveProject,
   onReorderProjects,
+  onRepairProject,
   disabled = false,
   disabledReason,
   showProjectPath = true,
@@ -359,6 +363,23 @@ export function ConversationSidebar({
                     {showProjectPath ? <p className="truncate text-xs text-hint">{project.path}</p> : null}
                   </div>
                 </div>
+                {project.directoryAvailable === false && onRepairProject ? (
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-danger hover:bg-danger/10 disabled:pointer-events-none disabled:opacity-40"
+                    aria-label={`修复 ${projectName} 项目文件夹`}
+                    aria-description={project.directoryUnavailableReason ?? undefined}
+                    data-project-row-action="repair-project"
+                    title={project.directoryUnavailableReason ?? "当前项目本地文件夹未找到，可以指定新的文件夹"}
+                    disabled={disabled}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRepairProject(project);
+                    }}
+                  >
+                    <Wrench className="h-4 w-4" strokeWidth={1.7} aria-hidden="true" />
+                  </button>
+                ) : null}
                 {onNewConversation ? (
                   <button
                     type="button"
