@@ -4,7 +4,7 @@
 
 `packages/console-ui` 当前的视觉令牌是「Codex 桌面端近单色」基线：亮色 accent 为近黑 `#222`、边线偏重（0.10 alpha）、hover/选中为实心灰块、无阴影/动效令牌、字体走系统栈且无字重梯度。实际观感与目标风格（Linear 的精密工具感 + Notion 的轻边线）存在系统性差距：排版缺 Inter 字形与字重梯度、列表行是卡片堆叠而非 Linear inbox 行结构、按钮无材质与状态分层、图标描边偏粗。
 
-经设计对比稿（`scratchpad/design-refresh/compare.html`，v3 截图存档于同目录）逐轮确认，方向定为：借用 Linear 的行结构、字重层级、图标精度、动效曲线与冷灰阶，但不引入 Linear 的彩色状态色板——绿色/红色仍只用于裁决与危险，等你状态保持中性结构信号。
+经设计对比稿（[`linear-refresh-v3.html`](../../../../docs/design-explorations/console-ui/linear-refresh-v3.html)，[v3 截图](../../../../docs/design-explorations/console-ui/linear-refresh-v3.png)）逐轮确认，方向定为：借用 Linear 的行结构、字重层级、图标精度、动效曲线与冷灰阶，但不引入 Linear 的彩色状态色板——绿色/红色仍只用于裁决与危险，等你状态保持中性结构信号。
 
 ## 提案
 
