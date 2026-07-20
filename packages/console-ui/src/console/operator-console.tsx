@@ -203,6 +203,9 @@ export interface OperatorConsoleProps {
   onDiscardAllAgentTeamDrafts?: (teamKey: string) => void;
   onSaveAllAgentTeamDrafts?: (teamKey: string) => Promise<{ failures: AgentTeamSaveAllFailureView[] }>;
   onDuplicateBuiltInAgentTeam?: (teamKey: string) => Promise<string>;
+  onRecheckAgentTeam?: (teamKey: string) => void | Promise<void>;
+  onRelocateAgentTeam?: (teamKey: string) => void | Promise<void>;
+  onRemoveAgentTeamRecord?: (teamKey: string) => void | Promise<void>;
   agentTeamFileManagerLabel?: string;
   onOpenAgentTeamLocation?: (teamKey: string, memberSlug?: string) => void | Promise<void>;
   onDuplicateUserAgentTeam?: (teamKey: string) => Promise<string>;
@@ -269,6 +272,9 @@ export function OperatorConsole({
   onDiscardAllAgentTeamDrafts,
   onSaveAllAgentTeamDrafts,
   onDuplicateBuiltInAgentTeam,
+  onRecheckAgentTeam,
+  onRelocateAgentTeam,
+  onRemoveAgentTeamRecord,
   agentTeamFileManagerLabel = "在文件管理器中打开",
   onOpenAgentTeamLocation,
   onDuplicateUserAgentTeam,
@@ -567,6 +573,9 @@ export function OperatorConsole({
             onDiscardAll={onDiscardAllAgentTeamDrafts}
             onSaveAll={onSaveAllAgentTeamDrafts}
             onDuplicateBuiltInTeam={onDuplicateBuiltInAgentTeam}
+            onRecheckTeam={onRecheckAgentTeam}
+            onRelocateTeam={onRelocateAgentTeam}
+            onRemoveTeamRecord={onRemoveAgentTeamRecord}
             fileManagerActionLabel={agentTeamFileManagerLabel}
             onOpenLocation={onOpenAgentTeamLocation}
             onDuplicateUserTeam={onDuplicateUserAgentTeam}

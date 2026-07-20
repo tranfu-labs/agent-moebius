@@ -40,6 +40,12 @@ import {
   updateAgentTeamInformation,
   writeAgentTeamMember,
 } from "./team-ipc.js";
+import {
+  TEAM_REPAIR_IPC_CHANNELS,
+  relocateAgentTeamRecord,
+  removeAgentTeamRecord,
+} from "./team-repair-ipc.js";
+import { getTeamsRoot } from "./team-store.js";
 import { seedBuiltInTeams } from "./team-seed.js";
 import {
   TEAM_EXTERNAL_CHANGE_IPC_CHANNEL,
@@ -304,6 +310,25 @@ ipcMain.handle(TEAM_IPC_CHANNELS.setPrimaryAgent, async (_event, request: unknow
 
 ipcMain.handle(TEAM_IPC_CHANNELS.duplicateBuiltIn, async (_event, request: unknown) =>
   duplicateBuiltInAgentTeam(status.dataRoot, request));
+
+// Repair channels remain isolated from destructive team-management operations.
+ipcMain.handle(TEAM_REPAIR_IPC_CHANNELS.selectRelocationFolder, async () => {
+  const options: OpenDialogOptions = {
+    properties: ["openDirectory"],
+    title: "重新定位 Agent 团队",
+    defaultPath: getTeamsRoot(status.dataRoot),
+  };
+  const result = mainWindow === null
+    ? await dialog.showOpenDialog(options)
+    : await dialog.showOpenDialog(mainWindow, options);
+  return result.canceled ? null : result.filePaths[0] ?? null;
+});
+
+ipcMain.handle(TEAM_REPAIR_IPC_CHANNELS.relocate, async (_event, request: unknown) =>
+  relocateAgentTeamRecord(status.dataRoot, request));
+
+ipcMain.handle(TEAM_REPAIR_IPC_CHANNELS.removeRecord, async (_event, request: unknown) =>
+  removeAgentTeamRecord(status.dataRoot, request));
 
 ipcMain.handle(TEAM_FILE_MANAGER_IPC_CHANNEL, async (_event, request: unknown) =>
   openAgentTeamLocationInFileManager({

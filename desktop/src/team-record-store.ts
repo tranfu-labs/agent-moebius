@@ -1,0 +1,360 @@
+import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import {
+  getTeamsRoot,
+  listTeamLocations,
+  readTeamSnapshot,
+  resolveRelocatedUserTeamLocation,
+  type TeamLocation,
+  type TeamSnapshot,
+} from "./team-store.js";
+import {
+  isValidPathSegment,
+  parseTeamDefinitionJson,
+  serializeTeamDefinition,
+  type TeamDefinition,
+} from "./team-model.js";
+
+export const USER_TEAM_RECORDS_FILE = ".agent-team-records.json";
+
+export interface RecordedTeamMemberIdentity {
+  slug: string;
+  displayName: string;
+  description: string;
+}
+
+export interface UserTeamRecord {
+  id: string;
+  directoryName: string;
+  identityFingerprint: string | null;
+  lastKnownDefinition: TeamDefinition | null;
+  lastKnownMembers: RecordedTeamMemberIdentity[];
+}
+
+interface UserTeamRecordsDocument {
+  version: 1;
+  records: UserTeamRecord[];
+}
+
+export interface RecordedUserTeamSnapshot {
+  record: UserTeamRecord;
+  snapshot: TeamSnapshot;
+}
+
+export async function listRecordedUserTeamSnapshots(dataRoot: string): Promise<RecordedUserTeamSnapshot[]> {
+  const document = await loadOrBootstrapRecords(dataRoot);
+  const results: RecordedUserTeamSnapshot[] = [];
+  let changed = false;
+
+  for (const record of document.records) {
+    const location = locationForRecord(dataRoot, record);
+    const snapshot = await readTeamSnapshot(location);
+    const refreshed = refreshRecordFromSnapshot(record, snapshot);
+    if (!recordsEqual(refreshed, record)) {
+      changed = true;
+    }
+    results.push({ record: refreshed, snapshot });
+  }
+
+  if (changed) {
+    await writeRecords(dataRoot, { version: 1, records: results.map(({ record }) => record) });
+  }
+  return results;
+}
+
+export async function resolveRecordedTeamLocation(dataRoot: string, teamId: string): Promise<TeamLocation> {
+  const document = await loadOrBootstrapRecords(dataRoot);
+  const record = document.records.find((candidate) => candidate.id === teamId);
+  if (record === undefined) {
+    throw new TeamRecordError("这支团队的应用记录不存在，请重新载入团队列表。");
+  }
+  return locationForRecord(dataRoot, record);
+}
+
+export async function registerUserTeamSnapshot(snapshot: TeamSnapshot): Promise<void> {
+  if (snapshot.location.ownership !== "user") {
+    throw new TeamRecordError("只有用户团队需要应用记录。");
+  }
+  const dataRoot = snapshot.location.dataRoot;
+  const document = await loadOrBootstrapRecords(dataRoot);
+  const directoryName = path.basename(snapshot.location.directory);
+  const existing = document.records.find((record) => record.id === snapshot.location.id);
+  const base: UserTeamRecord = existing ?? {
+    id: snapshot.location.id,
+    directoryName,
+    identityFingerprint: null,
+    lastKnownDefinition: null,
+    lastKnownMembers: [],
+  };
+  const nextRecord = refreshRecordFromSnapshot({ ...base, directoryName }, snapshot);
+  const nextRecords = document.records.filter((record) => record.id !== nextRecord.id);
+  nextRecords.push(nextRecord);
+  await writeRecords(dataRoot, { version: 1, records: sortRecords(nextRecords) });
+}
+
+export async function relocateUserTeamRecord(input: {
+  dataRoot: string;
+  teamId: string;
+  directory: string;
+}): Promise<TeamSnapshot> {
+  const document = await loadOrBootstrapRecords(input.dataRoot);
+  const recordIndex = document.records.findIndex((record) => record.id === input.teamId);
+  if (recordIndex < 0) {
+    throw new TeamRelocationError("原团队记录不存在，无法重新定位。");
+  }
+  const record = document.records[recordIndex]!;
+
+  let candidateLocation: TeamLocation;
+  try {
+    candidateLocation = resolveRelocatedUserTeamLocation({
+      dataRoot: input.dataRoot,
+      teamId: record.id,
+      directory: input.directory,
+    });
+  } catch {
+    throw new TeamRelocationError("请选择 Agent 团队文件夹中的一支用户团队，不能绑定到其他位置。");
+  }
+
+  const candidateDirectoryName = path.basename(candidateLocation.directory);
+  const occupied = document.records.find(
+    (candidate, index) => index !== recordIndex && candidate.directoryName === candidateDirectoryName,
+  );
+  if (occupied !== undefined) {
+    throw new TeamRelocationError("这个位置已经属于另一支团队，不能重复绑定。");
+  }
+
+  const candidate = await readTeamSnapshot(candidateLocation);
+  if (candidate.status !== "usable") {
+    throw new TeamRelocationError(explainRejectedCandidate(candidate));
+  }
+  if (record.identityFingerprint === null) {
+    throw new TeamRelocationError("原记录缺少足够的完整信息，暂时无法确认所选位置属于同一支团队。");
+  }
+  if (createTeamIdentityFingerprint(candidate) !== record.identityFingerprint) {
+    throw new TeamRelocationError("所选位置的团队名称、成员或 AGENT.md 内容与原记录不一致，不能认作同一支团队。");
+  }
+
+  const updatedRecord = refreshRecordFromSnapshot({ ...record, directoryName: candidateDirectoryName }, candidate);
+  const nextRecords = [...document.records];
+  nextRecords[recordIndex] = updatedRecord;
+  await writeRecords(input.dataRoot, { version: 1, records: nextRecords });
+  return candidate;
+}
+
+export async function removeUserTeamRecord(input: { dataRoot: string; teamId: string }): Promise<void> {
+  const document = await loadOrBootstrapRecords(input.dataRoot);
+  const record = document.records.find((candidate) => candidate.id === input.teamId);
+  if (record === undefined) {
+    throw new TeamRecordError("这支团队的应用记录已经不存在。");
+  }
+
+  const snapshot = await readTeamSnapshot(locationForRecord(input.dataRoot, record));
+  if (snapshot.status !== "needs-repair") {
+    throw new TeamRecordError("只有需要修复的失效团队记录可以移除。");
+  }
+
+  await writeRecords(input.dataRoot, {
+    version: 1,
+    records: document.records.filter((candidate) => candidate.id !== input.teamId),
+  });
+}
+
+export async function forgetTrashedUserTeamRecord(input: { dataRoot: string; teamId: string }): Promise<void> {
+  const document = await loadOrBootstrapRecords(input.dataRoot);
+  const nextRecords = document.records.filter((candidate) => candidate.id !== input.teamId);
+  if (nextRecords.length === document.records.length) {
+    return;
+  }
+  await writeRecords(input.dataRoot, { version: 1, records: nextRecords });
+}
+
+export function createTeamIdentityFingerprint(snapshot: TeamSnapshot): string {
+  if (snapshot.status !== "usable" || snapshot.definition === null) {
+    throw new TeamRecordError("只有完整可用的团队才能生成身份指纹。");
+  }
+  const membersBySlug = new Map(snapshot.members.map((member) => [member.slug, member]));
+  const hash = createHash("sha256");
+  hash.update(serializeTeamDefinition(snapshot.definition));
+  for (const slug of snapshot.definition.memberOrder) {
+    const member = membersBySlug.get(slug);
+    if (member === undefined) {
+      throw new TeamRecordError("团队成员文件不完整，无法生成身份指纹。");
+    }
+    hash.update(`\u0000${slug}\u0000${member.agentMarkdown}`);
+  }
+  return hash.digest("hex");
+}
+
+export class TeamRecordError extends Error {
+  readonly code = "TEAM_RECORD_INVALID";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "TeamRecordError";
+  }
+}
+
+export class TeamRelocationError extends Error {
+  readonly code = "TEAM_RELOCATION_REJECTED";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "TeamRelocationError";
+  }
+}
+
+async function loadOrBootstrapRecords(dataRoot: string): Promise<UserTeamRecordsDocument> {
+  const recordsPath = getRecordsPath(dataRoot);
+  try {
+    return parseRecordsDocument(await fs.readFile(recordsPath, "utf8"));
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const locations = (await listTeamLocations(dataRoot)).filter((location) => location.ownership === "user");
+  const records: UserTeamRecord[] = [];
+  for (const location of locations) {
+    const snapshot = await readTeamSnapshot(location);
+    records.push(refreshRecordFromSnapshot({
+      id: location.id,
+      directoryName: path.basename(location.directory),
+      identityFingerprint: null,
+      lastKnownDefinition: null,
+      lastKnownMembers: [],
+    }, snapshot));
+  }
+  const document: UserTeamRecordsDocument = { version: 1, records: sortRecords(records) };
+  await writeRecords(dataRoot, document);
+  return document;
+}
+
+function refreshRecordFromSnapshot(record: UserTeamRecord, snapshot: TeamSnapshot): UserTeamRecord {
+  if (snapshot.status === "needs-repair") {
+    return record;
+  }
+  return {
+    ...record,
+    identityFingerprint: snapshot.status === "usable" ? createTeamIdentityFingerprint(snapshot) : null,
+    lastKnownDefinition: snapshot.definition,
+    lastKnownMembers: snapshot.members.map(({ slug, displayName, description }) => ({ slug, displayName, description })),
+  };
+}
+
+function locationForRecord(dataRoot: string, record: UserTeamRecord): TeamLocation {
+  return resolveRelocatedUserTeamLocation({
+    dataRoot,
+    teamId: record.id,
+    directory: path.join(getTeamsRoot(dataRoot), record.directoryName),
+  });
+}
+
+function explainRejectedCandidate(snapshot: TeamSnapshot): string {
+  const codes = new Set(snapshot.issues.map((issue) => issue.code));
+  if (codes.has("team-directory-missing") || codes.has("team-directory-unreadable")) {
+    return "所选位置不是可读取的团队文件夹。";
+  }
+  if (codes.has("team-manifest-missing") || codes.has("team-manifest-unreadable") || codes.has("team-manifest-invalid")) {
+    return "所选位置缺少可读取的团队信息文件。";
+  }
+  if (codes.has("member-agent-missing") || codes.has("member-agent-unreadable")) {
+    return "所选团队有成员的 AGENT.md 缺失或无法读取。";
+  }
+  if (codes.has("member-slug-missing") || codes.has("member-slug-duplicate")) {
+    return "所选团队的成员标识缺失或重复。";
+  }
+  return "所选位置不是一支结构完整、可用于新建对话的团队。";
+}
+
+function getRecordsPath(dataRoot: string): string {
+  return path.join(getTeamsRoot(dataRoot), USER_TEAM_RECORDS_FILE);
+}
+
+async function writeRecords(dataRoot: string, document: UserTeamRecordsDocument): Promise<void> {
+  const recordsPath = getRecordsPath(dataRoot);
+  await fs.mkdir(path.dirname(recordsPath), { recursive: true });
+  const temporaryPath = `${recordsPath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await fs.writeFile(temporaryPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+    await fs.rename(temporaryPath, recordsPath);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true });
+    throw error;
+  }
+}
+
+function parseRecordsDocument(source: string): UserTeamRecordsDocument {
+  const value: unknown = JSON.parse(source);
+  if (!isPlainObject(value) || value.version !== 1 || !Array.isArray(value.records)) {
+    throw new TeamRecordError("Agent 团队记录文件无法读取。");
+  }
+  const records = value.records.map(parseRecord);
+  const ids = new Set<string>();
+  const directoryNames = new Set<string>();
+  for (const record of records) {
+    if (ids.has(record.id) || directoryNames.has(record.directoryName)) {
+      throw new TeamRecordError("Agent 团队记录中存在重复条目。");
+    }
+    ids.add(record.id);
+    directoryNames.add(record.directoryName);
+  }
+  return { version: 1, records: sortRecords(records) };
+}
+
+function parseRecord(value: unknown): UserTeamRecord {
+  if (!isPlainObject(value)
+    || typeof value.id !== "string"
+    || typeof value.directoryName !== "string"
+    || (value.identityFingerprint !== null && typeof value.identityFingerprint !== "string")
+    || (value.lastKnownDefinition !== null && !isPlainObject(value.lastKnownDefinition))
+    || !Array.isArray(value.lastKnownMembers)) {
+    throw new TeamRecordError("Agent 团队记录包含无效条目。");
+  }
+  if (!isValidPathSegment(value.id)
+    || value.id.trim() !== value.id
+    || !isValidPathSegment(value.directoryName)
+    || value.directoryName.trim() !== value.directoryName) {
+    throw new TeamRecordError("Agent 团队记录包含无效位置。");
+  }
+  const definition = value.lastKnownDefinition === null
+    ? null
+    : parseCachedDefinition(value.lastKnownDefinition);
+  const members = value.lastKnownMembers.map((member) => {
+    if (!isPlainObject(member)
+      || typeof member.slug !== "string"
+      || typeof member.displayName !== "string"
+      || typeof member.description !== "string") {
+      throw new TeamRecordError("Agent 团队记录包含无效成员摘要。");
+    }
+    return { slug: member.slug, displayName: member.displayName, description: member.description };
+  });
+  return {
+    id: value.id,
+    directoryName: value.directoryName,
+    identityFingerprint: value.identityFingerprint,
+    lastKnownDefinition: definition,
+    lastKnownMembers: members,
+  };
+}
+
+function parseCachedDefinition(value: Record<string, unknown>): TeamDefinition {
+  return parseTeamDefinitionJson(JSON.stringify(value));
+}
+
+function sortRecords(records: UserTeamRecord[]): UserTeamRecord[] {
+  return [...records].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function recordsEqual(left: UserTeamRecord, right: UserTeamRecord): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}

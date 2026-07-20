@@ -76,6 +76,55 @@ describe("Agent team IPC service", () => {
     expect(JSON.stringify(result)).not.toContain("# 开发经理");
   });
 
+  it("propagates missing, unreadable, missing-slug, and duplicate-slug damage as non-selectable repair state", async () => {
+    const dataRoot = await makeDataRoot();
+    const builtIn = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    await createUsableTeam(builtIn);
+
+    const missing = resolveTeamLocation({ dataRoot, teamId: "missing-agent", ownership: "user" });
+    await fs.mkdir(missing.directory, { recursive: true });
+    await fs.writeFile(path.join(missing.directory, "team.json"), JSON.stringify(usableDefinition), "utf8");
+
+    const unreadable = resolveTeamLocation({ dataRoot, teamId: "unreadable-agent", ownership: "user" });
+    await fs.mkdir(path.join(unreadable.directory, "members", "manager", "AGENT.md"), { recursive: true });
+    await fs.writeFile(path.join(unreadable.directory, "team.json"), JSON.stringify(usableDefinition), "utf8");
+
+    const invalidSlugs = resolveTeamLocation({ dataRoot, teamId: "invalid-slugs", ownership: "user" });
+    await fs.mkdir(path.join(invalidSlugs.directory, "members", "manager"), { recursive: true });
+    await fs.writeFile(path.join(invalidSlugs.directory, "team.json"), JSON.stringify({
+      ...usableDefinition,
+      memberOrder: ["manager", "", "manager"],
+    }), "utf8");
+    await fs.writeFile(path.join(invalidSlugs.directory, "members", "manager", "AGENT.md"), "# 开发经理\n", "utf8");
+
+    const response = await listAgentTeams({ dataRoot, seedPending: false });
+
+    expect(response.status).toBe("ready");
+    if (response.status !== "ready") {
+      return;
+    }
+    expect(response.teams.find((team) => team.id === "missing-agent")).toMatchObject({
+          id: "missing-agent",
+          status: "needs-repair",
+          canCreateConversation: false,
+          members: [{ slug: "manager", available: false }],
+          issues: [{ code: "member-agent-missing", slug: "manager" }],
+        });
+    expect(response.teams.find((team) => team.id === "unreadable-agent")).toMatchObject({
+          id: "unreadable-agent",
+          status: "needs-repair",
+          canCreateConversation: false,
+          members: [{ slug: "manager", available: false }],
+          issues: [{ code: "member-agent-unreadable", slug: "manager" }],
+        });
+    expect(response.teams.find((team) => team.id === "invalid-slugs")).toMatchObject({
+          id: "invalid-slugs",
+          status: "needs-repair",
+          canCreateConversation: false,
+          issues: [{ code: "member-slug-missing" }, { code: "member-slug-duplicate", slug: "manager" }],
+        });
+  });
+
   it("creates a durable unfinished draft, then makes its first added Agent primary and usable", async () => {
     const dataRoot = await makeDataRoot();
     const builtIn = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
@@ -277,6 +326,40 @@ describe("Agent team IPC service", () => {
       user.directory,
     ]);
     expect(await fs.readdir(trashRoot)).toEqual(["1-developer", "2-my-team"]);
+  });
+
+  it("moves a needs-repair user team to recoverable trash and removes only its application record", async () => {
+    const dataRoot = await makeDataRoot();
+    const builtIn = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    const user = resolveTeamLocation({ dataRoot, teamId: "broken-team", ownership: "user" });
+    await Promise.all([createUsableTeam(builtIn), createUsableTeam(user)]);
+    await listAgentTeams({ dataRoot, seedPending: false });
+    await fs.rm(path.join(user.directory, "members", "manager", "AGENT.md"));
+
+    const brokenList = await listAgentTeams({ dataRoot, seedPending: false });
+    expect(brokenList.status).toBe("ready");
+    if (brokenList.status !== "ready") {
+      return;
+    }
+    expect(brokenList.teams.find((team) => team.id === "broken-team")).toMatchObject({
+      status: "needs-repair",
+      canCreateConversation: false,
+    });
+
+    const trashedTeam = path.join(dataRoot, "trash", "broken-team");
+    await trashUserAgentTeam(dataRoot, {
+      teamId: "broken-team",
+      ownership: "user",
+    }, async (targetPath) => {
+      await fs.mkdir(path.dirname(trashedTeam), { recursive: true });
+      await fs.rename(targetPath, trashedTeam);
+    });
+
+    await expect(fs.stat(trashedTeam)).resolves.toMatchObject({});
+    await expect(listAgentTeams({ dataRoot, seedPending: false })).resolves.toMatchObject({
+      status: "ready",
+      teams: [{ id: "development", ownership: "system" }],
+    });
   });
 });
 

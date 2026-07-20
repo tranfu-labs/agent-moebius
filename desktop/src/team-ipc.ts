@@ -1,3 +1,4 @@
+import { isValidPathSegment } from "./team-model.js";
 import type {
   TeamDefinition,
   TeamInformation,
@@ -5,6 +6,13 @@ import type {
   TeamRepairIssueCode,
   TeamStatus,
 } from "./team-model.js";
+import {
+  forgetTrashedUserTeamRecord,
+  listRecordedUserTeamSnapshots,
+  registerUserTeamSnapshot,
+  resolveRecordedTeamLocation,
+  type RecordedTeamMemberIdentity,
+} from "./team-record-store.js";
 import {
   addTeamMember,
   createUserTeam,
@@ -43,6 +51,7 @@ export interface AgentTeamMemberSummary {
   slug: string;
   displayName: string;
   description: string;
+  available?: boolean;
 }
 
 export interface AgentTeamListItem {
@@ -128,9 +137,13 @@ export async function listAgentTeams(input: {
     return { status: "loading" };
   }
 
-  const locations = await listTeamLocations(input.dataRoot);
-  const snapshots = await Promise.all(locations.map((location) => readTeamSnapshot(location)));
-  const hasReadableBuiltInTeam = snapshots.some(
+  const systemLocations = (await listTeamLocations(input.dataRoot))
+    .filter((location) => location.ownership === "system");
+  const [systemSnapshots, recordedUserTeams] = await Promise.all([
+    Promise.all(systemLocations.map((location) => readTeamSnapshot(location))),
+    listRecordedUserTeamSnapshots(input.dataRoot),
+  ]);
+  const hasReadableBuiltInTeam = systemSnapshots.some(
     (snapshot) => snapshot.location.ownership === "system" && snapshot.status === "usable",
   );
 
@@ -140,37 +153,38 @@ export async function listAgentTeams(input: {
 
   return {
     status: "ready",
-    teams: snapshots.map(toListItem),
+    teams: [
+      ...systemSnapshots.map((snapshot) => toListItem(snapshot)),
+      ...recordedUserTeams.map(({ record, snapshot }) => toListItem(snapshot, {
+        definition: record.lastKnownDefinition,
+        members: record.lastKnownMembers,
+      })),
+    ],
   };
 }
 
 export async function createAgentTeam(dataRoot: string, rawRequest: unknown): Promise<AgentTeamListItem> {
   const request = parseTeamInformation(rawRequest);
-  return toListItem(await createUserTeam(dataRoot, request));
+  const snapshot = await createUserTeam(dataRoot, request);
+  await registerUserTeamSnapshot(snapshot);
+  return toListItem(snapshot);
 }
 
 export async function readAgentTeamMember(dataRoot: string, rawRequest: unknown): Promise<AgentTeamMemberDocument> {
   const request = parseMemberRequest(rawRequest);
-  const location = resolveTeamLocation({
-    dataRoot,
-    teamId: request.teamId,
-    ownership: request.ownership,
-  });
+  const location = await resolveAgentTeamLocation(dataRoot, request);
   const snapshot = await readTeamSnapshot(location);
   return toMemberDocument(findMember(snapshot, request.memberSlug));
 }
 
 export async function writeAgentTeamMember(dataRoot: string, rawRequest: unknown): Promise<AgentTeamMemberDocument> {
   const request = parseMemberWriteRequest(rawRequest);
-  const location = resolveTeamLocation({
-    dataRoot,
-    teamId: request.teamId,
-    ownership: request.ownership,
-  });
+  const location = await resolveAgentTeamLocation(dataRoot, request);
 
   // The store remains the single authority for built-in ownership and write rejection.
   await writeMemberAgentMarkdown(location, request.memberSlug, request.agentMarkdown);
   const snapshot = await readTeamSnapshot(location);
+  await refreshUserTeamRecord(snapshot);
   return toMemberDocument(findMember(snapshot, request.memberSlug));
 }
 
@@ -179,12 +193,9 @@ export async function addAgentTeamMember(
   rawRequest: unknown,
 ): Promise<AgentTeamMemberAddResponse> {
   const request = parseTeamRequest(rawRequest);
-  const location = resolveTeamLocation({
-    dataRoot,
-    teamId: request.teamId,
-    ownership: request.ownership,
-  });
+  const location = await resolveAgentTeamLocation(dataRoot, request);
   const result = await addTeamMember(location);
+  await refreshUserTeamRecord(result.team);
   return {
     team: toListItem(result.team),
     member: toMemberDocument(result.member),
@@ -200,12 +211,10 @@ export async function updateAgentTeamInformation(
     throw new AgentTeamIpcRequestError("Team information is required.");
   }
   const information = parseTeamInformation(rawRequest);
-  const location = resolveTeamLocation({
-    dataRoot,
-    teamId: request.teamId,
-    ownership: request.ownership,
-  });
-  return toListItem(await updateTeamInformation(location, information));
+  const location = await resolveAgentTeamLocation(dataRoot, request);
+  const snapshot = await updateTeamInformation(location, information);
+  await refreshUserTeamRecord(snapshot);
+  return toListItem(snapshot);
 }
 
 export async function setAgentTeamPrimaryAgent(
@@ -213,14 +222,12 @@ export async function setAgentTeamPrimaryAgent(
   rawRequest: unknown,
 ): Promise<AgentTeamListItem> {
   const request = parsePrimaryAgentWriteRequest(rawRequest);
-  const location = resolveTeamLocation({
-    dataRoot,
-    teamId: request.teamId,
-    ownership: request.ownership,
-  });
+  const location = await resolveAgentTeamLocation(dataRoot, request);
 
   // The store validates both write ownership and membership validity.
-  return toListItem(await setTeamPrimaryAgent(location, request.primaryAgentSlug));
+  const snapshot = await setTeamPrimaryAgent(location, request.primaryAgentSlug);
+  await refreshUserTeamRecord(snapshot);
+  return toListItem(snapshot);
 }
 
 export async function duplicateBuiltInAgentTeam(dataRoot: string, rawRequest: unknown): Promise<AgentTeamListItem> {
@@ -231,14 +238,18 @@ export async function duplicateBuiltInAgentTeam(dataRoot: string, rawRequest: un
     ownership: request.ownership,
   });
   const destination = await duplicateBuiltInTeamDirectory(source);
-  return toListItem(await readTeamSnapshot(destination));
+  const snapshot = await readTeamSnapshot(destination);
+  await registerUserTeamSnapshot(snapshot);
+  return toListItem(snapshot);
 }
 
 export async function duplicateUserAgentTeam(dataRoot: string, rawRequest: unknown): Promise<AgentTeamListItem> {
   const request = parseUserTeamRequest(rawRequest, "Only a user team can be copied by this operation.");
-  const source = resolveTeamLocation({ dataRoot, teamId: request.teamId, ownership: request.ownership });
+  const source = await resolveAgentTeamLocation(dataRoot, request);
   const destination = await duplicateUserTeamDirectory(source);
-  return toListItem(await readTeamSnapshot(destination));
+  const snapshot = await readTeamSnapshot(destination);
+  await registerUserTeamSnapshot(snapshot);
+  return toListItem(snapshot);
 }
 
 export async function duplicateAgentTeamMember(
@@ -246,8 +257,9 @@ export async function duplicateAgentTeamMember(
   rawRequest: unknown,
 ): Promise<AgentTeamMemberAddResponse> {
   const request = parseUserMemberRequest(rawRequest, "Only a user-team Agent can be copied.");
-  const location = resolveTeamLocation({ dataRoot, teamId: request.teamId, ownership: request.ownership });
+  const location = await resolveAgentTeamLocation(dataRoot, request);
   const result = await duplicateTeamMemberDirectory(location, request.memberSlug);
+  await refreshUserTeamRecord(result.team);
   return { team: toListItem(result.team), member: toMemberDocument(result.member) };
 }
 
@@ -257,8 +269,10 @@ export async function trashAgentTeamMember(
   moveToTrash: MovePathToTrash,
 ): Promise<AgentTeamListItem> {
   const request = parseUserMemberRequest(rawRequest, "Only a user-team Agent can be deleted.");
-  const location = resolveTeamLocation({ dataRoot, teamId: request.teamId, ownership: request.ownership });
-  return toListItem(await trashTeamMemberDirectory(location, request.memberSlug, moveToTrash));
+  const location = await resolveAgentTeamLocation(dataRoot, request);
+  const snapshot = await trashTeamMemberDirectory(location, request.memberSlug, moveToTrash);
+  await refreshUserTeamRecord(snapshot);
+  return toListItem(snapshot);
 }
 
 export async function trashUserAgentTeam(
@@ -267,20 +281,53 @@ export async function trashUserAgentTeam(
   moveToTrash: MovePathToTrash,
 ): Promise<void> {
   const request = parseUserTeamRequest(rawRequest, "Only a user team can be moved to the trash.");
-  const location = resolveTeamLocation({ dataRoot, teamId: request.teamId, ownership: request.ownership });
+  const location = await resolveAgentTeamLocation(dataRoot, request);
   await trashUserTeamDirectory(location, moveToTrash);
+  await forgetTrashedUserTeamRecord({ dataRoot, teamId: request.teamId });
 }
 
-function toListItem(snapshot: TeamSnapshot): AgentTeamListItem {
+export function toListItem(
+  snapshot: TeamSnapshot,
+  fallback?: { definition: TeamDefinition | null; members: RecordedTeamMemberIdentity[] },
+): AgentTeamListItem {
+  const definition = snapshot.definition ?? fallback?.definition ?? null;
+  const readableMembers = new Map(snapshot.members.map((member) => [member.slug, member]));
+  const fallbackMembers = new Map((fallback?.members ?? []).map((member) => [member.slug, member]));
+  const orderedSlugs = definition?.memberOrder.filter(
+    (slug): slug is string => typeof slug === "string" && isValidPathSegment(slug) && slug.trim() === slug,
+  ) ?? [];
+  const memberSlugs = [...new Set([
+    ...orderedSlugs,
+    ...snapshot.members.map((member) => member.slug),
+    ...(fallback?.members ?? []).map((member) => member.slug),
+  ])];
   return {
     id: snapshot.location.id,
     ownership: snapshot.location.ownership,
-    definition: snapshot.definition,
-    members: snapshot.members.map(({ slug, displayName, description }) => ({ slug, displayName, description })),
+    definition,
+    members: memberSlugs.map((slug) => {
+      const current = readableMembers.get(slug);
+      const cached = fallbackMembers.get(slug);
+      return {
+        slug,
+        displayName: current?.displayName ?? cached?.displayName ?? "",
+        description: current?.description ?? cached?.description ?? "",
+        available: current !== undefined,
+      };
+    }),
     status: snapshot.status,
     canCreateConversation: snapshot.canCreateConversation,
     issues: snapshot.issues.map(({ code, slug }) => ({ code, ...(slug === undefined ? {} : { slug }) })),
   };
+}
+
+async function resolveAgentTeamLocation(
+  dataRoot: string,
+  request: Pick<AgentTeamMemberAddRequest, "teamId" | "ownership">,
+) {
+  return request.ownership === "system"
+    ? resolveTeamLocation({ dataRoot, teamId: request.teamId, ownership: "system" })
+    : resolveRecordedTeamLocation(dataRoot, request.teamId);
 }
 
 function toMemberDocument(member: TeamMemberSnapshot): AgentTeamMemberDocument {
@@ -288,8 +335,15 @@ function toMemberDocument(member: TeamMemberSnapshot): AgentTeamMemberDocument {
     slug: member.slug,
     displayName: member.displayName,
     description: member.description,
+    available: true,
     agentMarkdown: member.agentMarkdown,
   };
+}
+
+async function refreshUserTeamRecord(snapshot: TeamSnapshot): Promise<void> {
+  if (snapshot.location.ownership === "user") {
+    await registerUserTeamSnapshot(snapshot);
+  }
 }
 
 function findMember(snapshot: TeamSnapshot, memberSlug: string): TeamMemberSnapshot {

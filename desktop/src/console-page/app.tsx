@@ -31,6 +31,7 @@ import type {
   AgentTeamUpdateInformationRequest,
   AgentTeamTrashUserRequest,
 } from "../team-ipc.js";
+import type { AgentTeamRelocateRequest, AgentTeamRepairRequest } from "../team-repair-ipc.js";
 import type { AgentTeamFileManagerRequest } from "../team-file-manager.js";
 import type {
   AgentTeamExternalChangeRequest,
@@ -106,6 +107,9 @@ interface DesktopApi {
   checkAgentTeamMemberExternalChange?: (
     request: AgentTeamExternalChangeRequest,
   ) => Promise<AgentTeamExternalChangeResponse>;
+  selectAgentTeamRelocationFolder?: () => Promise<string | null>;
+  relocateAgentTeamRecord?: (request: AgentTeamRelocateRequest) => Promise<AgentTeamListItem>;
+  removeAgentTeamRecord?: (request: AgentTeamRepairRequest) => Promise<void>;
 }
 
 interface DesktopStatusSnapshot {
@@ -754,6 +758,46 @@ function App(): JSX.Element {
     });
   }, [agentTeamsState]);
 
+  const relocateAgentTeam = useCallback(async (teamKey: string): Promise<void> => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const selectFolder = window.agentMoebius?.selectAgentTeamRelocationFolder;
+    const relocateRecord = window.agentMoebius?.relocateAgentTeamRecord;
+    if (team === undefined || team.ownership !== "user" || selectFolder === undefined || relocateRecord === undefined) {
+      throw new Error("当前无法重新定位这支团队，请稍后重试。");
+    }
+    const directory = await selectFolder();
+    if (directory === null) {
+      return;
+    }
+    const updated = toOperatorAgentTeam(await relocateRecord({
+      teamId: team.id,
+      ownership: "user",
+      directory,
+    }));
+    setAgentTeamsState((current) => current.status !== "ready"
+      ? current
+      : {
+          status: "ready",
+          teams: current.teams.map((candidate) => candidate.teamKey === teamKey ? updated : candidate),
+        });
+  }, [agentTeamsState]);
+
+  const removeAgentTeamRecord = useCallback(async (teamKey: string): Promise<void> => {
+    const team = findOperatorAgentTeam(agentTeamsState, teamKey);
+    const removeRecord = window.agentMoebius?.removeAgentTeamRecord;
+    if (team === undefined || team.ownership !== "user" || removeRecord === undefined) {
+      throw new Error("当前无法移除这条团队记录，请稍后重试。");
+    }
+    await removeRecord({ teamId: team.id, ownership: "user" });
+    setAgentTeamsState((current) => current.status !== "ready"
+      ? current
+      : { status: "ready", teams: current.teams.filter((candidate) => candidate.teamKey !== teamKey) });
+    setActiveAgentTeamKey((current) => current === teamKey ? null : current);
+    setAgentTeamSelection((current) => current?.teamKey === teamKey ? null : current);
+    setAgentTeamSaveAllFailures([]);
+    setPrimaryAgentChange(null);
+  }, [agentTeamsState]);
+
   const agentTeamDetailState = useMemo<AgentTeamDetailState | null>(() => {
     if (activeAgentTeamKey === null) {
       return null;
@@ -1169,6 +1213,9 @@ function App(): JSX.Element {
       }}
       onSaveAllAgentTeamDrafts={saveAllDraftsAndLeave}
       onDuplicateBuiltInAgentTeam={duplicateBuiltInAgentTeam}
+      onRecheckAgentTeam={() => setAgentTeamsRefreshNonce((current) => current + 1)}
+      onRelocateAgentTeam={relocateAgentTeam}
+      onRemoveAgentTeamRecord={removeAgentTeamRecord}
       agentTeamFileManagerLabel={window.agentMoebius?.agentTeamFileManagerLabel ?? "在文件管理器中打开"}
       onOpenAgentTeamLocation={openAgentTeamLocation}
       onDuplicateUserAgentTeam={duplicateUserAgentTeam}
@@ -1220,9 +1267,10 @@ function toOperatorAgentTeam(team: AgentTeamListItem): OperatorAgentTeam {
     description: team.definition?.description ?? null,
     primaryAgentSlug: team.definition?.primaryAgentSlug ?? null,
     memberOrder: team.definition?.memberOrder ?? [],
-    members: team.members,
+    members: team.members.map((member) => ({ ...member, available: member.available !== false })),
     status: team.status,
     canCreateConversation: team.canCreateConversation,
+    issues: team.issues,
   };
 }
 

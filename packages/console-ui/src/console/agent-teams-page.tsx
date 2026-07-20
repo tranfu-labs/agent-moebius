@@ -3,6 +3,7 @@ import { useRef, useState, type ReactNode } from "react";
 
 import {
   AgentTeamDetail,
+  type AgentTeamRepairIssueView,
   type AgentTeamDetailState,
   type AgentTeamSaveAllFailureView,
 } from "@/console/agent-team-detail";
@@ -23,6 +24,7 @@ export interface OperatorAgentTeamMember {
   slug: string;
   displayName: string;
   description: string;
+  available?: boolean;
 }
 
 export interface OperatorAgentTeam {
@@ -36,6 +38,7 @@ export interface OperatorAgentTeam {
   members: OperatorAgentTeamMember[];
   status: "usable" | "unfinished-draft" | "needs-repair";
   canCreateConversation: boolean;
+  issues?: AgentTeamRepairIssueView[];
 }
 
 export type OperatorAgentTeamsState =
@@ -80,6 +83,9 @@ export function AgentTeamsPage({
   onDiscardAll,
   onSaveAll,
   onDuplicateBuiltInTeam,
+  onRecheckTeam,
+  onRelocateTeam,
+  onRemoveTeamRecord,
   fileManagerActionLabel = "在文件管理器中打开",
   onOpenLocation,
   onDuplicateUserTeam,
@@ -111,6 +117,9 @@ export function AgentTeamsPage({
   onDiscardAll?: (teamKey: string) => void;
   onSaveAll?: (teamKey: string) => Promise<{ failures: AgentTeamSaveAllFailureView[] }>;
   onDuplicateBuiltInTeam?: (teamKey: string) => Promise<string>;
+  onRecheckTeam?: (teamKey: string) => void | Promise<void>;
+  onRelocateTeam?: (teamKey: string) => void | Promise<void>;
+  onRemoveTeamRecord?: (teamKey: string) => void | Promise<void>;
   fileManagerActionLabel?: string;
   onOpenLocation?: (teamKey: string, memberSlug?: string) => void | Promise<void>;
   onDuplicateUserTeam?: (teamKey: string) => Promise<string>;
@@ -403,7 +412,9 @@ export function AgentTeamsPage({
                   onSelectMember={(memberSlug) => onSelectMember?.(openedTeam.teamKey, memberSlug)}
                   onChangeMember={(memberSlug, agentMarkdown) => onChangeMember?.(openedTeam.teamKey, memberSlug, agentMarkdown)}
                   onSaveMember={(memberSlug) => onSaveMember?.(openedTeam.teamKey, memberSlug)}
-                  onCheckExternalChange={openedTeam.ownership === "user" && onCheckMemberExternalChange !== undefined
+                  onCheckExternalChange={openedTeam.ownership === "user"
+                    && openedTeam.status !== "needs-repair"
+                    && onCheckMemberExternalChange !== undefined
                     ? (memberSlug) => onCheckMemberExternalChange(openedTeam.teamKey, memberSlug)
                     : undefined}
                   onLoadExternalVersion={(memberSlug) => onLoadMemberExternalVersion?.(openedTeam.teamKey, memberSlug)}
@@ -413,6 +424,17 @@ export function AgentTeamsPage({
                   onDiscardMember={(memberSlug) => onDiscardMember?.(openedTeam.teamKey, memberSlug)}
                   onDiscardAll={() => onDiscardAll?.(openedTeam.teamKey)}
                   onSaveAll={() => onSaveAll?.(openedTeam.teamKey) ?? Promise.resolve({ failures: [] })}
+                  onRecheck={onRecheckTeam === undefined ? undefined : () => onRecheckTeam(openedTeam.teamKey)}
+                  onRelocate={openedTeam.ownership === "user"
+                    && hasTeamLocationIssue(openedTeam)
+                    && onRelocateTeam !== undefined
+                    ? () => onRelocateTeam(openedTeam.teamKey)
+                    : undefined}
+                  onRemoveRecord={openedTeam.ownership === "user"
+                    && hasTeamLocationIssue(openedTeam)
+                    && onRemoveTeamRecord !== undefined
+                    ? () => onRemoveTeamRecord(openedTeam.teamKey)
+                    : undefined}
                   onLeave={returnToList}
                 />
               </>
@@ -881,6 +903,7 @@ function AgentTeamRow({
       data-testid="agent-team-row"
       data-team-key={team.teamKey}
       data-layout={useStackedLayout ? "narrow" : "wide"}
+      data-can-create-conversation={team.canCreateConversation ? "true" : "false"}
       onClick={onOpen}
     >
       <span className="min-w-0 px-5 py-5">
@@ -985,6 +1008,9 @@ function teamDescription(team: OperatorAgentTeam): string {
 
 function teamMemberSummary(team: OperatorAgentTeam, primaryAgentName?: string): string {
   const countLabel = `${team.members.length} 名成员`;
+  if (team.status === "needs-repair") {
+    return `${countLabel} · 暂时无法用于新对话`;
+  }
   if (primaryAgentName !== undefined) {
     return `${countLabel} · 主 Agent：${primaryAgentName}`;
   }
@@ -992,6 +1018,11 @@ function teamMemberSummary(team: OperatorAgentTeam, primaryAgentName?: string): 
     return `${countLabel} · 尚未设置主 Agent`;
   }
   return `${countLabel} · 主 Agent 暂不可用`;
+}
+
+function hasTeamLocationIssue(team: OperatorAgentTeam): boolean {
+  return (team.issues ?? []).some((issue) =>
+    issue.code === "team-directory-missing" || issue.code === "team-directory-unreadable");
 }
 
 function AgentTeamsLoading(): JSX.Element {

@@ -100,6 +100,23 @@ export function resolveTeamLocation(input: {
   };
 }
 
+export function resolveRelocatedUserTeamLocation(input: {
+  dataRoot: string;
+  teamId: string;
+  directory: string;
+}): TeamLocation {
+  assertTeamId(input.teamId);
+  const dataRoot = path.resolve(input.dataRoot);
+  const directory = path.resolve(input.directory);
+  assertDirectUserTeamDirectory(dataRoot, directory);
+  return {
+    dataRoot,
+    id: input.teamId,
+    directory,
+    ownership: "user",
+  };
+}
+
 export function determineTeamOwnership(dataRoot: string, targetPath: string): TeamOwnership {
   const teamsRoot = getTeamsRoot(dataRoot);
   const relativePath = path.relative(teamsRoot, path.resolve(targetPath));
@@ -404,16 +421,17 @@ export async function trashTeamMemberDirectory(
 ): Promise<TeamSnapshot> {
   assertTeamWritable(location);
   const snapshot = await readTeamSnapshot(location);
-  if (snapshot.definition === null || snapshot.status === "needs-repair") {
+  if (snapshot.definition === null) {
     throw new TeamMutationError("团队信息当前不可用，无法删除 Agent。");
   }
   if (snapshot.definition.primaryAgentSlug === memberSlug) {
     throw new TeamPrimaryAgentError("删除主 Agent 前，请先指定另一名有效成员作为主 Agent。");
   }
   const member = snapshot.members.find((candidate) => candidate.slug === memberSlug);
-  if (member === undefined) {
+  if (member === undefined && !snapshot.definition.memberOrder.includes(memberSlug)) {
     throw new TeamMutationError("要删除的 Agent 当前不可用。");
   }
+  const memberDirectory = member?.directory ?? getMemberDirectory(location, memberSlug);
 
   const previousDefinition = snapshot.definition;
   await writeTeamDefinition(location, {
@@ -421,7 +439,7 @@ export async function trashTeamMemberDirectory(
     memberOrder: previousDefinition.memberOrder.filter((slug) => slug !== memberSlug),
   });
   try {
-    await moveToTrash(member.directory);
+    await moveToTrash(memberDirectory);
   } catch (error) {
     try {
       await writeTeamDefinition(location, previousDefinition);
@@ -568,14 +586,24 @@ function normalizeTeamInformation(information: TeamInformation): TeamInformation
 }
 
 function assertLocationMatchesLayout(location: TeamLocation): void {
-  const expected = resolveTeamLocation({
-    dataRoot: location.dataRoot,
-    teamId: location.id,
-    ownership: location.ownership,
-  });
-  if (path.resolve(location.directory) !== expected.directory) {
-    throw new TeamPathError(`Team path does not match its id and ownership: ${location.directory}`);
+  if (location.ownership === "user") {
+    assertDirectUserTeamDirectory(location.dataRoot, location.directory);
+    return;
   }
+
+  const expected = resolveTeamLocation({ dataRoot: location.dataRoot, teamId: location.id, ownership: "system" });
+  if (path.resolve(location.directory) !== expected.directory) {
+    throw new TeamPathError(`Built-in team path does not match its id: ${location.directory}`);
+  }
+}
+
+function assertDirectUserTeamDirectory(dataRoot: string, directory: string): void {
+  const resolvedDirectory = path.resolve(directory);
+  const teamsRoot = getTeamsRoot(dataRoot);
+  if (path.dirname(resolvedDirectory) !== teamsRoot || path.basename(resolvedDirectory) === SYSTEM_TEAMS_DIRECTORY) {
+    throw new TeamPathError("User team folders must be direct children of the Agent teams folder.");
+  }
+  assertTeamId(path.basename(resolvedDirectory));
 }
 
 async function inspectTeamDirectory(directory: string): Promise<TeamRepairIssue | null> {

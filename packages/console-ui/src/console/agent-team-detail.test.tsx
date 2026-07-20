@@ -299,6 +299,98 @@ describe("AgentTeamDetail", () => {
     expect(onCheckExternalChange).toHaveBeenCalledTimes(2);
     expect(onCheckExternalChange).toHaveBeenLastCalledWith("manager");
   });
+
+  it("explains repair impact in plain language and offers recheck and relocation for a missing team folder", async () => {
+    const onRecheck = vi.fn().mockResolvedValue(undefined);
+    const onRelocate = vi.fn().mockRejectedValue(new Error("所选位置缺少可读取的团队信息文件。"));
+    const base = detailProps();
+    renderDetail({
+      team: {
+        ...base.team,
+        status: "needs-repair",
+        canCreateConversation: false,
+        issues: [{ code: "team-directory-missing" }],
+      },
+      onRecheck,
+      onRelocate,
+      onAddMember: vi.fn(),
+    });
+
+    const panel = screen.getByTestId("agent-team-repair-panel");
+    expect(panel).toHaveTextContent("团队文件夹已移动、重命名或暂时无法访问");
+    expect(panel).toHaveTextContent("修复前不能用于新建对话");
+    expect(panel).toHaveTextContent("已有会话和历史消息不会消失");
+    expect(screen.queryByRole("button", { name: "添加 Agent" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
+    await waitFor(() => expect(onRecheck).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "重新定位团队" }));
+    await waitFor(() => expect(panel).toHaveTextContent("所选位置缺少可读取的团队信息文件"));
+    expect(screen.getByTestId("agent-team-repair-panel")).toBeVisible();
+  });
+
+  it("states that removing a record never touches disk files before confirmation", async () => {
+    const onRemoveRecord = vi.fn().mockResolvedValue(undefined);
+    const base = detailProps();
+    renderDetail({
+      team: {
+        ...base.team,
+        status: "needs-repair",
+        canCreateConversation: false,
+        issues: [{ code: "team-directory-unreadable" }],
+      },
+      onRemoveRecord,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "移除记录" }));
+    const dialog = screen.getByRole("dialog", { name: "移除失效团队记录" });
+    expect(dialog).toHaveTextContent("只会从应用中移除这条失效记录");
+    expect(dialog).toHaveTextContent("不会删除、移动或修改磁盘上的任何文件");
+    expect(dialog).toHaveTextContent("已有会话和历史消息也会保留");
+    fireEvent.click(within(dialog).getByRole("button", { name: "只移除记录" }));
+    await waitFor(() => expect(onRemoveRecord).toHaveBeenCalledTimes(1));
+  });
+
+  it("allows replacing an unavailable primary Agent only with a readable member", () => {
+    const onChangePrimaryAgent = vi.fn();
+    const base = detailProps();
+    renderDetail({
+      team: {
+        ...base.team,
+        status: "needs-repair",
+        canCreateConversation: false,
+        primaryAgentSlug: "manager",
+        issues: [{ code: "member-agent-missing", slug: "manager" }],
+        members: [
+          { ...base.team.members[0]!, available: false },
+          { ...base.team.members[1]!, available: true },
+          { ...base.team.members[2]!, available: true },
+        ],
+      },
+      state: {
+        ...base.state,
+        selectedMemberSlug: "manager",
+        memberEditors: {
+          ...base.state.memberEditors,
+          manager: {
+            ...base.state.memberEditors.manager!,
+            loadStatus: "failed",
+            loadError: "AGENT.md 缺失",
+          },
+        },
+      },
+      onChangePrimaryAgent,
+      memberActions: <button type="button">删除 Agent</button>,
+    });
+
+    const primarySelector = screen.getByRole("combobox", { name: "主 Agent" });
+    expect(within(primarySelector).queryByRole("option", { name: "开发经理" })).not.toBeInTheDocument();
+    expect(within(primarySelector).getByRole("option", { name: "开发" })).toBeVisible();
+    fireEvent.change(primarySelector, { target: { value: "dev" } });
+    expect(onChangePrimaryAgent).toHaveBeenCalledWith("dev");
+    expect(screen.getByRole("tab", { name: /开发经理.*不可用/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: "删除 Agent" })).toBeVisible();
+  });
 });
 
 function renderDetail(overrides: Partial<AgentTeamDetailProps> = {}) {

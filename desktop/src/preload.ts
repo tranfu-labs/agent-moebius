@@ -28,6 +28,11 @@ import {
   type AgentTeamUpdateInformationRequest,
   type AgentTeamTrashUserRequest,
 } from "./team-ipc.js";
+import {
+  TEAM_REPAIR_IPC_CHANNELS,
+  type AgentTeamRelocateRequest,
+  type AgentTeamRepairRequest,
+} from "./team-repair-ipc.js";
 
 export interface AgentMoebiusDesktopApi {
   onStatus(listener: (snapshot: DesktopStatusSnapshot) => void): () => void;
@@ -56,6 +61,9 @@ export interface AgentMoebiusDesktopApi {
   checkAgentTeamMemberExternalChange(
     request: AgentTeamExternalChangeRequest,
   ): Promise<AgentTeamExternalChangeResponse>;
+  selectAgentTeamRelocationFolder(): Promise<string | null>;
+  relocateAgentTeamRecord(request: AgentTeamRelocateRequest): Promise<AgentTeamListItem>;
+  removeAgentTeamRecord(request: AgentTeamRepairRequest): Promise<void>;
 }
 
 const api: AgentMoebiusDesktopApi = {
@@ -137,6 +145,15 @@ const api: AgentMoebiusDesktopApi = {
       TEAM_EXTERNAL_CHANGE_IPC_CHANNEL,
       request,
     ) as Promise<AgentTeamExternalChangeResponse>;
+  },
+  selectAgentTeamRelocationFolder() {
+    return ipcRenderer.invoke(TEAM_REPAIR_IPC_CHANNELS.selectRelocationFolder) as Promise<string | null>;
+  },
+  relocateAgentTeamRecord(request) {
+    return ipcRenderer.invoke(TEAM_REPAIR_IPC_CHANNELS.relocate, request) as Promise<AgentTeamListItem>;
+  },
+  removeAgentTeamRecord(request) {
+    return ipcRenderer.invoke(TEAM_REPAIR_IPC_CHANNELS.removeRecord, request) as Promise<void>;
   },
 };
 

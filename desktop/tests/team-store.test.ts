@@ -275,6 +275,35 @@ describe("team disk store", () => {
     expect((await readTeamSnapshot(location)).definition).toEqual(usableDefinition);
   });
 
+  it("allows an unavailable former primary Agent to be moved to trash after selecting a valid primary", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "repairable-primary", ownership: "user" });
+    await writeTeamDefinition(location, usableDefinition);
+    await writeMemberAgentMarkdown(location, "manager", "# 开发经理\n\n默认接单\n");
+    await writeMemberAgentMarkdown(location, "developer", "# 开发\n\n负责实现\n");
+    await fs.rm(path.join(location.directory, "members", "manager", "AGENT.md"));
+
+    await expect(readTeamSnapshot(location)).resolves.toMatchObject({
+      status: "needs-repair",
+      issues: [{ code: "member-agent-missing", slug: "manager" }],
+    });
+    await setTeamPrimaryAgent(location, "developer");
+
+    const trashedMember = path.join(dataRoot, "system-trash", "manager");
+    const repaired = await trashTeamMemberDirectory(location, "manager", async (targetPath) => {
+      await fs.mkdir(path.dirname(trashedMember), { recursive: true });
+      await fs.rename(targetPath, trashedMember);
+    });
+
+    expect(repaired).toMatchObject({
+      status: "usable",
+      canCreateConversation: true,
+      definition: { primaryAgentSlug: "developer", memberOrder: ["developer"] },
+      issues: [],
+    });
+    await expect(fs.stat(trashedMember)).resolves.toMatchObject({});
+  });
+
   it("moves a user team directory to recoverable trash and rejects built-in teams", async () => {
     const dataRoot = await makeDataRoot();
     const user = resolveTeamLocation({ dataRoot, teamId: "my-development", ownership: "user" });
@@ -401,6 +430,19 @@ describe("team disk store", () => {
       status: "usable",
       canCreateConversation: true,
       issues: [],
+    });
+  });
+
+  it("marks an unreadable AGENT.md entry as needing repair", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "unreadable-agent", ownership: "user" });
+    await writeTeamDefinition(location, { ...usableDefinition, memberOrder: ["manager"] });
+    await fs.mkdir(path.join(location.directory, "members", "manager", "AGENT.md"), { recursive: true });
+
+    await expect(readTeamSnapshot(location)).resolves.toMatchObject({
+      status: "needs-repair",
+      canCreateConversation: false,
+      issues: [{ code: "member-agent-unreadable", slug: "manager" }],
     });
   });
 

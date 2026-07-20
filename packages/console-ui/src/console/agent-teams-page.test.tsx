@@ -206,6 +206,75 @@ describe("AgentTeamsPage file manager actions", () => {
   });
 });
 
+describe("AgentTeamsPage repair actions", () => {
+  it("marks a broken row as unavailable for new conversations and exposes location repair callbacks", async () => {
+    const onRecheckTeam = vi.fn();
+    const onRelocateTeam = vi.fn().mockResolvedValue(undefined);
+    const onRemoveTeamRecord = vi.fn().mockResolvedValue(undefined);
+    const repairTeam: OperatorAgentTeam = {
+      ...copiedTeam,
+      status: "needs-repair",
+      canCreateConversation: false,
+      issues: [{ code: "team-directory-missing" }],
+    };
+    render(
+      <AgentTeamsPage
+        state={{ status: "ready", teams: [repairTeam] }}
+        detailState={detailStateFor(repairTeam.teamKey)}
+        useStackedRows={false}
+        onOpenTeam={() => undefined}
+        onRecheckTeam={onRecheckTeam}
+        onRelocateTeam={onRelocateTeam}
+        onRemoveTeamRecord={onRemoveTeamRecord}
+        onBack={() => undefined}
+      />,
+    );
+
+    const row = screen.getByTestId("agent-team-row");
+    expect(row).toHaveAttribute("data-can-create-conversation", "false");
+    expect(row).toHaveTextContent("暂时无法用于新对话");
+    fireEvent.click(row);
+
+    fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
+    await waitFor(() => expect(onRecheckTeam).toHaveBeenCalledWith(repairTeam.teamKey));
+    fireEvent.click(screen.getByRole("button", { name: "重新定位团队" }));
+    await waitFor(() => expect(onRelocateTeam).toHaveBeenCalledWith(repairTeam.teamKey));
+    fireEvent.click(screen.getByRole("button", { name: "移除记录" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "移除失效团队记录" }))
+      .getByRole("button", { name: "只移除记录" }));
+    await waitFor(() => expect(onRemoveTeamRecord).toHaveBeenCalledWith(repairTeam.teamKey));
+  });
+
+  it("keeps relocation and record removal specific to unavailable team folders", () => {
+    const onCheckMemberExternalChange = vi.fn();
+    const memberRepairTeam: OperatorAgentTeam = {
+      ...copiedTeam,
+      status: "needs-repair",
+      canCreateConversation: false,
+      issues: [{ code: "member-agent-missing", slug: "manager" }],
+    };
+    render(
+      <AgentTeamsPage
+        state={{ status: "ready", teams: [memberRepairTeam] }}
+        detailState={detailStateFor(memberRepairTeam.teamKey)}
+        useStackedRows={false}
+        onOpenTeam={() => undefined}
+        onRecheckTeam={() => undefined}
+        onRelocateTeam={() => undefined}
+        onRemoveTeamRecord={() => undefined}
+        onCheckMemberExternalChange={onCheckMemberExternalChange}
+        onBack={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("agent-team-row"));
+    expect(screen.getByRole("button", { name: "重新检查" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "重新定位团队" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "移除记录" })).not.toBeInTheDocument();
+    expect(onCheckMemberExternalChange).not.toHaveBeenCalled();
+  });
+});
+
 function LocationHarness({
   team,
   fileManagerActionLabel,

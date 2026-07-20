@@ -55,6 +55,10 @@
 │   │   ├── status-page/        # 桌面辅助诊断状态页静态资源
 │   │   ├── data-root.ts        # 数据根解析与首启种子拷贝计划
 │   │   ├── team-seed.ts        # 内置团队内容指纹、临时解包与 .system 覆盖播种
+│   │   ├── team-model.ts       # Agent 团队结构、有效性判定与需要修复 issue code
+│   │   ├── team-store.ts       # Agent 团队磁盘读写与统一只读保护
+│   │   ├── team-record-store.ts # 用户团队稳定记录、最近可读摘要、重定位身份校验与仅移除记录
+│   │   ├── team-repair-ipc.ts  # 重新定位 / 移除失效记录的独立窄 IPC 契约
 │   │   ├── shell-path.ts       # macOS 登录 shell PATH 读取与合并
 │   │   ├── env-doctor.ts       # codex / gh / gh auth 自检
 │   │   ├── runner-supervisor.ts # runner 子进程状态机与崩溃退避
