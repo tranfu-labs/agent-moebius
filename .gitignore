@@ -24,7 +24,8 @@ node_modules/
 .state/
 config.local.toml
 .loop-logs/
-logs/
+/logs/
+/scratchpad/
 
 ### Desktop build outputs
 desktop/dist/
