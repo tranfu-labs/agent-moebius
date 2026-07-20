@@ -18,6 +18,12 @@ import {
   type SelectionMutationKind,
   type SelectionMutationToken,
 } from "./state-sync.js";
+import {
+  isFirstRunOnboarding,
+  readSidebarVisibilityPreference,
+  writeSidebarVisibilityPreference,
+  type SidebarVisibilityPreference,
+} from "./sidebar-preference.js";
 
 interface DesktopApi {
   getLocalConsoleUrl?: () => Promise<string | null>;
@@ -68,6 +74,9 @@ function App(): JSX.Element {
   const [isSending, setIsSending] = useState(false);
   const [selectionMutationKind, setSelectionMutationKind] = useState<SelectionMutationKind | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
+  const [sidebarVisibilityPreference, setSidebarVisibilityPreference] = useState<SidebarVisibilityPreference>(() =>
+    readSidebarVisibilityPreference(window.localStorage),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -219,6 +228,12 @@ function App(): JSX.Element {
     };
   }, []);
 
+  const setSidebarOpen = useCallback((open: boolean) => {
+    const preference = open ? "open" : "closed";
+    setSidebarVisibilityPreference(preference);
+    writeSidebarVisibilityPreference(window.localStorage, preference);
+  }, []);
+
   return (
     <OperatorConsole
       project={project}
@@ -244,6 +259,9 @@ function App(): JSX.Element {
       isSending={isSending}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}
+      sidebarOpen={sidebarVisibilityPreference === "open"}
+      isFirstRunOnboarding={isFirstRunOnboarding(state?.projects ?? null)}
+      onSidebarOpenChange={setSidebarOpen}
     />
   );
 }

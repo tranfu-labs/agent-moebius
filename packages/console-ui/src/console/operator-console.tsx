@@ -11,6 +11,7 @@ import {
   Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
 
 import { AgentMessage } from "@/console/agent-message";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
@@ -139,6 +140,9 @@ export interface OperatorConsoleProps {
   isSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
+  sidebarOpen?: boolean;
+  isFirstRunOnboarding?: boolean;
+  onSidebarOpenChange?: (open: boolean) => void;
   className?: string;
 }
 
@@ -163,14 +167,30 @@ export function OperatorConsole({
   isSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
+  sidebarOpen,
+  isFirstRunOnboarding = false,
+  onSidebarOpenChange,
   className,
 }: OperatorConsoleProps): JSX.Element {
+  const [uncontrolledSidebarOpen, setUncontrolledSidebarOpen] = useState(true);
   const visibleProjects = projects ?? [project];
   const activeProjectId = selectedProjectId ?? project.projectId;
   const activeProject = visibleProjects.find((item) => item.projectId === activeProjectId) ?? project;
   const sidebarProjects = visibleProjects.map(toSidebarProject);
   const canSend = composerValue.trim() !== "" && activeRun === null && !isSending && !isSessionProjectUpdating;
   const emptyConversation = messages.length === 0 && activeRun === null;
+  const requestedSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
+  const effectiveSidebarOpen = isFirstRunOnboarding || requestedSidebarOpen;
+
+  const setSidebarOpen = (open: boolean) => {
+    if (isFirstRunOnboarding && !open) {
+      return;
+    }
+    if (sidebarOpen === undefined) {
+      setUncontrolledSidebarOpen(open);
+    }
+    onSidebarOpenChange?.(open);
+  };
 
   const submitComposer = () => {
     if (canSend) {
@@ -181,8 +201,12 @@ export function OperatorConsole({
   return (
     <div className={cn("flex h-screen min-h-[560px] overflow-hidden bg-canvas text-ink", className)}>
       <aside
-        className="relative flex w-[248px] shrink-0 flex-col overflow-hidden border-r border-line bg-rail"
+        className={cn(
+          "relative w-[248px] shrink-0 flex-col overflow-hidden border-r border-line bg-rail",
+          effectiveSidebarOpen ? "flex" : "hidden",
+        )}
         data-testid="operator-sidebar"
+        hidden={!effectiveSidebarOpen}
       >
         <header
           className="window-drag-region flex h-10 shrink-0 items-center gap-2 pl-[76px] pr-2"
@@ -194,9 +218,11 @@ export function OperatorConsole({
           </div>
           <button
             type="button"
-            className="window-no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
+            className="window-no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-40"
             aria-label="关闭侧边栏"
-            title="关闭侧边栏"
+            title={isFirstRunOnboarding ? "首次启动引导期间侧边栏保持打开" : "关闭侧边栏"}
+            disabled={isFirstRunOnboarding}
+            onClick={() => setSidebarOpen(false)}
           >
             <PanelLeftClose className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
           </button>
@@ -232,11 +258,23 @@ export function OperatorConsole({
         </footer>
       </aside>
 
-      <main className="relative flex min-w-0 flex-1 flex-col bg-canvas">
+      <main
+        className="relative flex min-w-0 flex-1 flex-col bg-canvas"
+        data-testid="operator-main"
+        data-sidebar-open={effectiveSidebarOpen ? "true" : "false"}
+      >
         <div className="window-drag-region absolute inset-x-0 top-0 z-10 h-9" aria-hidden="true" />
-        <div className="pointer-events-none absolute right-4 top-3 z-20 flex items-center gap-3 text-hint" aria-hidden="true">
-          <PanelLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
-        </div>
+        {!effectiveSidebarOpen ? (
+          <button
+            type="button"
+            className="window-no-drag absolute left-4 top-3 z-20 flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
+            aria-label="打开侧边栏"
+            title="打开侧边栏"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <PanelLeft className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          </button>
+        ) : null}
 
         <section className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-44 pt-16" aria-label="会话时间线">
           {emptyConversation ? (
@@ -250,14 +288,16 @@ export function OperatorConsole({
               </div>
 
               {activeRun ? (
-                <RunBlock
-                  role={activeRun.role ?? "dev"}
-                  elapsedTime={formatElapsed(activeRun.elapsedMs)}
-                  summary={safeRunSummary(activeRun.lastOutputSummary)}
-                  rawOutput={runRawOutput(activeRun)}
-                  onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
-                  className="mt-3"
-                />
+                <div data-testid="active-run-block">
+                  <RunBlock
+                    role={activeRun.role ?? "dev"}
+                    elapsedTime={formatElapsed(activeRun.elapsedMs)}
+                    summary={safeRunSummary(activeRun.lastOutputSummary)}
+                    rawOutput={runRawOutput(activeRun)}
+                    onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
+                    className="mt-3"
+                  />
+                </div>
               ) : null}
 
               {lastError ? (

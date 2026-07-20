@@ -50,6 +50,56 @@ describe("OperatorConsole", () => {
     expect(screen.queryByText(/本地引擎/u)).not.toBeInTheDocument();
   });
 
+  it("closes and restores the sidebar without remounting the timeline or active run", () => {
+    renderConsole({ activeRun: runSnapshot });
+
+    const sidebar = screen.getByTestId("operator-sidebar");
+    const main = screen.getByTestId("operator-main");
+    const projectList = screen.getByRole("navigation", { name: "项目列表" });
+    const selectedSessionRow = screen.getByRole("button", { name: "默认会话，运行中" });
+    const timeline = screen.getByRole("region", { name: "会话时间线" });
+    const activeRunBlock = screen.getByTestId("active-run-block");
+    projectList.scrollTop = 73;
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭侧边栏" }));
+
+    expect(sidebar).not.toBeVisible();
+    expect(sidebar).toHaveClass("hidden");
+    expect(main).toHaveAttribute("data-sidebar-open", "false");
+    expect(screen.getByRole("button", { name: "打开侧边栏" })).toHaveAttribute("title", "打开侧边栏");
+    expect(selectedSessionRow).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
+    expect(screen.getByTestId("active-run-block")).toBe(activeRunBlock);
+
+    fireEvent.click(screen.getByRole("button", { name: "打开侧边栏" }));
+
+    expect(sidebar).toBeVisible();
+    expect(sidebar).toHaveClass("flex");
+    expect(sidebar).not.toHaveClass("hidden");
+    expect(main).toHaveAttribute("data-sidebar-open", "true");
+    expect(projectList.scrollTop).toBe(73);
+    expect(screen.getByRole("button", { name: "默认会话，运行中" })).toBe(selectedSessionRow);
+    expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
+    expect(screen.getByTestId("active-run-block")).toBe(activeRunBlock);
+  });
+
+  it("keeps the sidebar visible throughout first-run onboarding", () => {
+    const onSidebarOpenChange = vi.fn();
+    renderConsole({
+      sidebarOpen: false,
+      isFirstRunOnboarding: true,
+      onSidebarOpenChange,
+    });
+
+    const closeButton = screen.getByRole("button", { name: "关闭侧边栏" });
+    expect(screen.getByTestId("operator-sidebar")).toBeVisible();
+    expect(closeButton).toBeDisabled();
+    expect(closeButton).toHaveAttribute("title", "首次启动引导期间侧边栏保持打开");
+    expect(screen.queryByRole("button", { name: "打开侧边栏" })).not.toBeInTheDocument();
+    fireEvent.click(closeButton);
+    expect(onSidebarOpenChange).not.toHaveBeenCalled();
+  });
+
   it("renders the Codex frame, flat session rail, bottom context, and live run controls", () => {
     const onInterrupt = vi.fn();
     renderConsole({ activeRun: runSnapshot, onInterrupt });
