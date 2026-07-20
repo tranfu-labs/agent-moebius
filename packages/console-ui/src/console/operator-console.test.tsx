@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -244,6 +244,67 @@ describe("OperatorConsole", () => {
     expect(screen.queryByText(/没有团队/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(onRetryAgentTeams).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders one flat, fully clickable row per team with readable status badges", () => {
+    setWindowWidth(1200);
+    renderConsole({ agentTeamsState: { status: "ready", teams: [fiveMemberTeam, draftTeam, repairTeam] } });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+
+    const rows = screen.getAllByTestId("agent-team-row");
+    expect(rows).toHaveLength(3);
+    expect(rows.every((row) => row.tagName === "BUTTON")).toBe(true);
+    expect(rows.every((row) => row.querySelector("svg") === null)).toBe(true);
+    expect(within(rows[0]).getByText("内置")).toBeVisible();
+    expect(within(rows[1]).getByText("未完成")).toBeVisible();
+    expect(within(rows[2]).getByText("需要修复")).toBeVisible();
+    expect(within(rows[0]).getByText("5 名成员 · 主 Agent：开发经理")).toBeVisible();
+
+    const memberStrip = within(rows[0]).getByTestId("agent-team-members");
+    expect(memberStrip.textContent).toMatch(/^开发经理· 主 Agent开发测试＋2$/u);
+    for (const memberName of ["开发经理", "开发", "测试"]) {
+      expect(within(memberStrip).getByTitle(memberName)).toHaveClass("w-28");
+    }
+    expect(within(memberStrip).getByLabelText("还有 2 名成员")).toHaveTextContent("＋2");
+    expect(screen.queryByText("修改信息")).not.toBeInTheDocument();
+    expect(screen.queryByText("复制并编辑")).not.toBeInTheDocument();
+    expect(screen.queryByText("删除团队")).not.toBeInTheDocument();
+  });
+
+  it("keeps a single team row at narrow widths and compacts extra members behind ＋N", () => {
+    setWindowWidth(1200);
+    renderConsole({ agentTeamsState: { status: "ready", teams: [fiveMemberTeam] } });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+    setWindowWidth(900);
+
+    const row = screen.getByTestId("agent-team-row");
+    expect(screen.getAllByTestId("agent-team-row")).toHaveLength(1);
+    expect(row).toHaveAttribute("data-layout", "narrow");
+    expect(row).toHaveClass("grid-cols-1");
+    expect(within(row).getByTestId("agent-team-members")).toHaveClass("border-t");
+    expect(within(row).getByLabelText("还有 2 名成员")).toHaveTextContent("＋2");
+  });
+
+  it("opens the detail entry for the whole row and restores list scroll on return", () => {
+    const onOpenAgentTeam = vi.fn();
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [fiveMemberTeam] },
+      onOpenAgentTeam,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+
+    const listPage = screen.getByRole("region", { name: "Agent 团队" });
+    listPage.scrollTop = 187;
+    fireEvent.click(screen.getByTestId("agent-team-row"));
+
+    expect(onOpenAgentTeam).toHaveBeenCalledWith("system:development");
+    expect(screen.getByTestId("agent-team-detail-entry")).toHaveAttribute("data-team-key", "system:development");
+    expect(screen.queryByTestId("agent-team-list")).not.toBeInTheDocument();
+    expect(listPage.scrollTop).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "返回 Agent 团队" }));
+    expect(screen.getByTestId("agent-team-list")).toBeVisible();
+    expect(listPage.scrollTop).toBe(187);
   });
 
   it("closes and restores the sidebar without remounting the timeline or active run", () => {
@@ -793,6 +854,44 @@ const agentTeam = {
   members: [{ slug: "manager", displayName: "开发经理", description: "默认接单" }],
   status: "usable" as const,
   canCreateConversation: true,
+};
+
+const fiveMemberTeam = {
+  ...agentTeam,
+  memberOrder: ["dev", "manager", "qa", "product", "security"],
+  members: [
+    { slug: "dev", displayName: "开发", description: "实现功能" },
+    { slug: "manager", displayName: "开发经理", description: "默认接单" },
+    { slug: "qa", displayName: "测试", description: "质量保证" },
+    { slug: "product", displayName: "产品", description: "产品定义" },
+    { slug: "security", displayName: "安全", description: "安全审查" },
+  ],
+};
+
+const draftTeam = {
+  teamKey: "user:draft",
+  id: "draft",
+  ownership: "user" as const,
+  name: "新的团队",
+  description: null,
+  primaryAgentSlug: null,
+  memberOrder: [],
+  members: [],
+  status: "unfinished-draft" as const,
+  canCreateConversation: false,
+};
+
+const repairTeam = {
+  teamKey: "user:repair",
+  id: "repair",
+  ownership: "user" as const,
+  name: "客户支持团队",
+  description: "处理客户问题",
+  primaryAgentSlug: "lead",
+  memberOrder: ["lead"],
+  members: [],
+  status: "needs-repair" as const,
+  canCreateConversation: false,
 };
 
 const runSnapshot: OperatorRunSnapshot = {

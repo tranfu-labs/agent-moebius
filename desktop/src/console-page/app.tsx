@@ -465,6 +465,21 @@ function App(): JSX.Element {
         void refresh(selectionRef.current);
       }}
       onRetryAgentTeams={() => setAgentTeamsRefreshNonce((current) => current + 1)}
+      onOpenAgentTeam={(teamKey) => {
+        if (agentTeamsState.status !== "ready") {
+          return;
+        }
+        const team = agentTeamsState.teams.find((candidate) => candidate.teamKey === teamKey);
+        if (team === undefined) {
+          return;
+        }
+        const primaryAgentAvailable = team.primaryAgentSlug !== null
+          && team.members.some((member) => member.slug === team.primaryAgentSlug);
+        setAgentTeamSelection({
+          teamKey,
+          memberSlug: primaryAgentAvailable ? team.primaryAgentSlug : team.members[0]?.slug ?? null,
+        });
+      }}
       isSending={isSending}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}
