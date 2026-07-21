@@ -59,6 +59,10 @@
 │   │   ├── team-store.ts       # Agent 团队磁盘读写与统一只读保护
 │   │   ├── team-record-store.ts # 用户团队稳定记录、最近可读摘要、重定位身份校验与仅移除记录
 │   │   ├── team-repair-ipc.ts  # 重新定位 / 移除失效记录的独立窄 IPC 契约
+│   │   ├── team-ipc.ts         # 团队列表 / 成员读写 / 复制 / 删除的窄 IPC 契约
+│   │   ├── team-external-change.ts # 成员 AGENT.md 外部修改探测与冲突判定（不做逐行合并）
+│   │   ├── team-file-manager.ts # 在平台文件管理器中打开团队 / 成员目录、移到废纸篓
+│   │   ├── team-conversation-preference.ts # 上一次成功创建会话所用团队的记录与回退预选
 │   │   ├── shell-path.ts       # macOS 登录 shell PATH 读取与合并
 │   │   ├── env-doctor.ts       # codex / gh / gh auth 自检
 │   │   ├── runner-supervisor.ts # runner 子进程状态机与崩溃退避
@@ -66,6 +70,7 @@
 │   └── tests/                  # 桌面壳纯模块 Vitest
 ├── packages/
 │   └── console-ui/             # shadcn/Radix + Tailwind 的 React 对话操作台组件库与 Storybook
+│                               # 含 Agent 团队页：团队横行陈列、团队详情与 @slug 提及编辑器
 ├── seeds/
 │   └── teams/                  # 打包进桌面应用的只读内置团队种子
 ├── sites/                      # 面向公众的自包含静态营销站点（与产品运行时零耦合）
