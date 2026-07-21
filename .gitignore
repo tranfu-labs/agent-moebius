@@ -26,6 +26,9 @@ config.local.toml
 .loop-logs/
 /logs/
 /scratchpad/
+# 开发模式下数据根即仓库根，Agent 团队播种与偏好记录会落在这里
+/teams/
+/last-used-team.json
 
 ### Desktop build outputs
 desktop/dist/
