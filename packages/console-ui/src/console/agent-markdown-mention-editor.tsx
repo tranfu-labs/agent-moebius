@@ -135,6 +135,7 @@ export function AgentMarkdownMentionEditor({
 }: AgentMarkdownMentionEditorProps): JSX.Element {
   const editorRef = useRef<HTMLDivElement>(null);
   const pendingCaretRef = useRef<number | null>(null);
+  const composingRef = useRef(false);
   const listboxId = useId();
   const [focused, setFocused] = useState(false);
   const [caret, setCaret] = useState(value.length);
@@ -198,6 +199,9 @@ export function AgentMarkdownMentionEditor({
   };
 
   const handleInput = (event: FormEvent<HTMLDivElement>) => {
+    if (composingRef.current) {
+      return;
+    }
     const editor = event.currentTarget;
     const nextValue = serializeMentionEditor(editor);
     const selection = getEditorSelection(editor);
@@ -268,6 +272,17 @@ export function AgentMarkdownMentionEditor({
           (readOnly || disabled) && "cursor-not-allowed bg-sunken text-sub",
         )}
         onInput={handleInput}
+        onCompositionStart={() => {
+          composingRef.current = true;
+          pendingCaretRef.current = null;
+        }}
+        onCompositionEnd={(event) => {
+          composingRef.current = false;
+          const editor = event.currentTarget;
+          const nextValue = serializeMentionEditor(editor);
+          const selection = getEditorSelection(editor);
+          commitValue(nextValue, selection?.end ?? nextValue.length);
+        }}
         onPaste={handlePaste}
         onFocus={() => {
           setFocused(true);

@@ -4,7 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { checkAgentTeamMemberExternalChange } from "../src/team-external-change.js";
+import { listRecordedUserTeamSnapshots, relocateUserTeamRecord } from "../src/team-record-store.js";
 import { getMemberAgentPath, resolveTeamLocation } from "../src/team-store.js";
+import { serializeTeamDefinition } from "../src/team-model.js";
 
 const temporaryRoots: string[] = [];
 
@@ -54,6 +56,37 @@ describe("Agent team external AGENT.md change detection", () => {
       memberSlug: "manager",
       knownAgentMarkdown: "# old\n",
     })).resolves.toEqual({ status: "ignored" });
+  });
+
+  it("checks a relocated user team through its recorded external location", async () => {
+    const dataRoot = await makeDataRoot();
+    const original = resolveTeamLocation({ dataRoot, teamId: "my-team", ownership: "user" });
+    const agentFile = getMemberAgentPath(original, "manager");
+    await fs.mkdir(path.dirname(agentFile), { recursive: true });
+    await fs.writeFile(path.join(original.directory, "team.json"), serializeTeamDefinition({
+      name: "开发团队",
+      description: "负责开发",
+      primaryAgentSlug: "manager",
+      memberOrder: ["manager"],
+    }), "utf8");
+    const originalMarkdown = "# 开发经理\n\n负责开发\n";
+    await fs.writeFile(agentFile, originalMarkdown, "utf8");
+    await listRecordedUserTeamSnapshots(dataRoot);
+    const external = path.join(dataRoot, "external-teams", "renamed-team");
+    await fs.mkdir(path.dirname(external), { recursive: true });
+    await fs.rename(original.directory, external);
+    await relocateUserTeamRecord({ dataRoot, teamId: "my-team", directory: external });
+    await fs.writeFile(path.join(external, "members", "manager", "AGENT.md"), "# 新经理\n\n外部位置更新\n", "utf8");
+
+    await expect(checkAgentTeamMemberExternalChange(dataRoot, {
+      teamId: "my-team",
+      ownership: "user",
+      memberSlug: "manager",
+      knownAgentMarkdown: originalMarkdown,
+    })).resolves.toMatchObject({
+      status: "changed",
+      document: { displayName: "新经理", description: "外部位置更新" },
+    });
   });
 });
 

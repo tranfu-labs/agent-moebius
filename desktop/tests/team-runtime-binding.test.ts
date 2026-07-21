@@ -1,0 +1,105 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+
+import type { LocalConsoleSessionSummary } from "../../src/local-console/types.js";
+import { serializeTeamDefinition } from "../src/team-model.js";
+import {
+  AgentTeamRosterUnavailableError,
+  listSessionAgentFiles,
+  resolveSessionAgentTeamHealth,
+} from "../src/team-runtime-binding.js";
+import { resolveTeamLocation } from "../src/team-store.js";
+
+const roots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
+});
+
+describe("session-scoped Agent team runtime binding", () => {
+  it("returns exactly the members of a bound team and excludes shared-only agents", async () => {
+    const dataRoot = await makeDataRoot();
+    await writeSharedAgent(dataRoot, "ceo");
+    const team = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    await writeTeam(team.directory, ["dev-manager", "dev", "qa"]);
+
+    await expect(listSessionAgentFiles({
+      dataRoot,
+      session: session({ ownership: "system", id: "development" }),
+    })).resolves.toEqual([
+      expect.objectContaining({ name: "dev" }),
+      expect.objectContaining({ name: "dev-manager" }),
+      expect.objectContaining({ name: "qa" }),
+    ]);
+  });
+
+  it("falls back to the shared directory only for an unbound legacy session", async () => {
+    const dataRoot = await makeDataRoot();
+    await writeSharedAgent(dataRoot, "ceo");
+
+    await expect(listSessionAgentFiles({ dataRoot, session: session() })).resolves.toEqual([
+      { name: "ceo", path: path.join(dataRoot, "agents", "ceo.md") },
+    ]);
+  });
+
+  it("reports a bound unavailable team explicitly and exposes repair health", async () => {
+    const dataRoot = await makeDataRoot();
+    const bound = session({ ownership: "system", id: "missing-team" });
+
+    await expect(listSessionAgentFiles({ dataRoot, session: bound })).rejects.toBeInstanceOf(
+      AgentTeamRosterUnavailableError,
+    );
+    await expect(resolveSessionAgentTeamHealth({ dataRoot, session: bound })).resolves.toMatchObject({
+      health: "needs-repair",
+      reason: expect.stringContaining("missing"),
+    });
+  });
+});
+
+async function makeDataRoot(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-runtime-"));
+  roots.push(root);
+  return root;
+}
+
+function session(binding?: { ownership: "system" | "user"; id: string }): LocalConsoleSessionSummary {
+  return {
+    sessionId: "local:test",
+    projectId: "local",
+    title: "test",
+    status: "idle",
+    awaitsHumanReason: null,
+    unreadSince: null,
+    runningCount: 0,
+    waitingCount: 0,
+    stuckCount: 0,
+    errorCount: 0,
+    interruptedCount: 0,
+    createdAt: "2026-07-21T00:00:00.000Z",
+    updatedAt: "2026-07-21T00:00:00.000Z",
+    agentTeamOwnership: binding?.ownership ?? null,
+    agentTeamId: binding?.id ?? null,
+  };
+}
+
+async function writeSharedAgent(dataRoot: string, role: string): Promise<void> {
+  await fs.mkdir(path.join(dataRoot, "agents"), { recursive: true });
+  await fs.writeFile(path.join(dataRoot, "agents", `${role}.md`), `# ${role}\n`, "utf8");
+}
+
+async function writeTeam(directory: string, roles: string[]): Promise<void> {
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(path.join(directory, "team.json"), serializeTeamDefinition({
+    name: "开发团队",
+    description: "负责开发",
+    primaryAgentSlug: roles[0]!,
+    memberOrder: roles,
+  }), "utf8");
+  await Promise.all(roles.map(async (role) => {
+    const memberDirectory = path.join(directory, "members", role);
+    await fs.mkdir(memberDirectory, { recursive: true });
+    await fs.writeFile(path.join(memberDirectory, "AGENT.md"), `# ${role}\n\n负责 ${role}\n`, "utf8");
+  }));
+}

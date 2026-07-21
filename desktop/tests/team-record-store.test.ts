@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { serializeTeamDefinition, type TeamDefinition } from "../src/team-model.js";
 import {
+  USER_TEAM_RECORDS_FILE,
   listRecordedUserTeamSnapshots,
   relocateUserTeamRecord,
   removeUserTeamRecord,
@@ -32,13 +33,14 @@ describe("user team application records", () => {
     const [recorded] = await listRecordedUserTeamSnapshots(dataRoot);
     expect(recorded?.snapshot.status).toBe("usable");
 
-    const renamedDirectory = path.join(dataRoot, "teams", "renamed-team");
+    const renamedDirectory = path.join(dataRoot, "relocated", "renamed-team");
+    await fs.mkdir(path.dirname(renamedDirectory), { recursive: true });
     await fs.rename(original.directory, renamedDirectory);
     const [missing] = await listRecordedUserTeamSnapshots(dataRoot);
     expect(missing).toMatchObject({
       record: {
         id: "my-team",
-        directoryName: "my-team",
+        location: { kind: "managed", directoryName: "my-team" },
         lastKnownDefinition: definition,
       },
       snapshot: {
@@ -71,6 +73,43 @@ describe("user team application records", () => {
       id: "my-team",
       directory: renamedDirectory,
     });
+    const records = JSON.parse(await fs.readFile(
+      path.join(dataRoot, "teams", USER_TEAM_RECORDS_FILE),
+      "utf8",
+    )) as { version: number; records: Array<{ location: unknown }> };
+    expect(records).toMatchObject({
+      version: 2,
+      records: [{ location: { kind: "external", absolutePath: renamedDirectory } }],
+    });
+  });
+
+  it("migrates v1 directory records to managed v2 locations without retaining member summaries", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "legacy-team", ownership: "user" });
+    await createTeamDirectory(location.directory, definition, "# 开发经理\n\n默认接单\n");
+    await fs.writeFile(path.join(dataRoot, "teams", USER_TEAM_RECORDS_FILE), JSON.stringify({
+      version: 1,
+      records: [{
+        id: "legacy-team",
+        directoryName: "legacy-team",
+        identityFingerprint: null,
+        lastKnownDefinition: definition,
+        lastKnownMembers: [{ slug: "manager", displayName: "旧名称", description: "旧摘要" }],
+      }],
+    }), "utf8");
+
+    await expect(resolveRecordedTeamLocation(dataRoot, "legacy-team")).resolves.toMatchObject({
+      directory: location.directory,
+    });
+    const migrated = JSON.parse(await fs.readFile(
+      path.join(dataRoot, "teams", USER_TEAM_RECORDS_FILE),
+      "utf8",
+    )) as Record<string, unknown>;
+    expect(migrated).toMatchObject({
+      version: 2,
+      records: [{ id: "legacy-team", location: { kind: "managed", directoryName: "legacy-team" } }],
+    });
+    expect(JSON.stringify(migrated)).not.toContain("lastKnownMembers");
   });
 
   it("removes only the invalid application record and leaves team files and session history untouched", async () => {

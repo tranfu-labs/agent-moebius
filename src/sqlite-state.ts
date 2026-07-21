@@ -38,7 +38,15 @@ export type SqliteStateCommand =
       worktreeUnavailableReason: string | null;
       now: string;
     }
-  | { kind: "local-create-session"; sessionId: string; projectId: string; title: string; now: string }
+  | {
+      kind: "local-create-session";
+      sessionId: string;
+      projectId: string;
+      title: string;
+      agentTeamOwnership?: "system" | "user";
+      agentTeamId?: string;
+      now: string;
+    }
   | { kind: "local-move-empty-session"; sessionId: string; projectId: string; now: string }
   | { kind: "local-archive-session"; sessionId: string; now: string }
   | { kind: "local-restore-session"; sessionId: string; now: string }

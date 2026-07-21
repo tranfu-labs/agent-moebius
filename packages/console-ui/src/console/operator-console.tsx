@@ -82,10 +82,23 @@ interface SidebarResizeGesture {
   startWidth: number;
 }
 
+type ConversationRouteAction = () => boolean | void | Promise<boolean | void>;
+
+function isPromiseLike(value: unknown): value is PromiseLike<boolean | void> {
+  return typeof value === "object"
+    && value !== null
+    && "then" in value
+    && typeof value.then === "function";
+}
+
 export interface OperatorSession {
   sessionId: string;
   projectId: string;
   parentSessionId?: string | null;
+  agentTeamOwnership?: "system" | "user" | null;
+  agentTeamId?: string | null;
+  agentTeamHealth?: "usable" | "needs-repair" | null;
+  agentTeamHealthReason?: string | null;
   title: string;
   status: OperatorSessionStatus;
   awaitsHumanReason: "answer" | "confirmation" | "acceptance" | "exception" | null;
@@ -168,6 +181,7 @@ export interface OperatorConsoleProps {
   projectListState?: OperatorProjectListState;
   agentTeamsState?: OperatorAgentTeamsState;
   lastUsedAgentTeamKey?: string | null;
+  conversationAgentTeamKey?: string | null;
   selectedAgentTeamKey?: string | null;
   selectedAgentTeamMemberSlug?: string | null;
   agentTeamDetailState?: AgentTeamDetailState | null;
@@ -239,6 +253,7 @@ export function OperatorConsole({
   projectListState = "ready",
   agentTeamsState = { status: "loading" },
   lastUsedAgentTeamKey = null,
+  conversationAgentTeamKey = null,
   selectedAgentTeamKey,
   selectedAgentTeamMemberSlug,
   agentTeamDetailState,
@@ -303,6 +318,12 @@ export function OperatorConsole({
   const sidebarResizeGestureRef = useRef<SidebarResizeGesture | null>(null);
   const [applicationView, setApplicationView] = useState<OperatorApplicationView>("conversation");
   const [applicationOverlay, setApplicationOverlay] = useState<OperatorApplicationOverlay | null>(null);
+  const [pendingConversationRoute, setPendingConversationRoute] = useState<{
+    run: ConversationRouteAction;
+    cancel?: () => void;
+  } | null>(null);
+  const [conversationRouteConflictOpen, setConversationRouteConflictOpen] = useState(false);
+  const [savingConversationRouteDrafts, setSavingConversationRouteDrafts] = useState(false);
   const [renameTarget, setRenameTarget] = useState<OperatorProject | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [runningRemovalTarget, setRunningRemovalTarget] = useState<OperatorProject | null>(null);
@@ -319,10 +340,19 @@ export function OperatorConsole({
   const sidebarProjects = visibleProjects.map(toSidebarProject);
   const hasAgentTeamNeedingRepair = agentTeamsState.status === "ready"
     && agentTeamsState.teams.some((team) => team.status === "needs-repair");
-  const selectedAgentTeam = agentTeamsState.status === "ready"
-    ? agentTeamsState.teams.find((team) => team.teamKey === selectedAgentTeamKey)
+  const conversationAgentTeam = agentTeamsState.status === "ready"
+    ? agentTeamsState.teams.find((team) => team.teamKey === conversationAgentTeamKey)
     : undefined;
-  const selectedAgentTeamNeedsRepair = selectedAgentTeam?.status === "needs-repair";
+  const runtimeConversationAgentTeam = conversationAgentTeam === undefined || selectedSession?.agentTeamHealth == null
+    ? conversationAgentTeam
+    : {
+        ...conversationAgentTeam,
+        status: selectedSession.agentTeamHealth,
+        canCreateConversation: selectedSession.agentTeamHealth === "usable",
+      };
+  const selectedAgentTeamNeedsRepair = selectedSession?.agentTeamHealth == null
+    ? conversationAgentTeam?.status === "needs-repair"
+    : selectedSession.agentTeamHealth === "needs-repair";
   const canSend = composerValue.trim() !== ""
     && activeRun === null
     && !isSending
@@ -361,6 +391,48 @@ export function OperatorConsole({
 
   const openNewConversation = (options: NewConversationOptions = {}) => {
     setApplicationOverlay({ kind: "new-conversation", options });
+  };
+
+  const finishConversationRoute = () => {
+    setPendingConversationRoute(null);
+    setConversationRouteConflictOpen(false);
+    setApplicationOverlay(null);
+    setApplicationView("conversation");
+  };
+
+  const completeConversationRoute = (
+    action: ConversationRouteAction = () => undefined,
+  ): boolean | void | Promise<boolean | void> => {
+    const result = action();
+    if (isPromiseLike(result)) {
+      return Promise.resolve(result).then((outcome) => {
+        if (outcome !== false) {
+          finishConversationRoute();
+        }
+        return outcome;
+      });
+    }
+    if (result !== false) {
+      finishConversationRoute();
+    }
+    return result;
+  };
+
+  const routeToConversation = (action?: ConversationRouteAction, onCancel?: () => void) => {
+    if (applicationView !== "agent-teams") {
+      return completeConversationRoute(action);
+    }
+    const editors = Object.values(agentTeamDetailState?.memberEditors ?? {});
+    if (editors.some((editor) => editor?.externalChangeStatus === "conflict")) {
+      setPendingConversationRoute({ run: action ?? (() => undefined), cancel: onCancel });
+      setConversationRouteConflictOpen(true);
+      return;
+    }
+    if (editors.some((editor) => editor?.isDirty === true)) {
+      setPendingConversationRoute({ run: action ?? (() => undefined), cancel: onCancel });
+      return;
+    }
+    return completeConversationRoute(action);
   };
 
   const resizeSidebar = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -450,7 +522,7 @@ export function OperatorConsole({
           showProjectPath={false}
           onSelectSession={(sessionId, projectId) => {
             if (!isSelectionMutationPending) {
-              onSelectSession({ sessionId, projectId });
+              routeToConversation(() => onSelectSession({ sessionId, projectId }));
             }
           }}
           onNewConversation={(projectId) => {
@@ -485,7 +557,12 @@ export function OperatorConsole({
             }
           }}
           onArchiveSession={onArchiveSession === undefined ? undefined : (sessionId, projectId) => {
-            void onArchiveSession(sessionId, projectId);
+            const archive = () => void onArchiveSession(sessionId, projectId);
+            if (sessionId === selectedSessionId) {
+              routeToConversation(archive);
+            } else {
+              archive();
+            }
           }}
           onReorderProjects={isSelectionMutationPending || isProjectMutationPending ? undefined : onReorderProjects}
           onRepairProject={onSelectFolderForRepair === undefined ? undefined : (sidebarProject) => {
@@ -599,7 +676,7 @@ export function OperatorConsole({
             onDuplicateMember={onDuplicateAgentTeamMember}
             onTrashMember={onTrashAgentTeamMember}
             onTrashUserTeam={onTrashUserAgentTeam}
-            onBack={() => setApplicationView("conversation")}
+            onBack={() => routeToConversation()}
           />
         ) : (
           <>
@@ -675,7 +752,7 @@ export function OperatorConsole({
                       project={activeProject}
                       projects={visibleProjects}
                       selectedSession={selectedSession}
-                      agentTeam={selectedAgentTeam}
+                      agentTeam={runtimeConversationAgentTeam}
                       canChangeProject={
                         selectedSession !== null &&
                         messages.length === 0 &&
@@ -703,7 +780,17 @@ export function OperatorConsole({
           agentTeamsState={agentTeamsState}
           lastUsedAgentTeamKey={lastUsedAgentTeamKey}
           onAddProject={onOpenProject}
-          onCreateConversation={onCreateConversation}
+          onCreateConversation={onCreateConversation === undefined ? undefined : async (projectId, teamKey) => {
+            let result: boolean | void = false;
+            await new Promise<void>((resolve) => {
+              routeToConversation(() => Promise.resolve(onCreateConversation(projectId, teamKey)).then((created) => {
+                  result = created;
+                  resolve();
+                  return created;
+                }), resolve);
+            });
+            return result;
+          }}
           onClose={() => setApplicationOverlay(null)}
         />
       ) : null}
@@ -817,9 +904,86 @@ export function OperatorConsole({
             danger
             onCancel={() => setRemovalRequest(null)}
             onConfirm={() => {
-              void submitProjectRemoval(removalRequest, onRemoveProject, setProjectActionError, setRemovalRequest);
+              const remove = () => void submitProjectRemoval(
+                removalRequest,
+                onRemoveProject,
+                setProjectActionError,
+                setRemovalRequest,
+              );
+              if (removalRequest.project.projectId === activeProjectId) {
+                routeToConversation(remove);
+              } else {
+                remove();
+              }
             }}
           />
+        </ProjectActionDialog>
+      ) : null}
+
+      {pendingConversationRoute ? (
+        <ProjectActionDialog
+          title="还有未保存的修改"
+          description="可以继续编辑、放弃全部修改，或保存全部后前往对话。"
+          onCancel={() => {
+            pendingConversationRoute.cancel?.();
+            setPendingConversationRoute(null);
+          }}
+        >
+          <DialogButtons
+            pending={savingConversationRouteDrafts}
+            confirmLabel="保存全部并离开"
+            onCancel={() => {
+              pendingConversationRoute.cancel?.();
+              setPendingConversationRoute(null);
+            }}
+            onConfirm={() => {
+              const teamKey = agentTeamDetailState?.teamKey;
+              if (teamKey === undefined || onSaveAllAgentTeamDrafts === undefined) {
+                return;
+              }
+              setSavingConversationRouteDrafts(true);
+              void onSaveAllAgentTeamDrafts(teamKey).then((result) => {
+                if (result.failures.length === 0) {
+                  return completeConversationRoute(pendingConversationRoute.run);
+                }
+                return undefined;
+              }).finally(() => setSavingConversationRouteDrafts(false));
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={savingConversationRouteDrafts}
+            onClick={() => {
+              const teamKey = agentTeamDetailState?.teamKey;
+              if (teamKey !== undefined) {
+                onDiscardAllAgentTeamDrafts?.(teamKey);
+              }
+              void completeConversationRoute(pendingConversationRoute.run);
+            }}
+          >
+            放弃全部
+          </Button>
+        </ProjectActionDialog>
+      ) : null}
+
+      {conversationRouteConflictOpen ? (
+        <ProjectActionDialog
+          title="无法前往对话"
+          description="有 Agent 文件在应用外被修改。请先在团队详情中选择载入外部版本或用当前内容覆盖。"
+          onCancel={() => {
+            pendingConversationRoute?.cancel?.();
+            setPendingConversationRoute(null);
+            setConversationRouteConflictOpen(false);
+          }}
+        >
+          <div className="flex justify-end">
+            <Button type="button" onClick={() => {
+              pendingConversationRoute?.cancel?.();
+              setPendingConversationRoute(null);
+              setConversationRouteConflictOpen(false);
+            }}>知道了</Button>
+          </div>
         </ProjectActionDialog>
       ) : null}
     </div>

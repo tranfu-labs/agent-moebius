@@ -244,6 +244,8 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       source_repo TEXT,
       source_issue_number INTEGER,
       parent_session_id TEXT,
+      agent_team_ownership TEXT CHECK (agent_team_ownership IS NULL OR agent_team_ownership IN ('system', 'user')),
+      agent_team_id TEXT,
       title TEXT,
       status TEXT NOT NULL,
       archived_at TEXT,
@@ -391,6 +393,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   migrateLocalProjectSortOrder(database);
   migrateSessionsCreatedAt(database, now);
   migrateSessionsProjectId(database, now);
+  ensureSessionAgentTeamColumns(database);
   migrateSessionAttentionState(database);
   database.exec(
     "CREATE INDEX IF NOT EXISTS idx_sessions_local_project_created_at ON sessions(project_id, created_at DESC, session_id ASC) WHERE source_type = 'local'",
@@ -402,6 +405,15 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   markSchemaMigration(database, "main-sidebar-t8-project-removal");
   markSchemaMigration(database, "main-sidebar-t11-session-archive");
   markSchemaMigration(database, "main-sidebar-t3-session-attention-state");
+}
+
+function ensureSessionAgentTeamColumns(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "sessions", "agent_team_ownership")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN agent_team_ownership TEXT CHECK (agent_team_ownership IS NULL OR agent_team_ownership IN ('system', 'user'))");
+  }
+  if (!tableHasColumn(database, "sessions", "agent_team_id")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN agent_team_id TEXT");
+  }
 }
 
 function migrateMainSidebarProjectRemoval(database: SqliteDatabase): void {
@@ -1187,13 +1199,19 @@ function createLocalSession(
   input: Extract<SqliteStateCommand, { kind: "local-create-session" }>,
 ): unknown {
   return transaction(database, () => {
+    if ((input.agentTeamOwnership === undefined) !== (input.agentTeamId === undefined)) {
+      throw new Error("agent team ownership and id must be provided together");
+    }
     const project = database
       .prepare("SELECT 1 AS found FROM projects WHERE project_id = ? AND removed_at IS NULL")
       .get(input.projectId);
     if (project === undefined) {
       throw new Error(`local console project not found: ${input.projectId}`);
     }
-    ensureSession(database, input.sessionId, input.now, input.title, input.projectId);
+    ensureSession(database, input.sessionId, input.now, input.title, input.projectId, {
+      ownership: input.agentTeamOwnership,
+      id: input.agentTeamId,
+    });
     ensureLocalCursor(database, input.sessionId, input.now);
     return requireLocalSession(database, input.sessionId);
   });
@@ -1340,7 +1358,12 @@ function createLocalChildSession(
       return requireLocalSession(database, readString(existingEdge.child_session_id, "child_session_id"));
     }
 
-    ensureSession(database, input.childSessionId, input.now, input.title, parentProjectId);
+    const parentAgentTeamOwnership = readNullableAgentTeamOwnership(parent.agent_team_ownership);
+    const parentAgentTeamId = readNullableString(parent.agent_team_id, "agent_team_id");
+    ensureSession(database, input.childSessionId, input.now, input.title, parentProjectId, {
+      ownership: parentAgentTeamOwnership ?? undefined,
+      id: parentAgentTeamId ?? undefined,
+    });
     database
       .prepare(
         `UPDATE sessions
@@ -2338,6 +2361,8 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
     sessionId,
     projectId: readString(row.project_id, "project_id"),
     parentSessionId: readNullableString(row.parent_session_id, "parent_session_id"),
+    agentTeamOwnership: readNullableAgentTeamOwnership(row.agent_team_ownership),
+    agentTeamId: readNullableString(row.agent_team_id, "agent_team_id"),
     title: readNullableString(row.title, "title") ?? fallbackSessionTitle(sessionId),
     status: sessionStatusFromCounts(counts),
     awaitsHumanReason,
@@ -2490,17 +2515,26 @@ function sanitizeDeadLetterReason(reason: string): string {
   return reason.replace(/@([A-Za-z][A-Za-z0-9_-]*)/gu, "agent:$1");
 }
 
-function ensureSession(database: SqliteDatabase, sessionId: string, now: string, title?: string, projectId?: string): void {
+function ensureSession(
+  database: SqliteDatabase,
+  sessionId: string,
+  now: string,
+  title?: string,
+  projectId?: string,
+  agentTeam?: { ownership?: "system" | "user"; id?: string },
+): void {
   const parsed = sessionId.startsWith("github:") ? parseIssueKey(sessionId.slice("github:".length)) : null;
   const sourceType = parsed === null ? "local" : "github";
   const resolvedProjectId = sourceType === "local" ? (projectId ?? LOCAL_CONSOLE_PROJECT_ID) : null;
   database
     .prepare(
       `INSERT INTO sessions
-        (session_id, project_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, title, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'active', ?, ?)
+        (session_id, project_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, agent_team_ownership, agent_team_id, title, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'active', ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         title = COALESCE(sessions.title, excluded.title),
+        agent_team_ownership = COALESCE(sessions.agent_team_ownership, excluded.agent_team_ownership),
+        agent_team_id = COALESCE(sessions.agent_team_id, excluded.agent_team_id),
         project_id = CASE
           WHEN sessions.source_type = 'local' THEN COALESCE(sessions.project_id, excluded.project_id)
           ELSE sessions.project_id
@@ -2514,10 +2548,20 @@ function ensureSession(database: SqliteDatabase, sessionId: string, now: string,
       parsed?.owner ?? null,
       parsed?.repo ?? null,
       parsed?.issueNumber ?? null,
+      agentTeam?.ownership ?? null,
+      agentTeam?.id ?? null,
       title ?? null,
       now,
       now,
     );
+}
+
+function readNullableAgentTeamOwnership(value: unknown): "system" | "user" | null {
+  const ownership = readNullableString(value, "agent_team_ownership");
+  if (ownership === null || ownership === "system" || ownership === "user") {
+    return ownership;
+  }
+  throw new Error("Invalid agent_team_ownership");
 }
 
 function titleFromMessage(body: string): string {

@@ -122,6 +122,37 @@ describe("local console", () => {
     }
   });
 
+  it("persists an Agent team binding atomically with session creation and leaves legacy sessions unbound", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    const projectId = (await store.listProjects())[0]!.projectId;
+    await store.createSession({
+      sessionId: "local:bound-team",
+      projectId,
+      title: "bound",
+      agentTeamOwnership: "user",
+      agentTeamId: "my-team",
+      now: "2026-07-21T00:00:00.000Z",
+    });
+
+    expect((await store.listSessions()).find((session) => session.sessionId === "local:bound-team"))
+      .toMatchObject({ agentTeamOwnership: "user", agentTeamId: "my-team" });
+    expect((await store.listSessions()).find((session) => session.sessionId === LOCAL_CONSOLE_DEFAULT_SESSION_ID))
+      .toMatchObject({ agentTeamOwnership: null, agentTeamId: null });
+    await store.close();
+
+    const restarted = await createSqliteLocalConsoleStore({ sqlitePath });
+    await restarted.init();
+    try {
+      expect((await restarted.listSessions()).find((session) => session.sessionId === "local:bound-team"))
+        .toMatchObject({ agentTeamOwnership: "user", agentTeamId: "my-team" });
+    } finally {
+      await restarted.close();
+    }
+  });
+
   it("persists human-attention and unread-result state with race-safe read acknowledgement", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");

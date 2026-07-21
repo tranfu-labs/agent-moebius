@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import fs from "node:fs/promises";
 
 import type { TeamOwnership } from "./team-model.js";
+import { resolveRecordedTeamLocation } from "./team-record-store.js";
 import { getMemberDirectory, resolveTeamLocation } from "./team-store.js";
 
 export const TEAM_FILE_MANAGER_IPC_CHANNEL = "agent-teams:open-in-file-manager";
@@ -33,11 +34,9 @@ export async function openAgentTeamLocationInFileManager(input: {
 }): Promise<void> {
   try {
     const request = parseFileManagerRequest(input.request);
-    const location = resolveTeamLocation({
-      dataRoot: input.dataRoot,
-      teamId: request.teamId,
-      ownership: request.ownership,
-    });
+    const location = request.ownership === "system"
+      ? resolveTeamLocation({ dataRoot: input.dataRoot, teamId: request.teamId, ownership: "system" })
+      : await resolveRecordedTeamLocation(input.dataRoot, request.teamId);
     const targetPath = request.memberSlug === undefined
       ? location.directory
       : getMemberDirectory(location, request.memberSlug);

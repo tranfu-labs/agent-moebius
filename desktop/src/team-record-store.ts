@@ -18,22 +18,19 @@ import {
 
 export const USER_TEAM_RECORDS_FILE = ".agent-team-records.json";
 
-export interface RecordedTeamMemberIdentity {
-  slug: string;
-  displayName: string;
-  description: string;
-}
+export type UserTeamRecordLocation =
+  | { kind: "managed"; directoryName: string }
+  | { kind: "external"; absolutePath: string };
 
 export interface UserTeamRecord {
   id: string;
-  directoryName: string;
+  location: UserTeamRecordLocation;
   identityFingerprint: string | null;
   lastKnownDefinition: TeamDefinition | null;
-  lastKnownMembers: RecordedTeamMemberIdentity[];
 }
 
 interface UserTeamRecordsDocument {
-  version: 1;
+  version: 2;
   records: UserTeamRecord[];
 }
 
@@ -58,7 +55,7 @@ export async function listRecordedUserTeamSnapshots(dataRoot: string): Promise<R
   }
 
   if (changed) {
-    await writeRecords(dataRoot, { version: 1, records: results.map(({ record }) => record) });
+    await writeRecords(dataRoot, { version: 2, records: results.map(({ record }) => record) });
   }
   return results;
 }
@@ -78,19 +75,18 @@ export async function registerUserTeamSnapshot(snapshot: TeamSnapshot): Promise<
   }
   const dataRoot = snapshot.location.dataRoot;
   const document = await loadOrBootstrapRecords(dataRoot);
-  const directoryName = path.basename(snapshot.location.directory);
+  const location = recordLocationFromDirectory(dataRoot, snapshot.location.directory);
   const existing = document.records.find((record) => record.id === snapshot.location.id);
   const base: UserTeamRecord = existing ?? {
     id: snapshot.location.id,
-    directoryName,
+    location,
     identityFingerprint: null,
     lastKnownDefinition: null,
-    lastKnownMembers: [],
   };
-  const nextRecord = refreshRecordFromSnapshot({ ...base, directoryName }, snapshot);
+  const nextRecord = refreshRecordFromSnapshot({ ...base, location }, snapshot);
   const nextRecords = document.records.filter((record) => record.id !== nextRecord.id);
   nextRecords.push(nextRecord);
-  await writeRecords(dataRoot, { version: 1, records: sortRecords(nextRecords) });
+  await writeRecords(dataRoot, { version: 2, records: sortRecords(nextRecords) });
 }
 
 export async function relocateUserTeamRecord(input: {
@@ -113,12 +109,12 @@ export async function relocateUserTeamRecord(input: {
       directory: input.directory,
     });
   } catch {
-    throw new TeamRelocationError("请选择 Agent 团队文件夹中的一支用户团队，不能绑定到其他位置。");
+    throw new TeamRelocationError("请选择一支有效的用户 Agent 团队文件夹。");
   }
 
-  const candidateDirectoryName = path.basename(candidateLocation.directory);
   const occupied = document.records.find(
-    (candidate, index) => index !== recordIndex && candidate.directoryName === candidateDirectoryName,
+    (candidate, index) => index !== recordIndex
+      && path.resolve(locationForRecord(input.dataRoot, candidate).directory) === candidateLocation.directory,
   );
   if (occupied !== undefined) {
     throw new TeamRelocationError("这个位置已经属于另一支团队，不能重复绑定。");
@@ -135,10 +131,13 @@ export async function relocateUserTeamRecord(input: {
     throw new TeamRelocationError("所选位置的团队名称、成员或 AGENT.md 内容与原记录不一致，不能认作同一支团队。");
   }
 
-  const updatedRecord = refreshRecordFromSnapshot({ ...record, directoryName: candidateDirectoryName }, candidate);
+  const updatedRecord = refreshRecordFromSnapshot({
+    ...record,
+    location: recordLocationFromDirectory(input.dataRoot, candidateLocation.directory),
+  }, candidate);
   const nextRecords = [...document.records];
   nextRecords[recordIndex] = updatedRecord;
-  await writeRecords(input.dataRoot, { version: 1, records: nextRecords });
+  await writeRecords(input.dataRoot, { version: 2, records: nextRecords });
   return candidate;
 }
 
@@ -155,7 +154,7 @@ export async function removeUserTeamRecord(input: { dataRoot: string; teamId: st
   }
 
   await writeRecords(input.dataRoot, {
-    version: 1,
+    version: 2,
     records: document.records.filter((candidate) => candidate.id !== input.teamId),
   });
 }
@@ -166,7 +165,7 @@ export async function forgetTrashedUserTeamRecord(input: { dataRoot: string; tea
   if (nextRecords.length === document.records.length) {
     return;
   }
-  await writeRecords(input.dataRoot, { version: 1, records: nextRecords });
+  await writeRecords(input.dataRoot, { version: 2, records: nextRecords });
 }
 
 export function createTeamIdentityFingerprint(snapshot: TeamSnapshot): string {
@@ -207,7 +206,13 @@ export class TeamRelocationError extends Error {
 async function loadOrBootstrapRecords(dataRoot: string): Promise<UserTeamRecordsDocument> {
   const recordsPath = getRecordsPath(dataRoot);
   try {
-    return parseRecordsDocument(await fs.readFile(recordsPath, "utf8"));
+    const source = await fs.readFile(recordsPath, "utf8");
+    const document = parseRecordsDocument(source);
+    const raw: unknown = JSON.parse(source);
+    if (isPlainObject(raw) && raw.version === 1) {
+      await writeRecords(dataRoot, document);
+    }
+    return document;
   } catch (error) {
     if (!isNodeError(error) || error.code !== "ENOENT") {
       throw error;
@@ -220,13 +225,12 @@ async function loadOrBootstrapRecords(dataRoot: string): Promise<UserTeamRecords
     const snapshot = await readTeamSnapshot(location);
     records.push(refreshRecordFromSnapshot({
       id: location.id,
-      directoryName: path.basename(location.directory),
+      location: { kind: "managed", directoryName: path.basename(location.directory) },
       identityFingerprint: null,
       lastKnownDefinition: null,
-      lastKnownMembers: [],
     }, snapshot));
   }
-  const document: UserTeamRecordsDocument = { version: 1, records: sortRecords(records) };
+  const document: UserTeamRecordsDocument = { version: 2, records: sortRecords(records) };
   await writeRecords(dataRoot, document);
   return document;
 }
@@ -239,7 +243,6 @@ function refreshRecordFromSnapshot(record: UserTeamRecord, snapshot: TeamSnapsho
     ...record,
     identityFingerprint: snapshot.status === "usable" ? createTeamIdentityFingerprint(snapshot) : null,
     lastKnownDefinition: snapshot.definition,
-    lastKnownMembers: snapshot.members.map(({ slug, displayName, description }) => ({ slug, displayName, description })),
   };
 }
 
@@ -247,8 +250,18 @@ function locationForRecord(dataRoot: string, record: UserTeamRecord): TeamLocati
   return resolveRelocatedUserTeamLocation({
     dataRoot,
     teamId: record.id,
-    directory: path.join(getTeamsRoot(dataRoot), record.directoryName),
+    directory: record.location.kind === "managed"
+      ? path.join(getTeamsRoot(dataRoot), record.location.directoryName)
+      : record.location.absolutePath,
   });
+}
+
+function recordLocationFromDirectory(dataRoot: string, directory: string): UserTeamRecordLocation {
+  const resolvedDirectory = path.resolve(directory);
+  const teamsRoot = getTeamsRoot(dataRoot);
+  return path.dirname(resolvedDirectory) === teamsRoot
+    ? { kind: "managed", directoryName: path.basename(resolvedDirectory) }
+    : { kind: "external", absolutePath: resolvedDirectory };
 }
 
 function explainRejectedCandidate(snapshot: TeamSnapshot): string {
@@ -287,56 +300,66 @@ async function writeRecords(dataRoot: string, document: UserTeamRecordsDocument)
 
 function parseRecordsDocument(source: string): UserTeamRecordsDocument {
   const value: unknown = JSON.parse(source);
-  if (!isPlainObject(value) || value.version !== 1 || !Array.isArray(value.records)) {
+  if (!isPlainObject(value) || (value.version !== 1 && value.version !== 2) || !Array.isArray(value.records)) {
     throw new TeamRecordError("Agent 团队记录文件无法读取。");
   }
-  const records = value.records.map(parseRecord);
+  const version = value.version as 1 | 2;
+  const records = value.records.map((record) => parseRecord(record, version));
   const ids = new Set<string>();
-  const directoryNames = new Set<string>();
+  const directories = new Set<string>();
   for (const record of records) {
-    if (ids.has(record.id) || directoryNames.has(record.directoryName)) {
+    const directory = locationForRecord("/", record).directory;
+    if (ids.has(record.id) || directories.has(directory)) {
       throw new TeamRecordError("Agent 团队记录中存在重复条目。");
     }
     ids.add(record.id);
-    directoryNames.add(record.directoryName);
+    directories.add(directory);
   }
-  return { version: 1, records: sortRecords(records) };
+  return { version: 2, records: sortRecords(records) };
 }
 
-function parseRecord(value: unknown): UserTeamRecord {
+function parseRecord(value: unknown, version: 1 | 2): UserTeamRecord {
   if (!isPlainObject(value)
     || typeof value.id !== "string"
-    || typeof value.directoryName !== "string"
     || (value.identityFingerprint !== null && typeof value.identityFingerprint !== "string")
-    || (value.lastKnownDefinition !== null && !isPlainObject(value.lastKnownDefinition))
-    || !Array.isArray(value.lastKnownMembers)) {
+    || (value.lastKnownDefinition !== null && !isPlainObject(value.lastKnownDefinition))) {
     throw new TeamRecordError("Agent 团队记录包含无效条目。");
   }
-  if (!isValidPathSegment(value.id)
-    || value.id.trim() !== value.id
-    || !isValidPathSegment(value.directoryName)
-    || value.directoryName.trim() !== value.directoryName) {
+  if (!isValidPathSegment(value.id) || value.id.trim() !== value.id) {
     throw new TeamRecordError("Agent 团队记录包含无效位置。");
   }
+  const location = version === 1
+    ? parseLegacyLocation(value.directoryName)
+    : parseRecordLocation(value.location);
   const definition = value.lastKnownDefinition === null
     ? null
     : parseCachedDefinition(value.lastKnownDefinition);
-  const members = value.lastKnownMembers.map((member) => {
-    if (!isPlainObject(member)
-      || typeof member.slug !== "string"
-      || typeof member.displayName !== "string"
-      || typeof member.description !== "string") {
-      throw new TeamRecordError("Agent 团队记录包含无效成员摘要。");
-    }
-    return { slug: member.slug, displayName: member.displayName, description: member.description };
-  });
   return {
     id: value.id,
-    directoryName: value.directoryName,
+    location,
     identityFingerprint: value.identityFingerprint,
     lastKnownDefinition: definition,
-    lastKnownMembers: members,
   };
+}
+
+function parseLegacyLocation(value: unknown): UserTeamRecordLocation {
+  if (typeof value !== "string" || !isValidPathSegment(value) || value.trim() !== value) {
+    throw new TeamRecordError("Agent 团队记录包含无效位置。");
+  }
+  return { kind: "managed", directoryName: value };
+}
+
+function parseRecordLocation(value: unknown): UserTeamRecordLocation {
+  if (!isPlainObject(value) || (value.kind !== "managed" && value.kind !== "external")) {
+    throw new TeamRecordError("Agent 团队记录包含无效位置。");
+  }
+  if (value.kind === "managed") {
+    return parseLegacyLocation(value.directoryName);
+  }
+  if (typeof value.absolutePath !== "string" || !path.isAbsolute(value.absolutePath)) {
+    throw new TeamRecordError("Agent 团队记录包含无效外部位置。");
+  }
+  return { kind: "external", absolutePath: path.resolve(value.absolutePath) };
 }
 
 function parseCachedDefinition(value: Record<string, unknown>): TeamDefinition {

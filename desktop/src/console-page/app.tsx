@@ -341,8 +341,13 @@ function App(): JSX.Element {
       if (getAgentTeamMemberDraft(nextState, teamKey, memberSlug)?.externalChangeStatus === "reloaded") {
         updateAgentTeamMemberSummary(teamKey, result.document);
       }
-    } catch {
-      // File availability and repair feedback belong to T13; focus checks stay quiet here.
+    } catch (error) {
+      commitAgentTeamDraftState(failAgentTeamMemberLoad(
+        agentTeamDraftStateRef.current,
+        teamKey,
+        memberSlug,
+        `无法检查外部修改：${formatError(error)}`,
+      ));
     } finally {
       checkingAgentTeamExternalChangesRef.current.delete(checkKey);
     }
@@ -1004,7 +1009,10 @@ function App(): JSX.Element {
     const result = await createConversationAndRecordTeam({
       projectId,
       team: { teamId: team.id, ownership: team.ownership },
-      createSession: (targetProjectId) => actions.createSession(targetProjectId),
+      createSession: (targetProjectId, selectedTeam) => actions.createSession(targetProjectId, {
+        ownership: selectedTeam.ownership,
+        id: selectedTeam.teamId,
+      }),
       recordSuccessfulTeam: recordSuccessfulTeam === undefined
         ? async () => undefined
         : (request) => recordSuccessfulTeam(request),
@@ -1191,6 +1199,9 @@ function App(): JSX.Element {
       projectListState={projectListState}
       agentTeamsState={agentTeamsState}
       lastUsedAgentTeamKey={lastUsedAgentTeamKey}
+      conversationAgentTeamKey={selectedSession?.agentTeamOwnership != null && selectedSession.agentTeamId != null
+        ? `${selectedSession.agentTeamOwnership}:${selectedSession.agentTeamId}`
+        : null}
       selectedAgentTeamKey={agentTeamSelection?.teamKey}
       selectedAgentTeamMemberSlug={agentTeamSelection?.memberSlug}
       agentTeamDetailState={agentTeamDetailState}

@@ -288,6 +288,9 @@ describe("AgentTeamDetail", () => {
     expect(onSaveMember).not.toHaveBeenCalled();
     expect(onLeave).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog", { name: "还有未保存的修改" })).not.toBeInTheDocument();
+    const blocked = screen.getByRole("dialog", { name: "无法返回团队列表" });
+    expect(blocked).toHaveTextContent("开发经理 AGENT.md");
+    expect(within(blocked).getByRole("button", { name: "知道了" })).toBeVisible();
   });
 
   it("checks the selected user AGENT.md when the window regains focus", () => {

@@ -137,6 +137,26 @@ describe("ConsoleStateActions", () => {
     expect(coordinator.isSelectionMutationPending).toBe(false);
   });
 
+  it("sends the selected Agent team in the same create-session request", async () => {
+    const fetch = vi.fn(async () => jsonResponse({ session: { sessionId: "session-b" } }));
+    const harness = actionHarness({ coordinator: new ConsoleStateCoordinator(), fetch });
+
+    await harness.actions.createSession("project-b", { ownership: "user", id: "my-team" });
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("http://127.0.0.1:8787/api/local-console/sessions"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "新会话",
+          projectId: "project-b",
+          agentTeamOwnership: "user",
+          agentTeamId: "my-team",
+        }),
+      }),
+    );
+  });
+
   it("blocks every selection handler and duplicate mutation while folder picking is pending", async () => {
     const coordinator = new ConsoleStateCoordinator();
     const folderPath = deferred<string | null>();

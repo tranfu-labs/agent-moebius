@@ -329,6 +329,78 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("routes sidebar conversation selection through the conversation entry and protects unsaved team drafts", () => {
+    const onSelectSession = vi.fn();
+    const onDiscardAllAgentTeamDrafts = vi.fn();
+    const dirtyDetail = detailStateFor(agentTeam.teamKey);
+    dirtyDetail.memberEditors.manager!.isDirty = true;
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [agentTeam] },
+      selectedAgentTeamKey: agentTeam.teamKey,
+      agentTeamDetailState: dirtyDetail,
+      onSelectSession,
+      onDiscardAllAgentTeamDrafts,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "验收会话，需要你处理" }));
+    expect(onSelectSession).not.toHaveBeenCalled();
+    const prompt = screen.getByRole("dialog", { name: "还有未保存的修改" });
+    fireEvent.click(within(prompt).getByRole("button", { name: "放弃全部" }));
+
+    expect(onDiscardAllAgentTeamDrafts).toHaveBeenCalledWith(agentTeam.teamKey);
+    expect(onSelectSession).toHaveBeenCalledWith({ sessionId: "session-b", projectId: "local" });
+    expect(screen.getByRole("region", { name: "会话时间线" })).toBeVisible();
+  });
+
+  it("returns to the conversation view only after a new conversation is created successfully", async () => {
+    const onCreateConversation = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [agentTeam] },
+      onCreateConversation,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "创建对话" }));
+    await waitFor(() => expect(onCreateConversation).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("heading", { name: "Agent 团队" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "创建对话" }));
+    await waitFor(() => expect(onCreateConversation).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("region", { name: "会话时间线" })).toBeVisible());
+  });
+
+  it("returns to the conversation view when archiving the selected session from the teams page", async () => {
+    const onArchiveSession = vi.fn();
+    renderConsole({
+      project: { ...project, sessions: [sessions[1]!], runningCount: 0 },
+      selectedSessionId: "session-b",
+      selectedSession: sessions[1],
+      onArchiveSession,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "验收会话，需要你处理" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "归档" }));
+
+    expect(onArchiveSession).toHaveBeenCalledWith("session-b", "local");
+    expect(screen.getByRole("region", { name: "会话时间线" })).toBeVisible();
+  });
+
+  it("returns to the conversation view before removing the active project from the teams page", async () => {
+    const onRemoveProject = vi.fn().mockResolvedValue(undefined);
+    renderConsole({ project: { ...project, runningCount: 0 }, onRemoveProject });
+    fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
+
+    await openProjectMenu("agent-moebius");
+    fireEvent.click(screen.getByRole("menuitem", { name: "移除项目" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除项目" }));
+
+    await waitFor(() => expect(onRemoveProject).toHaveBeenCalledWith("local", false));
+    expect(screen.getByRole("region", { name: "会话时间线" })).toBeVisible();
+  });
+
   it("shows one accessible repair indicator and identifies every affected team after opening the page", () => {
     const secondRepairTeam = {
       ...repairTeam,
@@ -365,7 +437,13 @@ describe("OperatorConsole", () => {
     const onSend = vi.fn();
     renderConsole({
       agentTeamsState: { status: "ready", teams: [repairTeam] },
-      selectedAgentTeamKey: repairTeam.teamKey,
+      conversationAgentTeamKey: repairTeam.teamKey,
+      selectedSession: {
+        ...sessions[0]!,
+        agentTeamOwnership: "user",
+        agentTeamId: "repair",
+        agentTeamHealth: "needs-repair",
+      },
       onSend,
     });
 
@@ -379,6 +457,39 @@ describe("OperatorConsole", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("does not let browsing a broken team change a healthy conversation's team or sending state", () => {
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [agentTeam, repairTeam] },
+      conversationAgentTeamKey: agentTeam.teamKey,
+      selectedAgentTeamKey: repairTeam.teamKey,
+      selectedSession: {
+        ...sessions[0]!,
+        agentTeamOwnership: "system",
+        agentTeamId: "development",
+        agentTeamHealth: "usable",
+      },
+    });
+
+    expect(screen.getByRole("textbox", { name: "消息内容" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Agent 团队：开发团队" })).toBeVisible();
+  });
+
+  it("uses refreshed session health so an externally repaired team unblocks without reopening teams", () => {
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [repairTeam] },
+      conversationAgentTeamKey: repairTeam.teamKey,
+      selectedSession: {
+        ...sessions[0]!,
+        agentTeamOwnership: "user",
+        agentTeamId: "repair",
+        agentTeamHealth: "usable",
+      },
+    });
+
+    expect(screen.getByRole("textbox", { name: "消息内容" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
   });
 
   it("keeps the horizontal team-row structure while Agent teams are loading", () => {

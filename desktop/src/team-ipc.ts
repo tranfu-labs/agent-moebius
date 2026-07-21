@@ -11,7 +11,6 @@ import {
   listRecordedUserTeamSnapshots,
   registerUserTeamSnapshot,
   resolveRecordedTeamLocation,
-  type RecordedTeamMemberIdentity,
 } from "./team-record-store.js";
 import {
   addTeamMember,
@@ -157,7 +156,6 @@ export async function listAgentTeams(input: {
       ...systemSnapshots.map((snapshot) => toListItem(snapshot)),
       ...recordedUserTeams.map(({ record, snapshot }) => toListItem(snapshot, {
         definition: record.lastKnownDefinition,
-        members: record.lastKnownMembers,
       })),
     ],
   };
@@ -288,30 +286,27 @@ export async function trashUserAgentTeam(
 
 export function toListItem(
   snapshot: TeamSnapshot,
-  fallback?: { definition: TeamDefinition | null; members: RecordedTeamMemberIdentity[] },
+  fallback?: { definition: TeamDefinition | null },
 ): AgentTeamListItem {
   const definition = snapshot.definition ?? fallback?.definition ?? null;
-  const readableMembers = new Map(snapshot.members.map((member) => [member.slug, member]));
-  const fallbackMembers = new Map((fallback?.members ?? []).map((member) => [member.slug, member]));
   const orderedSlugs = definition?.memberOrder.filter(
     (slug): slug is string => typeof slug === "string" && isValidPathSegment(slug) && slug.trim() === slug,
   ) ?? [];
   const memberSlugs = [...new Set([
     ...orderedSlugs,
     ...snapshot.members.map((member) => member.slug),
-    ...(fallback?.members ?? []).map((member) => member.slug),
   ])];
+  const readableMembers = new Map(snapshot.members.map((member) => [member.slug, member]));
   return {
     id: snapshot.location.id,
     ownership: snapshot.location.ownership,
     definition,
-    members: memberSlugs.map((slug) => {
+    members: snapshot.status === "needs-repair" ? [] : memberSlugs.map((slug) => {
       const current = readableMembers.get(slug);
-      const cached = fallbackMembers.get(slug);
       return {
         slug,
-        displayName: current?.displayName ?? cached?.displayName ?? "",
-        description: current?.description ?? cached?.description ?? "",
+        displayName: current?.displayName ?? "",
+        description: current?.description ?? "",
         available: current !== undefined,
       };
     }),

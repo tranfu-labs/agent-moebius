@@ -17,11 +17,12 @@ describe("new conversation Agent team recording", () => {
 
   it("updates the record exactly once after session creation succeeds", async () => {
     const recordSuccessfulTeam = vi.fn().mockResolvedValue(undefined);
+    const createSession = vi.fn().mockResolvedValue({ sessionId: "local:created" });
 
     await expect(createConversationAndRecordTeam({
       projectId: "project-a",
       team: { teamId: "my-team", ownership: "user" },
-      createSession: vi.fn().mockResolvedValue({ sessionId: "local:created" }),
+      createSession,
       recordSuccessfulTeam,
     })).resolves.toEqual({ created: true, preferenceRecorded: true });
 
@@ -31,6 +32,7 @@ describe("new conversation Agent team recording", () => {
       teamId: "my-team",
       ownership: "user",
     });
+    expect(createSession).toHaveBeenCalledWith("project-a", { teamId: "my-team", ownership: "user" });
   });
 
   it("keeps a successfully created conversation successful when preference persistence fails", async () => {

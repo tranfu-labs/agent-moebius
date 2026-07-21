@@ -24,7 +24,12 @@ import {
   LocalConsoleSessionRunningError,
   type LocalConsoleStore,
 } from "./types.js";
-import { formatLocalError, LocalConsoleRuntime, type LocalConsoleAgentFile } from "./runtime.js";
+import {
+  formatLocalError,
+  LocalConsoleRuntime,
+  type LocalConsoleAgentFile,
+  type LocalConsoleRuntimeOptions,
+} from "./runtime.js";
 
 export interface LocalConsoleServerOptions {
   host?: string;
@@ -33,7 +38,8 @@ export interface LocalConsoleServerOptions {
   workdirRoot?: string;
   store?: LocalConsoleStore;
   sqlitePath?: string;
-  listAgentFiles?: () => Promise<LocalConsoleAgentFile[]>;
+  listAgentFiles?: (sessionId: string) => Promise<LocalConsoleAgentFile[]>;
+  resolveAgentTeamHealth?: LocalConsoleRuntimeOptions["resolveAgentTeamHealth"];
   runCodex?: typeof runCodex;
   makeRunDir?: (count: number, now?: Date) => string;
   storeTimeoutMs?: number;
@@ -70,6 +76,7 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
   const runtime = new LocalConsoleRuntime({
     store,
     listAgentFiles: options.listAgentFiles ?? (() => listLocalAgentFiles(path.join(projectRoot, "agents"))),
+    resolveAgentTeamHealth: options.resolveAgentTeamHealth,
     runCodex: options.runCodex ?? runCodex,
     makeRunDir: options.makeRunDir ?? makeLocalConsoleRunDir,
     projectRoot,
@@ -226,6 +233,7 @@ async function handleRequest(
       const session = await runtime.createSession(
         isRecord(payload) ? readOptionalString(payload.title) : undefined,
         isRecord(payload) ? readOptionalString(payload.projectId) : undefined,
+        isRecord(payload) ? readOptionalAgentTeam(payload) : undefined,
       );
       sendJson(response, 201, { session });
       return;
@@ -648,6 +656,18 @@ function readOptionalString(value: unknown): string | undefined {
 
 function readOptionalBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function readOptionalAgentTeam(value: Record<string, unknown>): { ownership: "system" | "user"; id: string } | undefined {
+  const ownership = value.agentTeamOwnership;
+  const id = value.agentTeamId;
+  if (ownership === undefined && id === undefined) {
+    return undefined;
+  }
+  if ((ownership !== "system" && ownership !== "user") || typeof id !== "string" || id.trim() === "") {
+    throw new Error("Expected agentTeamOwnership and agentTeamId to identify a valid Agent team");
+  }
+  return { ownership, id };
 }
 
 function isStringArray(value: unknown): value is string[] {

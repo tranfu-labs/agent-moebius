@@ -13,6 +13,7 @@ import {
 } from "electron";
 import electronUpdater from "electron-updater";
 import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../../src/local-console/server.js";
+import { createSqliteLocalConsoleStore } from "../../src/local-console/store.js";
 import { startObserverServer, type StartedObserverServer } from "../../src/observer/server.js";
 import { buildSeedCopyPlan, executeSeedCopyPlan, resolveDesktopDataRoot } from "./data-root.js";
 import { checkDesktopEnvironment } from "./env-doctor.js";
@@ -47,6 +48,7 @@ import {
 } from "./team-repair-ipc.js";
 import { getTeamsRoot } from "./team-store.js";
 import { seedBuiltInTeams } from "./team-seed.js";
+import { listSessionAgentFiles, resolveSessionAgentTeamHealth } from "./team-runtime-binding.js";
 import {
   TEAM_EXTERNAL_CHANGE_IPC_CHANNEL,
   checkAgentTeamMemberExternalChange,
@@ -196,11 +198,30 @@ async function startObserver(): Promise<void> {
 
 async function startLocalConsole(): Promise<void> {
   try {
+    const store = await createSqliteLocalConsoleStore({
+      sqlitePath: path.join(status.dataRoot, ".state", "local-console.sqlite"),
+    });
+    const findSession = async (sessionId: string) => {
+      const session = (await store.listSessions()).find((candidate) => candidate.sessionId === sessionId);
+      if (session === undefined) {
+        throw new Error(`local console session not found: ${sessionId}`);
+      }
+      return session;
+    };
     localConsoleServer = await startLocalConsoleServer({
       host: "127.0.0.1",
       port: 0,
       projectRoot: status.dataRoot,
       workdirRoot: path.join(status.dataRoot, "workdir"),
+      store,
+      listAgentFiles: async (sessionId) => listSessionAgentFiles({
+        dataRoot: status.dataRoot,
+        session: await findSession(sessionId),
+      }),
+      resolveAgentTeamHealth: async (session) => resolveSessionAgentTeamHealth({
+        dataRoot: status.dataRoot,
+        session,
+      }),
     });
     status.localConsole = {
       status: "running",

@@ -71,7 +71,10 @@ export interface LocalConsoleAgentFile {
 
 export interface LocalConsoleRuntimeOptions {
   store: LocalConsoleStore;
-  listAgentFiles: () => Promise<LocalConsoleAgentFile[]>;
+  listAgentFiles: (sessionId: string) => Promise<LocalConsoleAgentFile[]>;
+  resolveAgentTeamHealth?: (
+    session: LocalConsoleSessionSummary,
+  ) => Promise<{ health: "usable" | "needs-repair"; reason: string | null } | null>;
   runCodex: (options: CodexRunOptions) => Promise<CodexRunResult>;
   makeRunDir: (count: number, now?: Date) => string;
   projectRoot: string;
@@ -272,7 +275,11 @@ export class LocalConsoleRuntime {
     );
   }
 
-  async createSession(title?: string, projectId?: string): Promise<LocalConsoleSessionSummary> {
+  async createSession(
+    title?: string,
+    projectId?: string,
+    agentTeam?: { ownership: "system" | "user"; id: string },
+  ): Promise<LocalConsoleSessionSummary> {
     const sessionId = `local:${this.now().toISOString()}-${Math.random().toString(36).slice(2, 8)}`;
     const resolvedProjectId = projectId ?? (await this.defaultProjectId());
     await this.assertProjectDirectoryAvailable(resolvedProjectId);
@@ -281,6 +288,8 @@ export class LocalConsoleRuntime {
         sessionId,
         projectId: resolvedProjectId,
         title: normalizeTitle(title),
+        agentTeamOwnership: agentTeam?.ownership,
+        agentTeamId: agentTeam?.id,
         now: this.nowIso(),
       }),
     );
@@ -443,11 +452,14 @@ export class LocalConsoleRuntime {
       (requestedSession === undefined ? undefined : projects.find((project) => project.projectId === requestedSession.projectId)) ??
       projects[0] ??
       buildFallbackProjectSummary(this.options.projectRoot);
-    const selectedSession =
+    const storedSelectedSession =
       (requestedSession?.projectId === selectedProject.projectId ? requestedSession : undefined) ??
       selectedProject.sessions[0] ??
       (requestedProject === undefined ? sessions[0] : undefined) ??
       null;
+    const selectedSession = storedSelectedSession === null
+      ? null
+      : await this.withAgentTeamHealth(storedSelectedSession);
     const sessionId = selectedSession?.sessionId ?? selectedSessionId;
     const messages = selectedSession === null
       ? []
@@ -527,7 +539,7 @@ export class LocalConsoleRuntime {
             return;
           }
 
-          const agentFiles = await this.options.listAgentFiles();
+          const agentFiles = await this.options.listAgentFiles(sessionId);
           if (this.inactiveSessions.has(sessionId)) {
             return;
           }
@@ -804,6 +816,27 @@ export class LocalConsoleRuntime {
       directoryUnavailableReason: available ? null : "当前项目本地文件夹未找到，可以指定新的文件夹",
       newConversationDisabledReason: available ? null : "当前项目本地文件夹不可用，无法新建对话",
     };
+  }
+
+  private async withAgentTeamHealth(session: LocalConsoleSessionSummary): Promise<LocalConsoleSessionSummary> {
+    if (session.agentTeamOwnership == null || session.agentTeamId == null) {
+      return { ...session, agentTeamHealth: null, agentTeamHealthReason: null };
+    }
+    if (this.options.resolveAgentTeamHealth === undefined) {
+      return session;
+    }
+    try {
+      const result = await this.options.resolveAgentTeamHealth(session);
+      return result === null
+        ? { ...session, agentTeamHealth: null, agentTeamHealthReason: null }
+        : { ...session, agentTeamHealth: result.health, agentTeamHealthReason: result.reason };
+    } catch (error) {
+      return {
+        ...session,
+        agentTeamHealth: "needs-repair",
+        agentTeamHealthReason: formatLocalError(error),
+      };
+    }
   }
 
   private async stopDirectRunsWithUnavailableDirectories(projects: LocalConsoleProjectSummary[]): Promise<void> {

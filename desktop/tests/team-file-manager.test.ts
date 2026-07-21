@@ -9,7 +9,9 @@ import {
   getAgentTeamFileManagerLabel,
   openAgentTeamLocationInFileManager,
 } from "../src/team-file-manager.js";
+import { listRecordedUserTeamSnapshots, relocateUserTeamRecord } from "../src/team-record-store.js";
 import { getMemberDirectory, resolveTeamLocation } from "../src/team-store.js";
+import { serializeTeamDefinition } from "../src/team-model.js";
 
 const cleanupRoots: string[] = [];
 
@@ -63,6 +65,34 @@ describe("Agent team file manager", () => {
 
     expect(openPath).toHaveBeenCalledWith(memberDirectory);
     await expect(fs.readFile(agentPath, "utf8")).resolves.toBe("# 开发经理\n");
+  });
+
+  it("opens a user team through its recorded external location after relocation", async () => {
+    const dataRoot = await makeDataRoot();
+    const original = resolveTeamLocation({ dataRoot, teamId: "my-team", ownership: "user" });
+    const agentDirectory = getMemberDirectory(original, "manager");
+    await fs.mkdir(agentDirectory, { recursive: true });
+    await fs.writeFile(path.join(original.directory, "team.json"), serializeTeamDefinition({
+      name: "开发团队",
+      description: "负责开发",
+      primaryAgentSlug: "manager",
+      memberOrder: ["manager"],
+    }), "utf8");
+    await fs.writeFile(path.join(agentDirectory, "AGENT.md"), "# 开发经理\n\n负责开发\n", "utf8");
+    await listRecordedUserTeamSnapshots(dataRoot);
+    const external = path.join(dataRoot, "external-teams", "renamed-team");
+    await fs.mkdir(path.dirname(external), { recursive: true });
+    await fs.rename(original.directory, external);
+    await relocateUserTeamRecord({ dataRoot, teamId: "my-team", directory: external });
+    const openPath = vi.fn().mockResolvedValue("");
+
+    await openAgentTeamLocationInFileManager({
+      dataRoot,
+      request: { teamId: "my-team", ownership: "user" },
+      shell: { openPath },
+    });
+
+    expect(openPath).toHaveBeenCalledWith(external);
   });
 
   it("replaces missing, inaccessible, and shell errors with a user-facing message", async () => {

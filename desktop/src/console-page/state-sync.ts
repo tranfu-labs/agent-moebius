@@ -163,6 +163,8 @@ export async function acknowledgeDisplayedResult(options: {
 
 export interface CreatedSession {
   sessionId: string;
+  agentTeamOwnership?: "system" | "user" | null;
+  agentTeamId?: string | null;
 }
 
 interface SessionResponse {
@@ -208,7 +210,10 @@ export interface ConsoleStateActionsOptions {
 export class ConsoleStateActions {
   constructor(private readonly options: ConsoleStateActionsOptions) {}
 
-  readonly createSession = async (projectId: string): Promise<CreatedSession | null> => {
+  readonly createSession = async (
+    projectId: string,
+    agentTeam?: { ownership: "system" | "user"; id: string },
+  ): Promise<CreatedSession | null> => {
     if (this.options.apiBase === null) {
       this.options.setError("local console server unavailable");
       return null;
@@ -222,7 +227,13 @@ export class ConsoleStateActions {
       const response = await fetch(endpoint(this.options.apiBase, "/api/local-console/sessions"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "新会话", projectId }),
+        body: JSON.stringify({
+          title: "新会话",
+          projectId,
+          ...(agentTeam === undefined
+            ? {}
+            : { agentTeamOwnership: agentTeam.ownership, agentTeamId: agentTeam.id }),
+        }),
       });
       const body = await response.json() as SessionResponse;
       if (!response.ok || body.session === undefined) {

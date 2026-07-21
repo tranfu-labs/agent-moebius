@@ -50,6 +50,8 @@ export const LOCAL_CONSOLE_AWAITS_HUMAN_REASONS = [
 export type LocalConsoleAwaitsHumanReason = (typeof LOCAL_CONSOLE_AWAITS_HUMAN_REASONS)[number];
 export type LocalConsoleProjectSourceType = typeof LOCAL_CONSOLE_PROJECT_SOURCE_TYPE;
 export type LocalConsoleWorkspaceMode = "direct" | "worktree";
+export type LocalConsoleAgentTeamOwnership = "system" | "user";
+export type LocalConsoleAgentTeamHealth = "usable" | "needs-repair";
 
 export interface LocalConsoleSessionWorkspaceSource {
   projectId: string;
@@ -62,6 +64,10 @@ export interface LocalConsoleSessionSummary {
   sessionId: string;
   projectId: string;
   parentSessionId?: string | null;
+  agentTeamOwnership?: LocalConsoleAgentTeamOwnership | null;
+  agentTeamId?: string | null;
+  agentTeamHealth?: LocalConsoleAgentTeamHealth | null;
+  agentTeamHealthReason?: string | null;
   title: string;
   status: LocalConsoleSessionStatus;
   awaitsHumanReason: LocalConsoleAwaitsHumanReason | null;
@@ -224,7 +230,14 @@ export interface LocalConsoleStore {
     worktreeUnavailableReason: string | null;
     now: string;
   }): Promise<void>;
-  createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary>;
+  createSession(input: {
+    sessionId: string;
+    projectId?: string;
+    title: string;
+    agentTeamOwnership?: LocalConsoleAgentTeamOwnership;
+    agentTeamId?: string;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary>;
   moveEmptySessionToProject(input: {
     sessionId: string;
     projectId: string;

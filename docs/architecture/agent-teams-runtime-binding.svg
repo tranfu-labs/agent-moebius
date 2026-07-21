@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 560" width="760" height="560">
+  <style>
+    text { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#059669"/>
+    </marker>
+  </defs>
+  <rect width="760" height="560" fill="#ffffff"/>
+  <text x="32" y="30" font-size="14" font-weight="700" fill="#111827">改造后：会话绑定团队，执行按会话解析 Agent 名单</text>
+  <text x="32" y="50" font-size="11" fill="#6b7280">团队的位置解析统一走记录；名单解析由桌面壳注入，local console 不需要知道 teams/ 布局</text>
+
+  <rect x="32" y="70" width="696" height="150" rx="8" fill="none" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="48" y="92" font-size="12" font-weight="600" fill="#6b7280">桌面壳 · desktop/</text>
+
+  <rect x="48" y="104" width="212" height="44" rx="4" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="154" y="122" text-anchor="middle" font-size="12" font-weight="600" fill="#111827">团队管理页</text>
+  <text x="154" y="139" text-anchor="middle" font-size="10" fill="#6b7280">只持有浏览选择态</text>
+
+  <rect x="274" y="104" width="212" height="44" rx="4" fill="#ffffff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="380" y="122" text-anchor="middle" font-size="12" font-weight="600" fill="#111827">team-record-store</text>
+  <text x="380" y="139" text-anchor="middle" font-size="10" fill="#6b7280">位置：受管目录 | 外部路径</text>
+
+  <rect x="500" y="104" width="212" height="44" rx="4" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.5"/>
+  <text x="606" y="122" text-anchor="middle" font-size="12" font-weight="600" fill="#111827">名单解析器（注入）</text>
+  <text x="606" y="139" text-anchor="middle" font-size="10" fill="#059669">按 sessionId 解析可用 Agent</text>
+
+  <rect x="48" y="164" width="664" height="40" rx="4" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="380" y="189" text-anchor="middle" font-size="12" fill="#111827">&lt;dataRoot&gt;/teams/ 　或　重新定位后的任意外部路径</text>
+
+  <line x1="380" y1="148" x2="380" y2="162" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="486" y1="126" x2="498" y2="126" stroke="#059669" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="492" y="116" text-anchor="middle" font-size="9" fill="#059669">查位置</text>
+
+  <rect x="32" y="244" width="696" height="150" rx="8" fill="none" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="48" y="266" font-size="12" font-weight="600" fill="#6b7280">执行链 · src/local-console</text>
+
+  <rect x="48" y="278" width="322" height="44" rx="4" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.5"/>
+  <text x="209" y="296" text-anchor="middle" font-size="12" font-weight="600" fill="#111827">sessions 表</text>
+  <text x="209" y="313" text-anchor="middle" font-size="10" fill="#059669">agent_team_ownership / agent_team_id（可空）</text>
+
+  <rect x="390" y="278" width="322" height="44" rx="4" fill="#ffffff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="551" y="296" text-anchor="middle" font-size="12" font-weight="600" fill="#111827">runtime.ts</text>
+  <text x="551" y="313" text-anchor="middle" font-size="10" fill="#6b7280">listAgentFiles(sessionId)</text>
+
+  <rect x="48" y="338" width="322" height="40" rx="4" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="209" y="363" text-anchor="middle" font-size="11" fill="#111827">NULL → 回退 &lt;dataRoot&gt;/agents/</text>
+
+  <rect x="390" y="338" width="322" height="40" rx="4" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="551" y="363" text-anchor="middle" font-size="11" fill="#111827">需修复 → 明确错误，不返回空名单</text>
+
+  <line x1="370" y1="300" x2="388" y2="300" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="606" y1="148" x2="606" y2="230" stroke="#059669" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="606" y1="230" x2="606" y2="276" stroke="#059669" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="662" y="240" text-anchor="middle" font-size="9" fill="#059669">启动时注入</text>
+
+  <rect x="32" y="418" width="696" height="118" rx="8" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.5"/>
+  <text x="48" y="440" font-size="12" font-weight="600" fill="#065f46">界面侧：两个状态各归各位</text>
+
+  <rect x="48" y="454" width="322" height="44" rx="4" fill="#ffffff" stroke="#a7f3d0" stroke-width="1.5"/>
+  <text x="209" y="472" text-anchor="middle" font-size="11" font-weight="600" fill="#111827">agentTeamSelection</text>
+  <text x="209" y="489" text-anchor="middle" font-size="10" fill="#6b7280">只服务团队管理页</text>
+
+  <rect x="390" y="454" width="322" height="44" rx="4" fill="#ffffff" stroke="#a7f3d0" stroke-width="1.5"/>
+  <text x="551" y="472" text-anchor="middle" font-size="11" font-weight="600" fill="#111827">会话团队（读自 selectedSession）</text>
+  <text x="551" y="489" text-anchor="middle" font-size="10" fill="#6b7280">决定发送禁用与团队标识</text>
+
+  <text x="48" y="522" font-size="11" fill="#065f46">健康度纳入既有每秒轮询：应用外移走或修好团队目录，无需进入团队页即可生效</text>
+</svg>

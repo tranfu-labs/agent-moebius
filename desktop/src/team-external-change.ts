@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 
 import { AgentTeamIpcRequestError, type AgentTeamMemberDocument } from "./team-ipc.js";
 import { parseAgentMarkdownIdentity, type TeamOwnership } from "./team-model.js";
+import { resolveRecordedTeamLocation } from "./team-record-store.js";
 import { getMemberAgentPath, resolveTeamLocation } from "./team-store.js";
 
 export const TEAM_EXTERNAL_CHANGE_IPC_CHANNEL = "agent-teams:check-member-agent-external-change";
@@ -31,11 +32,7 @@ export async function checkAgentTeamMemberExternalChange(
     return { status: "ignored" };
   }
 
-  const location = resolveTeamLocation({
-    dataRoot,
-    teamId: request.teamId,
-    ownership: request.ownership,
-  });
+  const location = await resolveRecordedTeamLocation(dataRoot, request.teamId);
   const agentMarkdown = await fs.readFile(getMemberAgentPath(location, request.memberSlug), "utf8");
   if (agentMarkdown === request.knownAgentMarkdown) {
     return { status: "unchanged" };

@@ -1,5 +1,5 @@
 import { AlertTriangle, Copy, FolderOpen, LoaderCircle, MoreHorizontal, Plus, Trash2 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import {
   AgentTeamDetail,
@@ -130,6 +130,7 @@ export function AgentTeamsPage({
 }): JSX.Element {
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const listScrollTopRef = useRef(0);
+  const pendingListScrollRestoreRef = useRef(false);
   const [openedTeamKey, setOpenedTeamKey] = useState<string | null>(null);
   const [duplicatingTeamKey, setDuplicatingTeamKey] = useState<string | null>(null);
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
@@ -173,11 +174,17 @@ export function AgentTeamsPage({
     setActionError(null);
     setDraftOperation(null);
     setConfirmationOperation(null);
+    pendingListScrollRestoreRef.current = true;
     setOpenedTeamKey(null);
-    if (scrollContainerRef.current !== null) {
-      scrollContainerRef.current.scrollTop = listScrollTopRef.current;
-    }
   };
+
+  useLayoutEffect(() => {
+    if (!pendingListScrollRestoreRef.current || openedTeamKey !== null || scrollContainerRef.current === null) {
+      return;
+    }
+    pendingListScrollRestoreRef.current = false;
+    scrollContainerRef.current.scrollTop = listScrollTopRef.current;
+  }, [openedTeamKey]);
 
   const duplicateBuiltInTeam = async (team: OperatorAgentTeam) => {
     if (duplicatingTeamKey !== null || onDuplicateBuiltInTeam === undefined) {
@@ -926,7 +933,9 @@ function AgentTeamRow({
         )}
         data-testid="agent-team-members"
       >
-        {visibleMembers.map((member) => {
+        {team.status === "needs-repair" ? (
+          <span className="text-sm text-sub">成员信息暂时无法读取</span>
+        ) : visibleMembers.map((member) => {
           const isPrimary = member.slug === team.primaryAgentSlug;
           return (
             <span
@@ -939,7 +948,7 @@ function AgentTeamRow({
             </span>
           );
         })}
-        {hiddenMemberCount > 0 ? (
+        {team.status !== "needs-repair" && hiddenMemberCount > 0 ? (
           <span
             className="inline-flex h-8 shrink-0 items-center rounded-md border border-line bg-canvas px-2.5 text-xs font-normal text-sub"
             aria-label={`还有 ${hiddenMemberCount} 名成员`}
@@ -1007,10 +1016,10 @@ function teamDescription(team: OperatorAgentTeam): string {
 }
 
 function teamMemberSummary(team: OperatorAgentTeam, primaryAgentName?: string): string {
-  const countLabel = `${team.members.length} 名成员`;
   if (team.status === "needs-repair") {
-    return `${countLabel} · 暂时无法用于新对话`;
+    return "暂时无法用于新对话";
   }
+  const countLabel = `${team.members.length} 名成员`;
   if (primaryAgentName !== undefined) {
     return `${countLabel} · 主 Agent：${primaryAgentName}`;
   }

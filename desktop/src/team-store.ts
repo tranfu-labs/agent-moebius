@@ -108,7 +108,6 @@ export function resolveRelocatedUserTeamLocation(input: {
   assertTeamId(input.teamId);
   const dataRoot = path.resolve(input.dataRoot);
   const directory = path.resolve(input.directory);
-  assertDirectUserTeamDirectory(dataRoot, directory);
   return {
     dataRoot,
     id: input.teamId,
@@ -587,7 +586,10 @@ function normalizeTeamInformation(information: TeamInformation): TeamInformation
 
 function assertLocationMatchesLayout(location: TeamLocation): void {
   if (location.ownership === "user") {
-    assertDirectUserTeamDirectory(location.dataRoot, location.directory);
+    assertTeamId(location.id);
+    if (!path.isAbsolute(location.directory)) {
+      throw new TeamPathError(`User team path must be absolute: ${location.directory}`);
+    }
     return;
   }
 

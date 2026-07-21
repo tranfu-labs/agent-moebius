@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。
+本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。本地会话创建时可原子绑定一支 Agent 团队；执行名单按 session 严格解析，未绑定的存量会话才回退共享 `agents/`。
 
 ## 项目结构
 ```text
@@ -54,7 +54,7 @@
 │   │   ├── console-page/       # 桌面本地对话操作台 renderer（含 selection mutation / refresh 协调）
 │   │   ├── status-page/        # 桌面辅助诊断状态页静态资源
 │   │   ├── data-root.ts        # 数据根解析与首启种子拷贝计划
-│   │   ├── team-*.ts           # Agent 团队九个模块：播种 / 存储 / 有效性 / 记录 / IPC / 外部修改 / 文件管理 / 预选（逐个职责见 docs/architecture/module-map.md）
+│   │   ├── team-*.ts           # Agent 团队十个模块：播种 / 存储 / 有效性 / 记录 / IPC / 外部修改 / 文件管理 / 预选 / 会话运行时绑定（见 module-map）
 │   │   ├── shell-path.ts       # macOS 登录 shell PATH 读取与合并
 │   │   ├── env-doctor.ts       # codex / gh / gh auth 自检
 │   │   ├── runner-supervisor.ts # runner 子进程状态机与崩溃退避

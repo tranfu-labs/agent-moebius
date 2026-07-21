@@ -14,10 +14,10 @@ export type CreateConversationAndRecordResult =
 export async function createConversationAndRecordTeam(input: {
   projectId: string;
   team: ConversationAgentTeamIdentity;
-  createSession(projectId: string): Promise<CreatedSession | null>;
+  createSession(projectId: string, team: ConversationAgentTeamIdentity): Promise<CreatedSession | null>;
   recordSuccessfulTeam(request: ConversationAgentTeamIdentity & { sessionId: string }): Promise<unknown>;
 }): Promise<CreateConversationAndRecordResult> {
-  const session = await input.createSession(input.projectId);
+  const session = await input.createSession(input.projectId, input.team);
   if (session === null) {
     return { created: false };
   }

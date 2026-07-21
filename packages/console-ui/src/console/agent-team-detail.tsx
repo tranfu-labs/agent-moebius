@@ -132,6 +132,7 @@ export function AgentTeamDetail({
   onLeave,
 }: AgentTeamDetailProps): JSX.Element {
   const [leavePromptOpen, setLeavePromptOpen] = useState(false);
+  const [externalConflictPromptOpen, setExternalConflictPromptOpen] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
   const [addMemberStatus, setAddMemberStatus] = useState<"idle" | "adding" | "failed">("idle");
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
@@ -152,6 +153,9 @@ export function AgentTeamDetail({
   const hasDirtyMembers = Object.values(state.memberEditors).some((editor) => editor?.isDirty === true);
   const hasExternalConflicts = Object.values(state.memberEditors)
     .some((editor) => editor?.externalChangeStatus === "conflict");
+  const externalConflictMemberSlugs = Object.values(state.memberEditors)
+    .filter((editor) => editor?.externalChangeStatus === "conflict")
+    .map((editor) => editor!.memberSlug);
   const hasSavingMembers = Object.values(state.memberEditors).some((editor) => editor?.saveStatus === "saving");
   const canSaveCurrent = !readOnly
     && selectedEditor?.loadStatus === "ready"
@@ -192,6 +196,7 @@ export function AgentTeamDetail({
 
   const requestLeave = () => {
     if (hasExternalConflicts) {
+      setExternalConflictPromptOpen(true);
       return;
     }
     if (hasDirtyMembers) {
@@ -663,6 +668,25 @@ export function AgentTeamDetail({
               <Button type="button" disabled={savingAll || hasSavingMembers} onClick={() => void saveAllAndLeave()}>
                 {savingAll ? "正在逐个保存…" : hasSavingMembers ? "正在保存当前成员…" : "保存全部并离开"}
               </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {externalConflictPromptOpen ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-6">
+          <div className="w-full max-w-md border border-line bg-card p-5 text-ink shadow-overlay" role="dialog" aria-modal="true" aria-label="无法返回团队列表">
+            <h2 className="text-base font-semibold">无法返回团队列表</h2>
+            <p className="mt-2 text-sm leading-6 text-sub">
+              以下 Agent 的文件在应用外被修改，需要先选择载入外部版本或用当前内容覆盖：
+            </p>
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink">
+              {externalConflictMemberSlugs.map((slug) => (
+                <li key={slug}>{memberLabel(orderedMembers, slug)} AGENT.md</li>
+              ))}
+            </ul>
+            <div className="mt-5 flex justify-end">
+              <Button type="button" onClick={() => setExternalConflictPromptOpen(false)}>知道了</Button>
             </div>
           </div>
         </div>

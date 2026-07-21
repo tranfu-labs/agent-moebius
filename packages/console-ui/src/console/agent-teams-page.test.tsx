@@ -233,6 +233,10 @@ describe("AgentTeamsPage repair actions", () => {
     const row = screen.getByTestId("agent-team-row");
     expect(row).toHaveAttribute("data-can-create-conversation", "false");
     expect(row).toHaveTextContent("暂时无法用于新对话");
+    expect(within(row).getByTestId("agent-team-members")).toHaveTextContent("成员信息暂时无法读取");
+    for (const member of repairTeam.members) {
+      expect(within(row).queryByText(member.displayName)).not.toBeInTheDocument();
+    }
     fireEvent.click(row);
 
     fireEvent.click(screen.getByRole("button", { name: "重新检查" }));

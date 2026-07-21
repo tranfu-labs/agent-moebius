@@ -107,14 +107,14 @@ describe("Agent team IPC service", () => {
           id: "missing-agent",
           status: "needs-repair",
           canCreateConversation: false,
-          members: [{ slug: "manager", available: false }],
+          members: [],
           issues: [{ code: "member-agent-missing", slug: "manager" }],
         });
     expect(response.teams.find((team) => team.id === "unreadable-agent")).toMatchObject({
           id: "unreadable-agent",
           status: "needs-repair",
           canCreateConversation: false,
-          members: [{ slug: "manager", available: false }],
+          members: [],
           issues: [{ code: "member-agent-unreadable", slug: "manager" }],
         });
     expect(response.teams.find((team) => team.id === "invalid-slugs")).toMatchObject({

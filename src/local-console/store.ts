@@ -94,7 +94,14 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     await this.run({ kind: "local-record-project-workspace-status", ...input });
   }
 
-  async createSession(input: { sessionId: string; projectId?: string; title: string; now: string }): Promise<LocalConsoleSessionSummary> {
+  async createSession(input: {
+    sessionId: string;
+    projectId?: string;
+    title: string;
+    agentTeamOwnership?: "system" | "user";
+    agentTeamId?: string;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary> {
     return this.run({ kind: "local-create-session", ...input, projectId: input.projectId ?? LOCAL_CONSOLE_PROJECT_ID });
   }
 
@@ -443,6 +450,10 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
     sessionId: readString(value.sessionId, "sessionId"),
     projectId: readString(value.projectId, "projectId"),
     parentSessionId: "parentSessionId" in value ? readNullableString(value.parentSessionId, "parentSessionId") : null,
+    agentTeamOwnership: "agentTeamOwnership" in value
+      ? readNullableAgentTeamOwnership(value.agentTeamOwnership)
+      : null,
+    agentTeamId: "agentTeamId" in value ? readNullableString(value.agentTeamId, "agentTeamId") : null,
     title: readString(value.title, "title"),
     status: readSessionStatus(value.status),
     awaitsHumanReason: readAwaitsHumanReason(value.awaitsHumanReason),
@@ -456,6 +467,13 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
     createdAt: readString(value.createdAt, "createdAt"),
     updatedAt: readString(value.updatedAt, "updatedAt"),
   } satisfies LocalConsoleSessionSummary;
+}
+
+function readNullableAgentTeamOwnership(value: unknown): "system" | "user" | null {
+  if (value === null || value === "system" || value === "user") {
+    return value;
+  }
+  throw new Error(`Invalid local console agent team ownership: ${String(value)}`);
 }
 
 function readAwaitsHumanReason(value: unknown): LocalConsoleAwaitsHumanReason | null {

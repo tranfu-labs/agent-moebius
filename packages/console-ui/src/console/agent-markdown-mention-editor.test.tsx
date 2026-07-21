@@ -155,6 +155,28 @@ describe("AgentMarkdownMentionEditor", () => {
     expect(window.getSelection()?.anchorOffset).toBe(3);
   });
 
+  it("commits IME composition once through the real input event path", () => {
+    const onValueChange = vi.fn();
+    render(
+      <AgentMarkdownMentionEditor
+        value=""
+        members={teamMembers}
+        label="AGENT.md"
+        onValueChange={onValueChange}
+      />,
+    );
+    const editor = screen.getByRole("textbox", { name: "AGENT.md" });
+
+    fireEvent.compositionStart(editor);
+    fireEvent.input(editor, { target: { textContent: "中" } });
+    fireEvent.input(editor, { target: { textContent: "中文" } });
+    expect(onValueChange).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(editor, { data: "文" });
+
+    expect(onValueChange).toHaveBeenCalledTimes(1);
+    expect(onValueChange).toHaveBeenCalledWith("中文");
+  });
+
   it("lets keyboard users focus and copy the underlying slug", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {

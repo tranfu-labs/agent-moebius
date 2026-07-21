@@ -9,14 +9,15 @@
 ![project-layer-overview](project-layer-overview.svg)
 
 ### desktop-shell
-- 职责边界：Electron 桌面壳，把 runner、observer 与 local console server 装配成纯本地桌面应用；负责数据根解析、macOS PATH 修复、首启种子拷贝、Agent 团队磁盘布局与内置团队指纹播种、环境自检、observer 动态端口启动、main 进程拥有的 local console server、runner 子进程监管、操作台主窗口、辅助状态页 IPC、日志落盘与更新检查。壳层只做装配、监管、自检、更新提示与 renderer 托管，不承载 GitHub issue runner、目标账本、trigger、Codex prompt、local-console 运行语义或 observer 读模型的业务规则。
-- 入口：`desktop/src/main.ts`；runner 子进程入口 `desktop/src/runner-child.ts`；preload `desktop/src/preload.ts`；操作台 renderer `desktop/src/console-page/*`；辅助状态页 `desktop/src/status-page/*`；纯逻辑模块 `desktop/src/data-root.ts`、`desktop/src/shell-path.ts`、`desktop/src/env-doctor.ts`、`desktop/src/runner-supervisor.ts`、`desktop/src/updater.ts`。Agent 团队九个模块全部收敛在 `desktop/src/team-*.ts`：内置团队内容指纹与 `.system` 覆盖播种在 `team-seed.ts`，结构与有效性判定在 `team-model.ts`，磁盘读写与内置只读保护在 `team-store.ts`，用户团队稳定记录、最近可读摘要与重定位身份校验在 `team-record-store.ts`，团队列表 / 成员读写 / 复制 / 删除的窄 IPC 在 `team-ipc.ts`，重新定位与仅移除记录的 IPC 独立收敛于 `team-repair-ipc.ts`，成员 `AGENT.md` 外部修改探测与冲突判定在 `team-external-change.ts`，在平台文件管理器中打开与移到废纸篓在 `team-file-manager.ts`，上一次成功创建会话所用团队的记录与回退预选在 `team-conversation-preference.ts`。
+- 职责边界：Electron 桌面壳，把 runner、observer 与 local console server 装配成纯本地桌面应用；负责数据根解析、macOS PATH 修复、首启种子拷贝、Agent 团队磁盘布局与内置团队指纹播种、会话绑定团队的名单解析注入、环境自检、observer 动态端口启动、main 进程拥有的 local console server、runner 子进程监管、操作台主窗口、辅助状态页 IPC、日志落盘与更新检查。壳层只做装配、监管、自检、更新提示与 renderer 托管，不承载 GitHub issue runner、目标账本、trigger、Codex prompt、local-console 运行语义或 observer 读模型的业务规则。
+- 入口：`desktop/src/main.ts`；runner 子进程入口 `desktop/src/runner-child.ts`；preload `desktop/src/preload.ts`；操作台 renderer `desktop/src/console-page/*`；辅助状态页 `desktop/src/status-page/*`；纯逻辑模块 `desktop/src/data-root.ts`、`desktop/src/shell-path.ts`、`desktop/src/env-doctor.ts`、`desktop/src/runner-supervisor.ts`、`desktop/src/updater.ts`。Agent 团队十个模块全部收敛在 `desktop/src/team-*.ts`：内置团队内容指纹与 `.system` 覆盖播种在 `team-seed.ts`，结构与有效性判定在 `team-model.ts`，磁盘读写与内置只读保护在 `team-store.ts`，用户团队稳定记录、团队定义摘要与重定位身份校验在 `team-record-store.ts`，团队列表 / 成员读写 / 复制 / 删除的窄 IPC 在 `team-ipc.ts`，重新定位与仅移除记录的 IPC 独立收敛于 `team-repair-ipc.ts`，成员 `AGENT.md` 外部修改探测与冲突判定在 `team-external-change.ts`，在平台文件管理器中打开与移到废纸篓在 `team-file-manager.ts`，上一次成功创建会话所用团队的记录与回退预选在 `team-conversation-preference.ts`，会话绑定团队的实时健康度与严格成员名单解析在 `team-runtime-binding.ts`。用户团队位置一律经记录解析；内置团队仍按 `.system/<id>` 解析。
 - 上游：用户启动桌面应用；Electron 主进程生命周期；本机 `codex` CLI 与 `gh` CLI；GitHub Releases 更新通路。
 - 下游：`src/observer/server.ts` 的 `startObserverServer()` 编程入口；`src/local-console/server.ts` 的 `startLocalConsoleServer()` 编程入口；`src/runner.ts` 的 `start({ mode: "github" })` 编程入口（经 `utilityProcess` 子进程，并携带 `--github-mode`）；提交版 `agents/` 与 `config.toml` 种子资源；数据根 `~/.agent-moebius` 或 `AGENT_MOEBIUS_DATA_ROOT` 覆盖目录。
 - 禁止依赖：MUST NOT 给 observer 增加写接口或 runner 控制能力；MUST NOT 复制 runner / observer / ledger / local-console 业务规则；MUST NOT 把用户配置或 agent 素材写回应用资源目录；MUST NOT 用 shell 字符串拼接外部输入；MUST NOT 在同一实例内派生多个 runner；MUST NOT 在 runner child 已显式选择 GitHub mode 时再启动第二个 local console server；Agent 团队 UI MUST NOT 另行复制结构有效性规则，只消费 store/IPC 给出的状态、可用性与 issue code；移除失效记录 MUST NOT 删除、移动或修改团队目录内容。
 
 ![desktop-shell](desktop-shell.svg)
 ![local-console-operator](local-console-operator.svg)
+![agent-teams-runtime-binding](agent-teams-runtime-binding.svg)
 
 ### console-ui
 - 职责边界：React 对话操作台组件库与 Storybook 展示台，提供可被 Electron renderer import 的 shadcn 风格源码组件、Radix 无障碍原语封装、Tailwind 近单色令牌和项目专属复合组件。含 Agent 团队页的团队横行陈列、团队详情、成员选择器与 `@slug` 提及编辑器，但团队磁盘布局、播种与结构有效性判定属于 desktop-shell，本包只消费其结果。它只承载界面组件、样式令牌与组件级可测协议文本生成逻辑，不读取 `.state/`，不调用 runner / observer / GitHub / Codex，也不实现真实桌面对话操作台的数据流。
@@ -26,7 +27,7 @@
 - 禁止依赖：MUST NOT 反向 import `src/runner*`、`src/observer*`、`src/local-console*`、`src/goal-ledger*` 或任何 `.state` adapter；MUST NOT 调用 `gh` / `codex` / shell；MUST NOT 把业务事实复制进组件层。真实 renderer app、IPC 与 local console API 对接属于 desktop-shell。
 
 ### local-console
-- 职责边界：本地对话操作台数据通道。它在本机 loopback HTTP server 与 `.state/local-console.sqlite` 上提供一个本地项目、多会话、session-scoped message submit、agent 回复接力 drain、SQLite 消息处理位点、active run snapshot、有界 stdout/stderr tail、中断、失败、卡住状态记录，以及本地 failure budget / dead-letter / restart recovery 可见收敛。它复用既有 conversation、mention trigger、agent persona 和 Codex driver；agent 回复落库后可立即作为同一 session 的下一轮可 claim 触发源继续处理，server 启动只做一次 catch-up，不依赖固定 1s 周期 poll，但不改变 GitHub issue runner 语义。
+- 职责边界：本地对话操作台数据通道。它在本机 loopback HTTP server 与 `.state/local-console.sqlite` 上提供一个本地项目、多会话、会话级 Agent 团队标识、session-scoped message submit、agent 回复接力 drain、SQLite 消息处理位点、active run snapshot、有界 stdout/stderr tail、中断、失败、卡住状态记录，以及本地 failure budget / dead-letter / restart recovery 可见收敛。它按 `sessionId` 向桌面壳注入的 resolver 请求可用 Agent 名单；未绑定的存量会话回退共享 `agents/`，绑定团队不可用时显式失败。它复用既有 conversation、mention trigger、agent persona 和 Codex driver；agent 回复落库后可立即作为同一 session 的下一轮可 claim 触发源继续处理，server 启动只做一次 catch-up，不依赖固定 1s 周期 poll，但不改变 GitHub issue runner 语义。
 - 入口：`src/local-console/server.ts`、`src/local-console/runtime.ts`、`src/local-console/store.ts`、`src/local-console/output-tail.ts`。
 - 上游：Electron main process、兼容的本地浏览器调试页、local-console 测试。
 - 下游：`src/conversation.ts`、`src/triggers/*`、`src/codex.ts`、SQLite state worker、agent Markdown 素材目录、Codex runDir stdout/stderr artifacts。
