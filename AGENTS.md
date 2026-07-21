@@ -54,15 +54,7 @@
 │   │   ├── console-page/       # 桌面本地对话操作台 renderer（含 selection mutation / refresh 协调）
 │   │   ├── status-page/        # 桌面辅助诊断状态页静态资源
 │   │   ├── data-root.ts        # 数据根解析与首启种子拷贝计划
-│   │   ├── team-seed.ts        # 内置团队内容指纹、临时解包与 .system 覆盖播种
-│   │   ├── team-model.ts       # Agent 团队结构、有效性判定与需要修复 issue code
-│   │   ├── team-store.ts       # Agent 团队磁盘读写与统一只读保护
-│   │   ├── team-record-store.ts # 用户团队稳定记录、最近可读摘要、重定位身份校验与仅移除记录
-│   │   ├── team-repair-ipc.ts  # 重新定位 / 移除失效记录的独立窄 IPC 契约
-│   │   ├── team-ipc.ts         # 团队列表 / 成员读写 / 复制 / 删除的窄 IPC 契约
-│   │   ├── team-external-change.ts # 成员 AGENT.md 外部修改探测与冲突判定（不做逐行合并）
-│   │   ├── team-file-manager.ts # 在平台文件管理器中打开团队 / 成员目录、移到废纸篓
-│   │   ├── team-conversation-preference.ts # 上一次成功创建会话所用团队的记录与回退预选
+│   │   ├── team-*.ts           # Agent 团队九个模块：播种 / 存储 / 有效性 / 记录 / IPC / 外部修改 / 文件管理 / 预选（逐个职责见 docs/architecture/module-map.md）
 │   │   ├── shell-path.ts       # macOS 登录 shell PATH 读取与合并
 │   │   ├── env-doctor.ts       # codex / gh / gh auth 自检
 │   │   ├── runner-supervisor.ts # runner 子进程状态机与崩溃退避
@@ -70,7 +62,6 @@
 │   └── tests/                  # 桌面壳纯模块 Vitest
 ├── packages/
 │   └── console-ui/             # shadcn/Radix + Tailwind 的 React 对话操作台组件库与 Storybook
-│                               # 含 Agent 团队页：团队横行陈列、团队详情与 @slug 提及编辑器
 ├── seeds/
 │   └── teams/                  # 打包进桌面应用的只读内置团队种子
 ├── sites/                      # 面向公众的自包含静态营销站点（与产品运行时零耦合）
