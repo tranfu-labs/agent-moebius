@@ -68,9 +68,10 @@
 │   └── marketeam/              # 当前唯一官网：自包含 index.html + 同目录 DEPLOY.md（目录名 marketeam 为历史遗留；marketing-site 域）
 ├── tests/                      # Vitest 单元测试
 ├── docs/
+│   ├── product/                # 产品事实源：总 PRD + 页面 PRD（pages/）+ 跨页流程 PRD（flows/）
 │   ├── adr/                    # 架构决策记录
 │   ├── architecture/           # 模块地图
-│   ├── wireframes/             # 页面字符图版式事实源（pages/ + flow.md）
+│   ├── wireframes/             # 历史版式参考；已建页面 PRD 的页面以 docs/product/pages/ 为准
 │   └── protocols/              # GitHub issue 交互协议等协作规则事实源
 ├── openspec/
 │   ├── changes/                # 先设计再实现的变更工作区
@@ -186,6 +187,7 @@
 - 本地脚本执行必须把 GitHub issue 内容当作数据处理，不能拼接成 shell 命令；调用外部命令必须使用 `child_process.spawn(cmd, args[])`，不得使用 `exec` / `execSync` / `shell: true`。
 
 ## 修改前检查
+- 改用户可见行为前，先读 `docs/product/` 对应的页面 / 流程 PRD。**`docs/product/` 是产品意图事实源，领先于实现（可以写还没做的）；`openspec/specs/` 是行为事实源，落后于实现（只记录已实现并验证的）。两者时间性相反，NEVER 互相替代，NEVER 把同一条规则原样抄两份。**
 - 读 `docs/architecture/module-map.md` 确认依赖边界。
 - 读相关 `openspec/specs/<domain>/spec.md`。
 - 动 `packages/console-ui` 前必读 `packages/console-ui/DESIGN.md`（包内设计语言事实源）。
@@ -193,8 +195,8 @@
 
 ## 修改后检查
 - 跑测试 / lint / 构建，三者全绿（退出码 0）方可提交；任一失败 → 先修复，NEVER 带红提交。
-- 更新受影响的 spec 与 ADR。
-- 必要时在 `openspec/changes/` 记录变更。
+- 更新受影响的 ADR。
+- 按 `openspec/changes/AGENTS.md` 的三档分流决定事实源怎么更新：事实没变 → 什么都不写；行为变了、产品意图没变 → **同一个 commit 内联改 `openspec/specs/`**，不建 change；产品意图变了 → 走完整 change 流程。
 
 ## 禁止事项
 - MUST NOT 提交 GitHub token、个人访问令牌、本地绝对路径、执行日志中的敏感内容或 `.env` 文件。
