@@ -100,7 +100,7 @@ try {
   await waitForState(failureSession.sessionId, (state) =>
     state.messages.some((message: any) => message.error === "exit:42"),
   );
-  await page.getByRole("button", { name: /failure visible/u }).click();
+  await page.getByRole("button", { name: "failure visible", exact: true }).click();
   await page.getByText("运行失败").first().waitFor();
   await page.screenshot({ path: path.join(projectRoot, artifacts.failed), fullPage: true });
   const failedSessionId = failureSession.sessionId;

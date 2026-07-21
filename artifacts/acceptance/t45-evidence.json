@@ -26,11 +26,11 @@
       "statement": "相邻 handoff 不应有固定 1s+ poll 等待",
       "evidence": {
         "runGapsMs": [
-          298,
-          289,
-          293
+          569,
+          562,
+          565
         ],
-        "maxRunGapMs": 298
+        "maxRunGapMs": 569
       }
     },
     {

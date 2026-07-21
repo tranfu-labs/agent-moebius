@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`console-ui` 是桌面对话操作台的 React 组件库与开发期展示台。它提供可被 Electron renderer 消费的 shadcn 风格源码组件、Radix 无障碍原语封装、Tailwind 近单色令牌和项目专属复合组件；它不承载真实桌面对话操作台的数据流、IPC、runner 状态管理或 GitHub / Codex 调用。
+`console-ui` 是桌面对话操作台的 React 组件库与开发期展示台。它提供可被 Electron renderer 消费的 shadcn 风格源码组件、Radix 无障碍原语封装、Tailwind 语义令牌（近黑底暗色优先 + 状态色相族）和项目专属复合组件；它不承载真实桌面对话操作台的数据流、IPC、runner 状态管理或 GitHub / Codex 调用。
 
 ## Requirements
 
@@ -73,11 +73,17 @@ New or modified components under `packages/console-ui` MUST compose the tokens, 
 - **THEN** the component composes existing tokens and status semantics without hard-coded visual values
 - **AND** any pattern not previously cataloged has been added to `DESIGN.md` in the same change.
 
-### Requirement: Near-monochrome token system
+### Requirement: Token system with status hue family
 
-The `console-ui` package MUST keep `packages/console-ui/src/styles/tokens.css` as the package-local token source in Linear's restrained palette direction: cool-tinted neutral surfaces and text dominate, indigo `#5E6AD2` is the single interaction accent in both light and dark themes, green/red are reserved for verdict and danger facts, and waiting-for-human states use neutral structural signals instead of a dedicated hue.
+Source: docs/product/prd.md#视觉语言原则
 
-The token source MUST define a per-theme accent hover color (`#4B57C8` darker in light, `#828FFF` lighter in dark), a multi-layer popover shadow token, a double-layer indigo focus ring token, and motion tokens (150ms default duration with an easeOutQuad-style curve, plus a slower entrance curve).
+The `console-ui` package MUST keep `packages/console-ui/src/styles/tokens.css` as the package-local token source: cool-tinted neutral surfaces and text dominate, indigo `#5E6AD2` is the single interaction accent in both light and dark themes, and green/red remain reserved for verdict and danger facts.
+
+The token source MUST define a status hue family for runtime status pills — amber for running, blue for pending, violet for waiting, and a neutral tint — with foreground, tinted background, and same-hue border values defined for BOTH light and dark themes in the same change.
+
+The token source MUST define the dark canvas near `#0A0B0D` with card surfaces near `#15161A` and visibly stronger borders than the previous near-monochrome baseline, and MUST set the corner-radius base token to 14px with derived steps computed from it.
+
+The token source MUST define a per-theme accent hover color (`#4B57C8` darker in light, `#828FFF` brighter in dark), a multi-layer popover shadow token, a double-layer indigo focus ring token, and motion tokens (150ms default duration with an easeOutQuad-style curve, plus a slower entrance curve).
 
 Dark-theme elevation MUST be expressed through luminance stacking (progressively lighter translucent surfaces and inset hairlines) rather than heavy drop shadows.
 
@@ -87,9 +93,11 @@ The `console-ui` package MUST self-host Inter Variable (woff2 subset with the wg
 
 The `console-ui` package MUST render waiting-for-human review surfaces as neutral surfaces with neutral waiting iconography.
 
-The `console-ui` package MUST render pass/fail verdicts as colored dot-plus-text markers (green/red) on acceptance surfaces.
+The `console-ui` package MUST render pass/fail verdicts as pass/failed status pills (green/red) on acceptance surfaces.
 
 The `console-ui` package MUST render submit actions using indigo as an interaction color rather than a waiting-state color.
+
+A red unread-count badge MAY use the danger hue as the single registered exception to verdict/danger exclusivity; all other uses of green/red outside verdict, danger, and this exception MUST NOT be introduced.
 
 Icons across the package MUST use 16px default size with 1.5px stroke width.
 
@@ -97,13 +105,20 @@ Icons across the package MUST use 16px default size with 1.5px stroke width.
 
 - **GIVEN** an acceptance card is rendered for a waiting-for-human review
 - **WHEN** the component is inspected
-- **THEN** the card remains a neutral surface with neutral waiting iconography, pass/fail verdicts use colored dot-plus-text markers, and the submit action uses indigo as an interaction color.
+- **THEN** the card remains a neutral surface with neutral waiting iconography, pass/fail verdicts use pass/failed status pills, and the submit action uses indigo as an interaction color.
 
 #### Scenario: Interactive accent is indigo in both themes
 
 - **GIVEN** the console renders in light theme and in dark theme
 - **WHEN** primary buttons, links, and focus rings are inspected
 - **THEN** the accent is `#5E6AD2` in both themes, hover moves to `#4B57C8` in light and `#828FFF` in dark, and focus rings use the double-layer indigo token.
+
+#### Scenario: Status hue family exists in both themes
+
+- **GIVEN** the token source loads
+- **WHEN** running, pending, and waiting status pills render in either theme
+- **THEN** each uses its own hue family (amber / blue / violet) with foreground, tinted background, and same-hue border tokens defined for that theme
+- **AND** no status hue token is defined for only one theme.
 
 ### Requirement: No runner or desktop integration dependencies
 
@@ -338,25 +353,26 @@ The operator console MUST render each session at most once even when parent sess
 - MUST route `◇ Agent 团队` to the Agent Teams surface and show a selected state on the entry while that surface is active.
 - MUST keep the bottom-fixed `⚙ 设置` entry the only settings entrypoint from the sidebar; internal diagnostics identifiers such as database paths, run directories, or raw errors MUST NOT be rendered at the bottom of the sidebar.
 
-### Requirement: Flat Card and status Badge baseline
+### Requirement: Status pill Badge baseline
 
-The shared `Card` primitive MUST remain a flat container baseline with thin border, neutral surface, no default shadow, and square or near-square radius.
+Source: docs/product/prd.md#视觉语言原则
+
+The shared `Card` primitive MUST remain a thin-border neutral surface without default shadows, using the 14px radius baseline and visibly bordered dark surfaces.
 
 The shared `Card` primitive MUST NOT default to a floating or soft-card appearance.
 
-The shared `Badge` primitive MUST expose variants as runtime status semantics instead of generic visual names, and MUST render every variant as a dot-plus-text marker rather than a filled or outlined chip.
+The shared `Badge` primitive MUST expose variants as runtime status semantics instead of generic visual names, and MUST render every variant as a status pill: a 12px status icon plus text on a tinted background with a same-hue border and fully rounded shape.
 
-The shared `Badge` primitive MUST cover `running`, `failed`, `waiting`, `interrupted`, `idle`, `pending`, `completed`, `displayed`, and `stuck` as status semantics used by the operator console, with dot hues following status semantics: accent for running, danger for failed and stuck, and neutral (filled or hollow) for all others.
+The shared `Badge` primitive MUST cover `running`, `failed`, `waiting`, `interrupted`, `idle`, `pending`, `completed`, `displayed`, and `stuck` as status semantics used by the operator console, plus `pass` for verdict surfaces, with icon and hue following status semantics: half-pie amber for running, clock blue for pending, hollow-circle violet for waiting, dashed-circle neutral for interrupted and idle, filled-disc neutral tint for completed and displayed, crossed-circle danger for failed and stuck, and checked-circle pass green for verdict pass.
 
-The shared `Badge` primitive MUST NOT retain `neutral`, `selected`, `accent`, `pass`, or `danger` as compatibility aliases.
+The shared `Badge` primitive MUST NOT retain `neutral`, `selected`, `accent`, or `danger` as compatibility aliases.
 
 The shared `Badge` primitive MUST reserve pass/fail verdict coloring for acceptance verdict surfaces rather than mapping ordinary completed or displayed runtime states to verdict semantics.
 
-#### Scenario: Storybook shows flat primitives and dot status
+#### Scenario: Badge stories show status pills
 
-- **GIVEN** a developer runs `pnpm --filter @agent-moebius/console-ui storybook`
 - **WHEN** the Card and Badge stories render
-- **THEN** Card appears as a flat thin-border surface, Badge stories show all nine status semantic variants as dot-plus-text markers, and the stories do not show a separate floating component-library visual language.
+- **THEN** Card appears as a thin-border surface on the new radius baseline, and Badge stories show every status semantic variant as an icon-plus-text pill with its hue family.
 
 ### Requirement: Codex-native single-stream operator console
 

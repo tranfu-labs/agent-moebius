@@ -123,7 +123,7 @@
   - `desktop-v*` tag 会触发 `.github/workflows/release-desktop.yml` 构建并上传 GitHub Releases；Windows/Linux 更新走 electron-updater，macOS 无签名证书期间检查更新只跳转下载页。
 - 运行 React 对话操作台组件库 Storybook：`pnpm --filter @agent-moebius/console-ui storybook`
   - 组件库位于 `packages/console-ui`，使用 shadcn 风格源码组件、Radix 原语与 Tailwind 语义令牌。
-  - `src/styles/tokens.css` 是包内令牌源：Linear 克制方向的冷灰近单色基底、accent 双主题统一靛蓝 `#5E6AD2`，绿/红只用于裁决与危险；「等你」用中性结构信号，不使用专属色相。`packages/console-ui/DESIGN.md` 是包内设计语言事实源（令牌纪律、排版、图标、状态语义、elevation/动效红线与组件模式目录）。
+  - `src/styles/tokens.css` 是包内令牌源：近黑底暗色优先的冷灰基底、accent 双主题统一靛蓝 `#5E6AD2`；运行状态渲染为状态 pill（图标 + tinted 底 + 同色描边），状态色相族为 running 琥珀 / pending 蓝 / waiting 紫 / completed 系中性灰，绿/红只用于裁决与危险（唯一例外：未读计数允许红色圆角标）；圆角基线 14px。`packages/console-ui/DESIGN.md` 是包内设计语言事实源（令牌纪律、排版、图标、状态语义、elevation/动效红线与组件模式目录）。
   - `@agent-moebius/console-ui` 被 desktop renderer 复用；renderer 入口需引入 `@agent-moebius/console-ui/globals.css`。desktop 的 `console.css` 只负责窗口/root 宿主约束，不得复制组件布局、按钮、输入框或卡片样式。
 - T4 本地操作台验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t4.ts`
   - 会启动 fake local console server 和静态桌面 renderer，生成 `artifacts/acceptance/t4-live.png`、`artifacts/acceptance/t4-interrupted.png`、`artifacts/acceptance/t4-failed.png` 与 `artifacts/acceptance/t4-evidence.json`。

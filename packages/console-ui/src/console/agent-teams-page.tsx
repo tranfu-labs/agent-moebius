@@ -968,7 +968,7 @@ function TeamStatusBadge({ kind }: { kind: "built-in" | "unfinished" | "needs-re
       className={cn(
         "inline-flex h-5 items-center rounded-sm border px-1.5 text-[11px] font-medium",
         kind === "needs-repair"
-          ? "border-danger/35 bg-danger/10 text-danger"
+          ? "border-[var(--status-danger-line)] bg-[var(--status-danger-bg)] text-danger"
           : kind === "unfinished"
             ? "border-line-strong bg-sunken text-sub"
             : "border-line bg-canvas text-sub",

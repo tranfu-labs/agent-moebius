@@ -12,7 +12,7 @@ const meta = {
   argTypes: {
     variant: {
       control: "select",
-      options: ["idle", "running", "waiting", "pending", "completed", "displayed", "failed", "stuck", "interrupted"]
+      options: ["idle", "running", "waiting", "pending", "completed", "displayed", "failed", "stuck", "interrupted", "pass"]
     }
   }
 } satisfies Meta<typeof Badge>;
@@ -34,6 +34,7 @@ export const ConsoleStates: Story = {
       <Badge variant="completed">已完成</Badge>
       <Badge variant="displayed">已显示</Badge>
       <Badge variant="idle">空闲</Badge>
+      <Badge variant="pass">通过</Badge>
     </div>
   )
 };

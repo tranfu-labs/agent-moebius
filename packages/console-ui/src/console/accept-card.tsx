@@ -1,6 +1,7 @@
 import { ExternalLink, Hand } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Card } from "@/ui/card";
 import { Input } from "@/ui/input";
@@ -128,37 +129,9 @@ function AcceptanceRow({ item, index }: { item: AcceptanceItem; index: number })
 
 function DecisionSegment({ decision }: { decision: AcceptanceDecision }): JSX.Element {
   return (
-    <span className="flex shrink-0 items-center gap-3" aria-label="验收裁决">
-      <span
-        className={cn(
-          "inline-flex h-7 items-center gap-1.5 text-xs",
-          decision === "pass" ? "font-medium text-pass" : "text-sub"
-        )}
-      >
-        <span
-          className={cn(
-            "h-2 w-2 rounded-full",
-            decision === "pass" ? "bg-pass" : "border-[1.5px] border-hint"
-          )}
-          aria-hidden="true"
-        />
-        通过
-      </span>
-      <span
-        className={cn(
-          "inline-flex h-7 items-center gap-1.5 text-xs",
-          decision === "fail" ? "font-medium text-danger" : "text-sub"
-        )}
-      >
-        <span
-          className={cn(
-            "h-2 w-2 rounded-full",
-            decision === "fail" ? "bg-danger" : "border-[1.5px] border-hint"
-          )}
-          aria-hidden="true"
-        />
-        不通过
-      </span>
+    <span className="flex shrink-0 items-center gap-2" aria-label="验收裁决">
+      <Badge variant={decision === "pass" ? "pass" : "interrupted"}>通过</Badge>
+      <Badge variant={decision === "fail" ? "failed" : "interrupted"}>不通过</Badge>
     </span>
   );
 }

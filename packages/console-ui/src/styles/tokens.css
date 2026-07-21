@@ -1,10 +1,13 @@
 /* ============================================================
-   Design tokens: Linear-restraint baseline.
+   Design tokens: dark-first dashboard baseline.
    Cool-tinted neutrals dominate; indigo #5E6AD2 is the single
-   interaction accent in both themes; green/red are reserved for
-   verdict and danger facts. Waiting-for-you states use neutral
-   structure, never a hue. Dark elevation stacks luminance with
-   inset hairlines instead of heavy drop shadows.
+   interaction accent in both themes; a status hue family (amber /
+   blue / violet / neutral) powers status pills; green/red remain
+   reserved for verdict and danger facts (the red unread-count
+   badge is the single registered exception). Dark canvas sits near
+   pure black with visibly bordered card surfaces; corner radius
+   baseline is 14px. Dark elevation stacks luminance with inset
+   hairlines instead of heavy drop shadows.
    ============================================================ */
 :root {
   --canvas: #FFFFFF;
@@ -26,6 +29,23 @@
   --danger: #E5484D;
   --ava-bg: rgba(24, 26, 42, 0.06);
   --ava-fg: #5E6472;
+  /* 状态色相族（亮色：压深 fg + 浅 tint bg + 同色描边） */
+  --status-run-fg: #A16A0E;
+  --status-run-bg: rgba(214, 150, 44, 0.14);
+  --status-run-line: rgba(214, 150, 44, 0.32);
+  --status-info-fg: #3563C9;
+  --status-info-bg: rgba(74, 124, 214, 0.11);
+  --status-info-line: rgba(74, 124, 214, 0.28);
+  --status-violet-fg: #6C54B8;
+  --status-violet-bg: rgba(140, 116, 220, 0.12);
+  --status-violet-line: rgba(140, 116, 220, 0.28);
+  --status-neutral-fg: #5E6472;
+  --status-neutral-bg: rgba(24, 26, 42, 0.06);
+  --status-neutral-line: rgba(24, 26, 42, 0.14);
+  --status-pass-bg: rgba(47, 143, 91, 0.1);
+  --status-pass-line: rgba(47, 143, 91, 0.28);
+  --status-danger-bg: rgba(229, 72, 77, 0.08);
+  --status-danger-line: rgba(229, 72, 77, 0.26);
   --shadow-pop:
     0 0 0 1px rgba(24, 26, 42, 0.05),
     0 4px 12px rgba(24, 26, 42, 0.10),
@@ -41,18 +61,18 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --canvas: #08090B;
-    --rail: #0F1011;
-    --card: #141519;
-    --sunken: #0E0F12;
-    --input: #1A1B1D;
+    --canvas: #0A0B0D;
+    --rail: #0E0F12;
+    --card: #15161A;
+    --sunken: #101114;
+    --input: #1C1D21;
     --ink: #F7F8F8;
-    --sub: #8A8F98;
-    --hint: #62666D;
-    --line: rgba(214, 218, 235, 0.07);
-    --line-strong: rgba(214, 218, 235, 0.11);
-    --sel: rgba(214, 218, 235, 0.08);
-    --hover: rgba(214, 218, 235, 0.045);
+    --sub: #9BA0AC;
+    --hint: #6B6F78;
+    --line: rgba(214, 218, 235, 0.12);
+    --line-strong: rgba(214, 218, 235, 0.2);
+    --sel: rgba(214, 218, 235, 0.09);
+    --hover: rgba(214, 218, 235, 0.05);
     --accent: #5E6AD2;
     --accent-fg: #F7F8F8;
     --accent-hover: #828FFF;
@@ -60,6 +80,22 @@
     --danger: #F26E6E;
     --ava-bg: rgba(214, 218, 235, 0.08);
     --ava-fg: #C3C6CC;
+    --status-run-fg: #F0B45C;
+    --status-run-bg: rgba(240, 180, 92, 0.14);
+    --status-run-line: rgba(240, 180, 92, 0.32);
+    --status-info-fg: #7BA7F0;
+    --status-info-bg: rgba(123, 167, 240, 0.14);
+    --status-info-line: rgba(123, 167, 240, 0.32);
+    --status-violet-fg: #B9A8F0;
+    --status-violet-bg: rgba(185, 168, 240, 0.13);
+    --status-violet-line: rgba(185, 168, 240, 0.3);
+    --status-neutral-fg: #9BA0AC;
+    --status-neutral-bg: rgba(214, 218, 235, 0.09);
+    --status-neutral-line: rgba(214, 218, 235, 0.2);
+    --status-pass-bg: rgba(92, 192, 138, 0.14);
+    --status-pass-line: rgba(92, 192, 138, 0.32);
+    --status-danger-bg: rgba(242, 110, 110, 0.14);
+    --status-danger-line: rgba(242, 110, 110, 0.32);
     --shadow-pop:
       rgba(0, 0, 0, 0.15) 0 4px 12px,
       rgba(0, 0, 0, 0.2) 0 8px 24px,
@@ -68,18 +104,18 @@
 }
 
 :root.dark {
-  --canvas: #08090B;
-  --rail: #0F1011;
-  --card: #141519;
-  --sunken: #0E0F12;
-  --input: #1A1B1D;
+  --canvas: #0A0B0D;
+  --rail: #0E0F12;
+  --card: #15161A;
+  --sunken: #101114;
+  --input: #1C1D21;
   --ink: #F7F8F8;
-  --sub: #8A8F98;
-  --hint: #62666D;
-  --line: rgba(214, 218, 235, 0.07);
-  --line-strong: rgba(214, 218, 235, 0.11);
-  --sel: rgba(214, 218, 235, 0.08);
-  --hover: rgba(214, 218, 235, 0.045);
+  --sub: #9BA0AC;
+  --hint: #6B6F78;
+  --line: rgba(214, 218, 235, 0.12);
+  --line-strong: rgba(214, 218, 235, 0.2);
+  --sel: rgba(214, 218, 235, 0.09);
+  --hover: rgba(214, 218, 235, 0.05);
   --accent: #5E6AD2;
   --accent-fg: #F7F8F8;
   --accent-hover: #828FFF;
@@ -87,6 +123,22 @@
   --danger: #F26E6E;
   --ava-bg: rgba(214, 218, 235, 0.08);
   --ava-fg: #C3C6CC;
+  --status-run-fg: #F0B45C;
+  --status-run-bg: rgba(240, 180, 92, 0.14);
+  --status-run-line: rgba(240, 180, 92, 0.32);
+  --status-info-fg: #7BA7F0;
+  --status-info-bg: rgba(123, 167, 240, 0.14);
+  --status-info-line: rgba(123, 167, 240, 0.32);
+  --status-violet-fg: #B9A8F0;
+  --status-violet-bg: rgba(185, 168, 240, 0.13);
+  --status-violet-line: rgba(185, 168, 240, 0.3);
+  --status-neutral-fg: #9BA0AC;
+  --status-neutral-bg: rgba(214, 218, 235, 0.09);
+  --status-neutral-line: rgba(214, 218, 235, 0.2);
+  --status-pass-bg: rgba(92, 192, 138, 0.14);
+  --status-pass-line: rgba(92, 192, 138, 0.32);
+  --status-danger-bg: rgba(242, 110, 110, 0.14);
+  --status-danger-line: rgba(242, 110, 110, 0.32);
   --shadow-pop:
     rgba(0, 0, 0, 0.15) 0 4px 12px,
     rgba(0, 0, 0, 0.2) 0 8px 24px,
