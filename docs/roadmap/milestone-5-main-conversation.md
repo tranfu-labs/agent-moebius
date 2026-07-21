@@ -39,7 +39,7 @@
 
 > 每片是一条能被用户端到端验收的垂直切片，对应一个 openspec change。`覆盖验收 #N` 指 `docs/product/pages/main-conversation.md`「验收标准」的编号。
 
-### - [ ] A · 新对话是页面，不是弹窗（`成品级`）
+### - [ ] A · `main-conversation-new-page` — 新对话是页面，不是弹窗（`成品级`）
 
 change：`openspec/changes/main-conversation-new-page/`
 
@@ -49,7 +49,7 @@ change：`openspec/changes/main-conversation-new-page/`
 
 覆盖验收 #1 #2 #3 #4 #5（项目锁定部分）#19。
 
-### - [ ] B · 上下文四项完整化（`成品级`）
+### - [ ] B · `main-conversation-session-context` — 上下文四项完整化（`成品级`）
 
 change：`openspec/changes/main-conversation-session-context/`
 
@@ -57,7 +57,7 @@ change：`openspec/changes/main-conversation-session-context/`
 
 覆盖验收 #5（工作空间与团队可变部分）#6 #7 #8 #9 #20。
 
-### - [ ] C · 时间线说人话（`成品级`）
+### - [ ] C · `main-conversation-timeline-truth` — 时间线说人话（`成品级`）
 
 change：`openspec/changes/main-conversation-timeline-truth/`
 
@@ -67,7 +67,7 @@ change：`openspec/changes/main-conversation-timeline-truth/`
 
 覆盖验收 #10 #11 #12 #13 #14 #16 #17 #18。
 
-### - [ ] D · 子会话卡片与右侧展开区（`成品级`）
+### - [ ] D · `main-conversation-subsession-cards` — 子会话卡片与右侧展开区（`成品级`）
 
 change：`openspec/changes/main-conversation-subsession-cards/`
 
