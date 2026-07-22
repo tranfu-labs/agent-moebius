@@ -49,7 +49,7 @@ describe("local console persisted system event kinds", () => {
     }
   });
 
-  it("clears legacy attention values, maps old system rows to neutral, binds legacy sessions, and is idempotent", async () => {
+  it("clears legacy attention values, maps old system rows to neutral, preserves unbound legacy sessions, and is idempotent", async () => {
     const { store, sqlitePath } = await fixtureStore();
     for (const [index, reason] of ["exception", "answer", "confirmation", "acceptance"].entries()) {
       await store.createSession({
@@ -85,7 +85,7 @@ describe("local console persisted system event kinds", () => {
       const legacy = (await reopened.listSessions()).filter((session) => session.sessionId.startsWith("local:legacy-"));
       expect(legacy).toHaveLength(4);
       expect(legacy.every((session) => session.awaitsHumanReason === null)).toBe(true);
-      expect(legacy.every((session) => session.agentTeamOwnership === "system" && session.agentTeamId === "development")).toBe(true);
+      expect(legacy.every((session) => session.agentTeamOwnership === null && session.agentTeamId === null)).toBe(true);
       expect((await reopened.listMessages("local:legacy-0")).find((message) => message.speaker === "system"))
         .toMatchObject({ systemEventKind: "other" });
       await reopened.close();

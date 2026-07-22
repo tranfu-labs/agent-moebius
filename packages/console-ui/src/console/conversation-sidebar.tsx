@@ -22,7 +22,6 @@ export type ConversationSidebarDataState = "ready" | "loading" | "error";
 export interface ConversationSidebarSession extends StatusDotFacts {
   id: string;
   title: string;
-  parentTitle?: string;
   awaitsHumanReason?: string | null;
   createdAt: string;
   summary?: string;
@@ -543,11 +542,9 @@ function SessionRow({
 }): JSX.Element {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const status = deriveStatusDot(session);
-  const lineageLabel = session.parentTitle === undefined ? null : `来自：${session.parentTitle}`;
-  const accessibleName = [session.title, lineageLabel, status === "none" ? null : statusLabel[status]]
+  const accessibleName = [session.title, status === "none" ? null : statusLabel[status]]
     .filter((part): part is string => part !== null)
     .join("，");
-  const hoverTitle = lineageLabel === null ? session.title : `${session.title}（${lineageLabel}）`;
   const archiveDisabledReason = session.isRunning ? "当前对话正在运行，请先中止或等待运行结束" : null;
   return (
     <div className="group relative flex h-8 min-w-0 items-center" data-testid="conversation-sidebar-session-row">
@@ -562,7 +559,7 @@ function SessionRow({
         )}
         aria-current={selected ? "page" : undefined}
         aria-label={accessibleName}
-        title={hoverTitle}
+        title={session.title}
         disabled={disabled}
         onClick={() => {
           if (!disabled) {

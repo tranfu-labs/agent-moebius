@@ -52,6 +52,8 @@ interface WorkerLocalMessage {
   systemEventKind: LocalConsoleSystemEventKind;
   failureCount: number;
   lastFailureReason: string | null;
+  sourceKind: string | null;
+  sourceId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -152,6 +154,10 @@ function runCommand(input: WorkerInput): unknown {
         return restoreLocalSession(database, input.command);
       case "local-create-child-session":
         return createLocalChildSession(database, input.command);
+      case "local-list-child-session-summary-sources":
+        return listChildSessionSummarySources(database, input.command.parentSessionId);
+      case "local-record-child-session-card":
+        return recordChildSessionCard(database, input.command);
       case "local-list-sessions":
         return listLocalSessions(database);
       case "local-mark-session-result-read":
@@ -419,7 +425,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   migrateSessionsCreatedAt(database, now);
   migrateSessionsProjectId(database, now);
   ensureSessionAgentTeamColumns(database);
-  migrateLegacyLocalSessionTeamBindings(database);
+  preserveLegacyLocalSessionTeamBindings(database);
   migrateSessionWorkspaceContext(database);
   migrateSessionAttentionState(database);
   migrateSystemEventKinds(database);
@@ -435,19 +441,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   markSchemaMigration(database, "main-sidebar-t3-session-attention-state");
 }
 
-function migrateLegacyLocalSessionTeamBindings(database: SqliteDatabase): void {
-  database.exec(`
-    UPDATE sessions
-    SET agent_team_ownership = 'system', agent_team_id = 'development'
-    WHERE source_type = 'local'
-      AND (agent_team_ownership IS NULL OR agent_team_id IS NULL)
-  `);
-  const unbound = database
-    .prepare("SELECT session_id FROM sessions WHERE source_type = 'local' AND (agent_team_ownership IS NULL OR agent_team_id IS NULL) LIMIT 1")
-    .get();
-  if (unbound !== undefined) {
-    throw new Error("local console team migration left an unbound session");
-  }
+function preserveLegacyLocalSessionTeamBindings(database: SqliteDatabase): void {
   markSchemaMigration(database, "main-conversation-timeline-team-binding");
 }
 
@@ -1506,7 +1500,7 @@ function archiveLocalSession(
     const visibleSessionIds = database
       .prepare(
         `SELECT session_id FROM sessions
-         WHERE source_type = 'local' AND project_id = ? AND archived_at IS NULL
+         WHERE source_type = 'local' AND project_id = ? AND archived_at IS NULL AND parent_session_id IS NULL
          ORDER BY created_at DESC, session_id ASC`,
       )
       .all(projectId)
@@ -1620,19 +1614,105 @@ function createLocalChildSession(
         VALUES (?, 'user', NULL, ?, 'pending', NULL, NULL, NULL, 'local-child-session', ?, ?, ?)`,
       )
       .run(input.childSessionId, input.initialBody, input.hiddenKey, input.now, input.now);
-    insertSystemMessage(
-      database,
-      input.parentSessionId,
-      `团队创建了子任务：${input.title}。`,
-      null,
-      null,
-      null,
-      input.now,
-      "displayed",
-      "other",
-    );
     ensureLocalCursor(database, input.childSessionId, input.now);
     return requireLocalSession(database, input.childSessionId);
+  });
+}
+
+function listChildSessionSummarySources(database: SqliteDatabase, parentSessionId: string): unknown[] {
+  const rows = database
+    .prepare(
+      `SELECT e.child_session_id AS candidate_session_id,
+              s.session_id,
+              s.parent_session_id,
+              s.title,
+              e.created_at AS relation_created_at
+       FROM session_edges e
+       LEFT JOIN sessions s ON s.session_id = e.child_session_id AND s.archived_at IS NULL
+       WHERE e.parent_session_id = ?
+       UNION ALL
+       SELECT s.session_id AS candidate_session_id,
+              s.session_id,
+              s.parent_session_id,
+              s.title,
+              s.created_at AS relation_created_at
+       FROM sessions s
+       WHERE s.parent_session_id = ?
+         AND s.archived_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM session_edges e
+           WHERE e.parent_session_id = ? AND e.child_session_id = s.session_id
+         )
+       ORDER BY relation_created_at ASC, candidate_session_id ASC`,
+    )
+    .all(parentSessionId, parentSessionId, parentSessionId);
+
+  return rows.map((row) => {
+    if (!isRecord(row)) {
+      throw new Error("Invalid child session summary row");
+    }
+    const candidateSessionId = readString(row.candidate_session_id, "candidate_session_id");
+    const sessionId = readNullableString(row.session_id, "session_id");
+    if (sessionId === null) {
+      return {
+        sessionId: candidateSessionId,
+        title: null,
+        parentSessionId: null,
+        status: null,
+        unresolvedSystemEventKind: null,
+        latestAgentRole: null,
+        initialBody: null,
+        chainValid: false,
+      };
+    }
+    const sessionRow = database.prepare("SELECT * FROM sessions WHERE session_id = ?").get(sessionId);
+    const session = readLocalSessionRow(database, sessionRow) as LocalConsoleSessionSummary;
+    const latestAgent = database
+      .prepare(
+        `SELECT role FROM session_messages
+         WHERE session_id = ? AND speaker = 'agent' AND role IS NOT NULL
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(sessionId);
+    const initialMessage = database
+      .prepare("SELECT body FROM session_messages WHERE session_id = ? ORDER BY id ASC LIMIT 1")
+      .get(sessionId);
+    return {
+      sessionId,
+      title: session.title,
+      parentSessionId: session.parentSessionId ?? null,
+      status: session.status,
+      unresolvedSystemEventKind: session.unresolvedSystemEventKind ?? null,
+      latestAgentRole: isRecord(latestAgent) ? readNullableString(latestAgent.role, "role") : null,
+      initialBody: isRecord(initialMessage) ? readString(initialMessage.body, "body") : null,
+      chainValid: session.parentSessionId === parentSessionId,
+    };
+  });
+}
+
+function recordChildSessionCard(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-child-session-card" }>,
+): null {
+  return transaction(database, () => {
+    const existing = database
+      .prepare(
+        `SELECT 1 AS found FROM session_messages
+         WHERE session_id = ? AND source_kind = 'local-child-session-card' AND source_id = ?
+         LIMIT 1`,
+      )
+      .get(input.parentSessionId, input.sourceId);
+    if (existing !== undefined) {
+      return null;
+    }
+    database
+      .prepare(
+        `INSERT INTO session_messages
+          (session_id, speaker, role, body, status, run_id, run_dir, error, system_event_kind, source_kind, source_id, created_at, updated_at)
+         VALUES (?, 'system', NULL, ?, 'displayed', ?, ?, NULL, 'other', 'local-child-session-card', ?, ?, ?)`,
+      )
+      .run(input.parentSessionId, input.body, input.runId, input.runDir, input.sourceId, input.now, input.now);
+    return null;
   });
 }
 
@@ -2784,6 +2864,8 @@ function readLocalMessageRow(row: unknown): WorkerLocalMessage {
     systemEventKind: readSystemEventKind(row.system_event_kind),
     failureCount: "failure_count" in row ? readNumber(row.failure_count, "failure_count") : 0,
     lastFailureReason: "last_failure_reason" in row ? readNullableString(row.last_failure_reason, "last_failure_reason") : null,
+    sourceKind: "source_kind" in row ? readNullableString(row.source_kind, "source_kind") : null,
+    sourceId: "source_id" in row ? readNullableString(row.source_id, "source_id") : null,
     createdAt: readString(row.created_at, "created_at"),
     updatedAt: readString(row.updated_at, "updated_at"),
   };
@@ -2813,8 +2895,8 @@ function ensureSession(
   const parsed = sessionId.startsWith("github:") ? parseIssueKey(sessionId.slice("github:".length)) : null;
   const sourceType = parsed === null ? "local" : "github";
   const resolvedProjectId = sourceType === "local" ? (projectId ?? LOCAL_CONSOLE_PROJECT_ID) : null;
-  const resolvedTeamOwnership = sourceType === "local" ? (agentTeam?.ownership ?? "system") : null;
-  const resolvedTeamId = sourceType === "local" ? (agentTeam?.id ?? "development") : null;
+  const resolvedTeamOwnership = sourceType === "local" ? (agentTeam?.ownership ?? null) : null;
+  const resolvedTeamId = sourceType === "local" ? (agentTeam?.id ?? null) : null;
   database
     .prepare(
       `INSERT INTO sessions

@@ -10,10 +10,12 @@ import {
   type OperatorMessage,
   type OperatorAgentTeam,
   type OperatorAgentTeamsState,
+  type OperatorChildSessionSummary,
   type OperatorProject,
   type OperatorRunSnapshot,
   type OperatorRunnerStatus,
   type OperatorSession,
+  type OperatorSubSessionView,
 } from "@agent-moebius/console-ui";
 import type {
   AgentTeamDuplicateBuiltInRequest,
@@ -151,6 +153,7 @@ interface LocalConsoleState {
   selectedSessionId: string;
   selectedSession: OperatorSession | null;
   messages: OperatorMessage[];
+  childSessions: OperatorChildSessionSummary[];
   activeRun: OperatorRunSnapshot | null;
   sqlitePath: string;
   lastError: string | null;
@@ -175,6 +178,7 @@ function App(): JSX.Element {
   const selectionRef = useRef(selection);
   const coordinatorRef = useRef(new ConsoleStateCoordinator());
   const [state, setState] = useState<LocalConsoleState | null>(null);
+  const [openedSubSession, setOpenedSubSession] = useState<OperatorSubSessionView | null>(null);
   const conversationDraftStoreRef = useRef(createConversationDraftStore(window.localStorage));
   const [composerValue, setComposerValue] = useState(() =>
     conversationDraftStoreRef.current.read(sessionDraftKey("default")),
@@ -924,6 +928,10 @@ function App(): JSX.Element {
     setSelection(nextSelection);
   }, []);
 
+  useEffect(() => {
+    setOpenedSubSession(null);
+  }, [selection.sessionId]);
+
   const refresh = useCallback(async (
     targetSelection: ConsoleSelection,
     mutationOwner?: SelectionMutationToken,
@@ -1238,6 +1246,34 @@ function App(): JSX.Element {
     };
   }, []);
 
+  const openSubSession = useCallback((sessionId: string) => {
+    if (apiBase === null) return;
+    const parentSessionId = selectionRef.current.sessionId;
+    void fetch(endpoint(apiBase, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/view`))
+      .then(async (response) => {
+        const body = await response.json() as OperatorSubSessionView & { error?: string };
+        if (!response.ok || body.session === undefined) {
+          throw new Error(body.error ?? "sub-session view request failed");
+        }
+        if (selectionRef.current.sessionId !== parentSessionId) return;
+        setOpenedSubSession(body);
+        setClientError(null);
+      })
+      .catch((error: unknown) => setClientError(formatError(error)));
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (apiBase === null || openedSubSession === null) return;
+    const sessionId = openedSubSession.session.sessionId;
+    const timer = window.setInterval(() => {
+      void fetch(endpoint(apiBase, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/view`))
+        .then(async (response) => {
+          if (response.ok) setOpenedSubSession(await response.json() as OperatorSubSessionView);
+        });
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [apiBase, openedSubSession?.session.sessionId]);
+
   const setSidebarOpen = useCallback((open: boolean) => {
     const preference = open ? "open" : "closed";
     setSidebarVisibilityPreference(preference);
@@ -1252,6 +1288,8 @@ function App(): JSX.Element {
       selectedSessionId={selection.sessionId}
       selectedSession={selectedSession}
       messages={messages}
+      childSessions={state?.childSessions ?? []}
+      openedSubSession={openedSubSession}
       activeRun={activeRun}
       composerValue={composerValue}
       runnerStatus={runnerStatus}
@@ -1310,6 +1348,8 @@ function App(): JSX.Element {
         setComposerValue(conversationDraftStoreRef.current.read(sessionDraftKey(nextSelection.sessionId)));
         actions.selectSession(nextSelection);
       }}
+      onOpenSubSession={openSubSession}
+      onCloseSubSession={() => setOpenedSubSession(null)}
       onChangeSessionProject={actions.rebindSessionProject}
       onShowProjectInFolder={showProjectInFolder}
       onRenameProject={renameProject}

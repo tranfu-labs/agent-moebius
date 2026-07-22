@@ -72,7 +72,28 @@ describe("ComposerContext", () => {
     expect(screen.getByRole("status")).toHaveTextContent("当前这一步跑完后换成独立工作空间");
     expect(screen.getByRole("status")).toHaveTextContent("当前这一步跑完后换成营销团队");
   });
+
+  it("collapses branch, workspace, team, and project progressively in that order", () => {
+    const { container } = renderContext();
+    const visibleEntries = () => Array.from(container.querySelectorAll("[data-context-entry]"))
+      .map((entry) => entry.getAttribute("data-context-entry"));
+    expect(visibleEntries()).toEqual(["project", "workspace", "branch", "team"]);
+
+    resizeWindow(900);
+    expect(visibleEntries()).toEqual(["project", "workspace", "team"]);
+    resizeWindow(700);
+    expect(visibleEntries()).toEqual(["project", "team"]);
+    resizeWindow(500);
+    expect(visibleEntries()).toEqual(["project"]);
+    resizeWindow(350);
+    expect(visibleEntries()).toEqual([]);
+  });
 });
+
+function resizeWindow(width: number): void {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  fireEvent(window, new Event("resize"));
+}
 
 function renderContext(input: {
   session?: OperatorSession;

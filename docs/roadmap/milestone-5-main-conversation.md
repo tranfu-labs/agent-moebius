@@ -67,7 +67,7 @@ change：`openspec/changes/main-conversation-timeline-truth/`
 
 覆盖验收 #10 #11 #12 #13 #14 #16 #17 #18。
 
-### - [ ] D · `main-conversation-subsession-cards` — 子会话卡片与右侧展开区（`成品级`）
+### - [x] D · `main-conversation-subsession-cards` — 子会话卡片与右侧展开区（`成品级`）→ packages/console-ui/src/console/sub-session-card.tsx:23
 
 change：`openspec/changes/main-conversation-subsession-cards/`
 

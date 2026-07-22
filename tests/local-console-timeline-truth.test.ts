@@ -37,9 +37,18 @@ describe("main conversation timeline truth through the HTTP assembly", () => {
     roots.push(root);
     await fs.mkdir(path.join(root, "agents"), { recursive: true });
     await fs.writeFile(path.join(root, "agents", "legacy-primary.md"), "# Legacy primary\n", "utf8");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
+    const findSession = async (sessionId: string): Promise<LocalConsoleSessionSummary> => {
+      const session = (await store.listSessions()).find((candidate) => candidate.sessionId === sessionId);
+      if (session === undefined) throw new Error(`missing session: ${sessionId}`);
+      return session;
+    };
     const started = await startLocalConsoleServer({
       projectRoot: root,
       port: 0,
+      store,
+      listAgentFiles: async (sessionId) => listSessionAgentFiles({ dataRoot: root, session: await findSession(sessionId) }),
+      resolveAgentTeamHealth: async (session) => resolveSessionAgentTeamHealth({ dataRoot: root, session }),
       runCodex: async (options) => codexOk(options, "存量会话继续推进"),
       makeRunDir: (count) => path.join(root, "runs", String(count)),
       storeTimeoutMs: 2_000,
@@ -49,6 +58,7 @@ describe("main conversation timeline truth through the HTTP assembly", () => {
       const state = await waitForState(started.url, LOCAL_CONSOLE_DEFAULT_SESSION_ID, (snapshot) =>
         snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
       );
+      expect(state.selectedSession).toMatchObject({ agentTeamOwnership: null, agentTeamId: null });
       expect(state.selectedSession.continuation.canContinue).toBe(true);
       expect(state.messages).toEqual(expect.arrayContaining([
         expect.objectContaining({ speaker: "agent", role: "legacy-primary", body: "存量会话继续推进" }),

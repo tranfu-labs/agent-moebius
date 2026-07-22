@@ -180,7 +180,13 @@ describe("ConsoleStateActions", () => {
     folderPath.resolve("/tmp/project-b");
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     projectResponse.resolve(jsonResponse({
-      project: { projectId: "project-b", sessions: [{ sessionId: "session-b" }] },
+      project: {
+        projectId: "project-b",
+        sessions: [
+          { sessionId: "hidden-child", parentSessionId: "session-b" },
+          { sessionId: "session-b", parentSessionId: null },
+        ],
+      },
     }));
     await open;
 

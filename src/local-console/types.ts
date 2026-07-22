@@ -34,8 +34,28 @@ export interface LocalConsoleMessage {
   systemEventKind: LocalConsoleSystemEventKind;
   failureCount: number;
   lastFailureReason: string | null;
+  sourceKind?: string | null;
+  sourceId?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type LocalConsoleChildSessionStatus =
+  | "running"
+  | "waiting"
+  | "finished"
+  | "not-started"
+  | "stuck"
+  | "stopped"
+  | "retry-exhausted"
+  | "unavailable";
+
+export interface LocalConsoleChildSessionSummary {
+  sessionId: string;
+  title: string;
+  memberName: string;
+  status: LocalConsoleChildSessionStatus;
+  statusLabel: string;
 }
 
 export type LocalRouteDecisionOutcome = "append" | "no_action" | "fail_open" | "dead_letter";
@@ -250,9 +270,16 @@ export interface LocalConsoleStateSnapshot {
   selectedSessionId: string;
   selectedSession: LocalConsoleSessionSummary | null;
   messages: LocalConsoleMessage[];
+  childSessions: LocalConsoleChildSessionSummary[];
   activeRun: LocalConsoleRunSnapshot | null;
   sqlitePath: string;
   lastError: string | null;
+}
+
+export interface LocalConsoleSessionView {
+  session: LocalConsoleSessionSummary;
+  messages: LocalConsoleMessage[];
+  activeRun: LocalConsoleRunSnapshot | null;
 }
 
 export interface LocalConsoleStore {

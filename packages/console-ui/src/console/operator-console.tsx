@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowDown,
   Diamond,
   PanelLeft,
   PanelLeftClose,
@@ -8,7 +9,7 @@ import {
   Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import {
   type AgentTeamDetailState,
@@ -30,6 +31,8 @@ import {
 import { RoleComposer } from "@/console/role-composer";
 import { RunBlock } from "@/console/run-block";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
+import { SubSessionCard, type SubSessionCardItem } from "@/console/sub-session-card";
+import { SubSessionPanel } from "@/console/sub-session-panel";
 import { containsMachineText, sanitizeMachineText } from "@/console/machine-text";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
@@ -148,8 +151,18 @@ export interface OperatorMessage {
   runDir: string | null;
   error: string | null;
   systemEventKind?: "run-not-started" | "run-stuck" | "user-stopped" | "retry-exhausted" | "other";
+  sourceKind?: string | null;
+  sourceId?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type OperatorChildSessionSummary = SubSessionCardItem;
+
+export interface OperatorSubSessionView {
+  session: OperatorSession;
+  messages: OperatorMessage[];
+  activeRun: OperatorRunSnapshot | null;
 }
 
 export interface OperatorRunSnapshot {
@@ -185,6 +198,8 @@ export interface OperatorConsoleProps {
   selectedSessionId: string;
   selectedSession: OperatorSession | null;
   messages: OperatorMessage[];
+  childSessions?: OperatorChildSessionSummary[];
+  openedSubSession?: OperatorSubSessionView | null;
   activeRun: OperatorRunSnapshot | null;
   composerValue: string;
   runnerStatus?: OperatorRunnerStatus;
@@ -210,6 +225,8 @@ export interface OperatorConsoleProps {
   onChangeSessionWorkspace?: (sessionId: string, workspaceMode: "direct" | "worktree") => void;
   onChangeSessionTeam?: (sessionId: string, team: OperatorAgentTeam) => void;
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
+  onOpenSubSession?: (sessionId: string) => void;
+  onCloseSubSession?: () => void;
   onChangeSessionProject?: (sessionId: string, projectId: string) => void;
   onShowProjectInFolder?: (folderPath: string) => void | Promise<void>;
   onRenameProject?: (projectId: string, title: string) => void | Promise<void>;
@@ -264,6 +281,8 @@ export function OperatorConsole({
   selectedSessionId,
   selectedSession,
   messages,
+  childSessions = [],
+  openedSubSession = null,
   activeRun,
   composerValue,
   lastError,
@@ -287,6 +306,8 @@ export function OperatorConsole({
   onChangeSessionWorkspace,
   onChangeSessionTeam,
   onSelectSession,
+  onOpenSubSession,
+  onCloseSubSession,
   onChangeSessionProject,
   onShowProjectInFolder,
   onRenameProject,
@@ -338,6 +359,10 @@ export function OperatorConsole({
   const [isNarrowWindow, setIsNarrowWindow] = useState(() => viewportIsNarrow());
   const [useStackedTeamRows, setUseStackedTeamRows] = useState(() => viewportUsesStackedTeamRows());
   const sidebarResizeGestureRef = useRef<SidebarResizeGesture | null>(null);
+  const timelineScrollRef = useRef<HTMLElement | null>(null);
+  const followTimelineRef = useRef(true);
+  const parentScrollTopRef = useRef(0);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const [applicationView, setApplicationView] = useState<OperatorApplicationView>("conversation");
   const [applicationOverlay, setApplicationOverlay] = useState<OperatorApplicationOverlay | null>(null);
   const [pendingConversationRoute, setPendingConversationRoute] = useState<{
@@ -403,6 +428,28 @@ export function OperatorConsole({
     window.addEventListener("resize", updateResponsiveLayout);
     return () => window.removeEventListener("resize", updateResponsiveLayout);
   }, []);
+
+  useEffect(() => {
+    followTimelineRef.current = true;
+    setShowJumpToBottom(false);
+  }, [selectedSessionId]);
+
+  useLayoutEffect(() => {
+    const timeline = timelineScrollRef.current;
+    if (timeline !== null && followTimelineRef.current) {
+      timeline.scrollTop = timeline.scrollHeight;
+    }
+  }, [messages.length, activeRun?.lastOutputSummary, selectedSessionId]);
+
+  const openSubSession = (sessionId: string) => {
+    parentScrollTopRef.current = timelineScrollRef.current?.scrollTop ?? 0;
+    onOpenSubSession?.(sessionId);
+  };
+
+  const closeSubSession = () => {
+    onCloseSubSession?.();
+    restoreTimelineScroll(timelineScrollRef, parentScrollTopRef.current);
+  };
 
   const setSidebarOpen = (open: boolean) => {
     if (isFirstRunOnboarding && !open) {
@@ -737,6 +784,13 @@ export function OperatorConsole({
           />
         ) : (
           <>
+            <div
+              className={cn(
+                "relative flex min-h-0 flex-1 flex-col",
+                openedSubSession && !isNarrowWindow && "mr-[50%]",
+              )}
+              data-testid="parent-conversation-pane"
+            >
             {selectedSession ? (
               <header className="window-drag-region absolute inset-x-0 top-0 z-10 px-8 pb-3 pt-12">
                 <h1
@@ -750,6 +804,13 @@ export function OperatorConsole({
             <section
               className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-44 pt-20"
               aria-label="会话时间线"
+              ref={timelineScrollRef}
+              onScroll={(event) => {
+                const timeline = event.currentTarget;
+                const atBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight <= 48;
+                followTimelineRef.current = atBottom;
+                setShowJumpToBottom(!atBottom);
+              }}
             >
               {emptyConversation ? (
                 <ConversationEmptyState projectName={activeProject.title} />
@@ -757,7 +818,14 @@ export function OperatorConsole({
                 <div className="mx-auto max-w-[760px]">
                   <div className="divide-y divide-line">
                     {messages.map((message) => (
-                      <TimelineEntry key={message.id} message={message} onOpenDiagnostics={onOpenDiagnostics} />
+                      <TimelineEntry
+                        key={message.id}
+                        message={message}
+                        childSessions={childSessions}
+                        openedSubSessionId={openedSubSession?.session.sessionId ?? null}
+                        onOpenSubSession={openSubSession}
+                        onOpenDiagnostics={onOpenDiagnostics}
+                      />
                     ))}
                   </div>
 
@@ -786,6 +854,24 @@ export function OperatorConsole({
                 </div>
               )}
             </section>
+
+            {showJumpToBottom ? (
+              <button
+                type="button"
+                className="absolute bottom-36 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-xs text-sub shadow-overlay hover:text-ink"
+                onClick={() => {
+                  const timeline = timelineScrollRef.current;
+                  if (timeline !== null) {
+                    timeline.scrollTop = timeline.scrollHeight;
+                    followTimelineRef.current = true;
+                    setShowJumpToBottom(false);
+                  }
+                }}
+              >
+                <ArrowDown className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+                回到底部
+              </button>
+            ) : null}
 
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
                 <RoleComposer
@@ -841,6 +927,33 @@ export function OperatorConsole({
                   className="pointer-events-auto mx-auto max-w-[720px]"
                 />
             </div>
+            </div>
+
+            {openedSubSession ? (
+              <SubSessionPanel
+                title={openedSubSession.session.title}
+                narrow={isNarrowWindow}
+                onClose={closeSubSession}
+              >
+                <div className="divide-y divide-line">
+                  {openedSubSession.messages.map((message) => (
+                    <TimelineEntry key={message.id} message={message} onOpenDiagnostics={onOpenDiagnostics} />
+                  ))}
+                  {openedSubSession.activeRun ? (
+                    <RunBlock
+                      role={openedSubSession.activeRun.role ?? "dev"}
+                      summary={safeRunSummary(openedSubSession.activeRun.lastOutputSummary)}
+                      rawOutput={runRawOutput(openedSubSession.activeRun)}
+                      onInterrupt={() => onInterrupt(
+                        openedSubSession.activeRun!.sessionId,
+                        openedSubSession.activeRun!.runId,
+                      )}
+                      className="my-3"
+                    />
+                  ) : null}
+                </div>
+              </SubSessionPanel>
+            ) : null}
           </>
         )}
       </main>
@@ -1287,11 +1400,28 @@ export function resolveNewConversationAgentTeamKey(
 
 function TimelineEntry({
   message,
+  childSessions = [],
+  openedSubSessionId = null,
+  onOpenSubSession,
   onOpenDiagnostics,
 }: {
   message: OperatorMessage;
+  childSessions?: readonly OperatorChildSessionSummary[];
+  openedSubSessionId?: string | null;
+  onOpenSubSession?: (sessionId: string) => void;
   onOpenDiagnostics?: () => void;
 }): JSX.Element {
+  if (message.sourceKind === "local-child-session-card") {
+    const sessionIds = parseChildSessionCardIds(message.body);
+    const items = sessionIds === null
+      ? childSessions
+      : sessionIds.map((sessionId) => childSessions.find((item) => item.sessionId === sessionId)).filter(isDefined);
+    return (
+      <div className="py-4 pl-10">
+        <SubSessionCard items={items} openedSessionId={openedSubSessionId} onOpen={onOpenSubSession} />
+      </div>
+    );
+  }
   const outcome = terminalOutcome(message);
   if (outcome) {
     return (
@@ -1320,7 +1450,6 @@ function TimelineEntry({
 }
 
 function toSidebarProject(project: OperatorProject): ConversationSidebarProject {
-  const sessionsById = new Map(project.sessions.map((session) => [session.sessionId, session]));
   return {
     id: project.projectId,
     path: project.folderPath,
@@ -1328,14 +1457,9 @@ function toSidebarProject(project: OperatorProject): ConversationSidebarProject 
     newConversationDisabledReason: project.newConversationDisabledReason,
     directoryAvailable: project.directoryAvailable,
     directoryUnavailableReason: project.directoryUnavailableReason,
-    sessions: project.sessions.map((session) => ({
+    sessions: project.sessions.filter((session) => session.parentSessionId == null).map((session) => ({
       id: session.sessionId,
       title: session.title,
-      parentTitle: session.parentSessionId !== undefined
-        && session.parentSessionId !== null
-        && session.parentSessionId !== session.sessionId
-        ? sessionsById.get(session.parentSessionId)?.title
-        : undefined,
       unreadSince: session.unreadSince,
       isRunning: session.status === "running" || session.runningCount > 0,
       unresolvedSystemEventKind: session.unresolvedSystemEventKind === "run-not-started"
@@ -1349,6 +1473,37 @@ function toSidebarProject(project: OperatorProject): ConversationSidebarProject 
       summary: sessionSummary(session),
     })),
   };
+}
+
+export function parseChildSessionCardIds(body: string): string[] | null {
+  try {
+    const value = JSON.parse(body) as unknown;
+    if (typeof value !== "object" || value === null || !("childSessionIds" in value)) return null;
+    const childSessionIds = (value as { childSessionIds?: unknown }).childSessionIds;
+    return Array.isArray(childSessionIds) && childSessionIds.every((entry) => typeof entry === "string")
+      ? childSessionIds
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
+}
+
+function restoreTimelineScroll(
+  timelineRef: { current: HTMLElement | null },
+  scrollTop: number,
+): void {
+  const restore = () => {
+    if (timelineRef.current !== null) timelineRef.current.scrollTop = scrollTop;
+  };
+  restore();
+  window.requestAnimationFrame(() => {
+    restore();
+    window.requestAnimationFrame(restore);
+  });
 }
 
 function sessionSummary(session: OperatorSession): string | undefined {

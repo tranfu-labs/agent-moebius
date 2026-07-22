@@ -1,5 +1,5 @@
 import { ChevronDown, FolderOpen, GitBranch, Laptop } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { OperatorAgentTeam } from "@/console/agent-teams-page";
 import type { OperatorProject, OperatorSession } from "@/console/operator-console";
@@ -44,6 +44,8 @@ export function ComposerContext({
   onChangeSessionTeam?: (sessionId: string, team: OperatorAgentTeam) => void;
 }): JSX.Element {
   const [workspaceConfirmation, setWorkspaceConfirmation] = useState<WorkspaceMode | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(() => typeof window === "undefined" ? 1440 : window.innerWidth);
+  const visible = visibleComposerContextEntries(viewportWidth);
   const effectiveMode = selectedSession?.workspaceMode ?? "direct";
   const displayedMode = selectedSession?.workspacePendingMode ?? effectiveMode;
   const workspaceLabel = workspaceModeLabel(displayedMode);
@@ -58,10 +60,16 @@ export function ComposerContext({
       : `当前这一步跑完后换成${pendingAgentTeam.name?.trim() || "未命名团队"}`,
   ].filter((entry): entry is string => entry !== null);
 
+  useEffect(() => {
+    const updateWidth = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
+
   return (
     <div className="min-w-0 text-xs text-sub">
       <div className="flex min-w-0 items-center gap-3">
-        {canChangeProject && selectedSession && onChangeSessionProject ? (
+        {visible.project ? <span className="contents" data-context-entry="project">{canChangeProject && selectedSession && onChangeSessionProject ? (
           disabled ? (
             <button
               type="button"
@@ -108,9 +116,9 @@ export function ComposerContext({
             <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
             <span className="truncate">{project.title}</span>
           </span>
-        )}
+        )}</span> : null}
 
-        {selectedSession && onChangeSessionWorkspace ? (
+        {visible.workspace ? <span className="contents" data-context-entry="workspace">{selectedSession && onChangeSessionWorkspace ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -155,14 +163,14 @@ export function ComposerContext({
             <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
             {workspaceLabel}
           </span>
-        )}
+        )}</span> : null}
 
-        <span className="inline-flex min-w-0 items-center gap-1.5" aria-label={`分支：${branchName}`}>
+        {visible.branch ? <span className="inline-flex min-w-0 items-center gap-1.5" aria-label={`分支：${branchName}`} data-context-entry="branch">
           <GitBranch className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
           <span className="truncate">{branchName}</span>
-        </span>
+        </span> : null}
 
-        <SessionTeamMenu
+        {visible.team ? <span className="contents" data-context-entry="team"><SessionTeamMenu
           team={agentTeam}
           pendingTeam={pendingAgentTeam}
           missingTeamId={missingAgentTeamId}
@@ -172,7 +180,7 @@ export function ComposerContext({
           onSelectTeam={selectedSession && onChangeSessionTeam
             ? (team) => onChangeSessionTeam(selectedSession.sessionId, team)
             : undefined}
-        />
+        /></span> : null}
       </div>
 
       {pendingDescriptions.length > 0 ? (
@@ -220,4 +228,18 @@ export function ComposerContext({
 
 function workspaceModeLabel(mode: WorkspaceMode): string {
   return mode === "worktree" ? "独立工作空间" : "默认工作空间";
+}
+
+export function visibleComposerContextEntries(width: number): {
+  branch: boolean;
+  workspace: boolean;
+  team: boolean;
+  project: boolean;
+} {
+  return {
+    branch: width >= 1_000,
+    workspace: width >= 760,
+    team: width >= 560,
+    project: width >= 420,
+  };
 }

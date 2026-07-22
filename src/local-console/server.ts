@@ -272,6 +272,20 @@ async function handleRequest(
       return;
     }
 
+    const sessionChildrenMatch = matchSessionRoute(url.pathname, "children");
+    if (request.method === "GET" && sessionChildrenMatch !== null) {
+      sendJson(response, 200, {
+        childSessions: await runtime.childSessionSummaries(sessionChildrenMatch.sessionId),
+      });
+      return;
+    }
+
+    const sessionViewMatch = matchSessionRoute(url.pathname, "view");
+    if (request.method === "GET" && sessionViewMatch !== null) {
+      sendJson(response, 200, await runtime.sessionView(sessionViewMatch.sessionId));
+      return;
+    }
+
     const sessionProjectMatch = matchSessionRoute(url.pathname, "project");
     if (request.method === "PATCH" && sessionProjectMatch !== null) {
       let payload: unknown;
@@ -729,7 +743,7 @@ function matchProjectRoute(pathname: string): { projectId: string } | null {
 
 function matchSessionRoute(
   pathname: string,
-  action: "messages" | "read" | "interrupt" | "project" | "workspace" | "team" | "archive" | "restore",
+  action: "messages" | "read" | "interrupt" | "project" | "workspace" | "team" | "archive" | "restore" | "children" | "view",
 ): { sessionId: string } | null {
   const match = new RegExp(`^/api/local-console/sessions/(.+)/${action}$`, "u").exec(pathname);
   if (match === null) {

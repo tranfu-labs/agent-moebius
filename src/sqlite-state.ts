@@ -75,6 +75,16 @@ export type SqliteStateCommand =
       initialRole: string | null;
       now: string;
     }
+  | { kind: "local-list-child-session-summary-sources"; parentSessionId: string }
+  | {
+      kind: "local-record-child-session-card";
+      parentSessionId: string;
+      sourceId: string;
+      body: string;
+      runId: string;
+      runDir: string;
+      now: string;
+    }
   | { kind: "local-list-sessions" }
   | { kind: "local-mark-session-result-read"; sessionId: string; unreadSince: string; now: string }
   | { kind: "local-append-user"; sessionId: string; body: string; now: string }

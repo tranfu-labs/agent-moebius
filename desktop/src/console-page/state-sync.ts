@@ -175,7 +175,7 @@ interface SessionResponse {
 interface ProjectResponse {
   project?: {
     projectId: string;
-    sessions: Array<{ sessionId: string }>;
+    sessions: Array<{ sessionId: string; parentSessionId?: string | null }>;
   };
   error?: string;
 }
@@ -330,7 +330,8 @@ export class ConsoleStateActions {
       }
       const nextSelection = {
         projectId: body.project.projectId,
-        sessionId: body.project.sessions[0]?.sessionId ?? this.options.getSelection().sessionId,
+        sessionId: body.project.sessions.find((session) => session.parentSessionId == null)?.sessionId
+          ?? this.options.getSelection().sessionId,
       };
       this.options.commitSelection(nextSelection);
       await this.options.refresh(nextSelection, token);

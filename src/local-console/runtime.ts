@@ -33,6 +33,10 @@ import {
   type LocalAcceptancePrePassDecision,
 } from "./acceptance-loop.js";
 import { readLocalConsoleOutputTail } from "./output-tail.js";
+import {
+  listLocalChildSessionSummaries,
+  recordLocalChildSessionCard,
+} from "./child-session-summary.js";
 import { maybeRouteLocalNoMentionMessage, type LocalRouteJudgment } from "./route-bus.js";
 import {
   createLocalChildSession,
@@ -60,6 +64,7 @@ import {
   type LocalConsoleAgentTeamSnapshot,
   type LocalConsoleSnapshot,
   type LocalConsoleStateSnapshot,
+  type LocalConsoleSessionView,
   type LocalConsoleStore,
 } from "./types.js";
 import {
@@ -521,23 +526,32 @@ export class LocalConsoleRuntime {
     await this.synchronizeNonContinuableRecords(projects);
     await this.stopUnsafeRunsWithUnavailableContext(projects);
     const sessions = projects.flatMap((project) => project.sessions);
+    const firstRootSession = sessions.find((session) => session.parentSessionId == null);
     const requestedProject = requestedProjectId === undefined ? undefined : projects.find((project) => project.projectId === requestedProjectId);
     const requestedSession = (requestedProject?.sessions ?? sessions).find((session) => session.sessionId === selectedSessionId);
     const selectedProject =
       requestedProject ??
       (requestedSession === undefined ? undefined : projects.find((project) => project.projectId === requestedSession.projectId)) ??
+      (firstRootSession === undefined ? undefined : projects.find((project) => project.projectId === firstRootSession.projectId)) ??
       projects[0] ??
       buildFallbackProjectSummary(this.options.projectRoot);
     const storedSelectedSession =
       (requestedSession?.projectId === selectedProject.projectId ? requestedSession : undefined) ??
-      selectedProject.sessions[0] ??
-      (requestedProject === undefined ? sessions[0] : undefined) ??
+      selectedProject.sessions.find((session) => session.parentSessionId == null) ??
+      (requestedProject === undefined ? firstRootSession : undefined) ??
       null;
     const selectedSession = storedSelectedSession;
     const sessionId = selectedSession?.sessionId ?? selectedSessionId;
     const messages = selectedSession === null
       ? []
       : await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
+    const childSessions = selectedSession === null
+      ? []
+      : await this.storeCall("local-console-store-list-child-sessions", () =>
+          listLocalChildSessionSummaries({
+            sqlitePath: this.options.store.sqlitePath,
+            timeoutMs: this.storeTimeoutMs,
+          }, selectedSession.sessionId));
     return {
       projects,
       project: selectedProject,
@@ -545,10 +559,33 @@ export class LocalConsoleRuntime {
       selectedSessionId: sessionId,
       selectedSession,
       messages,
+      childSessions,
       activeRun: await this.activeRunSnapshot(sessionId),
       sqlitePath: this.options.store.sqlitePath,
       lastError: this.lastError,
     };
+  }
+
+  async sessionView(sessionId: string): Promise<LocalConsoleSessionView> {
+    const sessions = await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions());
+    const session = sessions.find((candidate) => candidate.sessionId === sessionId);
+    if (session === undefined) {
+      throw new Error(`local console session not found: ${sessionId}`);
+    }
+    const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
+    return {
+      session,
+      messages,
+      activeRun: await this.activeRunSnapshot(sessionId),
+    };
+  }
+
+  async childSessionSummaries(parentSessionId: string) {
+    return await this.storeCall("local-console-store-list-child-sessions", () =>
+      listLocalChildSessionSummaries({
+        sqlitePath: this.options.store.sqlitePath,
+        timeoutMs: this.storeTimeoutMs,
+      }, parentSessionId));
   }
 
   async processPending(sessionId = this.sessionId): Promise<void> {
@@ -756,15 +793,15 @@ export class LocalConsoleRuntime {
 
           const sourceDirectoryAvailable = await this.sessionProjectDirectoryAvailable(sessionId);
 
-          if (sourceDirectoryAvailable && trigger.role === "ceo") {
-            await this.executeLocalCeoChildSessionOrchestrationIfNeeded({
+          const childSessionCard = sourceDirectoryAvailable && trigger.role === "ceo"
+            ? await this.executeLocalCeoChildSessionOrchestrationIfNeeded({
               sessionId,
               runId: nextRunId,
               runDir: result.runDir,
               finalText: result.finalText,
               availableAgentNames: agentFiles.map((agent) => agent.name),
-            });
-          }
+            })
+            : null;
 
           if (sourceDirectoryAvailable) {
             await this.recordWorkspaceDiffIfNeeded(sessionId, nextRunId, resolvedRunDir, workspace, result.finalText, controller.signal);
@@ -794,6 +831,27 @@ export class LocalConsoleRuntime {
             activeRunId = null;
             activeRunDir = null;
             throw error;
+          }
+          if (childSessionCard !== null) {
+            try {
+              await this.storeCall("local-console-store-child-session-card", () =>
+                recordLocalChildSessionCard(
+                  { sqlitePath: this.options.store.sqlitePath, timeoutMs: this.storeTimeoutMs },
+                  {
+                    parentSessionId: sessionId,
+                    sourceId: childSessionCard.sourceId,
+                    childSessionIds: childSessionCard.childSessionIds,
+                    runId: nextRunId,
+                    runDir: result.runDir,
+                    now: this.nowIso(),
+                  },
+                ));
+            } catch (error) {
+              const reason = formatLocalError(error);
+              this.lastError = reason;
+              await this.recordVisibleChildSessionFailureBestEffort(sessionId, reason);
+              throw error;
+            }
           }
           this.lastError = null;
           if (!sourceDirectoryAvailable) {
@@ -1491,10 +1549,10 @@ export class LocalConsoleRuntime {
     runDir: string;
     finalText: string;
     availableAgentNames: string[];
-  }): Promise<void> {
+  }): Promise<{ sourceId: string; childSessionIds: string[] } | null> {
     const visibleTaskIds = collectLocalCeoLedgerTaskIds(input.finalText);
     if (visibleTaskIds.length === 0) {
-      return;
+      return null;
     }
     const scripts = await loadCeoScripts({ agentsDir: path.join(this.options.projectRoot, "agents"), required: false });
     const parsed = parseCeoOrchestrationOutput({
@@ -1504,7 +1562,7 @@ export class LocalConsoleRuntime {
       visibleTaskIds,
     });
     if (!parsed.ok) {
-      return;
+      return null;
     }
     const descriptors =
       parsed.value.action === "spawn_child_issues"
@@ -1513,7 +1571,7 @@ export class LocalConsoleRuntime {
           ? { workflowId: parsed.value.workflowId, groups: parsed.value.groups, issues: parsed.value.issues }
           : null;
     if (descriptors === null || descriptors.issues.length === 0) {
-      return;
+      return null;
     }
 
     const workspace = await this.storeCall("local-console-store-session-workspace", () => this.options.store.getSessionWorkspace(input.sessionId));
@@ -1547,21 +1605,13 @@ export class LocalConsoleRuntime {
         }),
       );
     }
-    await this.storeCall("local-console-store-child-session-summary", () =>
-      this.options.store.recordSystemMessage({
-        sessionId: input.sessionId,
-        body: `团队已创建 ${String(created.length)} 个子任务，并会继续推进。`,
-        systemEventKind: "other",
-        runId: input.runId,
-        runDir: input.runDir,
-        error: null,
-        status: "displayed",
-        now: this.nowIso(),
-      }),
-    );
     for (const child of created) {
       void this.processPending(child.sessionId);
     }
+    return {
+      sourceId: `workflow:${descriptors.workflowId}`,
+      childSessionIds: created.map((child) => child.sessionId),
+    };
   }
 
   private async recordWorkspaceDiffIfNeeded(

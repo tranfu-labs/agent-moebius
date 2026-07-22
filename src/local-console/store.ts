@@ -478,6 +478,8 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
       systemEventKind: readSystemEventKind(value.systemEventKind),
       failureCount: "failureCount" in value ? readNumber(value.failureCount, "failureCount") : 0,
       lastFailureReason: "lastFailureReason" in value ? readNullableString(value.lastFailureReason, "lastFailureReason") : null,
+      sourceKind: "sourceKind" in value ? readNullableString(value.sourceKind, "sourceKind") : null,
+      sourceId: "sourceId" in value ? readNullableString(value.sourceId, "sourceId") : null,
       createdAt: readString(value.createdAt, "createdAt"),
       updatedAt: readString(value.updatedAt, "updatedAt"),
     } satisfies LocalConsoleMessage;

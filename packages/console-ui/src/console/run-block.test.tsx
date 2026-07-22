@@ -57,6 +57,7 @@ describe("RunBlock", () => {
     expect(screen.getByText("正在整理测试设计")).toBeVisible();
     expect(screen.getByRole("button", { name: "停下测试当前这一步" })).toBeVisible();
     expect(screen.queryByText("idle-timeout raw detail")).not.toBeInTheDocument();
+    expect(screen.getByTestId("run-live-output")).toHaveClass("max-w-full", "overflow-x-auto", "whitespace-pre");
   });
 
   it("uses deterministic fallbacks when steps, summary, and elapsed time are missing or blank", () => {

@@ -26,6 +26,7 @@ import {
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
   LOCAL_CONSOLE_PROJECT_ID,
+  type LocalConsoleChildSessionSummary,
   type LocalConsoleMessage,
   type LocalConsoleProjectSummary,
   type LocalConsoleSessionSummary,
@@ -143,7 +144,7 @@ describe("local console", () => {
     }
   });
 
-  it("persists an Agent team binding atomically and migrates legacy sessions to the built-in team", async () => {
+  it("persists an Agent team binding atomically and preserves unbound legacy sessions", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
     const store = await createSqliteLocalConsoleStore({ sqlitePath });
@@ -161,7 +162,7 @@ describe("local console", () => {
     expect((await store.listSessions()).find((session) => session.sessionId === "local:bound-team"))
       .toMatchObject({ agentTeamOwnership: "user", agentTeamId: "my-team" });
     expect((await store.listSessions()).find((session) => session.sessionId === LOCAL_CONSOLE_DEFAULT_SESSION_ID))
-      .toMatchObject({ agentTeamOwnership: "system", agentTeamId: "development" });
+      .toMatchObject({ agentTeamOwnership: null, agentTeamId: null });
     await store.close();
 
     const restarted = await createSqliteLocalConsoleStore({ sqlitePath });
@@ -169,6 +170,8 @@ describe("local console", () => {
     try {
       expect((await restarted.listSessions()).find((session) => session.sessionId === "local:bound-team"))
         .toMatchObject({ agentTeamOwnership: "user", agentTeamId: "my-team" });
+      expect((await restarted.listSessions()).find((session) => session.sessionId === LOCAL_CONSOLE_DEFAULT_SESSION_ID))
+        .toMatchObject({ agentTeamOwnership: null, agentTeamId: null });
     } finally {
       await restarted.close();
     }
@@ -1473,7 +1476,7 @@ describe("local console", () => {
       ],
     })}\n\n<!-- agent-moebius:stage=in-progress -->`;
     const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, ceoOutput));
-    const started = await startLocalConsoleServer({
+    let started = await startLocalConsoleServer({
       projectRoot: root,
       port: 0,
       runCodex,
@@ -1486,13 +1489,37 @@ describe("local console", () => {
       const state = await waitForState(started.url, parent.sessionId, (data) => {
         const sessions = data.projects.flatMap((project) => project.sessions);
         return sessions.filter((session) => session.parentSessionId === parent.sessionId).length === 2 &&
-          data.messages.some((entry) => entry.body === "团队已创建 2 个子任务，并会继续推进。");
+          data.messages.some((entry) => entry.sourceKind === "local-child-session-card");
       });
       const childSessions = state.projects.flatMap((project) => project.sessions).filter((session) => session.parentSessionId === parent.sessionId);
       expect(childSessions.map((session) => session.title).sort()).toEqual(["Task A", "Task B"]);
-      expect(state.messages.some((entry) => entry.body === "团队已创建 2 个子任务，并会继续推进。")).toBe(true);
+      const triggerIndex = state.messages.findIndex((entry) => entry.body === ceoOutput);
+      const cardIndex = state.messages.findIndex((entry) => entry.sourceKind === "local-child-session-card");
+      expect(cardIndex).toBeGreaterThan(triggerIndex);
+      expect(JSON.parse(state.messages[cardIndex]!.body)).toMatchObject({
+        version: 1,
+        childSessionIds: expect.arrayContaining(childSessions.map((session) => session.sessionId)),
+      });
+      expect(state.childSessions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ title: "Task A", memberName: "开发" }),
+        expect.objectContaining({ title: "Task B", memberName: "开发" }),
+      ]));
       const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, parent.sessionId);
       expect(facts.sessionEdges).toHaveLength(2);
+
+      await started.close();
+      started = await startLocalConsoleServer({
+        projectRoot: root,
+        port: 0,
+        runCodex,
+        makeRunDir: (count) => path.join(root, "runs", `child-orchestration-restart-${String(count)}`),
+        storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+      });
+      const restartedState = await getState(started.url, parent.sessionId);
+      expect(restartedState.messages.findIndex((entry) => entry.sourceKind === "local-child-session-card"))
+        .toBe(cardIndex);
+      expect(restartedState.messages.findIndex((entry) => entry.body === ceoOutput))
+        .toBe(triggerIndex);
     } finally {
       await started.close();
     }
@@ -2839,7 +2866,7 @@ async function waitForSnapshot(
 
 interface LocalSnapshotResponse {
   status: "idle" | "running" | "failed" | "stuck";
-  messages: Array<{ speaker: string; role: string | null; body: string; status: string; error: string | null; runDir: string | null; systemEventKind: string }>;
+  messages: LocalConsoleMessage[];
   activeRun: LocalRunSnapshotResponse | null;
 }
 
@@ -2867,7 +2894,8 @@ interface LocalStateResponse {
   selectedProjectId: string;
   selectedSessionId: string;
   selectedSession: LocalConsoleSessionSummary | null;
-  messages: Array<{ speaker: string; role: string | null; body: string; status: string; error: string | null; runDir: string | null; systemEventKind: string }>;
+  messages: LocalConsoleMessage[];
+  childSessions: LocalConsoleChildSessionSummary[];
   activeRun: LocalRunSnapshotResponse | null;
 }
 

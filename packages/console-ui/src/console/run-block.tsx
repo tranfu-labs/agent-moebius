@@ -81,8 +81,8 @@ export function RunBlock({
           ))}
         </div>
       ) : (
-        <div className="mt-3 text-sm text-sub">
-          <div>{fallbackSummary}</div>
+        <div className="mt-3 max-w-full overflow-x-auto whitespace-pre text-sm text-sub" data-testid="run-live-output">
+          {fallbackSummary}
         </div>
       )}
     </div>

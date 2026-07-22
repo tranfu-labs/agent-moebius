@@ -1,0 +1,46 @@
+import { X } from "lucide-react";
+import type { ReactNode } from "react";
+
+import { cn } from "@/lib/utils";
+
+export function SubSessionPanel({
+  title,
+  narrow,
+  onClose,
+  children,
+  className,
+}: {
+  title: string;
+  narrow: boolean;
+  onClose: () => void;
+  children: ReactNode;
+  className?: string;
+}): JSX.Element {
+  return (
+    <aside
+      className={cn(
+        "absolute inset-y-0 right-0 z-30 flex min-w-0 flex-col border-l border-line bg-canvas shadow-overlay",
+        narrow ? "left-0 w-full border-l-0" : "w-1/2 min-w-[360px]",
+        className,
+      )}
+      aria-label={`子会话：${title}`}
+      data-layout={narrow ? "overlay" : "split"}
+      data-testid="sub-session-panel"
+    >
+      <header className="window-drag-region flex h-16 shrink-0 items-end justify-between gap-3 border-b border-line px-5 pb-3">
+        <h2 className="min-w-0 truncate text-sm font-semibold text-ink" title={title}>{title}</h2>
+        <button
+          type="button"
+          className="window-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          aria-label="关闭子会话"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+        </button>
+      </header>
+      <div className="scroll-thin min-h-0 flex-1 overflow-auto px-5 py-3" data-testid="sub-session-panel-content">
+        {children}
+      </div>
+    </aside>
+  );
+}

@@ -840,7 +840,7 @@ describe("OperatorConsole", () => {
     expect(onSidebarOpenChange).not.toHaveBeenCalled();
   });
 
-  it("renders the Codex frame, flat session rail, bottom context, and live run controls", () => {
+  it("renders the Codex frame, root session rail, bottom context, and live run controls", () => {
     const onInterrupt = vi.fn();
     renderConsole({ activeRun: runSnapshot, onInterrupt });
 
@@ -880,26 +880,125 @@ describe("OperatorConsole", () => {
     expect(onOpenDiagnostics).not.toHaveBeenCalled();
   });
 
-  it("renders derived sessions as peers while exposing their parent through hover and assistive text", () => {
+  it("keeps derived sessions out of the sidebar and opens them from a timeline card", () => {
+    const onOpenSubSession = vi.fn();
+    const parentSession = {
+      ...sessions[0],
+      status: "idle" as const,
+      runningCount: 0,
+      childCount: 1,
+      lastMessageMentionsAgent: true,
+    };
     const childSession = { ...sessions[1], parentSessionId: sessions[0].sessionId, title: "裂变会话" };
     renderConsole({
-      selectedSessionId: childSession.sessionId,
-      selectedSession: childSession,
+      selectedSessionId: parentSession.sessionId,
+      selectedSession: parentSession,
       project: {
         ...project,
-        sessions: [{ ...sessions[0], childCount: 1 }, childSession],
+        sessions: [parentSession, childSession],
       },
+      messages: [message({
+        id: 10,
+        speaker: "system",
+        sourceKind: "local-child-session-card",
+        body: JSON.stringify({ version: 1, childSessionIds: [childSession.sessionId] }),
+      })],
+      childSessions: [{
+        sessionId: childSession.sessionId,
+        title: childSession.title,
+        memberName: "测试",
+        status: "not-started",
+        statusLabel: "没跑起来",
+      }],
+      onOpenSubSession,
     });
 
-    const [rootRow, derivedRow] = screen.getAllByTestId("conversation-sidebar-session");
-    expect(rootRow).toBeDefined();
-    expect(derivedRow).toBeDefined();
-    expect(rootRow!.className.replace("bg-transparent", "bg-sel")).toBe(derivedRow!.className);
-    expect(screen.getAllByText("裂变会话").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "裂变会话，来自：默认会话，需要你处理" }))
-      .toHaveAttribute("title", "裂变会话（来自：默认会话）");
-    expect(screen.queryByText(/属于：/u)).not.toBeInTheDocument();
-    expect(screen.queryByText(/子会话/u)).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("conversation-sidebar-session")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "默认会话" })).toHaveAttribute("data-status-dot", "none");
+    const cardRow = screen.getByRole("button", { name: "裂变会话，负责成员：测试，状态：没跑起来" });
+    expect(cardRow).toHaveAttribute("data-status", "not-started");
+    fireEvent.click(cardRow);
+    expect(onOpenSubSession).toHaveBeenCalledWith(childSession.sessionId);
+  });
+
+  it("keeps the parent visible in a wide split, overlays narrow windows, and restores parent scroll after close", async () => {
+    setWindowWidth(1200);
+    const onOpenSubSession = vi.fn();
+    const onCloseSubSession = vi.fn();
+    const childSession = { ...sessions[1], parentSessionId: sessions[0].sessionId, title: "空状态验收" };
+    const cardMessage = message({
+      id: 10,
+      speaker: "system",
+      sourceKind: "local-child-session-card",
+      body: JSON.stringify({ version: 1, childSessionIds: [childSession.sessionId] }),
+    });
+    const overrides: Partial<OperatorConsoleProps> = {
+      messages: [cardMessage],
+      childSessions: [{
+        sessionId: childSession.sessionId,
+        title: childSession.title,
+        memberName: "测试",
+        status: "waiting",
+        statusLabel: "等待中",
+      }],
+      onOpenSubSession,
+      onCloseSubSession,
+    };
+    const { rerender } = renderConsole(overrides);
+    const timeline = screen.getByRole("region", { name: "会话时间线" });
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 1_200 });
+    Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 500 });
+    timeline.scrollTop = 240;
+    fireEvent.scroll(timeline);
+    fireEvent.click(screen.getByRole("button", { name: /空状态验收，负责成员/u }));
+
+    rerender(<OperatorConsole {...baseProps({
+      ...overrides,
+      messages: [cardMessage, message({ id: 11, body: "父会话新消息" })],
+      openedSubSession: {
+        session: childSession,
+        messages: [message({ id: 20, sessionId: childSession.sessionId, body: "子会话内容" })],
+        activeRun: null,
+      },
+    })} />);
+    expect(screen.getByTestId("sub-session-panel")).toHaveAttribute("data-layout", "split");
+    expect(screen.getByTestId("parent-conversation-pane")).toHaveClass("mr-[50%]");
+    expect(screen.getByRole("region", { name: "会话时间线" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toBeEnabled();
+    timeline.scrollTop = 700;
+
+    setWindowWidth(700);
+    expect(screen.getByTestId("sub-session-panel")).toHaveAttribute("data-layout", "overlay");
+    expect(screen.getByTestId("parent-conversation-pane")).not.toHaveClass("mr-[50%]");
+    fireEvent.click(screen.getByRole("button", { name: "关闭子会话" }));
+    expect(onCloseSubSession).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(timeline.scrollTop).toBe(240));
+  });
+
+  it("follows new content only at the bottom and offers an explicit return after upward reading", () => {
+    const { rerender } = renderConsole();
+    const timeline = screen.getByRole("region", { name: "会话时间线" });
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 1_000 });
+    Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 400 });
+    timeline.scrollTop = 200;
+    fireEvent.scroll(timeline);
+    expect(screen.getByRole("button", { name: "回到底部" })).toBeVisible();
+
+    rerender(<OperatorConsole {...baseProps({ messages: [message({ id: 1, body: "第一条" }), message({ id: 2, body: "第二条" })] })} />);
+    expect(timeline.scrollTop).toBe(200);
+    fireEvent.click(screen.getByRole("button", { name: "回到底部" }));
+    expect(timeline.scrollTop).toBe(1_000);
+
+    timeline.scrollTop = 600;
+    fireEvent.scroll(timeline);
+    rerender(<OperatorConsole {...baseProps({
+      messages: [
+        message({ id: 1, body: "第一条" }),
+        message({ id: 2, body: "第二条" }),
+        message({ id: 3, body: "第三条" }),
+      ],
+    })} />);
+    expect(timeline.scrollTop).toBe(1_000);
   });
 
   it("keeps machine terms out of the default conversation surface", () => {
@@ -942,7 +1041,7 @@ describe("OperatorConsole", () => {
     expect(onChangeSessionWorkspace).toHaveBeenCalledWith("session-a", "direct");
   });
 
-  it("keeps corrupt lineage records visible once because the rail is flat", () => {
+  it("keeps every record with a parent out of the root session rail, including corrupt lineage", () => {
     renderConsole({
       project: {
         ...project,
@@ -955,10 +1054,11 @@ describe("OperatorConsole", () => {
       },
     });
 
-    expect(screen.getAllByText("Cycle A")).toHaveLength(1);
-    expect(screen.getAllByText("Cycle B")).toHaveLength(1);
-    expect(screen.getAllByText("Self parent")).toHaveLength(1);
-    expect(screen.getAllByText("Missing parent")).toHaveLength(1);
+    expect(screen.queryByText("Cycle A")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cycle B")).not.toBeInTheDocument();
+    expect(screen.queryByText("Self parent")).not.toBeInTheDocument();
+    expect(screen.queryByText("Missing parent")).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId("conversation-sidebar-session")).toHaveLength(0);
   });
 
   it("switches an empty session project from the composer dropdown", async () => {
@@ -1362,6 +1462,8 @@ function message(input: Partial<OperatorMessage> & { id: number; body: string })
     speaker: input.speaker ?? "user",
     role: input.role ?? null,
     body: input.body,
+    sourceKind: input.sourceKind ?? null,
+    sourceId: input.sourceId ?? null,
     status: input.status ?? "completed",
     runId: input.runId ?? null,
     runDir: input.runDir ?? null,
