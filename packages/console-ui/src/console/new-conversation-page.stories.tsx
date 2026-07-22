@@ -11,7 +11,11 @@ const meta = {
       { projectId: "a", title: "agent-moebius", available: true, workspaceLabel: "默认工作空间", branchLabel: "main" },
       { projectId: "b", title: "marketing-site", available: true, workspaceLabel: "独立工作空间", branchLabel: "agent/demo" },
     ],
-    teams: [{ teamKey: "system:development", label: "开发团队" }],
+    teams: [{
+      teamKey: "system:development",
+      label: "开发团队",
+      members: [{ slug: "dev", displayName: "开发", description: "实现功能" }],
+    }],
     selectedProjectId: null,
     selectedTeamKey: "system:development",
     draft: "",

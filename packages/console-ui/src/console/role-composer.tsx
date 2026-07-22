@@ -4,6 +4,13 @@ import { ArrowUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
 
+export interface RoleCompletion {
+  handle: string;
+  label: string;
+  description: string;
+  avatar?: string;
+}
+
 export const ROLE_COMPLETIONS = [
   { handle: "ceo", label: "CEO", description: "澄清目标并编排任务", avatar: "C" },
   { handle: "dev", label: "开发", description: "写方案并实现代码", avatar: "开" },
@@ -12,9 +19,9 @@ export const ROLE_COMPLETIONS = [
   { handle: "product-manager", label: "产品", description: "确认需求与验收范围", avatar: "产" },
   { handle: "hermes-user", label: "用户代表", description: "从用户视角验收体验", avatar: "用" },
   { handle: "secretary", label: "秘书", description: "维护 CEO 规则与文档", avatar: "秘" },
-] as const;
+] as const satisfies readonly RoleCompletion[];
 
-export type RoleHandle = (typeof ROLE_COMPLETIONS)[number]["handle"];
+export type RoleHandle = string;
 
 export interface RoleComposerProps {
   value: string;
@@ -25,6 +32,7 @@ export interface RoleComposerProps {
   submitLabel?: string;
   disabled?: boolean;
   submitDisabled?: boolean;
+  roles?: readonly RoleCompletion[];
   context?: React.ReactNode;
   className?: string;
 }
@@ -39,10 +47,6 @@ interface TextRange {
   start: number;
   end: number;
 }
-
-const roleHandlePattern = ROLE_COMPLETIONS.map((role) => role.handle)
-  .sort((left, right) => right.length - left.length)
-  .join("|");
 
 export function maskCodeSpans(text: string): string {
   const chars = [...text];
@@ -97,13 +101,29 @@ export function findActiveRoleTrigger(text: string, cursor: number): RoleTrigger
   return { start: atIndex, end: safeCursor, query: query.toLowerCase() };
 }
 
-export function hasLegalRoleMention(text: string, ignoreRange?: TextRange): boolean {
-  return findLegalRoleMentions(text, ignoreRange).length > 0;
+export function hasLegalRoleMention(
+  text: string,
+  ignoreRange?: TextRange,
+  roles: readonly RoleCompletion[] = ROLE_COMPLETIONS,
+): boolean {
+  return findLegalRoleMentions(text, ignoreRange, roles).length > 0;
 }
 
-export function findLegalRoleMentions(text: string, ignoreRange?: TextRange): TextRange[] {
+export function findLegalRoleMentions(
+  text: string,
+  ignoreRange?: TextRange,
+  roles: readonly RoleCompletion[] = ROLE_COMPLETIONS,
+): TextRange[] {
+  if (roles.length === 0) {
+    return [];
+  }
+
   const masked = maskCodeSpans(text);
   const mentions: TextRange[] = [];
+  const roleHandlePattern = roles
+    .map((role) => escapeRegExp(role.handle))
+    .sort((left, right) => right.length - left.length)
+    .join("|");
   const matcher = new RegExp(`@(${roleHandlePattern})`, "gu");
 
   for (const match of masked.matchAll(matcher)) {
@@ -122,9 +142,14 @@ export function findLegalRoleMentions(text: string, ignoreRange?: TextRange): Te
   return mentions;
 }
 
-export function insertRoleMention(text: string, cursor: number, handle: RoleHandle): { value: string; cursor: number } {
+export function insertRoleMention(
+  text: string,
+  cursor: number,
+  handle: RoleHandle,
+  roles: readonly RoleCompletion[] = ROLE_COMPLETIONS,
+): { value: string; cursor: number } {
   const trigger = findActiveRoleTrigger(text, cursor);
-  if (!trigger || hasLegalRoleMention(text, trigger)) {
+  if (!trigger || !roles.some((role) => role.handle === handle) || hasLegalRoleMention(text, trigger, roles)) {
     return { value: text, cursor };
   }
 
@@ -143,6 +168,7 @@ export function RoleComposer({
   submitLabel = "发送消息",
   disabled = false,
   submitDisabled = false,
+  roles: roleOptions = ROLE_COMPLETIONS,
   context,
   className,
 }: RoleComposerProps): JSX.Element {
@@ -156,18 +182,18 @@ export function RoleComposer({
 
   const trigger = findActiveRoleTrigger(value, caret);
   const triggerKey = trigger ? `${value}:${trigger.start}:${trigger.end}` : null;
-  const roles = trigger ? matchingRoles(trigger.query) : [];
+  const matchingRoleOptions = trigger ? matchingRoles(roleOptions, trigger.query) : [];
   const panelOpen =
     focused &&
     !disabled &&
     trigger !== null &&
-    roles.length > 0 &&
-    !hasLegalRoleMention(value, trigger) &&
+    matchingRoleOptions.length > 0 &&
+    !hasLegalRoleMention(value, trigger, roleOptions) &&
     closedTriggerKey !== triggerKey;
 
   React.useEffect(() => {
     setActiveIndex(0);
-  }, [triggerKey, roles.length]);
+  }, [triggerKey, matchingRoleOptions.length]);
 
   React.useLayoutEffect(() => {
     if (pendingCaretRef.current === null || !inputRef.current) {
@@ -186,7 +212,7 @@ export function RoleComposer({
 
   const selectRole = (handle: RoleHandle) => {
     const currentCaret = inputRef.current?.selectionStart ?? caret;
-    const next = insertRoleMention(value, currentCaret, handle);
+    const next = insertRoleMention(value, currentCaret, handle, roleOptions);
     if (next.value === value) {
       return;
     }
@@ -201,19 +227,19 @@ export function RoleComposer({
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (panelOpen && event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveIndex((current) => (current + 1) % roles.length);
+      setActiveIndex((current) => (current + 1) % matchingRoleOptions.length);
       return;
     }
 
     if (panelOpen && event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex((current) => (current - 1 + roles.length) % roles.length);
+      setActiveIndex((current) => (current - 1 + matchingRoleOptions.length) % matchingRoleOptions.length);
       return;
     }
 
     if (panelOpen && event.key === "Enter") {
       event.preventDefault();
-      selectRole(roles[activeIndex].handle);
+      selectRole(matchingRoleOptions[activeIndex].handle);
       return;
     }
 
@@ -238,7 +264,7 @@ export function RoleComposer({
           className="absolute bottom-full left-0 z-30 mb-2 w-full rounded-xl border border-line bg-card p-1.5 shadow-overlay"
           aria-label="角色补全面板"
         >
-          {roles.map((role, index) => (
+          {matchingRoleOptions.map((role, index) => (
             <button
               key={role.handle}
               type="button"
@@ -254,7 +280,7 @@ export function RoleComposer({
               }}
             >
               <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-sunken text-xs font-semibold text-ava-fg">
-                {role.avatar}
+                {role.avatar ?? (role.label.trim().charAt(0) || role.handle.charAt(0).toUpperCase())}
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium text-ink">{role.label}</span>
@@ -311,12 +337,16 @@ export function RoleComposer({
   );
 }
 
-function matchingRoles(query: string): ReadonlyArray<(typeof ROLE_COMPLETIONS)[number]> {
+function matchingRoles(roles: readonly RoleCompletion[], query: string): readonly RoleCompletion[] {
   if (query.length === 0) {
-    return ROLE_COMPLETIONS;
+    return roles;
   }
 
-  return ROLE_COMPLETIONS.filter((role) => role.handle.startsWith(query));
+  return roles.filter((role) => role.handle.startsWith(query));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function rangesOverlap(left: TextRange, right: TextRange): boolean {

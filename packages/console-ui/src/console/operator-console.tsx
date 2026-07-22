@@ -28,7 +28,7 @@ import {
   ConversationSidebar,
   type ConversationSidebarProject,
 } from "@/console/conversation-sidebar";
-import { RoleComposer } from "@/console/role-composer";
+import { RoleComposer, type RoleCompletion } from "@/console/role-composer";
 import { RunBlock } from "@/console/run-block";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { SubSessionCard, type SubSessionCardItem } from "@/console/sub-session-card";
@@ -404,6 +404,7 @@ export function OperatorConsole({
         status: selectedSession.agentTeamHealth === "usable" ? "usable" : "needs-repair",
         canCreateConversation: selectedSession.agentTeamHealth === "usable",
       };
+  const displayedConversationAgentTeam = pendingConversationAgentTeam ?? runtimeConversationAgentTeam;
   const selectedAgentTeamUnavailable = selectedSession?.agentTeamHealth == null
     ? conversationAgentTeam?.status === "needs-repair"
     : selectedSession.agentTeamHealth === "needs-repair" || selectedSession.agentTeamHealth === "deleted";
@@ -768,7 +769,11 @@ export function OperatorConsole({
             teams={agentTeamsState.status === "ready"
               ? agentTeamsState.teams
                 .filter((team) => team.canCreateConversation)
-                .map((team) => ({ teamKey: team.teamKey, label: team.name?.trim() || "未命名团队" }))
+                .map((team) => ({
+                  teamKey: team.teamKey,
+                  label: team.name?.trim() || "未命名团队",
+                  members: team.members,
+                }))
               : []}
             selectedProjectId={newConversation.selectedProjectId}
             selectedTeamKey={newConversation.selectedTeamKey}
@@ -878,6 +883,7 @@ export function OperatorConsole({
                   value={composerValue}
                   onValueChange={onComposerChange}
                   onSubmit={submitComposer}
+                  roles={roleCompletionsForTeam(displayedConversationAgentTeam)}
                   disabled={activeRun !== null || isSending || isSessionProjectUpdating || activeProjectUnavailable || selectedAgentTeamUnavailable || continuationBlocked}
                   placeholder={activeProjectUnavailable
                     ? "项目文件夹不可用，请先使用红色扳手修复"
@@ -1396,6 +1402,16 @@ export function resolveNewConversationAgentTeamKey(
     return recordedTeam.teamKey;
   }
   return teams.find((team) => team.ownership === "system" && team.canCreateConversation)?.teamKey ?? null;
+}
+
+function roleCompletionsForTeam(team: OperatorAgentTeam | undefined): RoleCompletion[] {
+  return team?.members
+    .filter((member) => member.available !== false)
+    .map((member) => ({
+      handle: member.slug,
+      label: member.displayName || `@${member.slug}`,
+      description: member.description,
+    })) ?? [];
 }
 
 function TimelineEntry({

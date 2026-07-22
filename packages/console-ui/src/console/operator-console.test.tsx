@@ -447,6 +447,39 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("button", { name: "Agent 团队：开发团队，点击切换" })).toBeVisible();
   });
 
+  it("uses the team displayed in composer context for mention completion", () => {
+    const pendingTeam = {
+      ...agentTeam,
+      teamKey: "user:review",
+      id: "review",
+      ownership: "user" as const,
+      name: "评审团队",
+      primaryAgentSlug: "security",
+      memberOrder: ["security"],
+      members: [{ slug: "security", displayName: "安全评审", description: "审查安全风险" }],
+    };
+    renderConsole({
+      agentTeamsState: { status: "ready", teams: [agentTeam, pendingTeam] },
+      conversationAgentTeamKey: agentTeam.teamKey,
+      composerValue: "@",
+      selectedSession: {
+        ...sessions[0]!,
+        agentTeamOwnership: "system",
+        agentTeamId: "development",
+        agentTeamHealth: "usable",
+        agentTeamPendingOwnership: "user",
+        agentTeamPendingId: "review",
+      },
+    });
+    const input = screen.getByRole("textbox", { name: "消息内容" }) as HTMLTextAreaElement;
+    input.setSelectionRange(1, 1);
+    fireEvent.focus(input);
+    fireEvent.select(input);
+
+    expect(screen.getByRole("option", { name: /安全评审/u })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /开发经理/u })).not.toBeInTheDocument();
+  });
+
   it("uses refreshed session health so an externally repaired team unblocks without reopening teams", () => {
     renderConsole({
       agentTeamsState: { status: "ready", teams: [repairTeam] },

@@ -109,7 +109,7 @@
   - 开发态默认数据根为仓库根；打包态默认数据根为 `~/.agent-moebius`；两种形态都可用 `AGENT_MOEBIUS_DATA_ROOT` 覆盖。
   - 首启会把提交版 `agents/` 与示例 `config.toml` 种子拷贝到数据根，已存在的文件一律不覆盖；内置团队从 `seeds/teams/` 打包后按内容指纹整体覆盖到 `<数据根>/teams/.system/`，指纹相同则跳过，用户团队目录不参与播种；用户本机仍通过数据根下被忽略的 `config.local.toml` 配置监听仓库。
   - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`；runner child 显式以 GitHub mode 启动，因此不会重复启动 local console server。
-  - 操作台采用 Codex 桌面端式两栏骨架：macOS 主窗口使用集成标题栏，左侧按已打开的持久化本地项目分组且只列根会话；带 `parentSessionId` 的裂变会话改由父时间线卡片聚合，每行显示子任务、成员与事实状态，点击后在右侧展开，窄窗覆盖主内容区；右侧主线仍是同一条多 agent 时间线，底部输入器承载项目 / 本地或隔离工作区上下文；状态页和 observer 只保留为辅助诊断入口，路径、SQLite、runDir、cwd、内部 id 与原始输出不常驻对话页。
+  - 操作台采用 Codex 桌面端式两栏骨架：macOS 主窗口使用集成标题栏，左侧按已打开的持久化本地项目分组且只列根会话；带 `parentSessionId` 的裂变会话改由父时间线卡片聚合，每行显示子任务、成员与事实状态，点击后在右侧展开，窄窗覆盖主内容区；右侧主线仍是同一条多 agent 时间线，底部输入器承载项目 / 本地或隔离工作区上下文；输入器的 `@` 补全名单只取输入框底部当前显示团队的可用成员（含待生效团队），团队外的手写 `@slug` 保持普通文本；状态页和 observer 只保留为辅助诊断入口，路径、SQLite、runDir、cwd、内部 id 与原始输出不常驻对话页。
   - 每个项目行右侧的新会话按钮只在该项目下创建会话；空白且无运行、消息或父子关系的会话可从 composer 项目菜单切换到其他已打开项目，保持 session id、草稿与选中态。create/open/rebind 共用同步 selection mutation gate；mutation owner refresh 可抢占旧 lease，非 owner refresh 不得提交，周期 refresh 保持 single-flight。已有消息、运行或父子关系的会话项目归属锁定。
   - 同一台机器上，终端 GitHub-mode 与桌面形态不得同时监听相同 GitHub repository；如确需切换形态，优先让终端 GitHub-mode 也设置同一个 `AGENT_MOEBIUS_DATA_ROOT`，共享 GitHub runner state 与 `config.local.toml`。
   - dev 期 `pnpm desktop` 会打开 Chromium 远程调试端口 `9222`（仅当 `!app.isPackaged`），供 AI agent 通过 CDP attach 已运行的桌面窗口，读渲染进程的 DOM / console / network 并 eval 代码；打包版本永不开放。见 [ADR-0002](docs/adr/0002-electron-cdp-dev-debug-channel.md)，其补充节含实测证据与 Codex Chrome 扩展横向对比。

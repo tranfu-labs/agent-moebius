@@ -22,6 +22,12 @@ export interface NewConversationProjectOption {
 export interface NewConversationTeamOption {
   teamKey: string;
   label: string;
+  members: Array<{
+    slug: string;
+    displayName: string;
+    description: string;
+    available?: boolean;
+  }>;
 }
 
 export interface NewConversationPageProps {
@@ -58,6 +64,7 @@ export function NewConversationPage({
   className,
 }: NewConversationPageProps): JSX.Element {
   const selectedProject = projects.find((project) => project.projectId === selectedProjectId && project.available);
+  const selectedTeam = teams.find((team) => team.teamKey === selectedTeamKey);
   const hasAvailableProjects = projects.some((project) => project.available);
   const canSubmit = selectedProject !== undefined
     && selectedTeamKey !== null
@@ -84,6 +91,13 @@ export function NewConversationPage({
             value={draft}
             onValueChange={onDraftChange}
             onSubmit={onSubmit}
+            roles={selectedTeam?.members
+              .filter((member) => member.available !== false)
+              .map((member) => ({
+                handle: member.slug,
+                label: member.displayName || `@${member.slug}`,
+                description: member.description,
+              })) ?? []}
             disabled={isSubmitting}
             submitDisabled={!canSubmit}
             placeholder="描述你的目标…"

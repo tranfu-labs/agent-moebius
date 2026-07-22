@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { NewConversationPage, type NewConversationPageProps } from "./new-conversation-page";
@@ -34,6 +34,19 @@ describe("NewConversationPage", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "添加项目…" }));
     expect(onAddProject).toHaveBeenCalledTimes(1);
   });
+
+  it("completes mentions from the team displayed in the composer context", () => {
+    renderPage({ selectedTeamKey: "user:product", draft: "@" });
+    const input = screen.getByRole("textbox", { name: "消息内容" });
+    const textInput = input as HTMLTextAreaElement;
+    textInput.setSelectionRange(1, 1);
+    fireEvent.focus(textInput);
+    fireEvent.select(textInput);
+
+    const completionList = screen.getByRole("listbox", { name: "角色补全面板" });
+    expect(within(completionList).getByRole("option", { name: /产品/u })).toBeInTheDocument();
+    expect(within(completionList).queryByRole("option", { name: /开发/u })).not.toBeInTheDocument();
+  });
 });
 
 const projects = [
@@ -45,8 +58,16 @@ function renderPage(overrides: Partial<NewConversationPageProps> = {}) {
   return render(<NewConversationPage
     projects={projects}
     teams={[
-      { teamKey: "system:development", label: "开发团队" },
-      { teamKey: "user:product", label: "产品团队" },
+      {
+        teamKey: "system:development",
+        label: "开发团队",
+        members: [{ slug: "dev", displayName: "开发", description: "实现功能" }],
+      },
+      {
+        teamKey: "user:product",
+        label: "产品团队",
+        members: [{ slug: "product", displayName: "产品", description: "定义需求" }],
+      },
     ]}
     selectedProjectId="a"
     selectedTeamKey="system:development"

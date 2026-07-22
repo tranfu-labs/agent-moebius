@@ -7,8 +7,14 @@ import {
   RoleComposer,
   findActiveRoleTrigger,
   hasLegalRoleMention,
-  insertRoleMention
+  insertRoleMention,
+  type RoleCompletion,
 } from "./role-composer";
+
+const teamRoles: RoleCompletion[] = [
+  { handle: "dev", label: "开发", description: "实现功能" },
+  { handle: "qa", label: "测试", description: "质量保证" },
+];
 
 describe("RoleComposer", () => {
   it("opens seven role options after @ and inserts a legal handle by mouse without losing surrounding text", () => {
@@ -81,17 +87,46 @@ describe("RoleComposer", () => {
     fireEvent.click(screen.getByRole("button", { name: /发送/u }));
     expect(onSubmit).toHaveBeenCalledWith("@qa 请走查");
   });
+
+  it("uses only the supplied team's members for completion", () => {
+    render(<ControlledComposer initialValue="@" roles={teamRoles} />);
+    const input = screen.getByRole("textbox");
+    setCaret(input, 1);
+
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    expect(screen.getByRole("option", { name: /开发/u })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /测试/u })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /CEO/u })).not.toBeInTheDocument();
+  });
+
+  it("keeps an out-of-team handle as ordinary text while completing a team member", () => {
+    const onSubmit = vi.fn();
+    render(<ControlledComposer
+      initialValue="@ceo 仅作为文本，交给 @"
+      roles={teamRoles}
+      onSubmit={onSubmit}
+    />);
+    const input = screen.getByRole("textbox");
+    setCaret(input, "@ceo 仅作为文本，交给 @".length);
+
+    fireEvent.mouseDown(screen.getByRole("option", { name: /测试/u }));
+    expect(input).toHaveValue("@ceo 仅作为文本，交给 @qa ");
+    fireEvent.click(screen.getByRole("button", { name: /发送/u }));
+    expect(onSubmit).toHaveBeenCalledWith("@ceo 仅作为文本，交给 @qa ");
+  });
 });
 
 function ControlledComposer({
   initialValue,
-  onSubmit
+  onSubmit,
+  roles,
 }: {
   initialValue: string;
   onSubmit?: (value: string) => void;
+  roles?: readonly RoleCompletion[];
 }): JSX.Element {
   const [value, setValue] = useState(initialValue);
-  return <RoleComposer value={value} onValueChange={setValue} onSubmit={onSubmit} />;
+  return <RoleComposer value={value} onValueChange={setValue} onSubmit={onSubmit} roles={roles} />;
 }
 
 function setCaret(input: HTMLElement, position: number) {
