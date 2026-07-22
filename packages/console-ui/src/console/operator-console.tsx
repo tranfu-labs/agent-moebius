@@ -546,7 +546,7 @@ export function OperatorConsole({
         style={{ width: `${sidebarWidth}px` }}
       >
         <header
-          className="window-drag-region flex h-10 shrink-0 items-center justify-end pl-[76px] pr-2 pt-[6px]"
+          className="window-drag-region flex h-[var(--window-header-height)] shrink-0 items-center justify-end pl-[76px] pr-2"
           data-testid="sidebar-window-controls"
         >
           <button
@@ -716,13 +716,13 @@ export function OperatorConsole({
         data-sidebar-auto-collapsed={sidebarAutoCollapsed ? "true" : "false"}
       >
         <div
-          className="window-drag-region absolute inset-x-0 top-0 z-30 h-9"
+          className="window-drag-region absolute inset-x-0 top-0 z-30 flex h-[var(--window-header-height)] items-center"
           data-testid="main-window-drag-region"
         >
           {!effectiveSidebarOpen ? (
             <button
               type="button"
-              className="window-no-drag absolute left-[96px] top-[9px] z-20 flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
+              className="window-no-drag z-20 ml-[96px] flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
               aria-label="打开侧边栏"
               title="打开侧边栏"
               onClick={() => setSidebarOpen(true)}
@@ -822,7 +822,7 @@ export function OperatorConsole({
             >
               {selectedSession ? (
                 <header
-                  className="sticky top-0 z-10 flex h-10 items-center bg-canvas px-8"
+                  className="sticky top-0 z-10 flex h-[var(--window-header-height)] items-center bg-canvas px-8"
                   data-testid="conversation-title-header"
                 >
                   <h1
@@ -835,7 +835,7 @@ export function OperatorConsole({
               ) : null}
               {emptyConversation ? (
                 <ConversationEmptyState
-                  className={selectedSession ? "min-h-[calc(100%_-_2.5rem)] px-8" : "px-8"}
+                  className={selectedSession ? "min-h-[calc(100%_-_var(--window-header-height))] px-8" : "px-8"}
                   projectName={activeProject.title}
                 />
               ) : (

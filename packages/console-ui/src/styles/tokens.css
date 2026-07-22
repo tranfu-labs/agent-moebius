@@ -10,6 +10,7 @@
    hairlines instead of heavy drop shadows.
    ============================================================ */
 :root {
+  --window-header-height: 46px;
   --canvas: #FFFFFF;
   --rail: #F7F8FA;
   --card: #FFFFFF;

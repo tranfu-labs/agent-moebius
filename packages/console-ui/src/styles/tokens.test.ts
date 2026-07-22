@@ -8,6 +8,10 @@ const tokens = readFileSync(resolve(here, "tokens.css"), "utf8");
 const globals = readFileSync(resolve(here, "globals.css"), "utf8");
 
 describe("dashboard tokens", () => {
+  it("defines one shared window header height for native-control alignment", () => {
+    expect(tokens.match(/--window-header-height: 46px/g)?.length).toBe(1);
+  });
+
   it("maps shadcn semantic variables onto console tokens", () => {
     expect(globals).toContain("--background: var(--canvas)");
     expect(globals).toContain("--foreground: var(--ink)");

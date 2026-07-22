@@ -35,7 +35,12 @@ describe("OperatorConsole", () => {
 
     expect(screen.getByRole("img", { name: "Moebius Logo" })).toBeVisible();
     expect(screen.getByText("Moebius")).toBeVisible();
-    expect(windowControls).toHaveClass("window-drag-region", "h-10", "pl-[76px]", "pt-[6px]");
+    expect(windowControls).toHaveClass(
+      "window-drag-region",
+      "h-[var(--window-header-height)]",
+      "pl-[76px]",
+    );
+    expect(windowControls).not.toHaveClass("pt-[6px]");
     expect(brandRegion).toHaveClass("window-drag-region", "h-10", "px-3");
     expect(brandRegion).not.toHaveClass("pl-[76px]");
     expect(windowControls).not.toContainElement(screen.getByRole("img", { name: "Moebius Logo" }));
@@ -754,8 +759,14 @@ describe("OperatorConsole", () => {
     const mainWindowDragRegion = screen.getByTestId("main-window-drag-region");
     const openSidebarButton = screen.getByRole("button", { name: "打开侧边栏" });
     expect(openSidebarButton).toHaveAttribute("title", "打开侧边栏");
-    expect(openSidebarButton).toHaveClass("window-no-drag", "left-[96px]", "top-[9px]");
-    expect(mainWindowDragRegion).toHaveClass("z-30");
+    expect(openSidebarButton).toHaveClass("window-no-drag", "ml-[96px]");
+    expect(openSidebarButton).not.toHaveClass("absolute", "top-[9px]");
+    expect(mainWindowDragRegion).toHaveClass(
+      "z-30",
+      "flex",
+      "h-[var(--window-header-height)]",
+      "items-center",
+    );
     expect(mainWindowDragRegion).toContainElement(openSidebarButton);
     expect(selectedSessionRow).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
@@ -850,7 +861,13 @@ describe("OperatorConsole", () => {
 
     expect(timeline).toContainElement(titleHeader);
     expect(timeline).not.toHaveClass("pt-20", "px-8");
-    expect(titleHeader).toHaveClass("sticky", "top-0", "h-10", "bg-canvas", "px-8");
+    expect(titleHeader).toHaveClass(
+      "sticky",
+      "top-0",
+      "h-[var(--window-header-height)]",
+      "bg-canvas",
+      "px-8",
+    );
     expect(titleHeader).not.toHaveClass("absolute", "pt-12", "window-drag-region");
     expect(title).toHaveClass("w-full", "max-w-[760px]", "pl-10", "text-left");
   });

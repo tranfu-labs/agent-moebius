@@ -12,6 +12,7 @@
 - accent 双主题统一靛蓝 `#5E6AD2`；hover 一律向「更强存在感」方向走：亮色加深 `--accent-hover: #4B57C8`，暗色变亮 `--accent-hover: #828FFF`。
 - 暗色画布近纯黑（`--canvas: #0A0B0D`）、卡面微亮（`--card: #15161A`）、描边可见（`--line` alpha 0.12）；亮色保持既有对比关系。
 - 状态色相族令牌：`--status-{run,info,violet,neutral}-{fg,bg,line}` 及裁决 `--pass` / `--danger` 配套 tint，亮暗双主题成对定义；亮色为同族压深 fg + 浅 tint bg。
+- 桌面窗口顶层 header 统一使用 `--window-header-height: 46px`；macOS 交通灯、sidebar 展开/折叠按钮和会话 sticky 标题都由该高度容器配合 `items-center` 自然居中，禁止为单个控件追加 `top`、`padding-top` 或 translate 补偿。
 
 ## 排版
 
