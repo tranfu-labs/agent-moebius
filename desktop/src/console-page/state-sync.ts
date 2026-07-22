@@ -21,6 +21,7 @@ export class ConsoleStateCoordinator {
   private refreshLease: RefreshLease | null = null;
   private mutationToken: SelectionMutationToken | null = null;
   private nextMutationId = 1;
+  private sendPending = false;
 
   beginRefresh(mutationOwner: SelectionMutationToken | null = null): RefreshLease | null {
     if (mutationOwner !== null && this.mutationToken !== mutationOwner) {
@@ -62,7 +63,7 @@ export class ConsoleStateCoordinator {
   }
 
   beginSelectionMutation(kind: SelectionMutationKind): SelectionMutationToken | null {
-    if (this.mutationToken !== null) {
+    if (this.mutationToken !== null || this.sendPending) {
       return null;
     }
     this.invalidateRefresh();
@@ -86,6 +87,22 @@ export class ConsoleStateCoordinator {
 
   get isSelectionMutationPending(): boolean {
     return this.mutationToken !== null;
+  }
+
+  beginSend(): boolean {
+    if (this.sendPending || this.mutationToken !== null) {
+      return false;
+    }
+    this.sendPending = true;
+    return true;
+  }
+
+  endSend(): void {
+    this.sendPending = false;
+  }
+
+  get isSendPending(): boolean {
+    return this.sendPending;
   }
 }
 
@@ -200,7 +217,9 @@ export interface ConsoleStateActionsOptions {
   commitSelection(selection: ConsoleSelection): void;
   refresh(selection: ConsoleSelection, mutationOwner?: SelectionMutationToken): Promise<boolean>;
   composerValue: string;
-  clearComposer(): void;
+  clearComposer(sessionId?: string): void;
+  getAttachmentIds?(): readonly string[];
+  clearAttachments?(sessionId: string): void;
   setMutationKind(kind: SelectionMutationKind | null): void;
   setSending(sending: boolean): void;
   setError(error: string): void;
@@ -215,13 +234,14 @@ export class ConsoleStateActions {
     initialMessage: string,
     agentTeam?: { ownership: "system" | "user"; id: string },
     workspaceMode?: "direct" | "worktree",
+    attachmentIds: readonly string[] = [],
   ): Promise<CreatedSession | null> => {
     if (this.options.apiBase === null) {
       this.options.setError("local console server unavailable");
       return null;
     }
     const normalizedMessage = initialMessage.trim();
-    if (normalizedMessage === "") {
+    if (normalizedMessage === "" && attachmentIds.length === 0) {
       return null;
     }
     const token = this.beginMutation("create-session");
@@ -237,6 +257,7 @@ export class ConsoleStateActions {
         body: JSON.stringify({
           projectId,
           initialMessage: normalizedMessage,
+          ...(attachmentIds.length === 0 ? {} : { attachmentIds }),
           ...(agentTeam === undefined
             ? {}
             : { agentTeamOwnership: agentTeam.ownership, agentTeamId: agentTeam.id }),
@@ -468,10 +489,11 @@ export class ConsoleStateActions {
   };
 
   readonly sendMessage = async (): Promise<void> => {
+    const attachmentIds = this.options.getAttachmentIds?.() ?? [];
     if (
       this.options.apiBase === null
-      || this.options.composerValue.trim() === ""
-      || this.options.coordinator.mutationKind === "rebind-session"
+      || (this.options.composerValue.trim() === "" && attachmentIds.length === 0)
+      || !this.options.coordinator.beginSend()
     ) {
       return;
     }
@@ -484,18 +506,22 @@ export class ConsoleStateActions {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ body: this.options.composerValue }),
+          body: JSON.stringify(attachmentIds.length === 0
+            ? { body: this.options.composerValue }
+            : { body: this.options.composerValue, attachmentIds }),
         },
       );
       const body = await response.json() as { error?: string };
       if (!response.ok) {
         throw new Error(body.error ?? "send failed");
       }
-      this.options.clearComposer();
+      this.options.clearComposer(selection.sessionId);
+      this.options.clearAttachments?.(selection.sessionId);
       await this.options.refresh(this.options.getSelection());
     } catch (error) {
       this.options.setError(formatError(error));
     } finally {
+      this.options.coordinator.endSend();
       this.options.setSending(false);
     }
   };

@@ -16,6 +16,8 @@ import {
   type OperatorRunnerStatus,
   type OperatorSession,
   type OperatorSubSessionView,
+  hasBlockingComposerAttachment,
+  readyComposerAttachmentIds,
 } from "@agent-moebius/console-ui";
 import type {
   AgentTeamDuplicateBuiltInRequest,
@@ -107,9 +109,14 @@ import {
   type AgentTeamSaveAllFailure,
   type AgentTeamSelection,
 } from "./team-state.js";
+import {
+  useManagedAttachmentDrafts,
+  useMessagesWithAttachmentPreviews,
+} from "./use-managed-attachments.js";
 
 interface DesktopApi {
   getLocalConsoleUrl?: () => Promise<string | null>;
+  getLocalConsoleAttachmentCapability?: () => Promise<string | null>;
   onStatus?: (listener: (snapshot: DesktopStatusSnapshot) => void) => () => void;
   openStatusPage?: () => Promise<void>;
   selectProjectFolder?: () => Promise<string | null>;
@@ -182,6 +189,7 @@ declare global {
 
 function App(): JSX.Element {
   const [apiBase, setApiBase] = useState<string | null>(readQueryApiBase());
+  const [attachmentCapability, setAttachmentCapability] = useState<string | null>(null);
   const [initialSelectionPreference] = useState<ConsoleSelection | null>(() =>
     readConsoleSelectionPreference(window.localStorage),
   );
@@ -219,6 +227,16 @@ function App(): JSX.Element {
     readSidebarVisibilityPreference(window.localStorage),
   );
   const resultAcknowledgementsRef = useRef(new Set<string>());
+  const currentAttachmentDraftKey = newConversation === null
+    ? sessionDraftKey(selection.sessionId)
+    : NEW_CONVERSATION_DRAFT_KEY;
+  const reportAttachmentError = useCallback((error: string) => setClientError(error), []);
+  const managedAttachments = useManagedAttachmentDrafts({
+    apiBase,
+    capability: attachmentCapability,
+    currentDraftKey: currentAttachmentDraftKey,
+    onError: reportAttachmentError,
+  });
 
   const commitAgentTeamDraftState = useCallback((nextState: AgentTeamDraftState) => {
     agentTeamDraftStateRef.current = nextState;
@@ -931,6 +949,16 @@ function App(): JSX.Element {
   }, [apiBase]);
 
   useEffect(() => {
+    let cancelled = false;
+    void window.agentMoebius?.getLocalConsoleAttachmentCapability?.().then((capability) => {
+      if (!cancelled) setAttachmentCapability(capability);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  useEffect(() => {
     return window.agentMoebius?.onStatus?.((snapshot) => {
       setRunnerStatus(snapshot.runner.status);
       if (snapshot.localConsole?.url) {
@@ -1075,6 +1103,11 @@ function App(): JSX.Element {
   const lastError = clientError ?? state?.lastError ?? null;
   const selectedSession = state?.selectedSession ?? null;
   const messages = state?.messages ?? [];
+  const messagesWithPreviews = useMessagesWithAttachmentPreviews({
+    messages,
+    apiBase,
+    capability: attachmentCapability,
+  });
   const activeRun = state?.activeRun ?? null;
   const sqlitePath = state?.sqlitePath;
   const projectListState = state !== null ? "ready" : clientError === null ? "loading" : "error";
@@ -1087,17 +1120,20 @@ function App(): JSX.Element {
     commitSelection,
     refresh,
     composerValue,
-    clearComposer: () => {
-      conversationDraftStoreRef.current.clear(sessionDraftKey(selectionRef.current.sessionId));
-      setComposerValue("");
+    clearComposer: (sessionId) => {
+      const targetSessionId = sessionId ?? selectionRef.current.sessionId;
+      conversationDraftStoreRef.current.clear(sessionDraftKey(targetSessionId));
+      if (selectionRef.current.sessionId === targetSessionId) setComposerValue("");
     },
+    getAttachmentIds: () => readyComposerAttachmentIds(managedAttachments.attachments),
+    clearAttachments: (sessionId) => managedAttachments.clearDraft(sessionDraftKey(sessionId)),
     setMutationKind: setSelectionMutationKind,
     setSending: setIsSending,
     setError: setClientError,
     selectProjectFolder: window.agentMoebius?.selectProjectFolder === undefined
       ? undefined
       : () => window.agentMoebius!.selectProjectFolder!(),
-  }), [apiBase, commitSelection, composerValue, refresh]);
+  }), [apiBase, commitSelection, composerValue, managedAttachments, refresh]);
 
   const preferredNewConversationTeamKey = useMemo(() => resolveNewConversationAgentTeamKey(
     agentTeamsState.status === "ready" ? agentTeamsState.teams : [],
@@ -1142,6 +1178,8 @@ function App(): JSX.Element {
       draft: newConversation.draft,
       isSubmitting: newConversation.isSubmitting,
       error: newConversation.error,
+      readyAttachmentCount: readyComposerAttachmentIds(managedAttachments.attachments).length,
+      hasBlockingAttachments: hasBlockingComposerAttachment(managedAttachments.attachments),
     })) {
       return;
     }
@@ -1167,7 +1205,7 @@ function App(): JSX.Element {
         actions.createSessionWithFirstMessage(targetProjectId, initialMessage, {
           ownership: selectedTeam.ownership,
           id: selectedTeam.teamId,
-        }, workspaceMode),
+        }, workspaceMode, readyComposerAttachmentIds(managedAttachments.attachments)),
       recordSuccessfulTeam: recordSuccessfulTeam === undefined
         ? async () => undefined
         : (request) => recordSuccessfulTeam(request),
@@ -1183,6 +1221,7 @@ function App(): JSX.Element {
     selectionPersistenceEnabledRef.current = true;
     rememberConfirmedSelection({ projectId, sessionId: result.sessionId });
     conversationDraftStoreRef.current.clear(NEW_CONVERSATION_DRAFT_KEY);
+    managedAttachments.clearDraft(NEW_CONVERSATION_DRAFT_KEY);
     setComposerValue(conversationDraftStoreRef.current.read(sessionDraftKey(result.sessionId)));
     dispatchNewConversation({ type: "close" });
     if (result.preferenceRecorded) {
@@ -1191,7 +1230,7 @@ function App(): JSX.Element {
     } else {
       setClientError(`会话已创建，但无法记住本次使用的 Agent 团队：${formatError(result.preferenceError)}`);
     }
-  }, [actions, agentTeamsState, newConversation, rememberConfirmedSelection]);
+  }, [actions, agentTeamsState, managedAttachments, newConversation, rememberConfirmedSelection]);
 
   const showProjectInFolder = useCallback(async (folderPath: string) => {
     try {
@@ -1365,11 +1404,12 @@ function App(): JSX.Element {
       selectedProjectId={selection.projectId}
       selectedSessionId={selection.sessionId}
       selectedSession={selectedSession}
-      messages={messages}
+      messages={messagesWithPreviews}
       childSessions={state?.childSessions ?? []}
       openedSubSession={openedSubSession}
       activeRun={activeRun}
       composerValue={composerValue}
+      composerAttachments={managedAttachments.attachments}
       runnerStatus={runnerStatus}
       sqlitePath={sqlitePath}
       lastError={lastError}
@@ -1394,6 +1434,9 @@ function App(): JSX.Element {
         conversationDraftStoreRef.current.write(sessionDraftKey(selectionRef.current.sessionId), value);
         setComposerValue(value);
       }}
+      onComposerFilesAdded={managedAttachments.addFiles}
+      onComposerAttachmentRemove={managedAttachments.remove}
+      onComposerAttachmentRetry={managedAttachments.retry}
       onSend={actions.sendMessage}
       onStartNewConversation={startNewConversation}
       onNewConversationProjectChange={(projectId) => {

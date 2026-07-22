@@ -1,0 +1,121 @@
+import type { StructuredAttachment } from "@agent-moebius/console-ui";
+
+export const ATTACHMENT_CAPABILITY_HEADER = "x-agent-moebius-attachment-capability";
+
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+export const managedAttachmentFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
+
+export interface AttachmentClientOptions {
+  apiBase: string;
+  capability: string;
+  fetch: FetchLike;
+}
+
+export async function uploadManagedAttachment(input: AttachmentClientOptions & {
+  draftKey: string;
+  file: File;
+  preview: Blob | null;
+  signal: AbortSignal;
+}): Promise<StructuredAttachment> {
+  const url = endpoint(input.apiBase, "/api/local-console/attachments");
+  url.searchParams.set("draftKey", input.draftKey);
+  url.searchParams.set("displayName", input.file.name || "clipboard-image.png");
+  const uploadResponse = await input.fetch(url, {
+    method: "POST",
+    headers: {
+      [ATTACHMENT_CAPABILITY_HEADER]: input.capability,
+      "content-type": input.file.type || "application/octet-stream",
+    },
+    body: input.file,
+    signal: input.signal,
+  });
+  const uploaded = await readJson<{
+    status?: "ready" | "preview-required";
+    uploadId?: string;
+    attachment?: StructuredAttachment;
+    error?: string;
+  }>(uploadResponse);
+  if (!uploadResponse.ok) throw new Error(uploaded.error ?? "附件上传失败");
+  if (uploaded.status === "ready" && uploaded.attachment !== undefined) return uploaded.attachment;
+  if (uploaded.status !== "preview-required" || uploaded.uploadId === undefined || input.preview === null) {
+    throw new Error("图片预览没有准备好");
+  }
+  const previewUrl = endpoint(
+    input.apiBase,
+    `/api/local-console/attachments/uploads/${encodeURIComponent(uploaded.uploadId)}/preview`,
+  );
+  previewUrl.searchParams.set("draftKey", input.draftKey);
+  const previewResponse = await input.fetch(previewUrl, {
+    method: "POST",
+    headers: {
+      [ATTACHMENT_CAPABILITY_HEADER]: input.capability,
+      "content-type": "image/png",
+    },
+    body: input.preview,
+    signal: input.signal,
+  });
+  const finalized = await readJson<{ attachment?: StructuredAttachment; error?: string }>(previewResponse);
+  if (!previewResponse.ok || finalized.attachment === undefined) {
+    throw new Error(finalized.error ?? "图片预览保存失败");
+  }
+  return finalized.attachment;
+}
+
+export async function listManagedDraftAttachments(
+  input: AttachmentClientOptions & { draftKey: string; signal?: AbortSignal },
+): Promise<StructuredAttachment[]> {
+  const url = endpoint(input.apiBase, "/api/local-console/attachments");
+  url.searchParams.set("draftKey", input.draftKey);
+  const response = await input.fetch(url, {
+    headers: { [ATTACHMENT_CAPABILITY_HEADER]: input.capability },
+    signal: input.signal,
+  });
+  const body = await readJson<{ attachments?: StructuredAttachment[]; error?: string }>(response);
+  if (!response.ok || body.attachments === undefined) throw new Error(body.error ?? "附件草稿恢复失败");
+  return body.attachments;
+}
+
+export async function removeManagedDraftAttachment(
+  input: AttachmentClientOptions & { draftKey: string; attachmentId: string },
+): Promise<void> {
+  const url = endpoint(input.apiBase, `/api/local-console/attachments/${encodeURIComponent(input.attachmentId)}`);
+  url.searchParams.set("draftKey", input.draftKey);
+  const response = await input.fetch(url, {
+    method: "DELETE",
+    headers: { [ATTACHMENT_CAPABILITY_HEADER]: input.capability },
+  });
+  if (!response.ok && response.status !== 404) {
+    const body = await readJson<{ error?: string }>(response);
+    throw new Error(body.error ?? "附件移除失败");
+  }
+}
+
+export async function loadManagedAttachmentPreview(
+  input: AttachmentClientOptions & {
+    attachmentId: string;
+    draftKey?: string;
+    sessionId?: string;
+    signal?: AbortSignal;
+  },
+): Promise<Blob> {
+  const url = endpoint(input.apiBase, `/api/local-console/attachments/${encodeURIComponent(input.attachmentId)}/preview`);
+  if (input.draftKey !== undefined) url.searchParams.set("draftKey", input.draftKey);
+  if (input.sessionId !== undefined) url.searchParams.set("sessionId", input.sessionId);
+  const response = await input.fetch(url, {
+    headers: { [ATTACHMENT_CAPABILITY_HEADER]: input.capability },
+    signal: input.signal,
+  });
+  if (!response.ok || response.headers.get("content-type") !== "image/png") {
+    throw new Error("附件预览读取失败");
+  }
+  return await response.blob();
+}
+
+function endpoint(base: string, path: string): URL {
+  return new URL(path.replace(/^\//u, ""), base.endsWith("/") ? base : `${base}/`);
+}
+
+async function readJson<T>(response: Response): Promise<T> {
+  return await response.json() as T;
+}

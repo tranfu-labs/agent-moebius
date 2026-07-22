@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="460" viewBox="0 0 1080 460" role="img" aria-labelledby="title desc">
+  <title id="title">Local console before managed attachments</title>
+  <desc id="desc">The composer sends text JSON to the local console server, SQLite stores message bodies, and the runtime calls Codex without image paths. Local file paths can only appear as unreliable text.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, sans-serif; font-size: 14px; fill: #1f2937; }
+      .title { font-size: 20px; font-weight: 700; }
+      .box { fill: #f8fafc; stroke: #64748b; stroke-width: 1.5; rx: 9; }
+      .warn { fill: #fff7ed; stroke: #f97316; stroke-width: 1.5; rx: 9; }
+      .muted { font-size: 12px; fill: #64748b; }
+      .arrow { stroke: #334155; stroke-width: 1.8; fill: none; marker-end: url(#arrowhead); }
+      .dash { stroke: #f97316; stroke-width: 1.6; fill: none; stroke-dasharray: 7 5; marker-end: url(#warnhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#334155"/></marker>
+    <marker id="warnhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#f97316"/></marker>
+  </defs>
+  <rect width="1080" height="460" fill="#fff"/>
+  <text x="40" y="42" class="title">Before — text-only local console</text>
+  <rect x="40" y="90" width="190" height="86" class="box"/>
+  <text x="135" y="120" text-anchor="middle">RoleComposer</text>
+  <text x="135" y="145" text-anchor="middle" class="muted">textarea + send</text>
+  <rect x="300" y="90" width="190" height="86" class="box"/>
+  <text x="395" y="120" text-anchor="middle">Desktop renderer</text>
+  <text x="395" y="145" text-anchor="middle" class="muted">JSON { body }</text>
+  <rect x="560" y="90" width="190" height="86" class="box"/>
+  <text x="655" y="120" text-anchor="middle">Local console server</text>
+  <text x="655" y="145" text-anchor="middle" class="muted">message endpoint</text>
+  <rect x="820" y="90" width="210" height="86" class="box"/>
+  <text x="925" y="120" text-anchor="middle">SQLite</text>
+  <text x="925" y="145" text-anchor="middle" class="muted">session_messages.body</text>
+  <path class="arrow" d="M230 133 H300"/>
+  <path class="arrow" d="M490 133 H560"/>
+  <path class="arrow" d="M750 133 H820"/>
+  <rect x="560" y="280" width="190" height="86" class="box"/>
+  <text x="655" y="310" text-anchor="middle">Local runtime</text>
+  <text x="655" y="335" text-anchor="middle" class="muted">full text prompt</text>
+  <rect x="820" y="280" width="210" height="86" class="box"/>
+  <text x="925" y="310" text-anchor="middle">Codex driver</text>
+  <text x="925" y="335" text-anchor="middle" class="muted">imagePaths absent</text>
+  <path class="arrow" d="M925 176 V230 H655 V280"/>
+  <path class="arrow" d="M750 323 H820"/>
+  <rect x="40" y="280" width="450" height="86" class="warn"/>
+  <text x="265" y="310" text-anchor="middle">Workaround: type a project-local path in message text</text>
+  <text x="265" y="335" text-anchor="middle" class="muted">no preview · no managed copy · source deletion breaks reuse</text>
+  <path class="dash" d="M490 323 H560"/>
+</svg>

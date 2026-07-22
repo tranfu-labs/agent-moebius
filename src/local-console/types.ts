@@ -3,6 +3,34 @@ export const LOCAL_CONSOLE_PROJECT_ID = "local";
 export const LOCAL_CONSOLE_PROJECT_SOURCE_TYPE = "local-folder";
 
 export type LocalConsoleSpeaker = "user" | "agent" | "system";
+export type LocalAttachmentKind = "image" | "file";
+
+export interface LocalAttachment {
+  attachmentId: string;
+  kind: LocalAttachmentKind;
+  displayName: string;
+  mediaType: string;
+  byteSize: number;
+}
+
+export interface LocalAttachmentContentRecord extends LocalAttachment {
+  blobId: string;
+  sha256: string;
+  storageKey: string;
+  draftKey: string | null;
+  messageId: number | null;
+  position: number;
+}
+
+export interface LocalAttachmentRemovalResult {
+  removed: boolean;
+  orphanedStorageKey: string | null;
+}
+
+export interface LocalAttachmentStorageReconciliation {
+  liveStorageKeys: string[];
+  orphanedStorageKeys: string[];
+}
 export type LocalConsoleMessageStatus =
   | "pending"
   | "running"
@@ -36,6 +64,7 @@ export interface LocalConsoleMessage {
   lastFailureReason: string | null;
   sourceKind?: string | null;
   sourceId?: string | null;
+  attachments?: LocalAttachment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -334,6 +363,8 @@ export interface LocalConsoleStore {
     agentTeamSnapshot?: LocalConsoleAgentTeamSnapshot;
     workspaceMode?: LocalConsoleWorkspaceMode;
     initialMessage?: string;
+    initialAttachmentIds?: string[];
+    attachmentDraftKey?: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary>;
   moveEmptySessionToProject(input: {
@@ -345,7 +376,44 @@ export interface LocalConsoleStore {
   restoreSession?(input: { sessionId: string; now: string }): Promise<LocalConsoleSessionSummary>;
   listSessions(): Promise<LocalConsoleSessionSummary[]>;
   markSessionResultRead(input: { sessionId: string; unreadSince: string; now: string }): Promise<boolean>;
-  appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage>;
+  appendUserMessage(input: {
+    sessionId: string;
+    body: string;
+    attachmentIds?: string[];
+    attachmentDraftKey?: string;
+    now: string;
+  }): Promise<LocalConsoleMessage>;
+  addDraftAttachment?(input: {
+    blobId: string;
+    attachmentId: string;
+    draftKey: string;
+    kind: LocalAttachmentKind;
+    displayName: string;
+    mediaType: string;
+    byteSize: number;
+    sha256: string;
+    storageKey: string;
+    now: string;
+  }): Promise<LocalAttachment>;
+  listDraftAttachments?(draftKey: string): Promise<LocalAttachment[]>;
+  removeDraftAttachment?(input: {
+    attachmentId: string;
+    draftKey: string;
+  }): Promise<LocalAttachmentRemovalResult>;
+  cloneMessageAttachmentsToDraft?(input: {
+    sessionId: string;
+    sourceMessageId: number;
+    targetDraftKey: string;
+    now: string;
+  }): Promise<LocalAttachment[]>;
+  getAttachmentContentRecord?(input: {
+    attachmentId: string;
+    draftKey?: string;
+    sessionId?: string;
+  }): Promise<LocalAttachmentContentRecord | null>;
+  listMessageAttachmentContentRecords?(messageIds: number[]): Promise<LocalAttachmentContentRecord[]>;
+  listAttachmentStorageKeys?(): Promise<string[]>;
+  pruneOrphanAttachmentBlobs?(): Promise<LocalAttachmentStorageReconciliation>;
   listMessages(sessionId: string): Promise<LocalConsoleMessage[]>;
   hasRunningMessage(sessionId: string): Promise<boolean>;
   claimNextPendingMessage(input: {

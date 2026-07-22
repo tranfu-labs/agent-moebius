@@ -29,6 +29,13 @@ import {
   type ConversationSidebarProject,
 } from "@/console/conversation-sidebar";
 import { RoleComposer, type RoleCompletion } from "@/console/role-composer";
+import {
+  StructuredAttachmentList,
+  hasBlockingComposerAttachment,
+  readyComposerAttachmentIds,
+  type ComposerAttachment,
+  type StructuredAttachment,
+} from "@/console/structured-attachments";
 import { RunBlock } from "@/console/run-block";
 import { MarkdownMessage } from "@/console/markdown-message";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
@@ -157,6 +164,7 @@ export interface OperatorMessage {
   sourceId?: string | null;
   createdAt: string;
   updatedAt: string;
+  attachments?: StructuredAttachment[];
 }
 
 export type OperatorChildSessionSummary = SubSessionCardItem;
@@ -206,6 +214,7 @@ export interface OperatorConsoleProps {
   openedSubSession?: OperatorSubSessionView | null;
   activeRun: OperatorRunSnapshot | null;
   composerValue: string;
+  composerAttachments?: readonly ComposerAttachment[];
   runnerStatus?: OperatorRunnerStatus;
   sqlitePath?: string;
   lastError?: string | null;
@@ -218,6 +227,9 @@ export interface OperatorConsoleProps {
   agentTeamDetailState?: AgentTeamDetailState | null;
   newConversation?: OperatorNewConversationState | null;
   onComposerChange(value: string): void;
+  onComposerFilesAdded?: (files: File[]) => void;
+  onComposerAttachmentRemove?: (clientId: string) => void;
+  onComposerAttachmentRetry?: (clientId: string) => void;
   onSend(): void;
   onStartNewConversation?: (projectId?: string) => void;
   onNewConversationProjectChange?: (projectId: string) => void;
@@ -291,6 +303,7 @@ export function OperatorConsole({
   openedSubSession = null,
   activeRun,
   composerValue,
+  composerAttachments = [],
   lastError,
   projectListState = "ready",
   agentTeamsState = { status: "loading" },
@@ -301,6 +314,9 @@ export function OperatorConsole({
   agentTeamDetailState,
   newConversation = null,
   onComposerChange,
+  onComposerFilesAdded,
+  onComposerAttachmentRemove,
+  onComposerAttachmentRetry,
   onSend,
   onStartNewConversation,
   onNewConversationProjectChange,
@@ -417,9 +433,11 @@ export function OperatorConsole({
     ? conversationAgentTeam?.status === "needs-repair"
     : selectedSession.agentTeamHealth === "needs-repair" || selectedSession.agentTeamHealth === "deleted";
   const continuationBlocked = selectedSession?.continuation?.canContinue === false;
-  const canSend = composerValue.trim() !== ""
+  const canSend = (composerValue.trim() !== "" || readyComposerAttachmentIds(composerAttachments).length > 0)
+    && !hasBlockingComposerAttachment(composerAttachments)
     && activeRun === null
     && !isSending
+    && !isSelectionMutationPending
     && !isSessionProjectUpdating
     && !activeProjectUnavailable
     && !selectedAgentTeamUnavailable
@@ -795,6 +813,7 @@ export function OperatorConsole({
             selectedWorkspaceMode={newConversation.selectedWorkspaceMode}
             selectedTeamKey={newConversation.selectedTeamKey}
             draft={newConversation.draft}
+            attachments={composerAttachments}
             isSubmitting={newConversation.isSubmitting}
             isProjectMutationPending={isSelectionMutationPending}
             error={newConversation.error}
@@ -803,6 +822,9 @@ export function OperatorConsole({
             onAddProject={() => onAddNewConversationProject?.()}
             onSelectTeam={(teamKey) => onNewConversationTeamChange?.(teamKey)}
             onDraftChange={(value) => onNewConversationDraftChange?.(value)}
+            onFilesAdded={(files) => onComposerFilesAdded?.(files)}
+            onAttachmentRemove={(clientId) => onComposerAttachmentRemove?.(clientId)}
+            onAttachmentRetry={(clientId) => onComposerAttachmentRetry?.(clientId)}
             onSubmit={() => onSubmitNewConversation?.()}
           />
         ) : (
@@ -910,10 +932,14 @@ export function OperatorConsole({
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
                 <RoleComposer
                   value={composerValue}
+                  attachments={composerAttachments}
                   onValueChange={onComposerChange}
+                  onFilesAdded={onComposerFilesAdded}
+                  onAttachmentRemove={onComposerAttachmentRemove}
+                  onAttachmentRetry={onComposerAttachmentRetry}
                   onSubmit={submitComposer}
                   roles={roleCompletionsForTeam(displayedConversationAgentTeam)}
-                  disabled={activeRun !== null || isSending || isSessionProjectUpdating || activeProjectUnavailable || selectedAgentTeamUnavailable || continuationBlocked}
+                  disabled={activeRun !== null || isSending || isSelectionMutationPending || isSessionProjectUpdating || activeProjectUnavailable || selectedAgentTeamUnavailable || continuationBlocked}
                   placeholder={activeProjectUnavailable
                     ? "项目文件夹不可用，请先使用红色扳手修复"
                     : selectedSession?.agentTeamHealth === "deleted"
@@ -1499,7 +1525,16 @@ function TimelineEntry({
       {message.speaker === "system" ? (
         <div className="whitespace-pre-wrap break-words leading-6 text-ink">{systemSummary(message)}</div>
       ) : (
-        <MarkdownMessage content={message.body} mode="static" onOpenExternalLink={onOpenExternalLink} />
+        <>
+          {message.body.trim() === "" ? null : (
+            <MarkdownMessage content={message.body} mode="static" onOpenExternalLink={onOpenExternalLink} />
+          )}
+          <StructuredAttachmentList
+            attachments={message.attachments ?? []}
+            mode="message"
+            className={message.body.trim() === "" ? "" : "mt-2"}
+          />
+        </>
       )}
     </div>
   );

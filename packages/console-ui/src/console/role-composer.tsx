@@ -1,8 +1,14 @@
 import * as React from "react";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
+import {
+  StructuredAttachmentList,
+  hasBlockingComposerAttachment,
+  readyComposerAttachmentIds,
+  type ComposerAttachment,
+} from "@/console/structured-attachments";
 
 export interface RoleCompletion {
   handle: string;
@@ -26,7 +32,11 @@ export type RoleHandle = string;
 export interface RoleComposerProps {
   value: string;
   onValueChange: (value: string) => void;
-  onSubmit?: (value: string) => void;
+  onSubmit?: (value: string, attachmentIds: readonly string[]) => void;
+  attachments?: readonly ComposerAttachment[];
+  onFilesAdded?: (files: File[]) => void;
+  onAttachmentRemove?: (clientId: string) => void;
+  onAttachmentRetry?: (clientId: string) => void;
   placeholder?: string;
   statusText?: string;
   submitLabel?: string;
@@ -171,14 +181,26 @@ export function RoleComposer({
   roles: roleOptions = ROLE_COMPLETIONS,
   context,
   className,
+  attachments = [],
+  onFilesAdded,
+  onAttachmentRemove,
+  onAttachmentRetry,
 }: RoleComposerProps): JSX.Element {
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const pendingCaretRef = React.useRef<number | null>(null);
   const listboxId = React.useId();
   const [focused, setFocused] = React.useState(false);
   const [caret, setCaret] = React.useState(value.length);
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [closedTriggerKey, setClosedTriggerKey] = React.useState<string | null>(null);
+  const [dragActive, setDragActive] = React.useState(false);
+  const readyAttachmentIds = readyComposerAttachmentIds(attachments);
+  const attachmentBlocked = hasBlockingComposerAttachment(attachments);
+  const canSubmit = !disabled
+    && !submitDisabled
+    && !attachmentBlocked
+    && (value.trim() !== "" || readyAttachmentIds.length > 0);
 
   const trigger = findActiveRoleTrigger(value, caret);
   const triggerKey = trigger ? `${value}:${trigger.start}:${trigger.end}` : null;
@@ -249,9 +271,9 @@ export function RoleComposer({
       return;
     }
 
-    if (event.key === "Enter" && !event.shiftKey && onSubmit && !disabled && !submitDisabled && value.trim() !== "") {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && onSubmit && canSubmit) {
       event.preventDefault();
-      onSubmit(value);
+      onSubmit(value, readyAttachmentIds);
     }
   };
 
@@ -291,8 +313,42 @@ export function RoleComposer({
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-[18px] border border-line-strong bg-input shadow-overlay">
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-[18px] border border-line-strong bg-input shadow-overlay",
+          dragActive && "border-accent ring-2 ring-accent/20",
+        )}
+        onDragEnter={(event) => {
+          if (!disabled && event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            setDragActive(true);
+          }
+        }}
+        onDragOver={(event) => {
+          if (!disabled && event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+          }
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragActive(false);
+          if (!disabled && event.dataTransfer.files.length > 0) {
+            onFilesAdded?.(Array.from(event.dataTransfer.files));
+          }
+        }}
+      >
         {context ? <div className="border-b border-line bg-sunken px-3.5 py-2.5">{context}</div> : null}
+        <StructuredAttachmentList
+          attachments={attachments}
+          mode="draft"
+          className="border-b border-line px-3.5 py-3"
+          onRemove={onAttachmentRemove}
+          onRetry={onAttachmentRetry}
+        />
         <div className="relative min-h-[76px]">
           <textarea
             ref={inputRef}
@@ -304,7 +360,7 @@ export function RoleComposer({
             aria-autocomplete="list"
             aria-expanded={panelOpen}
             aria-controls={panelOpen ? listboxId : undefined}
-            className="block min-h-[76px] w-full resize-none bg-transparent px-4 py-3.5 pr-16 text-sm leading-6 text-ink outline-none placeholder:text-hint disabled:cursor-not-allowed"
+            className="block min-h-[76px] w-full resize-none bg-transparent px-4 py-3.5 pr-24 text-sm leading-6 text-ink outline-none placeholder:text-hint disabled:cursor-not-allowed"
             onChange={(event) => {
               setClosedTriggerKey(null);
               onValueChange(event.currentTarget.value);
@@ -317,16 +373,52 @@ export function RoleComposer({
             onBlur={() => setFocused(false)}
             onClick={(event) => updateCaretFromInput(event.currentTarget)}
             onKeyDown={handleKeyDown}
+            onPaste={(event) => {
+              const imageFiles = Array.from(event.clipboardData.items)
+                .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+                .flatMap((item) => {
+                  const file = item.getAsFile();
+                  return file === null ? [] : [file];
+                });
+              if (!disabled && imageFiles.length > 0) {
+                event.preventDefault();
+                onFilesAdded?.(imageFiles);
+              }
+            }}
             onKeyUp={(event) => updateCaretFromInput(event.currentTarget)}
             onSelect={(event) => updateCaretFromInput(event.currentTarget)}
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            tabIndex={-1}
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files ?? []);
+              event.currentTarget.value = "";
+              if (files.length > 0) onFilesAdded?.(files);
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute bottom-3 right-12 h-8 w-8 rounded-full p-0"
+            disabled={disabled}
+            aria-label="添加附件"
+            title="添加附件"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Plus className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          </Button>
           <Button
             type="button"
             size="icon"
             className="absolute bottom-3 right-3 h-8 w-8 rounded-full p-0"
-            disabled={disabled || submitDisabled || value.trim() === ""}
+            disabled={!canSubmit}
             aria-label={submitLabel}
-            onClick={() => onSubmit?.(value)}
+            onClick={() => onSubmit?.(value, readyAttachmentIds)}
           >
             <ArrowUp className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
           </Button>

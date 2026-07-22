@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。本地会话创建时可原子绑定一支 Agent 团队；执行名单按 session 严格解析，未绑定的存量会话才回退共享 `agents/`。
+本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。本地会话创建时可原子绑定一支 Agent 团队；执行名单按 session 严格解析，未绑定的存量会话才回退共享 `agents/`。本地附件在数据根的专用托管区保存不可变内容，在 `local-console.sqlite` 保存草稿/消息有序引用；消息提交原子 claim 引用，运行前再复制到本轮 runDir，图片进入 Codex `--image`，普通文件只通过 prompt manifest 交付。
 
 ## 项目结构
 ```text
@@ -41,6 +41,7 @@
 │   ├── format-ceo.ts           # CEO guardrail 完整公开 issue context 校正与 fail-open 处理
 │   ├── ceo-scripts.ts          # CEO 剧本文件加载与 workflow 校验
 │   ├── ceo-orchestration.ts    # CEO agent 结构化编排输出解析、校验、key 与 child issue body 渲染
+│   ├── local-console/           # 本地会话、托管附件、loopback API、运行准备与 SQLite store 边界
 │   ├── observer/               # 本地只读观察页：读配置、目标账本、.state 与 run manifest，不写状态
 │   ├── triggers/               # mention 触发方式
 │   ├── agent-prescripts/       # Codex 执行前准备脚本与内置 workspace capability
@@ -51,7 +52,7 @@
 │   │   ├── main.ts             # Electron 主进程装配：数据根、PATH、自检、observer、runner、IPC
 │   │   ├── runner-child.ts     # utilityProcess 子进程入口，调用 src/runner.ts 的 start()
 │   │   ├── preload.ts          # 桌面操作台与状态页的窄 IPC 暴露
-│   │   ├── console-page/       # 桌面本地对话操作台 renderer（含 selection mutation / refresh 协调）
+│   │   ├── console-page/       # 桌面操作台 renderer（含 selection/refresh gate、附件 preview/upload 草稿协调）
 │   │   ├── status-page/        # 桌面辅助诊断状态页静态资源
 │   │   ├── data-root.ts        # 数据根解析与首启种子拷贝计划
 │   │   ├── team-*.ts           # Agent 团队十个模块：播种 / 存储 / 有效性 / 记录 / IPC / 外部修改 / 文件管理 / 预选 / 会话运行时绑定（见 module-map）
@@ -109,6 +110,7 @@
   - 开发态默认数据根为仓库根；打包态默认数据根为 `~/.agent-moebius`；两种形态都可用 `AGENT_MOEBIUS_DATA_ROOT` 覆盖。
   - 首启会把提交版 `agents/` 与示例 `config.toml` 种子拷贝到数据根，已存在的文件一律不覆盖；内置团队从 `seeds/teams/` 打包后按内容指纹整体覆盖到 `<数据根>/teams/.system/`，指纹相同则跳过，用户团队目录不参与播种；用户本机仍通过数据根下被忽略的 `config.local.toml` 配置监听仓库。
   - 桌面壳会为 runner 注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`；runner child 显式以 GitHub mode 启动，因此不会重复启动 local console server。
+  - 桌面壳每次启动生成随机附件 capability，并只通过 preload 窄接口交给 renderer；图片 preview、原件上传、草稿恢复和移除都走 loopback local-console 附件 API。renderer 不直接读取托管目录、SQLite 或普通文件内容，附件 DTO 与 DOM 不得暴露原始路径、托管路径或 blob id。
   - 操作台采用 Codex 桌面端式两栏骨架：macOS 主窗口使用集成标题栏，左侧按已打开的持久化本地项目分组且只列根会话；带 `parentSessionId` 的裂变会话改由父时间线卡片聚合，每行显示子任务、成员与事实状态，点击后在右侧展开，窄窗覆盖主内容区；右侧主线仍是同一条多 agent 时间线，底部输入器承载项目 / 本地或隔离工作区上下文；输入器的 `@` 补全名单只取输入框底部当前显示团队的可用成员（含待生效团队），团队外的手写 `@slug` 保持普通文本；状态页和 observer 只保留为辅助诊断入口，路径、SQLite、runDir、cwd、内部 id 与原始输出不常驻对话页。
   - 桌面 renderer 只记住最后一次成功展示的用户根会话及其项目；重启时精确验证后恢复。没有记录、记录损坏、项目或会话已不可用时进入未选择项目的新建对话，不把 local-console API 的 `local/default` 或其他兼容回退当成用户选择。
   - 每个项目行右侧的新会话按钮只在该项目下创建会话；空白且无运行、消息或父子关系的会话可从 composer 项目菜单切换到其他已打开项目，保持 session id、草稿与选中态。create/open/rebind 共用同步 selection mutation gate；mutation owner refresh 可抢占旧 lease，非 owner refresh 不得提交，周期 refresh 保持 single-flight。已有消息、运行或父子关系的会话项目归属锁定。
@@ -166,6 +168,7 @@
 - issue worktree capability 由 `src/agent-prescripts/issue-worktree.ts` 实现：`agents/dev.md` 声明 `workspace_access: write`，`agents/qa.md`、`agents/product-manager.md`、`agents/hermes-user.md` 声明 `workspace_access: read-run`，`dev-manager`、`ceo`、`secretary` 不纳入首批。runner 在调用 Codex 前基于当前 GitHub issue source 创建 / 复用同 issue 共享 worktree，并把 Codex cwd 切到该 worktree；新建 worktree 使用去 role 化路径 `<WORKDIR_ROOT>/worktrees/<owner>__<repo>__<issue>` 和本地分支 `agent/<owner>__<repo>__<issue>`，首建从 freshly fetched `refs/remotes/origin/main` 创建。复用已有 issue workspace 时只刷新 / 检测 remote main 是否已被当前 `HEAD` 包含，并把 `mainStatus` 写入日志与 prompt context；即使 main 已前进，也不得自动删除、重建、merge 或 rebase 进行中 worktree。legacy dev context 通过懒迁移兼容：当旧 `dev` entry 匹配当前 issue 且旧 dev `worktreePath` 可访问时，新增 issue workspace entry 指向原路径，并保留旧 entry，不搬迁、不删除、不重建。repo cache 的 clone / fetch / worktree add / merge-base 检测按 `repoCachePath` 做进程内 keyed mutex 串行，所有 workspace git 调用必须有界超时，超时 / 失败 / abort 后释放 repo lock；跨不同 bare repo 的操作保持并发不受限。
 - `read-run` 是协作约束而非 OS 级只读隔离：相关角色不得有意修改源码、提交或推送，但允许跑测试、起服务、生成构建缓存、测试输出和验收截图等临时产物。
 - 本地会话以团队快照首成员作为主 Agent 单一事实：显式合法 mention 永远优先；用户无 mention 交给主 Agent；非主 Agent 无 mention 回复确定性回到主 Agent；主 Agent 无 mention 回复推进 cursor 并结束本轮。local runtime 使用独立本地 prompt 注入主 Agent 与成员名单，不复用 GitHub Issue prompt。正文中的“验收”“通过”“不通过”等自然语言不产生本地程序状态或验收副作用；旧 SQLite acceptance 表只作历史只读兼容。session/project 的进行中事实由 cursor 待处理 source、active claim 与真实 running message 合并派生，不代表任务成功或质量通过。
+- 本地附件内容只写数据根下 `.state/local-console-attachments/`；SQLite 只保存不可变 blob 元数据与 draft/message refs。上传必须流式计数并由 magic bytes 分类，PNG/JPEG/GIF/WebP 只有在有界 PNG preview finalize 后才成为 ready 图片；正文与附件 refs 在同一 SQLite transaction 中形成用户消息。运行前只从托管副本复制到当前 `runDir/input-attachments/`，图片按顺序传入 `imagePaths`，普通文件只进入内部 prompt manifest；任何失败不得静默跳过附件或把内部路径写进 renderer 可见 DTO/错误。
 - `agents/secretary.md` 声明 `src/agent-prescripts/current-repo-workspace.ts`；runner 在调用 Codex 前把 Codex cwd 固定到 agent-moebius 当前仓库根目录。该 pre script 不创建 worktree、不读写 `.state/*`，用于让 `@secretary` 独立维护 `agents/ceo.md`、OpenSpec、测试与文档，而不污染 issue 级 worktree / thread。secretary 在该活仓库遵守 git 纪律：不建 / 不切 / 不 reset 分支、不开 PR，改动直接在当前分支完成，commit+push 前必须经用户 issue comment 同意。
 - `agents/ceo.md` 声明 `src/agent-prescripts/ceo-ledger-context.ts`；runner 只在普通 `@ceo` agent 路径执行该 pre script。它 fail-closed 校验 `.state/goal-ledger.json` schema 合法、必需 CEO 剧本存在，并在当前 issue 能唯一关联到 active phase projection 时把当前阶段 projection、可见 task、ledger owner 和可用 workflow id 确定性注入 prompt；当账本缺失 / 为空或当前 issue 没有唯一 active owner 且账本可加载时，它返回 goal-intake bootstrap context，供 CEO 只走 `goal_intake` 入口，不伪造 active phase projection。guardrail 路径不执行此 pre script。
 - `@dev` Codex 运行期间会按 conversation message count 做运行中断检测；如果 GitHub issue 在本轮 Codex 完成前新增 comment，runner 会中断当前 Codex 子进程，不发表评论、不更新 role thread，并保持 issue active 以便下一轮基于最新 timeline 重跑。

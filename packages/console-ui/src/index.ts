@@ -9,6 +9,7 @@ export * from "./console/composer-context";
 export * from "./console/new-conversation-page";
 export * from "./console/operator-console";
 export * from "./console/role-composer";
+export * from "./console/structured-attachments";
 export * from "./console/run-block";
 export * from "./console/run-outcome";
 export * from "./console/session-context-header";

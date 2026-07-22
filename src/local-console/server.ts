@@ -1,4 +1,6 @@
 import http from "node:http";
+import { randomBytes } from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 import {
   CODEX_RUN_IDLE_TIMEOUT_MS,
@@ -14,6 +16,11 @@ import {
 import { run as runCodex } from "../codex.js";
 import { log } from "../log.js";
 import { createSqliteLocalConsoleStore } from "./store.js";
+import {
+  LOCAL_ATTACHMENT_PREVIEW_MAX_BYTES,
+  LocalAttachmentManager,
+  supportsManagedAttachments,
+} from "./attachments.js";
 import { listLocalT5Facts } from "./t5-store.js";
 import type { LocalRouteJudgment } from "./route-bus.js";
 import {
@@ -52,6 +59,8 @@ export interface LocalConsoleServerOptions {
   routeJudgment?: LocalRouteJudgment;
   routeTimeoutMs?: number;
   failureRetryLimit?: number;
+  attachmentRoot?: string;
+  attachmentCapability?: string;
 }
 
 export interface StartedLocalConsoleServer {
@@ -75,6 +84,14 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
       busyTimeoutMs: options.sqliteBusyTimeoutMs ?? LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS,
       timeoutMs: options.storeTimeoutMs ?? LOCAL_CONSOLE_STORE_TIMEOUT_MS,
     }));
+  const attachmentManager = supportsManagedAttachments(store)
+    ? new LocalAttachmentManager(
+        options.attachmentRoot ?? path.join(path.dirname(sqlitePath), "local-console-attachments"),
+        store,
+      )
+    : undefined;
+  await attachmentManager?.init();
+  const attachmentCapability = options.attachmentCapability ?? randomBytes(32).toString("base64url");
   const runtime = new LocalConsoleRuntime({
     store,
     listAgentFiles: options.listAgentFiles ?? (() => listLocalAgentFiles(path.join(projectRoot, "agents"))),
@@ -91,10 +108,11 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
     routeJudgment: options.routeJudgment,
     routeTimeoutMs: options.routeTimeoutMs,
     failureRetryLimit: options.failureRetryLimit,
+    attachmentManager,
   });
   await runtime.init();
 
-  const server = createLocalConsoleHttpServer(runtime);
+  const server = createLocalConsoleHttpServer(runtime, attachmentManager, attachmentCapability);
   const { port } = await listenWithFallback(server, host, requestedPort);
   void runtime.processAllPending().catch((error) => {
     log({ event: "local-console-startup-catch-up-failed", error: formatLocalError(error) });
@@ -122,9 +140,13 @@ export function makeLocalConsoleRunDir(count: number, now = new Date()): string 
   return path.join(TMP_ROOT, `agent-moebius-local-${now.toISOString()}-c${count}-r${localRunDirSequence}`);
 }
 
-export function createLocalConsoleHttpServer(runtime: LocalConsoleRuntime): http.Server {
+export function createLocalConsoleHttpServer(
+  runtime: LocalConsoleRuntime,
+  attachmentManager?: LocalAttachmentManager,
+  attachmentCapability?: string,
+): http.Server {
   return http.createServer((request, response) => {
-    void handleRequest(runtime, request, response);
+    void handleRequest(runtime, request, response, attachmentManager, attachmentCapability);
   });
 }
 
@@ -132,6 +154,8 @@ async function handleRequest(
   runtime: LocalConsoleRuntime,
   request: http.IncomingMessage,
   response: http.ServerResponse,
+  attachmentManager?: LocalAttachmentManager,
+  attachmentCapability?: string,
 ): Promise<void> {
   try {
     if (request.method === "OPTIONS") {
@@ -140,6 +164,109 @@ async function handleRequest(
     }
 
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (url.pathname.startsWith("/api/local-console/attachments")) {
+      if (attachmentManager === undefined || attachmentCapability === undefined) {
+        sendJson(response, 404, { error: "Managed attachments are unavailable" });
+        return;
+      }
+      if (!hasAttachmentCapability(request, attachmentCapability)) {
+        sendJson(response, 403, { error: "Attachment capability required" });
+        return;
+      }
+      if (request.method === "POST" && url.pathname === "/api/local-console/attachments") {
+        const draftKey = readRequiredQuery(url, "draftKey");
+        const displayName = readRequiredQuery(url, "displayName");
+        const contentLength = readOptionalContentLength(request.headers["content-length"]);
+        const result = await attachmentManager.upload({
+          draftKey,
+          displayName,
+          mediaTypeHint: readHeader(request.headers["content-type"]),
+          contentLength,
+          stream: request,
+          isCancelled: () => request.aborted,
+        });
+        if (request.aborted) {
+          if (result.status === "ready") {
+            await attachmentManager.removeDraftAttachment({
+              attachmentId: result.attachment.attachmentId,
+              draftKey,
+            });
+          }
+          return;
+        }
+        sendJson(response, result.status === "ready" ? 201 : 202, result);
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/local-console/attachments") {
+        sendJson(response, 200, { attachments: await attachmentManager.listDraft(readRequiredQuery(url, "draftKey")) });
+        return;
+      }
+      if (request.method === "POST" && url.pathname === "/api/local-console/attachments/clone") {
+        const payload = await readJsonBody(request);
+        if (!isRecord(payload)
+          || typeof payload.sessionId !== "string"
+          || typeof payload.sourceMessageId !== "number"
+          || !Number.isInteger(payload.sourceMessageId)
+          || typeof payload.targetDraftKey !== "string") {
+          sendJson(response, 400, { error: "Expected sessionId, sourceMessageId, and targetDraftKey" });
+          return;
+        }
+        const attachments = await attachmentManager.cloneMessageAttachments({
+          sessionId: payload.sessionId,
+          sourceMessageId: payload.sourceMessageId,
+          targetDraftKey: payload.targetDraftKey,
+        });
+        sendJson(response, 201, { attachments });
+        return;
+      }
+      const previewFinalizeMatch = /^\/api\/local-console\/attachments\/uploads\/([^/]+)\/preview$/u.exec(url.pathname);
+      if (request.method === "POST" && previewFinalizeMatch !== null) {
+        const preview = await readBoundedBody(request, LOCAL_ATTACHMENT_PREVIEW_MAX_BYTES);
+        const attachment = await attachmentManager.finalizeImagePreview({
+          uploadId: decodeURIComponent(previewFinalizeMatch[1] ?? ""),
+          draftKey: readRequiredQuery(url, "draftKey"),
+          preview,
+        });
+        sendJson(response, 201, { attachment });
+        return;
+      }
+      const attachmentPreviewMatch = /^\/api\/local-console\/attachments\/([^/]+)\/preview$/u.exec(url.pathname);
+      if (request.method === "GET" && attachmentPreviewMatch !== null) {
+        const draftKey = readOptionalString(url.searchParams.get("draftKey"));
+        const sessionId = readOptionalString(url.searchParams.get("sessionId"));
+        if ((draftKey === undefined) === (sessionId === undefined)) {
+          sendJson(response, 400, { error: "Exactly one preview scope is required" });
+          return;
+        }
+        const previewPath = await attachmentManager.previewPath({
+          attachmentId: decodeURIComponent(attachmentPreviewMatch[1] ?? ""),
+          ...(draftKey === undefined ? {} : { draftKey }),
+          ...(sessionId === undefined ? {} : { sessionId }),
+        });
+        if (previewPath === null) {
+          sendJson(response, 404, { error: "Attachment preview not found" });
+          return;
+        }
+        const preview = await fs.readFile(previewPath).catch(() => null);
+        if (preview === null) {
+          sendJson(response, 404, { error: "Attachment preview not found" });
+          return;
+        }
+        sendPng(response, preview);
+        return;
+      }
+      const attachmentMatch = /^\/api\/local-console\/attachments\/([^/]+)$/u.exec(url.pathname);
+      if (request.method === "DELETE" && attachmentMatch !== null) {
+        const removed = await attachmentManager.removeDraftAttachment({
+          attachmentId: decodeURIComponent(attachmentMatch[1] ?? ""),
+          draftKey: readRequiredQuery(url, "draftKey"),
+        });
+        sendJson(response, removed ? 200 : 404, { removed });
+        return;
+      }
+      sendJson(response, 404, { error: "Attachment endpoint not found" });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/") {
       sendHtml(response, renderLocalConsolePage());
       return;
@@ -237,8 +364,9 @@ async function handleRequest(
         isRecord(payload) ? readOptionalString(payload.title) : undefined,
         isRecord(payload) ? readOptionalString(payload.projectId) : undefined,
         isRecord(payload) ? readOptionalAgentTeam(payload) : undefined,
-        isRecord(payload) ? readOptionalString(payload.initialMessage) : undefined,
+        isRecord(payload) ? readOptionalMessageBody(payload.initialMessage) : undefined,
         isRecord(payload) ? readOptionalWorkspaceMode(payload.workspaceMode) : undefined,
+        isRecord(payload) ? readOptionalStringArray(payload.attachmentIds) : undefined,
       );
       sendJson(response, 201, { session });
       return;
@@ -380,7 +508,7 @@ async function handleRequest(
         sendJson(response, 400, { error: "Expected JSON body with a string body field" });
         return;
       }
-      await submitMessage(response, runtime, payload.body, sessionMessagesMatch.sessionId);
+      await submitMessage(response, runtime, payload.body, sessionMessagesMatch.sessionId, readOptionalStringArray(payload.attachmentIds));
       return;
     }
 
@@ -450,12 +578,17 @@ async function handleRequest(
         return;
       }
 
-      await submitMessage(response, runtime, payload.body);
+      await submitMessage(response, runtime, payload.body, undefined, readOptionalStringArray(payload.attachmentIds));
       return;
     }
 
     sendJson(response, 404, { error: "Not found" });
   } catch (error) {
+    const failedPath = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    if (failedPath.startsWith("/api/local-console/attachments")) {
+      sendJson(response, 400, { error: formatLocalError(error) });
+      return;
+    }
     if (error instanceof LocalConsoleProjectFolderError) {
       sendJson(response, error.code === "LOCAL_PROJECT_NOT_FOUND" ? 404 : 409, {
         error: error.message,
@@ -472,9 +605,10 @@ async function submitMessage(
   runtime: LocalConsoleRuntime,
   body: string,
   sessionId?: string,
+  attachmentIds?: string[],
 ): Promise<void> {
   try {
-    const message = await runtime.submitUserMessage(body, sessionId);
+    const message = await runtime.submitUserMessage(body, sessionId, attachmentIds);
     sendJson(response, 202, { message });
   } catch (error) {
     if (error instanceof LocalConsoleBusyError) {
@@ -505,7 +639,7 @@ function sendHtml(response: http.ServerResponse, body: string): void {
   response.writeHead(200, {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "content-type, x-agent-moebius-attachment-capability",
     "content-type": "text/html; charset=utf-8",
   });
   response.end(body);
@@ -515,7 +649,7 @@ function sendJson(response: http.ServerResponse, statusCode: number, body: unkno
   response.writeHead(statusCode, {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "content-type, x-agent-moebius-attachment-capability",
     "content-type": "application/json; charset=utf-8",
   });
   response.end(JSON.stringify(body));
@@ -525,9 +659,22 @@ function sendNoContent(response: http.ServerResponse): void {
   response.writeHead(204, {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "content-type, x-agent-moebius-attachment-capability",
   });
   response.end();
+}
+
+function sendPng(response: http.ServerResponse, body: Buffer): void {
+  response.writeHead(200, {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
+    "access-control-allow-headers": "content-type, x-agent-moebius-attachment-capability",
+    "content-type": "image/png",
+    "content-length": String(body.byteLength),
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  });
+  response.end(body);
 }
 
 function renderLocalConsolePage(): string {
@@ -747,6 +894,69 @@ function readOptionalAgentTeam(value: Record<string, unknown>): { ownership: "sy
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.trim() !== "");
+}
+
+function readOptionalStringArray(value: unknown): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isStringArray(value)) {
+    throw new Error("Expected attachmentIds to be an array of non-empty strings");
+  }
+  return value;
+}
+
+function readOptionalMessageBody(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error("Expected initialMessage to be a string");
+  }
+  return value;
+}
+
+function hasAttachmentCapability(request: http.IncomingMessage, expected: string): boolean {
+  const value = request.headers["x-agent-moebius-attachment-capability"];
+  return typeof value === "string" && value === expected;
+}
+
+function readRequiredQuery(url: URL, name: string): string {
+  const value = url.searchParams.get(name)?.trim();
+  if (!value) {
+    throw new Error(`Missing ${name}`);
+  }
+  return value;
+}
+
+function readHeader(value: string | string[] | undefined): string | undefined {
+  return typeof value === "string" ? value : value?.[0];
+}
+
+function readOptionalContentLength(value: string | string[] | undefined): number | undefined {
+  const raw = readHeader(value);
+  if (raw === undefined) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("Invalid Content-Length");
+  }
+  return parsed;
+}
+
+async function readBoundedBody(request: http.IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let byteSize = 0;
+  for await (const rawChunk of request) {
+    const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+    byteSize += chunk.byteLength;
+    if (byteSize > maxBytes) {
+      throw new Error("Attachment preview exceeds its byte limit");
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 function matchProjectRoute(pathname: string): { projectId: string } | null {

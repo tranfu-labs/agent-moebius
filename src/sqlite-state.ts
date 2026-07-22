@@ -59,6 +59,8 @@ export type SqliteStateCommand =
       agentTeamSnapshot?: { members: Array<{ name: string; agentMarkdown: string }> };
       workspaceMode?: "direct" | "worktree";
       initialMessage?: string;
+      initialAttachmentIds?: string[];
+      attachmentDraftKey?: string;
       now: string;
     }
   | { kind: "local-move-empty-session"; sessionId: string; projectId: string; now: string }
@@ -88,7 +90,45 @@ export type SqliteStateCommand =
     }
   | { kind: "local-list-sessions" }
   | { kind: "local-mark-session-result-read"; sessionId: string; unreadSince: string; now: string }
-  | { kind: "local-append-user"; sessionId: string; body: string; now: string }
+  | {
+      kind: "local-append-user";
+      sessionId: string;
+      body: string;
+      attachmentIds?: string[];
+      attachmentDraftKey?: string;
+      now: string;
+    }
+  | {
+      kind: "local-add-draft-attachment";
+      blobId: string;
+      attachmentId: string;
+      draftKey: string;
+      attachmentKind: "image" | "file";
+      displayName: string;
+      mediaType: string;
+      byteSize: number;
+      sha256: string;
+      storageKey: string;
+      now: string;
+    }
+  | { kind: "local-list-draft-attachments"; draftKey: string }
+  | { kind: "local-remove-draft-attachment"; attachmentId: string; draftKey: string }
+  | {
+      kind: "local-clone-message-attachments";
+      sessionId: string;
+      sourceMessageId: number;
+      targetDraftKey: string;
+      now: string;
+    }
+  | {
+      kind: "local-get-attachment-content-record";
+      attachmentId: string;
+      draftKey?: string;
+      sessionId?: string;
+    }
+  | { kind: "local-list-message-attachment-content-records"; messageIds: number[] }
+  | { kind: "local-list-attachment-storage-keys" }
+  | { kind: "local-prune-orphan-attachment-blobs" }
   | { kind: "local-list"; sessionId: string }
   | { kind: "local-has-running"; sessionId: string }
   | { kind: "local-claim-next"; sessionId: string; runId: string; now: string }

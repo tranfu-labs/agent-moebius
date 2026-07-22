@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="620" viewBox="0 0 1180 620" role="img" aria-labelledby="title desc">
+  <title id="title">Local console after managed attachments</title>
+  <desc id="desc">Picker, drop, and clipboard files stream through a capability-protected local API into managed originals, bounded image previews, and SQLite metadata. Message submission claims attachments atomically. Runtime copies them to the run directory, sends images through Codex image paths, and exposes ordinary files through a prompt manifest.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, sans-serif; font-size: 14px; fill: #1f2937; }
+      .title { font-size: 20px; font-weight: 700; }
+      .box { fill: #f8fafc; stroke: #64748b; stroke-width: 1.5; rx: 9; }
+      .ui { fill: #eef2ff; stroke: #6366f1; stroke-width: 1.5; rx: 9; }
+      .data { fill: #ecfeff; stroke: #0891b2; stroke-width: 1.5; rx: 9; }
+      .io { fill: #f0fdf4; stroke: #16a34a; stroke-width: 1.5; rx: 9; }
+      .muted { font-size: 12px; fill: #64748b; }
+      .arrow { stroke: #334155; stroke-width: 1.8; fill: none; marker-end: url(#arrowhead); }
+      .image { stroke: #6366f1; stroke-width: 1.8; fill: none; marker-end: url(#imagehead); }
+      .file { stroke: #0891b2; stroke-width: 1.8; fill: none; marker-end: url(#filehead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#334155"/></marker>
+    <marker id="imagehead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#6366f1"/></marker>
+    <marker id="filehead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 Z" fill="#0891b2"/></marker>
+  </defs>
+  <rect width="1180" height="620" fill="#fff"/>
+  <text x="40" y="42" class="title">After — managed local attachments</text>
+  <rect x="35" y="80" width="200" height="92" class="ui"/>
+  <text x="135" y="110" text-anchor="middle">RoleComposer</text>
+  <text x="135" y="133" text-anchor="middle" class="muted">＋ picker · drop · paste</text>
+  <text x="135" y="153" text-anchor="middle" class="muted">image / file cards</text>
+  <rect x="285" y="80" width="210" height="92" class="ui"/>
+  <text x="390" y="110" text-anchor="middle">Desktop renderer</text>
+  <text x="390" y="133" text-anchor="middle" class="muted">draft key + capability</text>
+  <text x="390" y="153" text-anchor="middle" class="muted">derive bounded PNG preview</text>
+  <rect x="545" y="80" width="220" height="92" class="box"/>
+  <text x="655" y="110" text-anchor="middle">Attachment API / adapter</text>
+  <text x="655" y="133" text-anchor="middle" class="muted">stream · classify · finalize preview</text>
+  <text x="655" y="153" text-anchor="middle" class="muted">ownership / path checks</text>
+  <path class="arrow" d="M235 126 H285"/>
+  <path class="arrow" d="M495 126 H545"/>
+  <rect x="820" y="55" width="310" height="92" class="io"/>
+  <text x="975" y="87" text-anchor="middle">Managed attachment directory</text>
+  <text x="975" y="111" text-anchor="middle" class="muted">&lt;blob-id&gt;/content + bounded preview</text>
+  <text x="975" y="131" text-anchor="middle" class="muted">no user filename in storage path</text>
+  <rect x="820" y="175" width="310" height="92" class="data"/>
+  <text x="975" y="207" text-anchor="middle">SQLite</text>
+  <text x="975" y="231" text-anchor="middle" class="muted">immutable blobs + draft/message refs</text>
+  <text x="975" y="251" text-anchor="middle" class="muted">atomic claim · safe ref clone</text>
+  <path class="arrow" d="M765 109 H820"/>
+  <path class="arrow" d="M765 143 C795 143 790 221 820 221"/>
+  <rect x="285" y="300" width="210" height="92" class="box"/>
+  <text x="390" y="332" text-anchor="middle">Session message API</text>
+  <text x="390" y="356" text-anchor="middle" class="muted">body + ordered attachment ids</text>
+  <text x="390" y="376" text-anchor="middle" class="muted">pure attachment allowed</text>
+  <path class="arrow" d="M390 172 V300"/>
+  <path class="arrow" d="M495 346 H755 C790 346 790 245 820 245"/>
+  <rect x="545" y="445" width="220" height="92" class="box"/>
+  <text x="655" y="477" text-anchor="middle">Local runtime preparation</text>
+  <text x="655" y="501" text-anchor="middle" class="muted">prompt-scope copy + manifest</text>
+  <text x="655" y="521" text-anchor="middle" class="muted">fail visibly before Codex</text>
+  <rect x="820" y="405" width="310" height="72" class="io"/>
+  <text x="975" y="435" text-anchor="middle">runDir/input-attachments</text>
+  <text x="975" y="457" text-anchor="middle" class="muted">per-run safe copies</text>
+  <rect x="820" y="510" width="310" height="72" class="box"/>
+  <text x="975" y="540" text-anchor="middle">Codex driver</text>
+  <text x="975" y="562" text-anchor="middle" class="muted">images: --image · files: prompt manifest</text>
+  <path class="arrow" d="M975 267 V405"/>
+  <path class="arrow" d="M820 441 H765"/>
+  <path class="image" d="M765 486 C805 486 790 530 820 530"/>
+  <path class="file" d="M765 510 C800 510 790 562 820 562"/>
+  <text x="788" y="491" class="muted">imagePaths</text>
+  <text x="975" y="604" text-anchor="middle" class="muted">ordinary files: prompt manifest only, not native Codex inputs</text>
+</svg>

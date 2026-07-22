@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -81,6 +82,7 @@ let mainWindow: BrowserWindow | null = null;
 let statusWindow: BrowserWindow | null = null;
 let observerServer: StartedObserverServer | null = null;
 let localConsoleServer: StartedLocalConsoleServer | null = null;
+let localConsoleAttachmentCapability: string | null = null;
 let runnerSupervisor: RunnerSupervisor | null = null;
 let isQuitting = false;
 
@@ -209,6 +211,7 @@ async function startObserver(): Promise<void> {
 
 async function startLocalConsole(): Promise<void> {
   try {
+    localConsoleAttachmentCapability = randomBytes(32).toString("base64url");
     const store = await createSqliteLocalConsoleStore({
       sqlitePath: path.join(status.dataRoot, ".state", "local-console.sqlite"),
     });
@@ -225,6 +228,8 @@ async function startLocalConsole(): Promise<void> {
       projectRoot: status.dataRoot,
       workdirRoot: path.join(status.dataRoot, "workdir"),
       store,
+      attachmentRoot: path.join(status.dataRoot, ".state", "local-console-attachments"),
+      attachmentCapability: localConsoleAttachmentCapability,
       listAgentFiles: async (sessionId) => listSessionAgentFiles({
         dataRoot: status.dataRoot,
         session: await findSession(sessionId),
@@ -245,6 +250,7 @@ async function startLocalConsole(): Promise<void> {
       sqlitePath: localConsoleServer.sqlitePath,
     };
   } catch (error) {
+    localConsoleAttachmentCapability = null;
     status.localConsole = { status: "error", error: formatError(error) };
   }
   publishStatus();
@@ -326,6 +332,7 @@ ipcMain.handle("action:open-status-page", async () => {
 });
 
 ipcMain.handle("local-console:get-url", async () => status.localConsole.url ?? null);
+ipcMain.handle("local-console:get-attachment-capability", async () => localConsoleAttachmentCapability);
 
 ipcMain.handle(OPEN_EXTERNAL_LINK_IPC_CHANNEL, async (_event, url: unknown) =>
   openValidatedExternalLink(url, shell));
@@ -497,6 +504,7 @@ async function closeLocalConsole(): Promise<void> {
   }
   await localConsoleServer.close();
   localConsoleServer = null;
+  localConsoleAttachmentCapability = null;
   status.localConsole = { status: "stopped" };
 }
 

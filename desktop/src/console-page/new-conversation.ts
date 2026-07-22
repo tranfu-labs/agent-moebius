@@ -15,6 +15,11 @@ export interface NewConversationDraftState {
   error: string | null;
 }
 
+export interface NewConversationSubmissionState extends NewConversationDraftState {
+  readyAttachmentCount?: number;
+  hasBlockingAttachments?: boolean;
+}
+
 export type NewConversationDraftEvent =
   | { type: "open"; draft: NewConversationDraftState }
   | { type: "close" }
@@ -46,10 +51,11 @@ export function createNewConversationDraft(input: {
   };
 }
 
-export function canSubmitNewConversation(state: NewConversationDraftState): boolean {
+export function canSubmitNewConversation(state: NewConversationSubmissionState): boolean {
   return state.projectId !== null
     && state.teamKey !== null
-    && state.draft.trim() !== ""
+    && (state.draft.trim() !== "" || (state.readyAttachmentCount ?? 0) > 0)
+    && state.hasBlockingAttachments !== true
     && !state.isSubmitting;
 }
 

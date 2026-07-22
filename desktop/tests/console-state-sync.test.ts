@@ -163,6 +163,60 @@ describe("ConsoleStateActions", () => {
     );
   });
 
+  it("creates and sends pure attachment messages while clearing only the submitted draft", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ session: { sessionId: "session-b" } }, 201))
+      .mockResolvedValueOnce(jsonResponse({ message: { id: 1 } }, 202));
+    const harness = actionHarness({
+      coordinator: new ConsoleStateCoordinator(),
+      fetch,
+      composerValue: "",
+      attachmentIds: ["attachment-1"],
+    });
+
+    await expect(harness.actions.createSessionWithFirstMessage(
+      "project-b",
+      "",
+      undefined,
+      "direct",
+      ["attachment-new"],
+    )).resolves.toEqual({ sessionId: "session-b" });
+    expect(JSON.parse((fetch.mock.calls[0]?.[1] as RequestInit).body as string)).toMatchObject({
+      initialMessage: "",
+      attachmentIds: ["attachment-new"],
+    });
+
+    await harness.actions.sendMessage();
+    expect(JSON.parse((fetch.mock.calls[1]?.[1] as RequestInit).body as string)).toEqual({
+      body: "",
+      attachmentIds: ["attachment-1"],
+    });
+    expect(harness.clearComposer).toHaveBeenCalledWith("session-b");
+    expect(harness.clearAttachments).toHaveBeenCalledWith("session-b");
+  });
+
+  it("deduplicates in-flight sends and blocks selection mutations until the send settles", async () => {
+    const response = deferred<Response>();
+    const fetch = vi.fn(() => response.promise);
+    const coordinator = new ConsoleStateCoordinator();
+    const harness = actionHarness({
+      coordinator,
+      fetch,
+      composerValue: "send once",
+      attachmentIds: ["attachment-1"],
+    });
+
+    const first = harness.actions.sendMessage();
+    const duplicate = harness.actions.sendMessage();
+    await harness.actions.createSessionWithFirstMessage("project-b", "must wait");
+
+    expect(coordinator.isSendPending).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    response.resolve(jsonResponse({ message: { id: 1 } }, 202));
+    await Promise.all([first, duplicate]);
+    expect(coordinator.isSendPending).toBe(false);
+  });
+
   it("blocks every selection handler and duplicate mutation while folder picking is pending", async () => {
     const coordinator = new ConsoleStateCoordinator();
     const folderPath = deferred<string | null>();
@@ -521,12 +575,14 @@ function actionHarness(input: {
   ) => Promise<boolean>;
   selectProjectFolder?: () => Promise<string | null>;
   composerValue?: string;
+  attachmentIds?: string[];
 }) {
   let selection: ConsoleSelection = { projectId: "project-a", sessionId: "session-a" };
   const mutationKinds: Array<SelectionMutationKind | null> = [];
   const errors: string[] = [];
   const sending: boolean[] = [];
   const clearComposer = vi.fn();
+  const clearAttachments = vi.fn();
   const actions = new ConsoleStateActions({
     apiBase: "http://127.0.0.1:8787/",
     coordinator: input.coordinator,
@@ -538,6 +594,8 @@ function actionHarness(input: {
     refresh: input.refresh ?? (async () => true),
     composerValue: input.composerValue ?? "draft",
     clearComposer,
+    getAttachmentIds: () => input.attachmentIds ?? [],
+    clearAttachments,
     setMutationKind: (kind) => mutationKinds.push(kind),
     setSending: (value) => sending.push(value),
     setError: (error) => errors.push(error),
@@ -546,6 +604,7 @@ function actionHarness(input: {
   return {
     actions,
     clearComposer,
+    clearAttachments,
     errors,
     mutationKinds,
     selection: () => selection,

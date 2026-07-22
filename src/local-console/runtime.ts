@@ -31,6 +31,7 @@ import {
   recordLocalWorkspaceDiff,
 } from "./t5-store.js";
 import { buildLocalAgentPrompt } from "./prompt.js";
+import type { LocalAttachmentManager } from "./attachments.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
 import { deriveSessionTitle } from "./title.js";
 import {
@@ -95,6 +96,7 @@ export interface LocalConsoleRuntimeOptions {
   routeJudgment?: LocalRouteJudgment;
   routeTimeoutMs?: number;
   failureRetryLimit?: number;
+  attachmentManager?: LocalAttachmentManager;
   now?: () => Date;
 }
 
@@ -289,12 +291,16 @@ export class LocalConsoleRuntime {
     agentTeam?: { ownership: "system" | "user"; id: string },
     initialMessage?: string,
     workspaceMode?: LocalConsoleWorkspaceMode,
+    attachmentIds: string[] = [],
   ): Promise<LocalConsoleSessionSummary> {
     const sessionId = `local:${this.now().toISOString()}-${Math.random().toString(36).slice(2, 8)}`;
     const resolvedProjectId = projectId ?? (await this.defaultProjectId());
     const normalizedInitialMessage = initialMessage?.trim();
-    if (initialMessage !== undefined && normalizedInitialMessage === "") {
+    if (initialMessage !== undefined && normalizedInitialMessage === "" && attachmentIds.length === 0) {
       throw new Error("Message body must not be empty");
+    }
+    if (new Set(attachmentIds).size !== attachmentIds.length) {
+      throw new Error("Attachment ids must be unique");
     }
     await this.assertProjectDirectoryAvailable(resolvedProjectId);
     if (workspaceMode === "worktree") {
@@ -314,20 +320,30 @@ export class LocalConsoleRuntime {
     const agentTeamSnapshot = agentTeam === undefined || this.options.loadAgentTeamSnapshot === undefined
       ? undefined
       : await this.options.loadAgentTeamSnapshot(agentTeam);
+    const firstAttachment = attachmentIds.length === 0
+      ? undefined
+      : (await this.options.attachmentManager?.listDraft("draft:new"))
+        ?.find((attachment) => attachment.attachmentId === attachmentIds[0]);
     const session = await this.storeCall("local-console-store-create-session", () =>
       this.options.store.createSession({
         sessionId,
         projectId: resolvedProjectId,
-        title: normalizedInitialMessage === undefined ? normalizeTitle(title) : deriveSessionTitle(normalizedInitialMessage),
+        title: normalizedInitialMessage
+          ? deriveSessionTitle(normalizedInitialMessage)
+          : firstAttachment === undefined
+            ? normalizeTitle(title)
+            : deriveSessionTitle(firstAttachment.displayName),
         agentTeamOwnership: agentTeam?.ownership,
         agentTeamId: agentTeam?.id,
         agentTeamSnapshot,
         workspaceMode,
         initialMessage: normalizedInitialMessage,
+        initialAttachmentIds: attachmentIds,
+        attachmentDraftKey: "draft:new",
         now: this.nowIso(),
       }),
     );
-    if (normalizedInitialMessage !== undefined) {
+    if (normalizedInitialMessage !== undefined || attachmentIds.length > 0) {
       void this.processPending(sessionId);
     }
     return session;
@@ -471,10 +487,17 @@ export class LocalConsoleRuntime {
     }
   }
 
-  async submitUserMessage(body: string, sessionId = this.sessionId): Promise<LocalConsoleMessage> {
+  async submitUserMessage(
+    body: string,
+    sessionId = this.sessionId,
+    attachmentIds: string[] = [],
+  ): Promise<LocalConsoleMessage> {
     const trimmed = body.trim();
-    if (trimmed === "") {
+    if (trimmed === "" && attachmentIds.length === 0) {
       throw new Error("Message body must not be empty");
+    }
+    if (new Set(attachmentIds).size !== attachmentIds.length) {
+      throw new Error("Attachment ids must be unique");
     }
     await this.assertSessionCanContinue(sessionId);
 
@@ -492,6 +515,8 @@ export class LocalConsoleRuntime {
       this.options.store.appendUserMessage({
         sessionId,
         body: trimmed,
+        attachmentIds,
+        attachmentDraftKey: `draft:${sessionId}`,
         now: this.nowIso(),
       }),
     );
@@ -742,7 +767,7 @@ export class LocalConsoleRuntime {
           const agentMarkdown = selectedAgent.agentMarkdown
             ?? await fs.readFile(requireAgentFilePath(selectedAgent), "utf8");
           const agentManifest = parseAgentManifest(agentMarkdown);
-          const prompt = buildLocalAgentPrompt({
+          let prompt = buildLocalAgentPrompt({
             role: trigger.role,
             agentMarkdown: agentManifest.body,
             timeline,
@@ -759,6 +784,14 @@ export class LocalConsoleRuntime {
               now: this.nowIso(),
             }),
           );
+
+          const preparedAttachments = this.options.attachmentManager === undefined
+            ? { promptSuffix: "", imagePaths: [] as string[] }
+            : await this.options.attachmentManager.prepareRunAttachments({
+                messages: timelineMessages,
+                runDir: resolvedRunDir,
+              });
+          prompt += preparedAttachments.promptSuffix;
 
           const controller = new AbortController();
           const workspace = await this.resolveWorkspace(sessionId, controller.signal);
@@ -790,6 +823,7 @@ export class LocalConsoleRuntime {
             signal: controller.signal,
             ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
             ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
+            ...(preparedAttachments.imagePaths.length === 0 ? {} : { imagePaths: preparedAttachments.imagePaths }),
             onVisibleAgentMarkdown: (text) => {
               const active = this.activeRuns.get(sessionId);
               if (active?.runId === nextRunId) {

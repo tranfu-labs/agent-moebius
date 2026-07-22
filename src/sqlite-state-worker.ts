@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parentPort, workerData } from "node:worker_threads";
@@ -54,6 +54,7 @@ interface WorkerLocalMessage {
   lastFailureReason: string | null;
   sourceKind: string | null;
   sourceId: string | null;
+  attachments?: unknown[];
   createdAt: string;
   updatedAt: string;
 }
@@ -164,6 +165,23 @@ function runCommand(input: WorkerInput): unknown {
         return markSessionResultRead(database, input.command);
       case "local-append-user":
         return appendUserMessage(database, input.command);
+      case "local-add-draft-attachment":
+        return addDraftAttachment(database, input.command);
+      case "local-list-draft-attachments":
+        return listDraftAttachments(database, input.command.draftKey);
+      case "local-remove-draft-attachment":
+        return removeDraftAttachment(database, input.command);
+      case "local-clone-message-attachments":
+        return cloneMessageAttachments(database, input.command);
+      case "local-get-attachment-content-record":
+        return getAttachmentContentRecord(database, input.command);
+      case "local-list-message-attachment-content-records":
+        return listMessageAttachmentContentRecords(database, input.command.messageIds);
+      case "local-list-attachment-storage-keys":
+        return database.prepare("SELECT storage_key FROM local_attachment_blobs ORDER BY storage_key ASC").all()
+          .map((row) => readString((row as Record<string, unknown>).storage_key, "storage_key"));
+      case "local-prune-orphan-attachment-blobs":
+        return pruneOrphanAttachmentBlobs(database);
       case "local-list":
         return listLocalMessages(database, input.command.sessionId);
       case "local-has-running":
@@ -309,6 +327,31 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_session_messages_session_id_id ON session_messages(session_id, id);
     CREATE INDEX IF NOT EXISTS idx_session_messages_session_status_id ON session_messages(session_id, status, id);
+    CREATE TABLE IF NOT EXISTS local_attachment_blobs (
+      blob_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('image', 'file')),
+      display_name TEXT NOT NULL,
+      media_type TEXT NOT NULL,
+      byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+      sha256 TEXT NOT NULL,
+      storage_key TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS local_attachment_refs (
+      attachment_id TEXT PRIMARY KEY,
+      blob_id TEXT NOT NULL REFERENCES local_attachment_blobs(blob_id) ON DELETE CASCADE,
+      draft_key TEXT,
+      message_id INTEGER REFERENCES session_messages(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL CHECK (position >= 0),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK ((draft_key IS NOT NULL AND message_id IS NULL) OR (draft_key IS NULL AND message_id IS NOT NULL))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_local_attachment_refs_draft_position
+      ON local_attachment_refs(draft_key, position) WHERE draft_key IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_local_attachment_refs_message_position
+      ON local_attachment_refs(message_id, position) WHERE message_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_local_attachment_refs_blob_id ON local_attachment_refs(blob_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_parent_session_id ON sessions(parent_session_id) WHERE parent_session_id IS NOT NULL;
     CREATE TABLE IF NOT EXISTS local_message_cursors (
       session_id TEXT PRIMARY KEY,
@@ -433,6 +476,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   markSchemaMigration(database, "main-sidebar-t8-project-removal");
   markSchemaMigration(database, "main-sidebar-t11-session-archive");
   markSchemaMigration(database, "main-sidebar-t3-session-attention-state");
+  markSchemaMigration(database, "local-console-managed-attachments");
 }
 
 function preserveLegacyLocalSessionTeamBindings(database: SqliteDatabase): void {
@@ -1416,14 +1460,26 @@ function createLocalSession(
       input.agentTeamSnapshot,
     );
     ensureLocalCursor(database, input.sessionId, input.now);
-    if (input.initialMessage !== undefined) {
-      database
+    const attachmentIds = input.initialAttachmentIds ?? [];
+    if (input.initialMessage !== undefined || attachmentIds.length > 0) {
+      const initialBody = input.initialMessage ?? "";
+      if (initialBody.trim() === "" && attachmentIds.length === 0) {
+        throw new Error("Message body or attachment must be provided");
+      }
+      const result = database
         .prepare(
           `INSERT INTO session_messages
             (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
           VALUES (?, 'user', NULL, ?, 'pending', NULL, NULL, NULL, 'local-message', NULL, ?, ?)`,
         )
-        .run(input.sessionId, input.initialMessage, input.now, input.now);
+        .run(input.sessionId, initialBody, input.now, input.now);
+      claimAttachmentRefs(
+        database,
+        input.attachmentDraftKey ?? "draft:new",
+        attachmentIds,
+        toNumberId(result.lastInsertRowid),
+        input.now,
+      );
     }
     return requireLocalSession(database, input.sessionId);
   });
@@ -1730,6 +1786,10 @@ function appendUserMessage(
   input: Extract<SqliteStateCommand, { kind: "local-append-user" }>,
 ): unknown {
   return transaction(database, () => {
+    const attachmentIds = input.attachmentIds ?? [];
+    if (input.body.trim() === "" && attachmentIds.length === 0) {
+      throw new Error("Message body or attachment must be provided");
+    }
     ensureSession(database, input.sessionId, input.now, titleFromMessage(input.body), LOCAL_CONSOLE_PROJECT_ID);
     ensureLocalCursor(database, input.sessionId, input.now);
     database
@@ -1742,7 +1802,15 @@ function appendUserMessage(
         VALUES (?, 'user', NULL, ?, 'pending', NULL, NULL, NULL, 'local-message', NULL, ?, ?)`,
       )
       .run(input.sessionId, input.body, input.now, input.now);
-    return requireLocalMessage(database, toNumberId(result.lastInsertRowid), input.sessionId);
+    const messageId = toNumberId(result.lastInsertRowid);
+    claimAttachmentRefs(
+      database,
+      input.attachmentDraftKey ?? `draft:${input.sessionId}`,
+      attachmentIds,
+      messageId,
+      input.now,
+    );
+    return requireLocalMessage(database, messageId, input.sessionId);
   });
 }
 
@@ -1750,7 +1818,283 @@ function listLocalMessages(database: SqliteDatabase, sessionId: string): unknown
   return database
     .prepare("SELECT * FROM session_messages WHERE session_id = ? ORDER BY id ASC")
     .all(sessionId)
-    .map(readLocalMessageRow);
+    .map((row) => withMessageAttachments(database, readLocalMessageRow(row)));
+}
+
+function addDraftAttachment(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-add-draft-attachment" }>,
+): unknown {
+  return transaction(database, () => {
+    if (input.draftKey.trim() === "") {
+      throw new Error("Attachment draft key must not be empty");
+    }
+    database.prepare(
+      `INSERT INTO local_attachment_blobs
+        (blob_id, kind, display_name, media_type, byte_size, sha256, storage_key, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      input.blobId,
+      input.attachmentKind,
+      input.displayName,
+      input.mediaType,
+      input.byteSize,
+      input.sha256,
+      input.storageKey,
+      input.now,
+    );
+    const positionRow = database.prepare(
+      "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM local_attachment_refs WHERE draft_key = ?",
+    ).get(input.draftKey);
+    const position = isRecord(positionRow) ? readNumber(positionRow.position, "position") : 0;
+    database.prepare(
+      `INSERT INTO local_attachment_refs
+        (attachment_id, blob_id, draft_key, message_id, position, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?)`,
+    ).run(input.attachmentId, input.blobId, input.draftKey, position, input.now, input.now);
+    return requireAttachmentDto(database, input.attachmentId);
+  });
+}
+
+function listDraftAttachments(database: SqliteDatabase, draftKey: string): unknown[] {
+  return database.prepare(
+    `${attachmentSelectSql()}
+     WHERE r.draft_key = ?
+     ORDER BY r.position ASC`,
+  ).all(draftKey).map(readAttachmentDtoRow);
+}
+
+function removeDraftAttachment(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-remove-draft-attachment" }>,
+): { removed: boolean; orphanedStorageKey: string | null } {
+  return transaction(database, () => {
+    const row = database.prepare(
+      `SELECT r.blob_id, b.storage_key
+       FROM local_attachment_refs r
+       JOIN local_attachment_blobs b ON b.blob_id = r.blob_id
+       WHERE r.attachment_id = ? AND r.draft_key = ? AND r.message_id IS NULL`,
+    ).get(input.attachmentId, input.draftKey);
+    if (!isRecord(row)) {
+      return { removed: false, orphanedStorageKey: null };
+    }
+    const blobId = readString(row.blob_id, "blob_id");
+    const storageKey = readString(row.storage_key, "storage_key");
+    database.prepare("DELETE FROM local_attachment_refs WHERE attachment_id = ? AND draft_key = ?")
+      .run(input.attachmentId, input.draftKey);
+    const remaining = database.prepare("SELECT 1 AS found FROM local_attachment_refs WHERE blob_id = ? LIMIT 1").get(blobId);
+    if (remaining !== undefined) {
+      return { removed: true, orphanedStorageKey: null };
+    }
+    database.prepare("DELETE FROM local_attachment_blobs WHERE blob_id = ?").run(blobId);
+    return { removed: true, orphanedStorageKey: storageKey };
+  });
+}
+
+function cloneMessageAttachments(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-clone-message-attachments" }>,
+): unknown[] {
+  return transaction(database, () => {
+    if (input.targetDraftKey !== `draft:${input.sessionId}`) {
+      throw new Error("Attachment target draft does not belong to the session");
+    }
+    const source = database.prepare(
+      "SELECT speaker FROM session_messages WHERE id = ? AND session_id = ?",
+    ).get(input.sourceMessageId, input.sessionId);
+    if (!isRecord(source) || source.speaker !== "user") {
+      throw new Error("Attachment source must be a user message in the same session");
+    }
+    const occupied = database.prepare(
+      "SELECT 1 AS found FROM local_attachment_refs WHERE draft_key = ? LIMIT 1",
+    ).get(input.targetDraftKey);
+    if (occupied !== undefined) {
+      throw new Error("Attachment target draft is not empty");
+    }
+    const rows = database.prepare(
+      `SELECT blob_id, position
+       FROM local_attachment_refs
+       WHERE message_id = ?
+       ORDER BY position ASC`,
+    ).all(input.sourceMessageId);
+    const attachmentIds: string[] = [];
+    for (const row of rows) {
+      if (!isRecord(row)) {
+        throw new Error("Invalid attachment source ref");
+      }
+      const attachmentId = randomOpaqueId();
+      attachmentIds.push(attachmentId);
+      database.prepare(
+        `INSERT INTO local_attachment_refs
+          (attachment_id, blob_id, draft_key, message_id, position, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, ?, ?, ?)`,
+      ).run(
+        attachmentId,
+        readString(row.blob_id, "blob_id"),
+        input.targetDraftKey,
+        readNumber(row.position, "position"),
+        input.now,
+        input.now,
+      );
+    }
+    return attachmentIds.map((attachmentId) => requireAttachmentDto(database, attachmentId));
+  });
+}
+
+function getAttachmentContentRecord(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-get-attachment-content-record" }>,
+): unknown | null {
+  if ((input.draftKey === undefined) === (input.sessionId === undefined)) {
+    throw new Error("Exactly one attachment scope must be provided");
+  }
+  const scopeSql = input.draftKey !== undefined
+    ? "r.draft_key = ?"
+    : "r.message_id IN (SELECT id FROM session_messages WHERE session_id = ?)";
+  const scopeValue = input.draftKey ?? input.sessionId ?? "";
+  const row = database.prepare(
+    `${attachmentContentSelectSql()}
+     WHERE r.attachment_id = ? AND ${scopeSql}`,
+  ).get(input.attachmentId, scopeValue);
+  return row === undefined ? null : readAttachmentContentRow(row);
+}
+
+function listMessageAttachmentContentRecords(database: SqliteDatabase, messageIds: number[]): unknown[] {
+  if (messageIds.length === 0) {
+    return [];
+  }
+  const placeholders = messageIds.map(() => "?").join(", ");
+  return database.prepare(
+    `${attachmentContentSelectSql()}
+     WHERE r.message_id IN (${placeholders})
+     ORDER BY r.message_id ASC, r.position ASC`,
+  ).all(...messageIds).map(readAttachmentContentRow);
+}
+
+function pruneOrphanAttachmentBlobs(database: SqliteDatabase): {
+  liveStorageKeys: string[];
+  orphanedStorageKeys: string[];
+} {
+  return transaction(database, () => {
+    const rows = database.prepare(
+      `SELECT b.storage_key
+       FROM local_attachment_blobs b
+       WHERE NOT EXISTS (
+         SELECT 1 FROM local_attachment_refs r WHERE r.blob_id = b.blob_id
+       )
+       ORDER BY b.storage_key ASC`,
+    ).all();
+    const orphanedStorageKeys = rows.map((row) => {
+      if (!isRecord(row)) {
+        throw new Error("Invalid orphan attachment blob row");
+      }
+      return readString(row.storage_key, "storage_key");
+    });
+    database.prepare(
+      `DELETE FROM local_attachment_blobs
+       WHERE NOT EXISTS (
+         SELECT 1 FROM local_attachment_refs r WHERE r.blob_id = local_attachment_blobs.blob_id
+       )`,
+    ).run();
+    const liveStorageKeys = database.prepare(
+      "SELECT storage_key FROM local_attachment_blobs ORDER BY storage_key ASC",
+    ).all().map((row) => readString((row as Record<string, unknown>).storage_key, "storage_key"));
+    return { liveStorageKeys, orphanedStorageKeys };
+  });
+}
+
+function claimAttachmentRefs(
+  database: SqliteDatabase,
+  draftKey: string,
+  attachmentIds: string[],
+  messageId: number,
+  now: string,
+): void {
+  if (new Set(attachmentIds).size !== attachmentIds.length) {
+    throw new Error("Attachment ids must be unique");
+  }
+  for (const [position, attachmentId] of attachmentIds.entries()) {
+    const row = database.prepare(
+      `SELECT r.attachment_id
+       FROM local_attachment_refs r
+       JOIN local_attachment_blobs b ON b.blob_id = r.blob_id
+       WHERE r.attachment_id = ? AND r.draft_key = ? AND r.message_id IS NULL`,
+    ).get(attachmentId, draftKey);
+    if (!isRecord(row)) {
+      throw new Error("Attachment is missing, not ready, or belongs to another draft");
+    }
+    const result = database.prepare(
+      `UPDATE local_attachment_refs
+       SET draft_key = NULL, message_id = ?, position = ?, updated_at = ?
+       WHERE attachment_id = ? AND draft_key = ? AND message_id IS NULL`,
+    ).run(messageId, position, now, attachmentId, draftKey);
+    if (Number(result.changes ?? 0) !== 1) {
+      throw new Error("Attachment claim failed");
+    }
+  }
+}
+
+function attachmentSelectSql(): string {
+  return `SELECT r.attachment_id, b.kind, b.display_name, b.media_type, b.byte_size
+          FROM local_attachment_refs r
+          JOIN local_attachment_blobs b ON b.blob_id = r.blob_id`;
+}
+
+function attachmentContentSelectSql(): string {
+  return `SELECT r.attachment_id, r.draft_key, r.message_id, r.position,
+                 b.blob_id, b.kind, b.display_name, b.media_type, b.byte_size, b.sha256, b.storage_key
+          FROM local_attachment_refs r
+          JOIN local_attachment_blobs b ON b.blob_id = r.blob_id`;
+}
+
+function readAttachmentDtoRow(row: unknown): unknown {
+  if (!isRecord(row)) {
+    throw new Error("Invalid attachment row");
+  }
+  return {
+    attachmentId: readString(row.attachment_id, "attachment_id"),
+    kind: readString(row.kind, "kind"),
+    displayName: readString(row.display_name, "display_name"),
+    mediaType: readString(row.media_type, "media_type"),
+    byteSize: readNumber(row.byte_size, "byte_size"),
+  };
+}
+
+function readAttachmentContentRow(row: unknown): unknown {
+  if (!isRecord(row)) {
+    throw new Error("Invalid attachment content row");
+  }
+  return {
+    ...readAttachmentDtoRow(row) as Record<string, unknown>,
+    blobId: readString(row.blob_id, "blob_id"),
+    sha256: readString(row.sha256, "sha256"),
+    storageKey: readString(row.storage_key, "storage_key"),
+    draftKey: readNullableString(row.draft_key, "draft_key"),
+    messageId: row.message_id === null ? null : readNumber(row.message_id, "message_id"),
+    position: readNumber(row.position, "position"),
+  };
+}
+
+function requireAttachmentDto(database: SqliteDatabase, attachmentId: string): unknown {
+  const row = database.prepare(`${attachmentSelectSql()} WHERE r.attachment_id = ?`).get(attachmentId);
+  if (row === undefined) {
+    throw new Error("Attachment ref was not created");
+  }
+  return readAttachmentDtoRow(row);
+}
+
+function listMessageAttachmentDtos(database: SqliteDatabase, messageId: number): unknown[] {
+  return database.prepare(
+    `${attachmentSelectSql()} WHERE r.message_id = ? ORDER BY r.position ASC`,
+  ).all(messageId).map(readAttachmentDtoRow);
+}
+
+function withMessageAttachments(database: SqliteDatabase, message: WorkerLocalMessage): WorkerLocalMessage {
+  return { ...message, attachments: listMessageAttachmentDtos(database, message.id) };
+}
+
+function randomOpaqueId(): string {
+  return randomUUID();
 }
 
 function hasRunningMessage(database: SqliteDatabase, sessionId: string): boolean {
@@ -2517,7 +2861,7 @@ function requireLocalMessage(database: SqliteDatabase, id: number, sessionId: st
   if (row === undefined) {
     throw new Error(`local console message not found: ${String(id)}`);
   }
-  return readLocalMessageRow(row);
+  return withMessageAttachments(database, readLocalMessageRow(row));
 }
 
 function requireLocalSession(database: SqliteDatabase, sessionId: string): unknown {

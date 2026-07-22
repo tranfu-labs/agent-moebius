@@ -7,6 +7,11 @@ import {
   LocalConsoleSessionProjectError,
   LocalConsoleSessionRunningError,
   type LocalConsoleMessage,
+  type LocalAttachment,
+  type LocalAttachmentContentRecord,
+  type LocalAttachmentKind,
+  type LocalAttachmentRemovalResult,
+  type LocalAttachmentStorageReconciliation,
   type LocalConsoleMessageStatus,
   type LocalConsoleAwaitsHumanReason,
   type MoveEmptySessionResult,
@@ -133,6 +138,8 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     agentTeamSnapshot?: LocalConsoleAgentTeamSnapshot;
     workspaceMode?: LocalConsoleWorkspaceMode;
     initialMessage?: string;
+    initialAttachmentIds?: string[];
+    attachmentDraftKey?: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary> {
     return this.run({ kind: "local-create-session", ...input, projectId: input.projectId ?? LOCAL_CONSOLE_PROJECT_ID });
@@ -176,8 +183,70 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     return this.run({ kind: "local-mark-session-result-read", ...input });
   }
 
-  async appendUserMessage(input: { sessionId: string; body: string; now: string }): Promise<LocalConsoleMessage> {
+  async appendUserMessage(input: {
+    sessionId: string;
+    body: string;
+    attachmentIds?: string[];
+    attachmentDraftKey?: string;
+    now: string;
+  }): Promise<LocalConsoleMessage> {
     return this.run({ kind: "local-append-user", ...input });
+  }
+
+  async addDraftAttachment(input: {
+    blobId: string;
+    attachmentId: string;
+    draftKey: string;
+    kind: LocalAttachmentKind;
+    displayName: string;
+    mediaType: string;
+    byteSize: number;
+    sha256: string;
+    storageKey: string;
+    now: string;
+  }): Promise<LocalAttachment> {
+    const { kind: attachmentKind, ...rest } = input;
+    return this.run({ kind: "local-add-draft-attachment", ...rest, attachmentKind });
+  }
+
+  async listDraftAttachments(draftKey: string): Promise<LocalAttachment[]> {
+    return this.run({ kind: "local-list-draft-attachments", draftKey });
+  }
+
+  async removeDraftAttachment(input: {
+    attachmentId: string;
+    draftKey: string;
+  }): Promise<LocalAttachmentRemovalResult> {
+    return this.run({ kind: "local-remove-draft-attachment", ...input });
+  }
+
+  async cloneMessageAttachmentsToDraft(input: {
+    sessionId: string;
+    sourceMessageId: number;
+    targetDraftKey: string;
+    now: string;
+  }): Promise<LocalAttachment[]> {
+    return this.run({ kind: "local-clone-message-attachments", ...input });
+  }
+
+  async getAttachmentContentRecord(input: {
+    attachmentId: string;
+    draftKey?: string;
+    sessionId?: string;
+  }): Promise<LocalAttachmentContentRecord | null> {
+    return this.run({ kind: "local-get-attachment-content-record", ...input });
+  }
+
+  async listMessageAttachmentContentRecords(messageIds: number[]): Promise<LocalAttachmentContentRecord[]> {
+    return this.run({ kind: "local-list-message-attachment-content-records", messageIds });
+  }
+
+  async listAttachmentStorageKeys(): Promise<string[]> {
+    return this.run({ kind: "local-list-attachment-storage-keys" });
+  }
+
+  async pruneOrphanAttachmentBlobs(): Promise<LocalAttachmentStorageReconciliation> {
+    return this.run({ kind: "local-prune-orphan-attachment-blobs" });
   }
 
   async listMessages(sessionId: string): Promise<LocalConsoleMessage[]> {
@@ -481,6 +550,9 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
       lastFailureReason: "lastFailureReason" in value ? readNullableString(value.lastFailureReason, "lastFailureReason") : null,
       sourceKind: "sourceKind" in value ? readNullableString(value.sourceKind, "sourceKind") : null,
       sourceId: "sourceId" in value ? readNullableString(value.sourceId, "sourceId") : null,
+      attachments: "attachments" in value && Array.isArray(value.attachments)
+        ? value.attachments.map(normalizeAttachment)
+        : [],
       createdAt: readString(value.createdAt, "createdAt"),
       updatedAt: readString(value.updatedAt, "updatedAt"),
     } satisfies LocalConsoleMessage;
@@ -525,6 +597,23 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
     createdAt: readString(value.createdAt, "createdAt"),
     updatedAt: readString(value.updatedAt, "updatedAt"),
   } satisfies LocalConsoleSessionSummary;
+}
+
+function normalizeAttachment(value: unknown): LocalAttachment {
+  if (!isRecord(value)) {
+    throw new Error("Invalid local attachment");
+  }
+  const kind = value.kind;
+  if (kind !== "image" && kind !== "file") {
+    throw new Error(`Invalid local attachment kind: ${String(kind)}`);
+  }
+  return {
+    attachmentId: readString(value.attachmentId, "attachmentId"),
+    kind,
+    displayName: readString(value.displayName, "displayName"),
+    mediaType: readString(value.mediaType, "mediaType"),
+    byteSize: readNumber(value.byteSize, "byteSize"),
+  };
 }
 
 function readNullableAgentTeamOwnership(value: unknown): "system" | "user" | null {

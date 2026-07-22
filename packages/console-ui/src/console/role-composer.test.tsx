@@ -10,6 +10,7 @@ import {
   insertRoleMention,
   type RoleCompletion,
 } from "./role-composer";
+import type { ComposerAttachment } from "./structured-attachments";
 
 const teamRoles: RoleCompletion[] = [
   { handle: "dev", label: "开发", description: "实现功能" },
@@ -85,7 +86,7 @@ describe("RoleComposer", () => {
     render(<ControlledComposer initialValue="@qa 请走查" onSubmit={onSubmit} />);
 
     fireEvent.click(screen.getByRole("button", { name: /发送/u }));
-    expect(onSubmit).toHaveBeenCalledWith("@qa 请走查");
+    expect(onSubmit).toHaveBeenCalledWith("@qa 请走查", []);
   });
 
   it("uses only the supplied team's members for completion", () => {
@@ -112,7 +113,54 @@ describe("RoleComposer", () => {
     fireEvent.mouseDown(screen.getByRole("option", { name: /测试/u }));
     expect(input).toHaveValue("@ceo 仅作为文本，交给 @qa ");
     fireEvent.click(screen.getByRole("button", { name: /发送/u }));
-    expect(onSubmit).toHaveBeenCalledWith("@ceo 仅作为文本，交给 @qa ");
+    expect(onSubmit).toHaveBeenCalledWith("@ceo 仅作为文本，交给 @qa ", []);
+  });
+
+  it("uses picker, drop, and clipboard images through one files callback", () => {
+    const onFilesAdded = vi.fn();
+    const { container } = render(
+      <RoleComposer value="" onValueChange={vi.fn()} onFilesAdded={onFilesAdded} />,
+    );
+    const picked = new File(["pdf"], "spec.pdf", { type: "application/pdf" });
+    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [picked] } });
+    const dropped = new File(["txt"], "notes.txt", { type: "text/plain" });
+    fireEvent.drop(screen.getByRole("textbox").closest(".relative.overflow-hidden")!, {
+      dataTransfer: { files: [dropped], types: ["Files"] },
+    });
+    const pasted = new File(["png"], "paste.png", { type: "image/png" });
+    fireEvent.paste(screen.getByRole("textbox"), {
+      clipboardData: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => pasted }],
+      },
+    });
+
+    expect(onFilesAdded.mock.calls).toEqual([[[picked]], [[dropped]], [[pasted]]]);
+  });
+
+  it("submits a pure ready attachment and blocks pending drafts", () => {
+    const onSubmit = vi.fn();
+    const ready: ComposerAttachment = {
+      clientId: "ready",
+      attachmentId: "attachment-ready",
+      kind: "file",
+      displayName: "spec.pdf",
+      mediaType: "application/pdf",
+      byteSize: 42,
+      status: "ready",
+    };
+    const { rerender } = render(
+      <RoleComposer value="" onValueChange={vi.fn()} onSubmit={onSubmit} attachments={[ready]} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(onSubmit).toHaveBeenCalledWith("", ["attachment-ready"]);
+
+    rerender(<RoleComposer
+      value="正文"
+      onValueChange={vi.fn()}
+      onSubmit={onSubmit}
+      attachments={[{ ...ready, clientId: "pending", attachmentId: undefined, status: "pending" }]}
+    />);
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
   });
 });
 

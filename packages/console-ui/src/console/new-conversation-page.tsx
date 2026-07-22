@@ -2,6 +2,11 @@ import { ChevronDown, Diamond, FolderOpen, GitBranch, Laptop, Plus } from "lucid
 import { useState } from "react";
 
 import { RoleComposer } from "@/console/role-composer";
+import {
+  hasBlockingComposerAttachment,
+  readyComposerAttachmentIds,
+  type ComposerAttachment,
+} from "@/console/structured-attachments";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
 import {
@@ -39,6 +44,7 @@ export interface NewConversationPageProps {
   selectedWorkspaceMode: "direct" | "worktree";
   selectedTeamKey: string | null;
   draft: string;
+  attachments?: readonly ComposerAttachment[];
   isSubmitting?: boolean;
   isProjectMutationPending?: boolean;
   error?: string | null;
@@ -47,6 +53,9 @@ export interface NewConversationPageProps {
   onAddProject(): void;
   onSelectTeam(teamKey: string): void;
   onDraftChange(value: string): void;
+  onFilesAdded?: (files: File[]) => void;
+  onAttachmentRemove?: (clientId: string) => void;
+  onAttachmentRetry?: (clientId: string) => void;
   onSubmit(): void;
   className?: string;
 }
@@ -58,6 +67,7 @@ export function NewConversationPage({
   selectedWorkspaceMode,
   selectedTeamKey,
   draft,
+  attachments = [],
   isSubmitting = false,
   isProjectMutationPending = false,
   error,
@@ -66,6 +76,9 @@ export function NewConversationPage({
   onAddProject,
   onSelectTeam,
   onDraftChange,
+  onFilesAdded,
+  onAttachmentRemove,
+  onAttachmentRetry,
   onSubmit,
   className,
 }: NewConversationPageProps): JSX.Element {
@@ -75,7 +88,8 @@ export function NewConversationPage({
   const hasAvailableProjects = projects.some((project) => project.available);
   const canSubmit = selectedProject !== undefined
     && selectedTeamKey !== null
-    && draft.trim() !== ""
+    && (draft.trim() !== "" || readyComposerAttachmentIds(attachments).length > 0)
+    && !hasBlockingComposerAttachment(attachments)
     && !isSubmitting
     && !isProjectMutationPending;
   const disabledReason = selectedProject === undefined
@@ -96,7 +110,11 @@ export function NewConversationPage({
           <p className="mb-8 text-center text-lg font-medium text-ink">描述你的目标，团队会开始推进</p>
           <RoleComposer
             value={draft}
+            attachments={attachments}
             onValueChange={onDraftChange}
+            onFilesAdded={onFilesAdded}
+            onAttachmentRemove={onAttachmentRemove}
+            onAttachmentRetry={onAttachmentRetry}
             onSubmit={onSubmit}
             roles={selectedTeam?.members
               .filter((member) => member.available !== false)

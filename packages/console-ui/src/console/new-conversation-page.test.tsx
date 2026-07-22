@@ -73,6 +73,27 @@ describe("NewConversationPage", () => {
     expect(screen.getByText("独立工作空间").closest('[role="menuitemcheckbox"]')).toHaveAttribute("data-disabled");
     expect(screen.getByText("这个项目文件夹不是 git 仓库，无法隔离改动")).toBeVisible();
   });
+
+  it("allows a pure ready attachment and blocks a failed attachment", () => {
+    const attachment = {
+      clientId: "file-1",
+      attachmentId: "attachment-1",
+      kind: "file" as const,
+      displayName: "requirements.pdf",
+      mediaType: "application/pdf",
+      byteSize: 100,
+      status: "ready" as const,
+    };
+    const { rerender } = renderPage({ draft: "", attachments: [attachment] });
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
+    rerender(<NewConversationPage
+      {...baseProps()}
+      draft="正文"
+      attachments={[{ ...attachment, status: "failed", error: "磁盘空间不足" }]}
+    />);
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+    expect(screen.getByText("磁盘空间不足")).toBeVisible();
+  });
 });
 
 const projects = [
@@ -82,8 +103,15 @@ const projects = [
 
 function renderPage(overrides: Partial<NewConversationPageProps> = {}) {
   return render(<NewConversationPage
-    projects={projects}
-    teams={[
+    {...baseProps()}
+    {...overrides}
+  />);
+}
+
+function baseProps(): NewConversationPageProps {
+  return {
+    projects,
+    teams: [
       {
         teamKey: "system:development",
         label: "开发团队",
@@ -94,17 +122,16 @@ function renderPage(overrides: Partial<NewConversationPageProps> = {}) {
         label: "产品团队",
         members: [{ slug: "product", displayName: "产品", description: "定义需求" }],
       },
-    ]}
-    selectedProjectId="a"
-    selectedWorkspaceMode="direct"
-    selectedTeamKey="system:development"
-    draft="目标"
-    onSelectProject={vi.fn()}
-    onSelectWorkspace={vi.fn()}
-    onAddProject={vi.fn()}
-    onSelectTeam={vi.fn()}
-    onDraftChange={vi.fn()}
-    onSubmit={vi.fn()}
-    {...overrides}
-  />);
+    ],
+    selectedProjectId: "a",
+    selectedWorkspaceMode: "direct",
+    selectedTeamKey: "system:development",
+    draft: "目标",
+    onSelectProject: vi.fn(),
+    onSelectWorkspace: vi.fn(),
+    onAddProject: vi.fn(),
+    onSelectTeam: vi.fn(),
+    onDraftChange: vi.fn(),
+    onSubmit: vi.fn(),
+  };
 }

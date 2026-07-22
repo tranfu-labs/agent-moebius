@@ -77,6 +77,11 @@ export const OUTPUT_ARTIFACT_RELEASE_TAG = "agent-moebius-artifacts";
 export const LOCAL_CONSOLE_HOST = process.env.LOCAL_CONSOLE_HOST?.trim() || "127.0.0.1";
 export const LOCAL_CONSOLE_PORT = parseOptionalPort(process.env.LOCAL_CONSOLE_PORT) ?? 8788;
 export const LOCAL_CONSOLE_SQLITE_PATH = path.join(DATA_ROOT, ".state", "local-console.sqlite");
+export const LOCAL_CONSOLE_ATTACHMENTS_ROOT = path.join(DATA_ROOT, ".state", "local-console-attachments");
+export const LOCAL_CONSOLE_ATTACHMENT_MAX_BYTES = 1024 * 1024 * 1024;
+export const LOCAL_CONSOLE_ATTACHMENT_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
+export const LOCAL_CONSOLE_ATTACHMENT_PREVIEW_MAX_EDGE = 512;
+export const LOCAL_CONSOLE_ATTACHMENT_STAGING_TTL_MS = 24 * 60 * 60 * 1000;
 export const GITHUB_RUNNER_SQLITE_PATH = path.join(DATA_ROOT, ".state", "github-runner.sqlite");
 export const LOCAL_CONSOLE_STORE_TIMEOUT_MS = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_STORE_TIMEOUT_MS) ?? 2_000;
 export const LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS = parseOptionalPositiveInteger(process.env.LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS) ?? 2_000;
@@ -203,6 +208,10 @@ export const CONFIG_LOG_FIELDS = {
   localConsoleHost: LOCAL_CONSOLE_HOST,
   localConsolePort: LOCAL_CONSOLE_PORT,
   localConsoleSqlitePath: LOCAL_CONSOLE_SQLITE_PATH,
+  localConsoleAttachmentMaxBytes: LOCAL_CONSOLE_ATTACHMENT_MAX_BYTES,
+  localConsoleAttachmentPreviewMaxBytes: LOCAL_CONSOLE_ATTACHMENT_PREVIEW_MAX_BYTES,
+  localConsoleAttachmentPreviewMaxEdge: LOCAL_CONSOLE_ATTACHMENT_PREVIEW_MAX_EDGE,
+  localConsoleAttachmentStagingTtlMs: LOCAL_CONSOLE_ATTACHMENT_STAGING_TTL_MS,
   githubRunnerSqlitePath: GITHUB_RUNNER_SQLITE_PATH,
   localConsoleStoreTimeoutMs: LOCAL_CONSOLE_STORE_TIMEOUT_MS,
   localConsoleSqliteBusyTimeoutMs: LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS,

@@ -43,6 +43,7 @@ import { OPEN_EXTERNAL_LINK_IPC_CHANNEL } from "./external-link.js";
 export interface AgentMoebiusDesktopApi {
   onStatus(listener: (snapshot: DesktopStatusSnapshot) => void): () => void;
   getLocalConsoleUrl(): Promise<string | null>;
+  getLocalConsoleAttachmentCapability(): Promise<string | null>;
   openObserver(): Promise<void>;
   openStatusPage(): Promise<void>;
   openDataRoot(): Promise<void>;
@@ -89,6 +90,9 @@ const api: AgentMoebiusDesktopApi = {
   },
   getLocalConsoleUrl() {
     return ipcRenderer.invoke("local-console:get-url") as Promise<string | null>;
+  },
+  getLocalConsoleAttachmentCapability() {
+    return ipcRenderer.invoke("local-console:get-attachment-capability") as Promise<string | null>;
   },
   openObserver() {
     return ipcRenderer.invoke("action:open-observer") as Promise<void>;
