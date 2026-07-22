@@ -142,6 +142,24 @@ export interface LocalConsoleSessionWorkspaceSource {
   workspaceMode: LocalConsoleWorkspaceMode;
   workspacePendingMode: LocalConsoleWorkspaceMode | null;
   session?: LocalConsoleSessionSummary;
+  baselineCommit?: string | null;
+}
+
+export type LocalConsoleWorkspaceDiffSummary =
+  | { available: true; fileCount: number; reason: null }
+  | {
+      available: false;
+      fileCount: null;
+      reason: "missing-baseline" | "not-git-repository" | "workspace-unavailable" | "baseline-unavailable" | "no-session";
+    };
+
+export interface LocalConsoleRunOutput {
+  sessionId: string;
+  runId: string;
+  role: string | null;
+  stdout: string | null;
+  stderr: string | null;
+  fallback: string | null;
 }
 
 export interface LocalConsoleSessionSummary {
@@ -311,6 +329,7 @@ export interface LocalConsoleStateSnapshot {
   messages: LocalConsoleMessage[];
   childSessions: LocalConsoleChildSessionSummary[];
   activeRun: LocalConsoleRunSnapshot | null;
+  workspaceDiff: LocalConsoleWorkspaceDiffSummary;
   sqlitePath: string;
   lastError: string | null;
 }
@@ -319,6 +338,7 @@ export interface LocalConsoleSessionView {
   session: LocalConsoleSessionSummary;
   messages: LocalConsoleMessage[];
   activeRun: LocalConsoleRunSnapshot | null;
+  workspaceDiff: LocalConsoleWorkspaceDiffSummary;
 }
 
 export interface LocalConsoleStore {
@@ -366,6 +386,7 @@ export interface LocalConsoleStore {
     initialMessage?: string;
     initialAttachmentIds?: string[];
     attachmentDraftKey?: string;
+    baselineCommit?: string | null;
     now: string;
   }): Promise<LocalConsoleSessionSummary>;
   moveEmptySessionToProject(input: {

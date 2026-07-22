@@ -100,7 +100,21 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
   }
 
   async getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource> {
-    return this.run({ kind: "local-get-session-workspace", sessionId });
+    return this.enqueue(async () => {
+      if (this.messageIndexDirty) {
+        await this.rebuildMessageIndexDirect();
+        this.messageIndexDirty = false;
+      }
+      const source = await this.runDirect<LocalConsoleSessionWorkspaceSource>({
+        kind: "local-get-session-workspace",
+        sessionId,
+      });
+      const events = await readFactEvents(this.getSessionFactLogPath(sessionId), sessionId, true);
+      return {
+        ...source,
+        baselineCommit: readConversationBaselineCommit(events),
+      };
+    });
   }
 
   async switchSessionWorkspace(input: {
@@ -151,6 +165,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     initialMessage?: string;
     initialAttachmentIds?: string[];
     attachmentDraftKey?: string;
+    baselineCommit?: string | null;
     now: string;
   }): Promise<LocalConsoleSessionSummary> {
     return this.runFact(
@@ -793,6 +808,16 @@ function parseFactEvent(line: string, sessionId: string, lineNumber: number): Se
     payload: value.payload,
     messageUpserts,
   };
+}
+
+function readConversationBaselineCommit(events: SessionFactEvent[]): string | null {
+  for (const event of events) {
+    if (!isRecord(event.payload) || event.payload.kind !== "local-create-session") {
+      continue;
+    }
+    return typeof event.payload.baselineCommit === "string" ? event.payload.baselineCommit : null;
+  }
+  return null;
 }
 
 function isLocalConsoleMessage(value: unknown): value is LocalConsoleMessage {
