@@ -130,6 +130,7 @@ export class LocalConsoleRuntime {
   private readonly pendingProcessSessions = new Set<string>();
   private readonly activeRuns = new Map<string, ActiveLocalRun>();
   private readonly inactiveSessions = new Set<string>();
+  private closing = false;
   private lastError: string | null = null;
 
   constructor(private readonly options: LocalConsoleRuntimeOptions) {
@@ -162,8 +163,17 @@ export class LocalConsoleRuntime {
   }
 
   async close(): Promise<void> {
+    if (this.closing) {
+      return;
+    }
+    this.closing = true;
+    this.pendingProcessSessions.clear();
     for (const active of this.activeRuns.values()) {
       active.controller.abort("runtime-closing");
+    }
+    const processingDeadline = Date.now() + this.storeTimeoutMs;
+    while (this.processingSessions.size > 0 && Date.now() < processingDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
     }
     await this.options.store.close();
   }
@@ -505,7 +515,7 @@ export class LocalConsoleRuntime {
     if (activeRun !== undefined && activeRun.role !== null && parseAgentMentions(trimmed).some((mention) => mention.name === activeRun.role)) {
       activeRun.controller.abort("user-redirected-active-agent");
     } else if (
-      activeRun !== undefined ||
+      activeRun === undefined &&
       (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId)))
     ) {
       throw new LocalConsoleBusyError();
@@ -633,7 +643,7 @@ export class LocalConsoleRuntime {
   }
 
   async processPending(sessionId = this.sessionId): Promise<void> {
-    if (this.inactiveSessions.has(sessionId)) {
+    if (this.closing || this.inactiveSessions.has(sessionId)) {
       return;
     }
     if (this.processingSessions.has(sessionId)) {
@@ -645,7 +655,7 @@ export class LocalConsoleRuntime {
 
     try {
       while (true) {
-        if (this.inactiveSessions.has(sessionId)) {
+        if (this.closing || this.inactiveSessions.has(sessionId)) {
           return;
         }
         if (!(await this.sessionCanContinue(sessionId))) {
@@ -938,8 +948,10 @@ export class LocalConsoleRuntime {
       log({ event: "local-console-processing-failed", error: this.lastError });
     } finally {
       this.processingSessions.delete(sessionId);
-      if (this.pendingProcessSessions.delete(sessionId)) {
+      if (!this.closing && this.pendingProcessSessions.delete(sessionId)) {
         void this.processPending(sessionId);
+      } else if (this.closing) {
+        this.pendingProcessSessions.delete(sessionId);
       }
     }
   }

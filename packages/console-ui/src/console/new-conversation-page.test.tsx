@@ -48,6 +48,18 @@ describe("NewConversationPage", () => {
     expect(within(completionList).queryByRole("option", { name: /开发/u })).not.toBeInTheDocument();
   });
 
+  it("keeps composition Enter inside the shared new-conversation composer", () => {
+    const onSubmit = vi.fn();
+    renderPage({ draft: "输入法候选", onSubmit });
+    const input = screen.getByRole("textbox", { name: "消息内容" });
+
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Enter", isComposing: false });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
   it("selects an independent workspace only after explaining its pre-message boundary", () => {
     const onSelectWorkspace = vi.fn();
     renderPage({ onSelectWorkspace });

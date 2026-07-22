@@ -1,8 +1,4 @@
-import { Square } from "lucide-react";
-import type { KeyboardEvent } from "react";
-
 import { cn } from "@/lib/utils";
-import { Button } from "@/ui/button";
 import { sanitizeMachineText } from "@/console/machine-text";
 import { MarkdownMessage } from "@/console/markdown-message";
 
@@ -24,7 +20,6 @@ export interface RunBlockProps {
   steps?: RunBlockStep[] | null;
   liveMarkdown?: string | null;
   onOpenExternalLink?: (url: string) => void;
-  onInterrupt(): void;
   className?: string;
 }
 
@@ -47,36 +42,16 @@ export function RunBlock({
   steps,
   liveMarkdown,
   onOpenExternalLink,
-  onInterrupt,
   className,
 }: RunBlockProps): JSX.Element {
   const roleLabel = localizeRole(role);
   const usableSteps = steps?.length ? steps : null;
   const fallbackSummary = sanitizeMachineText(nonBlank(summary) ?? "正在推进这一步…", "正在推进这一步…");
 
-  const handleInterruptKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      onInterrupt();
-    }
-  };
-
   return (
     <div className={cn("max-w-[680px] border-y border-line py-3", className)}>
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold text-ink">{roleLabel}</span>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="ml-auto"
-          aria-label={`停下${roleLabel}当前这一步`}
-          onClick={onInterrupt}
-          onKeyDown={handleInterruptKeyDown}
-        >
-          <Square className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-          停下
-        </Button>
       </div>
 
       {usableSteps ? (

@@ -89,6 +89,66 @@ describe("RoleComposer", () => {
     expect(onSubmit).toHaveBeenCalledWith("@qa 请走查", []);
   });
 
+  it("does not submit or complete a mention while Enter is confirming IME composition", () => {
+    const onSubmit = vi.fn();
+    render(<ControlledComposer initialValue="@" onSubmit={onSubmit} roles={teamRoles} />);
+    const input = screen.getByRole("textbox");
+    setCaret(input, 1);
+
+    expect(fireEvent.keyDown(input, { key: "Enter", isComposing: true })).toBe(true);
+    expect(input).toHaveValue("@");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "输入完成" } });
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+    expect(onSubmit).toHaveBeenCalledWith("输入完成", []);
+  });
+
+  it("always leaves Shift+Enter to the textarea instead of submitting or selecting a mention", () => {
+    const onSubmit = vi.fn();
+    render(<ControlledComposer initialValue="@" onSubmit={onSubmit} roles={teamRoles} />);
+    const input = screen.getByRole("textbox");
+    setCaret(input, 1);
+
+    expect(fireEvent.keyDown(input, { key: "Enter", shiftKey: true })).toBe(true);
+    expect(input).toHaveValue("@");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("uses one native button for stop while an empty run is active and send after text is entered", () => {
+    const onInterrupt = vi.fn();
+    const onSubmit = vi.fn();
+    const { rerender } = render(
+      <RoleComposer
+        value=""
+        onValueChange={vi.fn()}
+        onSubmit={onSubmit}
+        runActive
+        onInterrupt={onInterrupt}
+      />,
+    );
+
+    const stopButton = screen.getByRole("button", { name: "停下当前这一步" });
+    expect(stopButton).toBeEnabled();
+    expect(stopButton.tagName).toBe("BUTTON");
+    fireEvent.click(stopButton);
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    rerender(
+      <RoleComposer
+        value="补一句话"
+        onValueChange={vi.fn()}
+        onSubmit={onSubmit}
+        runActive
+        onInterrupt={onInterrupt}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(onSubmit).toHaveBeenCalledWith("补一句话", []);
+    expect(screen.queryByRole("button", { name: "停下当前这一步" })).not.toBeInTheDocument();
+  });
+
   it("uses only the supplied team's members for completion", () => {
     render(<ControlledComposer initialValue="@" roles={teamRoles} />);
     const input = screen.getByRole("textbox");
@@ -161,6 +221,33 @@ describe("RoleComposer", () => {
       attachments={[{ ...ready, clientId: "pending", attachmentId: undefined, status: "pending" }]}
     />);
     expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+  });
+
+  it("keeps attachment drafts in send mode while a run is active", () => {
+    const onSubmit = vi.fn();
+    const ready: ComposerAttachment = {
+      clientId: "ready-active",
+      attachmentId: "attachment-ready-active",
+      kind: "file",
+      displayName: "spec.pdf",
+      mediaType: "application/pdf",
+      byteSize: 42,
+      status: "ready",
+    };
+    render(
+      <RoleComposer
+        value=""
+        onValueChange={vi.fn()}
+        onSubmit={onSubmit}
+        attachments={[ready]}
+        runActive
+        onInterrupt={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(onSubmit).toHaveBeenCalledWith("", ["attachment-ready-active"]);
+    expect(screen.queryByRole("button", { name: "停下当前这一步" })).not.toBeInTheDocument();
   });
 });
 

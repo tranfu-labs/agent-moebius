@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import { RunBlock, type RunBlockStep } from "./run-block";
 
@@ -26,13 +26,13 @@ const steps: RunBlockStep[] = [
 ];
 
 describe("RunBlock", () => {
-  it("shows only live human-readable work and a stop control", () => {
-    const { container } = render(<RunBlock role="dev" elapsedTime="3分12秒" steps={steps} onInterrupt={vi.fn()} />);
+  it("shows only live human-readable work without a stop control", () => {
+    const { container } = render(<RunBlock role="dev" elapsedTime="3分12秒" steps={steps} />);
 
     expect(container.firstElementChild).toHaveClass("max-w-[680px]");
     expect(screen.getByText("开发")).toBeVisible();
     expect(screen.queryByText("3分12秒")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "停下开发当前这一步" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /停下/u })).not.toBeInTheDocument();
     expect(screen.queryByText("已完成")).not.toBeInTheDocument();
     expect(screen.queryByText("进行中")).not.toBeInTheDocument();
     expect(screen.queryByText("未开始")).not.toBeInTheDocument();
@@ -49,41 +49,27 @@ describe("RunBlock", () => {
         summary="正在整理测试设计"
         rawOutput="idle-timeout raw detail"
         steps={[]}
-        onInterrupt={vi.fn()}
       />,
     );
 
     expect(screen.getByText("测试")).toBeVisible();
     expect(screen.queryByText("12秒")).not.toBeInTheDocument();
     expect(screen.getByText("正在整理测试设计")).toBeVisible();
-    expect(screen.getByRole("button", { name: "停下测试当前这一步" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /停下/u })).not.toBeInTheDocument();
     expect(screen.queryByText("idle-timeout raw detail")).not.toBeInTheDocument();
     expect(screen.getByTestId("run-live-output")).toHaveClass("max-w-full", "overflow-x-auto");
   });
 
   it("uses deterministic fallbacks when steps, summary, and elapsed time are missing or blank", () => {
-    render(<RunBlock role="dev" elapsedTime="   " summary="" steps={null} onInterrupt={vi.fn()} />);
+    render(<RunBlock role="dev" elapsedTime="   " summary="" steps={null} />);
 
     expect(screen.queryByText("耗时未知")).not.toBeInTheDocument();
     expect(screen.getByText("正在推进这一步…")).toBeVisible();
   });
 
-  it("calls onInterrupt once for one mouse activation and once for one keyboard activation", () => {
-    const onInterrupt = vi.fn();
-    render(<RunBlock role="dev" elapsedTime="3分12秒" steps={steps} onInterrupt={onInterrupt} />);
-
-    const interrupt = screen.getByRole("button", { name: "停下开发当前这一步" });
-    fireEvent.click(interrupt);
-    expect(onInterrupt).toHaveBeenCalledTimes(1);
-
-    fireEvent.keyDown(interrupt, { key: "Enter" });
-    expect(onInterrupt).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("开发")).toBeVisible();
-  });
-
   it("keeps top-level machine output out of the conversation surface", () => {
     const specialRaw = "first line\n<node attr=\"x\"> & exit:42";
-    render(<RunBlock role="dev" elapsedTime="3秒" summary="正在运行测试" rawOutput={specialRaw} onInterrupt={vi.fn()} />);
+    render(<RunBlock role="dev" elapsedTime="3秒" summary="正在运行测试" rawOutput={specialRaw} />);
 
     expect(screen.queryByText(specialRaw)).not.toBeInTheDocument();
     expect(screen.queryByText("查看原始输出")).not.toBeInTheDocument();
@@ -91,12 +77,12 @@ describe("RunBlock", () => {
 
   it("replaces live Markdown inside the same run node", async () => {
     const { rerender } = render(
-      <RunBlock role="dev" liveMarkdown={"## 第一段\n\n正在检查。"} onInterrupt={vi.fn()} />,
+      <RunBlock role="dev" liveMarkdown={"## 第一段\n\n正在检查。"} />,
     );
     const liveNode = screen.getByTestId("run-live-output");
     expect(screen.getByRole("heading", { name: "第一段" })).toBeInTheDocument();
 
-    rerender(<RunBlock role="dev" liveMarkdown={"## 第二段\n\n检查完成。"} onInterrupt={vi.fn()} />);
+    rerender(<RunBlock role="dev" liveMarkdown={"## 第二段\n\n检查完成。"} />);
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "第二段" })).toBeInTheDocument());
     expect(screen.getByTestId("run-live-output")).toBe(liveNode);

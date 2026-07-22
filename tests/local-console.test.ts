@@ -2368,17 +2368,20 @@ describe("local console", () => {
     expect(tail.stdoutTail?.length).toBeLessThanOrEqual(256);
   });
 
-  it("rejects a second local message while a slow Codex run is active", async () => {
+  it("accepts a second local message while a slow Codex run is active", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "dev", "# Dev");
     let resolveCodex: ((result: CodexRunResult) => void) | null = null;
-    const runCodex = vi.fn(
-      (options: CodexRunOptions) =>
-        new Promise<CodexRunResult>((resolve) => {
-          resolveCodex = resolve;
-          void options;
-        }),
-    );
+    let activeSignal: AbortSignal | undefined;
+    const runCodex = vi.fn((options: CodexRunOptions) => {
+      if (runCodex.mock.calls.length > 1) {
+        return Promise.resolve(codexOk(options, "supplement message done"));
+      }
+      activeSignal = options.signal;
+      return new Promise<CodexRunResult>((resolve) => {
+        resolveCodex = resolve;
+      });
+    });
     const started = await startLocalConsoleServer({
       projectRoot: root,
       port: 0,
@@ -2388,7 +2391,7 @@ describe("local console", () => {
     });
     try {
       await postMessage(started.url, "@dev slow");
-      await waitForSnapshot(started.url, (data) => data.status === "running");
+      await waitForSnapshot(started.url, (data) => data.activeRun !== null);
       await waitFor(() => runCodex.mock.calls.length === 1);
 
       const archive = await fetch(
@@ -2398,9 +2401,13 @@ describe("local console", () => {
       expect(archive.status).toBe(409);
       await expect(archive.json()).resolves.toMatchObject({ code: "SESSION_HAS_RUNNING_AGENT" });
 
-      const second = await postMessage(started.url, "这条没有点名，应该先等当前步骤结束");
-      expect(second.status).toBe(409);
+      const second = await postMessage(started.url, "这条没有点名，应该排在当前步骤之后");
+      expect(second.status).toBe(202);
       expect(runCodex).toHaveBeenCalledTimes(1);
+      expect(activeSignal?.aborted).toBe(false);
+      await expect(second.json()).resolves.toMatchObject({
+        message: expect.objectContaining({ speaker: "user", status: "pending" }),
+      });
 
       expect(resolveCodex).toBeTypeOf("function");
       resolveCodex!({
@@ -2412,12 +2419,52 @@ describe("local console", () => {
         stdoutPath: path.join(root, "runs", "run-1", "stdout.jsonl"),
         stderrPath: path.join(root, "runs", "run-1", "stderr.log"),
       });
-      await waitForSnapshot(started.url, (data) => data.messages.some((entry) => entry.speaker === "agent"));
-      expect(runCodex).toHaveBeenCalledTimes(1);
+      const state = await waitForSnapshot(
+        started.url,
+        (data) => data.messages.filter((entry) => entry.speaker === "agent").length === 2,
+      );
+      expect(runCodex).toHaveBeenCalledTimes(2);
+      expect(state.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ speaker: "agent", body: "done" }),
+          expect.objectContaining({ speaker: "agent", body: "supplement message done" }),
+        ]),
+      );
     } finally {
       await started.close();
     }
   });
+
+  it("stops pending dispatch before closing an active runtime", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# Dev");
+    const runCodex = vi.fn(waitForAbortResult);
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    let closed = false;
+    try {
+      await postMessage(started.url, "@dev slow");
+      await waitForSnapshot(started.url, (data) => data.activeRun !== null);
+
+      const pending = await postMessage(started.url, "这条留在当前步骤之后");
+      expect(pending.status).toBe(202);
+      expect(runCodex).toHaveBeenCalledTimes(1);
+
+      await started.close();
+      closed = true;
+      expect(runCodex).toHaveBeenCalledTimes(1);
+    } finally {
+      if (!closed) {
+        await started.close();
+      }
+    }
+  });
+
 });
 
 type LocalRunCodex = (options: CodexRunOptions) => Promise<CodexRunResult>;

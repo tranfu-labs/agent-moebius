@@ -113,6 +113,49 @@ describe("main conversation timeline truth through the HTTP assembly", () => {
     }
   }, 20_000);
 
+  it("accepts an unmentioned message through HTTP while a member is active without interrupting it", async () => {
+    let firstOptions: CodexRunOptions | undefined;
+    let finishFirst: ((result: CodexRunResult) => void) | undefined;
+    let callCount = 0;
+    const harness = await startHarness((options) => {
+      callCount += 1;
+      if (callCount === 1) {
+        firstOptions = options;
+        return new Promise<CodexRunResult>((resolve) => {
+          finishFirst = resolve;
+        });
+      }
+      return Promise.resolve(codexOk(options, "补充已送达主 Agent"));
+    });
+    try {
+      const session = await createSession(harness.started.url, "supplement active run", "system", "development");
+      expect((await postMessage(harness.started.url, session.sessionId, "@dev 先做旧任务")).status).toBe(202);
+      await waitForState(harness.started.url, session.sessionId, (snapshot) => snapshot.activeRun?.role === "dev");
+
+      expect((await postMessage(harness.started.url, session.sessionId, "补一句话给主 Agent")).status).toBe(202);
+      const supplemented = await getState(harness.started.url, session.sessionId);
+      expect(supplemented.activeRun?.role).toBe("dev");
+      expect(firstOptions?.signal?.aborted).toBe(false);
+      expect(supplemented.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ speaker: "user", body: "补一句话给主 Agent", status: "pending" }),
+      ]));
+
+      if (firstOptions === undefined || finishFirst === undefined) {
+        throw new Error("active run was not captured");
+      }
+      finishFirst(codexOk(firstOptions, "旧步骤完成"));
+      const completed = await waitForState(harness.started.url, session.sessionId, (snapshot) =>
+        snapshot.messages.some((message) => message.speaker === "agent" && message.body === "补充已送达主 Agent"),
+      );
+      expect(completed.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ speaker: "agent", role: "manager", body: "补充已送达主 Agent" }),
+      ]));
+      expect(firstOptions.signal?.aborted).toBe(false);
+    } finally {
+      await harness.started.close();
+    }
+  }, 20_000);
+
   it("reports a deleted team as read-only, then recovers through the HTTP team switch without losing history", async () => {
     const harness = await startHarness(async (options) => codexOk(options, "新团队继续推进"));
     try {

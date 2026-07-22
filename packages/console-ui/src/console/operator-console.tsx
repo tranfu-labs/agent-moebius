@@ -435,7 +435,6 @@ export function OperatorConsole({
   const continuationBlocked = selectedSession?.continuation?.canContinue === false;
   const canSend = (composerValue.trim() !== "" || readyComposerAttachmentIds(composerAttachments).length > 0)
     && !hasBlockingComposerAttachment(composerAttachments)
-    && activeRun === null
     && !isSending
     && !isSelectionMutationPending
     && !isSessionProjectUpdating
@@ -890,7 +889,6 @@ export function OperatorConsole({
                           liveMarkdown={activeRun.liveMarkdown}
                           rawOutput={runRawOutput(activeRun)}
                           onOpenExternalLink={onOpenExternalLink}
-                          onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
                           className="mt-3 max-w-none"
                         />
                       </div>
@@ -938,8 +936,12 @@ export function OperatorConsole({
                   onAttachmentRemove={onComposerAttachmentRemove}
                   onAttachmentRetry={onComposerAttachmentRetry}
                   onSubmit={submitComposer}
+                  runActive={activeRun !== null}
+                  onInterrupt={activeRun?.interruptible === true
+                    ? () => onInterrupt(activeRun.sessionId, activeRun.runId)
+                    : undefined}
                   roles={roleCompletionsForTeam(displayedConversationAgentTeam)}
-                  disabled={activeRun !== null || isSending || isSelectionMutationPending || isSessionProjectUpdating || activeProjectUnavailable || selectedAgentTeamUnavailable || continuationBlocked}
+                  disabled={isSending || isSelectionMutationPending || isSessionProjectUpdating || activeProjectUnavailable || selectedAgentTeamUnavailable || continuationBlocked}
                   placeholder={activeProjectUnavailable
                     ? "项目文件夹不可用，请先使用红色扳手修复"
                     : selectedSession?.agentTeamHealth === "deleted"
@@ -949,7 +951,7 @@ export function OperatorConsole({
                         : continuationBlocked
                           ? selectedSession?.continuation?.reason ?? "当前对话暂时不能继续"
                       : activeRun
-                        ? "当前 agent 正在执行…"
+                        ? "说点什么，或 @ 一个成员…"
                         : "描述你的目标，@ 一个角色开始…"}
                   statusText={activeProjectUnavailable
                     ? "历史对话只读；修复文件夹后可继续"
@@ -959,9 +961,7 @@ export function OperatorConsole({
                         ? "历史对话只读；修复或改选团队后可继续"
                         : continuationBlocked
                           ? selectedSession?.continuation?.reason ?? "历史对话只读"
-                      : activeRun
-                        ? "当前正在执行，完成后可继续发送"
-                        : undefined}
+                      : undefined}
                   context={
                     <ComposerContext
                       project={activeProject}
@@ -1012,10 +1012,6 @@ export function OperatorConsole({
                       liveMarkdown={openedSubSession.activeRun.liveMarkdown}
                       rawOutput={runRawOutput(openedSubSession.activeRun)}
                       onOpenExternalLink={onOpenExternalLink}
-                      onInterrupt={() => onInterrupt(
-                        openedSubSession.activeRun!.sessionId,
-                        openedSubSession.activeRun!.runId,
-                      )}
                       className="my-3"
                     />
                   ) : null}

@@ -32,7 +32,6 @@ const meta = {
     role: "dev",
     elapsedTime: "3分12秒",
     steps,
-    onInterrupt: () => undefined,
   },
 } satisfies Meta<typeof RunBlock>;
 

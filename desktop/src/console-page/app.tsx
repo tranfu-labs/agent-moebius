@@ -113,6 +113,7 @@ import {
   useManagedAttachmentDrafts,
   useMessagesWithAttachmentPreviews,
 } from "./use-managed-attachments.js";
+import { interruptLocalConsoleRun } from "./interrupt.js";
 
 interface DesktopApi {
   getLocalConsoleUrl?: () => Promise<string | null>;
@@ -1339,16 +1340,14 @@ function App(): JSX.Element {
       return;
     }
     try {
-      const response = await fetch(endpoint(apiBase, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/interrupt`), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId }),
+      await interruptLocalConsoleRun({
+        apiBase,
+        sessionId,
+        runId,
+        fetch,
+        refresh: () => refresh(selectionRef.current),
       });
-      const body = await response.json() as { error?: string };
-      if (!response.ok) {
-        throw new Error(body.error ?? "interrupt failed");
-      }
-      await refresh(selectionRef.current);
+      setClientError(null);
     } catch (error) {
       setClientError(formatError(error));
     }

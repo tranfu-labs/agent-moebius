@@ -929,9 +929,9 @@ describe("OperatorConsole", () => {
     expect(onSidebarOpenChange).not.toHaveBeenCalled();
   });
 
-  it("renders the Codex frame, root session rail, bottom context, and live run controls", () => {
+  it("keeps the active-run composer usable and moves stop into its empty action button", () => {
     const onInterrupt = vi.fn();
-    renderConsole({ activeRun: runSnapshot, onInterrupt });
+    renderConsole({ activeRun: runSnapshot, composerValue: "", onInterrupt });
 
     expect(screen.getByText("Moebius")).toBeVisible();
     expect(screen.getAllByText("agent-moebius").length).toBeGreaterThan(0);
@@ -943,9 +943,32 @@ describe("OperatorConsole", () => {
     expect(screen.getByText("独立工作空间")).toBeVisible();
     expect(screen.queryByText("0 通过")).not.toBeInTheDocument();
     expect(screen.queryByText("查看当前会话原始信息")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /停下开发当前这一步/u }));
+    expect(screen.getByRole("textbox", { name: "消息内容" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /停下开发当前这一步/u })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "停下当前这一步" }));
     expect(onInterrupt).toHaveBeenCalledWith("session-a", "run-1");
+  });
+
+  it("sends text during an active run without invoking interrupt", () => {
+    const onInterrupt = vi.fn();
+    const onSend = vi.fn();
+    renderConsole({ activeRun: runSnapshot, composerValue: "补一句话", onInterrupt, onSend });
+
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onInterrupt).not.toHaveBeenCalled();
+  });
+
+  it("keeps composition Enter inside the shared session composer", () => {
+    const onSend = vi.fn();
+    renderConsole({ composerValue: "输入法候选", onSend });
+    const input = screen.getByRole("textbox", { name: "消息内容" });
+
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Enter", isComposing: false });
+    expect(onSend).toHaveBeenCalledTimes(1);
   });
 
   it("keeps terminal outcomes readable and routes machine details to diagnostics", () => {

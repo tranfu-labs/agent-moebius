@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowUp, Plus } from "lucide-react";
+import { ArrowUp, Plus, Square } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
@@ -40,8 +40,11 @@ export interface RoleComposerProps {
   placeholder?: string;
   statusText?: string;
   submitLabel?: string;
+  interruptLabel?: string;
   disabled?: boolean;
   submitDisabled?: boolean;
+  runActive?: boolean;
+  onInterrupt?: () => void;
   roles?: readonly RoleCompletion[];
   context?: React.ReactNode;
   className?: string;
@@ -176,8 +179,11 @@ export function RoleComposer({
   placeholder = "描述你的目标，@ 一个角色开始…",
   statusText,
   submitLabel = "发送消息",
+  interruptLabel = "停下当前这一步",
   disabled = false,
   submitDisabled = false,
+  runActive = false,
+  onInterrupt,
   roles: roleOptions = ROLE_COMPLETIONS,
   context,
   className,
@@ -197,6 +203,8 @@ export function RoleComposer({
   const [dragActive, setDragActive] = React.useState(false);
   const readyAttachmentIds = readyComposerAttachmentIds(attachments);
   const attachmentBlocked = hasBlockingComposerAttachment(attachments);
+  const hasAttachmentDraft = attachments.length > 0;
+  const interruptMode = runActive && value.trim() === "" && !hasAttachmentDraft;
   const canSubmit = !disabled
     && !submitDisabled
     && !attachmentBlocked
@@ -259,7 +267,7 @@ export function RoleComposer({
       return;
     }
 
-    if (panelOpen && event.key === "Enter") {
+    if (panelOpen && event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       selectRole(matchingRoleOptions[activeIndex].handle);
       return;
@@ -416,11 +424,16 @@ export function RoleComposer({
             type="button"
             size="icon"
             className="absolute bottom-3 right-3 h-8 w-8 rounded-full p-0"
-            disabled={!canSubmit}
-            aria-label={submitLabel}
-            onClick={() => onSubmit?.(value, readyAttachmentIds)}
+            disabled={interruptMode ? disabled || onInterrupt === undefined : !canSubmit}
+            aria-label={interruptMode ? interruptLabel : submitLabel}
+            title={interruptMode ? interruptLabel : submitLabel}
+            onClick={interruptMode ? onInterrupt : () => onSubmit?.(value, readyAttachmentIds)}
           >
-            <ArrowUp className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+            {interruptMode ? (
+              <Square className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            ) : (
+              <ArrowUp className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+            )}
           </Button>
         </div>
       </div>
