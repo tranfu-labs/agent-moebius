@@ -63,6 +63,13 @@ import {
   type SidebarVisibilityPreference,
 } from "./sidebar-preference.js";
 import {
+  clearConsoleSelectionPreference,
+  decideConsoleSelectionCommit,
+  isSameConsoleSelection,
+  readConsoleSelectionPreference,
+  writeConsoleSelectionPreference,
+} from "./selection-preference.js";
+import {
   canSubmitNewConversation,
   createNewConversationDraft,
   reduceNewConversationDraft,
@@ -174,14 +181,22 @@ declare global {
 
 function App(): JSX.Element {
   const [apiBase, setApiBase] = useState<string | null>(readQueryApiBase());
-  const [selection, setSelection] = useState<ConsoleSelection>({ projectId: "local", sessionId: "default" });
+  const [initialSelectionPreference] = useState<ConsoleSelection | null>(() =>
+    readConsoleSelectionPreference(window.localStorage),
+  );
+  const [selection, setSelection] = useState<ConsoleSelection>(
+    initialSelectionPreference ?? { projectId: "local", sessionId: "default" },
+  );
   const selectionRef = useRef(selection);
+  const persistedSelectionRef = useRef(initialSelectionPreference);
+  const startupSelectionPendingRef = useRef(true);
+  const selectionPersistenceEnabledRef = useRef(false);
   const coordinatorRef = useRef(new ConsoleStateCoordinator());
   const [state, setState] = useState<LocalConsoleState | null>(null);
   const [openedSubSession, setOpenedSubSession] = useState<OperatorSubSessionView | null>(null);
   const conversationDraftStoreRef = useRef(createConversationDraftStore(window.localStorage));
   const [composerValue, setComposerValue] = useState(() =>
-    conversationDraftStoreRef.current.read(sessionDraftKey("default")),
+    conversationDraftStoreRef.current.read(sessionDraftKey(selection.sessionId)),
   );
   const [runnerStatus, setRunnerStatus] = useState<OperatorRunnerStatus>("stopped");
   const [isSending, setIsSending] = useState(false);
@@ -931,6 +946,57 @@ function App(): JSX.Element {
     setSelection(nextSelection);
   }, []);
 
+  const forgetPersistedSelection = useCallback(() => {
+    clearConsoleSelectionPreference(window.localStorage);
+    persistedSelectionRef.current = null;
+  }, []);
+
+  const rememberConfirmedSelection = useCallback((nextSelection: ConsoleSelection) => {
+    if (isSameConsoleSelection(persistedSelectionRef.current, nextSelection)) {
+      return;
+    }
+    writeConsoleSelectionPreference(window.localStorage, nextSelection);
+    persistedSelectionRef.current = nextSelection;
+  }, []);
+
+  const commitConsoleState = useCallback((nextState: LocalConsoleState) => {
+    const nextSelection = {
+      projectId: nextState.selectedProjectId,
+      sessionId: nextState.selectedSessionId,
+    };
+    const snapshot = {
+      ...nextSelection,
+      isRootSession: nextState.selectedSession !== null
+        && nextState.selectedSession.parentSessionId == null,
+    };
+    const startupPending = startupSelectionPendingRef.current;
+    const decision = decideConsoleSelectionCommit({
+      startupPending,
+      persistenceEnabled: selectionPersistenceEnabledRef.current,
+      remembered: persistedSelectionRef.current,
+      snapshot,
+    });
+    startupSelectionPendingRef.current = false;
+    selectionPersistenceEnabledRef.current = decision.persistenceEnabled;
+
+    if (decision.action === "remember") {
+      rememberConfirmedSelection(nextSelection);
+    } else if (decision.action === "forget" || decision.action === "open-new-conversation") {
+      forgetPersistedSelection();
+    }
+    if (decision.action === "open-new-conversation") {
+      dispatchNewConversation({
+        type: "open",
+        draft: createNewConversationDraft({
+          teamKey: null,
+          draft: conversationDraftStoreRef.current.read(NEW_CONVERSATION_DRAFT_KEY),
+        }),
+      });
+    }
+
+    setState(nextState);
+  }, [forgetPersistedSelection, rememberConfirmedSelection]);
+
   useEffect(() => {
     setOpenedSubSession(null);
   }, [selection.sessionId]);
@@ -951,12 +1017,12 @@ function App(): JSX.Element {
         projectId: nextState.selectedProjectId,
         sessionId: nextState.selectedSessionId,
       }),
-      commitState: setState,
+      commitState: commitConsoleState,
       commitSelection,
       setError: setClientError,
       mutationOwner,
     });
-  }, [apiBase, commitSelection]);
+  }, [apiBase, commitConsoleState, commitSelection]);
 
   useEffect(() => {
     void refresh(selectionRef.current);
@@ -1111,6 +1177,8 @@ function App(): JSX.Element {
       return;
     }
 
+    selectionPersistenceEnabledRef.current = true;
+    rememberConfirmedSelection({ projectId, sessionId: result.sessionId });
     conversationDraftStoreRef.current.clear(NEW_CONVERSATION_DRAFT_KEY);
     setComposerValue(conversationDraftStoreRef.current.read(sessionDraftKey(result.sessionId)));
     dispatchNewConversation({ type: "close" });
@@ -1120,7 +1188,7 @@ function App(): JSX.Element {
     } else {
       setClientError(`会话已创建，但无法记住本次使用的 Agent 团队：${formatError(result.preferenceError)}`);
     }
-  }, [actions, agentTeamsState, newConversation]);
+  }, [actions, agentTeamsState, newConversation, rememberConfirmedSelection]);
 
   const showProjectInFolder = useCallback(async (folderPath: string) => {
     try {
@@ -1175,6 +1243,10 @@ function App(): JSX.Element {
       if (!response.ok) {
         throw new Error(body.error ?? "remove project failed");
       }
+      if (wasCurrentProject) {
+        selectionPersistenceEnabledRef.current = false;
+        forgetPersistedSelection();
+      }
       await refresh(selectionRef.current);
       if (wasCurrentProject) {
         startNewConversation();
@@ -1186,7 +1258,7 @@ function App(): JSX.Element {
     } finally {
       setIsProjectMutationPending(false);
     }
-  }, [apiBase, refresh, startNewConversation]);
+  }, [apiBase, forgetPersistedSelection, refresh, startNewConversation]);
 
   const selectFolderForRepair = useCallback(async (projectId: string): Promise<string | null> => {
     if (window.agentMoebius?.selectFolderForRepair === undefined) {
@@ -1347,6 +1419,7 @@ function App(): JSX.Element {
         id: team.id,
       })}
       onSelectSession={(nextSelection) => {
+        selectionPersistenceEnabledRef.current = true;
         dispatchNewConversation({ type: "close" });
         setComposerValue(conversationDraftStoreRef.current.read(sessionDraftKey(nextSelection.sessionId)));
         actions.selectSession(nextSelection);
