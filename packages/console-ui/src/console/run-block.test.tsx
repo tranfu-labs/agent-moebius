@@ -26,16 +26,16 @@ const steps: RunBlockStep[] = [
 ];
 
 describe("RunBlock", () => {
-  it("shows role, elapsed time, interrupt button, and step statuses without machine output", () => {
+  it("shows only live human-readable work and a stop control", () => {
     render(<RunBlock role="dev" elapsedTime="3分12秒" steps={steps} onInterrupt={vi.fn()} />);
 
     expect(screen.getByText("开发")).toBeVisible();
-    expect(screen.getByText("3分12秒")).toBeVisible();
-    expect(screen.getByRole("button", { name: "中断开发运行" })).toBeVisible();
-    expect(screen.getByText("已完成")).toBeVisible();
-    expect(screen.getByText("进行中")).toBeVisible();
-    expect(screen.getByText("未开始")).toBeVisible();
-    expect(screen.getByText("2. 运行测试")).toBeVisible();
+    expect(screen.queryByText("3分12秒")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停下开发当前这一步" })).toBeVisible();
+    expect(screen.queryByText("已完成")).not.toBeInTheDocument();
+    expect(screen.queryByText("进行中")).not.toBeInTheDocument();
+    expect(screen.queryByText("未开始")).not.toBeInTheDocument();
+    expect(screen.getByText("运行测试")).toBeVisible();
 
     expect(screen.queryByText(/exit:42 should stay hidden/u)).not.toBeInTheDocument();
   });
@@ -53,24 +53,24 @@ describe("RunBlock", () => {
     );
 
     expect(screen.getByText("测试")).toBeVisible();
-    expect(screen.getByText("12秒")).toBeVisible();
+    expect(screen.queryByText("12秒")).not.toBeInTheDocument();
     expect(screen.getByText("正在整理测试设计")).toBeVisible();
-    expect(screen.getByRole("button", { name: "中断测试运行" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "停下测试当前这一步" })).toBeVisible();
     expect(screen.queryByText("idle-timeout raw detail")).not.toBeInTheDocument();
   });
 
   it("uses deterministic fallbacks when steps, summary, and elapsed time are missing or blank", () => {
     render(<RunBlock role="dev" elapsedTime="   " summary="" steps={null} onInterrupt={vi.fn()} />);
 
-    expect(screen.getByText("耗时未知")).toBeVisible();
-    expect(screen.getByText("正在运行，等待进展")).toBeVisible();
+    expect(screen.queryByText("耗时未知")).not.toBeInTheDocument();
+    expect(screen.getByText("正在推进这一步…")).toBeVisible();
   });
 
   it("calls onInterrupt once for one mouse activation and once for one keyboard activation", () => {
     const onInterrupt = vi.fn();
     render(<RunBlock role="dev" elapsedTime="3分12秒" steps={steps} onInterrupt={onInterrupt} />);
 
-    const interrupt = screen.getByRole("button", { name: "中断开发运行" });
+    const interrupt = screen.getByRole("button", { name: "停下开发当前这一步" });
     fireEvent.click(interrupt);
     expect(onInterrupt).toHaveBeenCalledTimes(1);
 

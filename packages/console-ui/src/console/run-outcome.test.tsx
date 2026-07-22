@@ -4,10 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import { RunOutcome, type RunOutcomeStatus } from "./run-outcome";
 
 const outcomeFixtures: Array<{ status: RunOutcomeStatus; summary: string; reason: string }> = [
-  { status: "failed", summary: "运行失败", reason: "exit:42" },
-  { status: "stuck", summary: "运行长时间无响应", reason: "idle-timeout:10ms" },
-  { status: "interrupted", summary: "运行已中断", reason: "interrupted:user" },
-  { status: "dead-letter", summary: "多次尝试仍失败，已停止自动重试", reason: "dead-letter:max-retries" },
+  { status: "run-not-started", summary: "这一步没跑起来", reason: "exit:42" },
+  { status: "run-stuck", summary: "这一步卡住了", reason: "idle-timeout:10ms" },
+  { status: "user-stopped", summary: "你让这一步停下了", reason: "interrupted:user" },
+  { status: "retry-exhausted", summary: "这一步反复没跑起来，已经不再重试", reason: "dead-letter:max-retries" },
 ];
 
 describe("RunOutcome", () => {
@@ -23,17 +23,17 @@ describe("RunOutcome", () => {
 
   it("routes failed-run diagnostics through the explicit log action", () => {
     const onOpenDiagnostics = vi.fn();
-    render(<RunOutcome status="failed" rawReason="exit:42" onOpenDiagnostics={onOpenDiagnostics} />);
+    render(<RunOutcome status="run-not-started" rawReason="exit:42" onRetry={onOpenDiagnostics} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "查看日志" }));
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(onOpenDiagnostics).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("exit:42")).not.toBeInTheDocument();
   });
 
   it("does not offer a diagnostic action for a user interruption", () => {
-    render(<RunOutcome status="interrupted" onOpenDiagnostics={vi.fn()} />);
+    render(<RunOutcome status="user-stopped" onOpenDiagnostics={vi.fn()} />);
 
-    expect(screen.getByText("运行已中断")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "查看日志" })).not.toBeInTheDocument();
+    expect(screen.getByText("你让这一步停下了")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
   });
 });

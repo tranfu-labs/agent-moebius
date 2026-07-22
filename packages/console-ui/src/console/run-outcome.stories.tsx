@@ -7,7 +7,7 @@ const meta = {
   component: RunOutcome,
   args: {
     role: "dev",
-    status: "failed",
+    status: "run-not-started",
     rawReason: "exit:42",
     rawOutput: "line one\n<failure reason=\"exit\"> & exit:42",
   },
@@ -20,7 +20,7 @@ export const Failed: Story = {};
 
 export const Stuck: Story = {
   args: {
-    status: "stuck",
+    status: "run-stuck",
     rawReason: "idle-timeout:10ms",
     rawOutput: "tail unchanged\nidle-timeout:10ms",
   },
@@ -28,7 +28,7 @@ export const Stuck: Story = {
 
 export const Interrupted: Story = {
   args: {
-    status: "interrupted",
+    status: "user-stopped",
     rawReason: "interrupted:user",
     rawOutput: "user interruption requested",
   },
@@ -36,7 +36,7 @@ export const Interrupted: Story = {
 
 export const DeadLetter: Story = {
   args: {
-    status: "dead-letter",
+    status: "retry-exhausted",
     rawReason: "dead-letter:max-retries",
     rawOutput: "attempt 5 failed\nexit:42",
   },

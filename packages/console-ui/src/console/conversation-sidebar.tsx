@@ -3,6 +3,12 @@ import { ChevronRight, MoreHorizontal, Plus, Wrench } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
+  deriveProjectStatusDot,
+  deriveStatusDot,
+  type ConversationStatusDot,
+  type StatusDotFacts,
+} from "@/console/status-dot";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -10,16 +16,14 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
 
-export type ConversationSessionStatus = "red" | "blue" | "blink" | "none";
+export type ConversationSessionStatus = ConversationStatusDot;
 export type ConversationSidebarDataState = "ready" | "loading" | "error";
 
-export interface ConversationSidebarSession {
+export interface ConversationSidebarSession extends StatusDotFacts {
   id: string;
   title: string;
   parentTitle?: string;
-  awaitsHumanReason: string | null;
-  unreadSince: string | null;
-  isRunning: boolean;
+  awaitsHumanReason?: string | null;
   createdAt: string;
   summary?: string;
 }
@@ -62,40 +66,7 @@ const statusLabel: Record<ConversationSessionStatus, string> = {
   none: "当前静止"
 };
 
-export function deriveStatusDot(
-  session: Pick<ConversationSidebarSession, "awaitsHumanReason" | "unreadSince" | "isRunning">,
-): ConversationSessionStatus {
-  if (session.awaitsHumanReason !== null) {
-    return "red";
-  }
-  if (session.unreadSince !== null) {
-    return "blue";
-  }
-  if (session.isRunning) {
-    return "blink";
-  }
-  return "none";
-}
-
-export function deriveProjectStatusDot(
-  sessions: readonly Pick<ConversationSidebarSession, "awaitsHumanReason" | "unreadSince" | "isRunning">[],
-): ConversationSessionStatus {
-  let highestStatus: ConversationSessionStatus = "none";
-
-  for (const session of sessions) {
-    const status = deriveStatusDot(session);
-    if (status === "red") {
-      return "red";
-    }
-    if (status === "blue") {
-      highestStatus = "blue";
-    } else if (status === "blink" && highestStatus === "none") {
-      highestStatus = "blink";
-    }
-  }
-
-  return highestStatus;
-}
+export { deriveProjectStatusDot, deriveStatusDot } from "@/console/status-dot";
 
 export function projectDirectoryName(project: Pick<ConversationSidebarProject, "path" | "label">): string {
   const displayName = project.label?.trim();

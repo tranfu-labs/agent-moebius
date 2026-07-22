@@ -12,8 +12,10 @@ import { readTeamSnapshot, resolveTeamLocation } from "./team-store.js";
 export class AgentTeamRosterUnavailableError extends Error {
   readonly code = "AGENT_TEAM_ROSTER_UNAVAILABLE";
 
-  constructor(teamId: string) {
-    super(`当前会话绑定的 Agent 团队“${teamId}”需要修复，暂时无法解析可用 Agent。`);
+  constructor(teamId: string, readonly health: "deleted" | "needs-repair" = "needs-repair") {
+    super(health === "deleted"
+      ? `当前会话绑定的 Agent 团队“${teamId}”已经被删除，请改选另一支团队。`
+      : `当前会话绑定的 Agent 团队“${teamId}”需要修复，暂时无法解析可用 Agent。`);
     this.name = "AgentTeamRosterUnavailableError";
   }
 }
@@ -29,9 +31,7 @@ export async function listSessionAgentFiles(input: {
   if (snapshot.status !== "usable") {
     throw new AgentTeamRosterUnavailableError(input.session.agentTeamId);
   }
-  return snapshot.members
-    .map((member) => ({ name: member.slug, path: member.agentFile }))
-    .sort((left, right) => left.name.localeCompare(right.name));
+  return orderPrimaryFirst(snapshot).map((member) => ({ name: member.slug, path: member.agentFile }));
 }
 
 export async function loadAgentTeamSnapshot(input: {
@@ -47,7 +47,7 @@ export async function loadAgentTeamSnapshot(input: {
     throw new AgentTeamRosterUnavailableError(input.teamId);
   }
   return {
-    members: snapshot.members.map((member) => ({
+    members: orderPrimaryFirst(snapshot).map((member) => ({
       name: member.slug,
       agentMarkdown: member.agentMarkdown,
     })),
@@ -57,11 +57,19 @@ export async function loadAgentTeamSnapshot(input: {
 export async function resolveSessionAgentTeamHealth(input: {
   dataRoot: string;
   session: LocalConsoleSessionSummary;
-}): Promise<{ health: "usable" | "needs-repair"; reason: string | null } | null> {
+}): Promise<{ health: "usable" | "deleted" | "needs-repair"; reason: string | null }> {
   if (input.session.agentTeamOwnership == null || input.session.agentTeamId == null) {
-    return null;
+    return { health: "usable", reason: null };
   }
-  const snapshot = await readBoundTeamSnapshot(input.dataRoot, input.session);
+  let snapshot: Awaited<ReturnType<typeof readBoundTeamSnapshot>>;
+  try {
+    snapshot = await readBoundTeamSnapshot(input.dataRoot, input.session);
+  } catch (error) {
+    if (error instanceof AgentTeamRosterUnavailableError && error.health === "deleted") {
+      return { health: "deleted", reason: error.message };
+    }
+    throw error;
+  }
   return snapshot.status === "usable"
     ? { health: "usable", reason: null }
     : {
@@ -79,10 +87,22 @@ async function readBoundTeamSnapshot(
   if (teamId == null || ownership == null) {
     throw new Error("Session has no Agent team binding");
   }
-  const location = ownership === "system"
-    ? resolveTeamLocation({ dataRoot, teamId, ownership: "system" })
-    : await resolveRecordedTeamLocation(dataRoot, teamId);
+  let location;
+  try {
+    location = ownership === "system"
+      ? resolveTeamLocation({ dataRoot, teamId, ownership: "system" })
+      : await resolveRecordedTeamLocation(dataRoot, teamId);
+  } catch {
+    throw new AgentTeamRosterUnavailableError(teamId, "deleted");
+  }
   return readTeamSnapshot(location);
+}
+
+function orderPrimaryFirst<T extends { slug: string }>(snapshot: { definition: { primaryAgentSlug: string | null } | null; members: T[] }): T[] {
+  const primary = snapshot.definition?.primaryAgentSlug;
+  return primary == null
+    ? [...snapshot.members]
+    : [...snapshot.members].sort((left, right) => Number(right.slug === primary) - Number(left.slug === primary));
 }
 
 async function listSharedAgentFiles(directory: string): Promise<LocalConsoleAgentFile[]> {

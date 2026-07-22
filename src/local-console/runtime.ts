@@ -11,6 +11,7 @@ import {
   type CeoOrchestrationGroup,
 } from "../ceo-orchestration.js";
 import { buildRolePromptPlan } from "../conversation.js";
+import { parseAgentMentions } from "../conversation.js";
 import {
   type CodexRunOptions,
   type CodexRunResult,
@@ -71,6 +72,7 @@ import {
   type ResolvedLocalWorkspace,
 } from "./workspace-source.js";
 import { resolveSessionWorkspaceContext } from "./workspace-resolution.js";
+import { nonContinuableSystemMessage, resolveLocalSessionContinuation } from "./session-status.js";
 
 export interface LocalConsoleAgentFile {
   name: string;
@@ -86,7 +88,7 @@ export interface LocalConsoleRuntimeOptions {
   ) => Promise<LocalConsoleAgentTeamSnapshot>;
   resolveAgentTeamHealth?: (
     session: LocalConsoleSessionSummary,
-  ) => Promise<{ health: "usable" | "needs-repair"; reason: string | null } | null>;
+  ) => Promise<{ health: "usable" | "deleted" | "needs-repair"; reason: string | null }>;
   runCodex: (options: CodexRunOptions) => Promise<CodexRunResult>;
   makeRunDir: (count: number, now?: Date) => string;
   projectRoot: string;
@@ -450,10 +452,13 @@ export class LocalConsoleRuntime {
     if (trimmed === "") {
       throw new Error("Message body must not be empty");
     }
-    await this.assertSessionProjectDirectoryAvailable(sessionId);
+    await this.assertSessionCanContinue(sessionId);
 
-    if (
-      this.activeRuns.has(sessionId) ||
+    const activeRun = this.activeRuns.get(sessionId);
+    if (activeRun !== undefined && activeRun.role !== null && parseAgentMentions(trimmed).some((mention) => mention.name === activeRun.role)) {
+      activeRun.controller.abort("user-redirected-active-agent");
+    } else if (
+      activeRun !== undefined ||
       (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId)))
     ) {
       throw new LocalConsoleBusyError();
@@ -513,7 +518,8 @@ export class LocalConsoleRuntime {
     const storedProjects = await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects());
     const availableProjects = await Promise.all(storedProjects.map((project) => this.withDirectoryAvailability(project)));
     const projects = await Promise.all(availableProjects.map((project) => this.withSessionWorkspaceContext(project)));
-    await this.stopDirectRunsWithUnavailableDirectories(projects);
+    await this.synchronizeNonContinuableRecords(projects);
+    await this.stopUnsafeRunsWithUnavailableContext(projects);
     const sessions = projects.flatMap((project) => project.sessions);
     const requestedProject = requestedProjectId === undefined ? undefined : projects.find((project) => project.projectId === requestedProjectId);
     const requestedSession = (requestedProject?.sessions ?? sessions).find((session) => session.sessionId === selectedSessionId);
@@ -527,9 +533,7 @@ export class LocalConsoleRuntime {
       selectedProject.sessions[0] ??
       (requestedProject === undefined ? sessions[0] : undefined) ??
       null;
-    const selectedSession = storedSelectedSession === null
-      ? null
-      : await this.withAgentTeamHealth(storedSelectedSession);
+    const selectedSession = storedSelectedSession;
     const sessionId = selectedSession?.sessionId ?? selectedSessionId;
     const messages = selectedSession === null
       ? []
@@ -563,7 +567,7 @@ export class LocalConsoleRuntime {
         if (this.inactiveSessions.has(sessionId)) {
           return;
         }
-        if (!(await this.sessionProjectDirectoryAvailable(sessionId))) {
+        if (!(await this.sessionCanContinue(sessionId))) {
           return;
         }
         await this.repairStaleRunning(sessionId);
@@ -610,7 +614,7 @@ export class LocalConsoleRuntime {
           }
 
           const persistedSnapshot = await this.options.store.listSessionAgentTeamSnapshot?.(sessionId) ?? null;
-          const agentFiles = persistedSnapshot === null
+          const agentFiles: LocalConsoleAgentFile[] = persistedSnapshot === null
             ? await this.options.listAgentFiles(sessionId)
             : persistedSnapshot.members.map((member) => ({
                 name: member.name,
@@ -625,10 +629,15 @@ export class LocalConsoleRuntime {
             timelineMessages,
             agentFiles.map((agent) => agent.name),
           );
-          const trigger = resolveTrigger({
+          const explicitTrigger = resolveTrigger({
             timeline,
             availableAgentNames: agentFiles.map((agent) => agent.name),
           });
+          const trigger = explicitTrigger.kind === "skip" && claimedMessage.speaker === "user"
+            ? agentFiles[0] === undefined
+              ? explicitTrigger
+              : { kind: "run-agent" as const, role: agentFiles[0].name, reason: "mention" as const }
+            : explicitTrigger;
 
           if (trigger.kind !== "run-agent") {
             let route: Awaited<ReturnType<typeof maybeRouteLocalNoMentionMessage>>;
@@ -689,7 +698,8 @@ export class LocalConsoleRuntime {
               this.options.store.recordSystemAndComplete({
                 userMessageId: claimedMessage.id,
                 sessionId,
-                body: `Skipped local run: ${plan.reason}`,
+                body: "这一步不需要启动成员，已跳过。",
+                systemEventKind: "other",
                 runId: nextRunId,
                 runDir: null,
                 now: this.nowIso(),
@@ -791,6 +801,7 @@ export class LocalConsoleRuntime {
               this.options.store.recordSystemMessage({
                 sessionId,
                 body: "项目文件夹不可用；隔离工作区已完成当前步骤，修复项目文件夹后才能继续。",
+                systemEventKind: "other",
                 runId: nextRunId,
                 runDir: result.runDir,
                 error: "PROJECT_DIRECTORY_UNAVAILABLE",
@@ -882,6 +893,37 @@ export class LocalConsoleRuntime {
     }
   }
 
+  private async assertSessionCanContinue(sessionId: string): Promise<void> {
+    await this.assertSessionProjectDirectoryAvailable(sessionId);
+    const session = (await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions()))
+      .find((candidate) => candidate.sessionId === sessionId);
+    if (session === undefined) {
+      throw new Error(`local console session not found: ${sessionId}`);
+    }
+    const healthy = await this.withAgentTeamHealth(session);
+    const continuation = resolveLocalSessionContinuation({
+      projectDirectoryAvailable: true,
+      agentTeamHealth: healthy.agentTeamHealth,
+      agentTeamHealthReason: healthy.agentTeamHealthReason,
+    });
+    if (!continuation.canContinue) {
+      throw new Error(continuation.reason);
+    }
+  }
+
+  private async sessionCanContinue(sessionId: string): Promise<boolean> {
+    if (!(await this.sessionProjectDirectoryAvailable(sessionId))) {
+      return false;
+    }
+    const session = (await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions()))
+      .find((candidate) => candidate.sessionId === sessionId);
+    if (session === undefined) {
+      return false;
+    }
+    const healthy = await this.withAgentTeamHealth(session);
+    return healthy.agentTeamHealth !== "deleted" && healthy.agentTeamHealth !== "needs-repair";
+  }
+
   private async sessionProjectDirectoryAvailable(sessionId: string): Promise<boolean> {
     const source = await this.storeCall("local-console-store-session-workspace", () =>
       this.options.store.getSessionWorkspace(sessionId),
@@ -911,9 +953,7 @@ export class LocalConsoleRuntime {
     }
     try {
       const result = await this.options.resolveAgentTeamHealth(session);
-      return result === null
-        ? { ...session, agentTeamHealth: null, agentTeamHealthReason: null }
-        : { ...session, agentTeamHealth: result.health, agentTeamHealthReason: result.reason };
+      return { ...session, agentTeamHealth: result.health, agentTeamHealthReason: result.reason };
     } catch (error) {
       return {
         ...session,
@@ -931,6 +971,7 @@ export class LocalConsoleRuntime {
           gitTimeoutMs: this.options.workspaceGitTimeoutMs,
         });
     const sessions = await Promise.all(project.sessions.map(async (session) => {
+      const healthySession = await this.withAgentTeamHealth(session);
       const context = resolveSessionWorkspaceContext(session, projectFacts);
       let branchName = context.workspaceMode === "direct" ? projectFacts.branchName : null;
       if (context.workspaceMode === "worktree") {
@@ -947,9 +988,14 @@ export class LocalConsoleRuntime {
         }
       }
       return {
-        ...session,
+        ...healthySession,
         workspaceUnavailableReason: context.independentWorkspaceUnavailableReason,
         branchName,
+        continuation: resolveLocalSessionContinuation({
+          projectDirectoryAvailable: project.directoryAvailable !== false,
+          agentTeamHealth: healthySession.agentTeamHealth,
+          agentTeamHealthReason: healthySession.agentTeamHealthReason,
+        }),
       };
     }));
     return {
@@ -960,19 +1006,52 @@ export class LocalConsoleRuntime {
     };
   }
 
-  private async stopDirectRunsWithUnavailableDirectories(projects: LocalConsoleProjectSummary[]): Promise<void> {
+  private async synchronizeNonContinuableRecords(projects: LocalConsoleProjectSummary[]): Promise<void> {
+    for (const session of projects.flatMap((project) => project.sessions)) {
+      if (session.continuation === undefined || session.continuation.canContinue) {
+        continue;
+      }
+      const continuation = session.continuation;
+      const body = nonContinuableSystemMessage(continuation);
+      if (body === null) {
+        continue;
+      }
+      const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(session.sessionId));
+      if (messages.some((message) => message.speaker === "system" && message.body === body)) {
+        continue;
+      }
+      await this.storeCall("local-console-store-record-non-continuable", () => this.options.store.recordSystemMessage({
+        sessionId: session.sessionId,
+        body,
+        systemEventKind: "other",
+        runId: null,
+        runDir: null,
+        error: continuation.kind,
+        status: "displayed",
+        now: this.nowIso(),
+      }));
+    }
+  }
+
+  private async stopUnsafeRunsWithUnavailableContext(projects: LocalConsoleProjectSummary[]): Promise<void> {
     const unavailableProjectIds = new Set(
       projects.filter((project) => project.directoryAvailable === false).map((project) => project.projectId),
     );
+    const sessions = new Map(projects.flatMap((project) => project.sessions.map((session) => [session.sessionId, session] as const)));
     for (const active of this.activeRuns.values()) {
-      if (active.workspaceMode !== "direct") {
-        continue;
-      }
       const source = await this.storeCall("local-console-store-session-workspace", () =>
         this.options.store.getSessionWorkspace(active.sessionId),
       );
-      if (unavailableProjectIds.has(source.projectId)) {
+      if (active.workspaceMode === "direct" && unavailableProjectIds.has(source.projectId)) {
         active.controller.abort("project-directory-unavailable");
+        continue;
+      }
+      const session = sessions.get(active.sessionId);
+      if (session?.agentTeamHealth === "deleted" || session?.agentTeamHealth === "needs-repair") {
+        const snapshot = await this.options.store.listSessionAgentTeamSnapshot?.(active.sessionId) ?? null;
+        if (snapshot === null) {
+          active.controller.abort("agent-team-unavailable");
+        }
       }
     }
   }
@@ -1018,7 +1097,18 @@ export class LocalConsoleRuntime {
       return;
     }
     if (isInterruptedCodexRunResult(result)) {
-      await this.recordInterruptedBestEffort(message, sessionId, runId, result.runDir, result.reason);
+      await this.recordInterruptedBestEffort(
+        message,
+        sessionId,
+        runId,
+        result.runDir,
+        result.reason,
+        result.reason.includes("project-directory-unavailable") || result.reason.includes("agent-team-unavailable")
+          ? "context-unavailable"
+          : result.reason.includes("user-redirected-active-agent")
+            ? "redirect"
+            : "user",
+      );
       return;
     }
     await this.recordFailureOrDeadLetterBestEffort(message, sessionId, runId, result.runDir, result.reason);
@@ -1234,7 +1324,8 @@ export class LocalConsoleRuntime {
       this.options.store.recordSystemAndComplete({
         userMessageId: message.id,
         sessionId,
-        body: "No valid agent mention found in the latest local message.",
+        body: "没有找到可以接手这条消息的团队成员。请改选一支可用团队后再试。",
+        systemEventKind: "other",
         runId,
         runDir: null,
         now: this.nowIso(),
@@ -1330,6 +1421,7 @@ export class LocalConsoleRuntime {
     runId: string | null,
     runDir: string | null,
     reason: string,
+    interruptionKind: "user" | "redirect" | "context-unavailable" = "user",
   ): Promise<void> {
     try {
       await this.storeCall("local-console-store-record-interrupted", () =>
@@ -1337,6 +1429,7 @@ export class LocalConsoleRuntime {
           userMessageId: message.id,
           sessionId,
           reason,
+          interruptionKind,
           runId,
           runDir,
           now: this.nowIso(),
@@ -1377,7 +1470,8 @@ export class LocalConsoleRuntime {
       await this.storeCall("local-console-store-child-session-failure", () =>
         this.options.store.recordSystemMessage({
           sessionId: parentSessionId,
-          body: `Local child session orchestration failed: ${reason}`,
+          body: "子任务没有创建成功。你可以继续说话，或换一个成员接手。",
+          systemEventKind: "run-not-started",
           runId: `local-child-session-${this.now().toISOString()}`,
           runDir: null,
           error: reason,
@@ -1456,7 +1550,8 @@ export class LocalConsoleRuntime {
     await this.storeCall("local-console-store-child-session-summary", () =>
       this.options.store.recordSystemMessage({
         sessionId: input.sessionId,
-        body: `Local child session orchestration completed: ${created.map((session) => session.sessionId).join(", ")}`,
+        body: `团队已创建 ${String(created.length)} 个子任务，并会继续推进。`,
+        systemEventKind: "other",
         runId: input.runId,
         runDir: input.runDir,
         error: null,

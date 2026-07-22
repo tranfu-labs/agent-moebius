@@ -30,8 +30,8 @@ describe("session-scoped Agent team runtime binding", () => {
       dataRoot,
       session: session({ ownership: "system", id: "development" }),
     })).resolves.toEqual([
-      expect.objectContaining({ name: "dev" }),
       expect.objectContaining({ name: "dev-manager" }),
+      expect.objectContaining({ name: "dev" }),
       expect.objectContaining({ name: "qa" }),
     ]);
   });
@@ -43,6 +43,10 @@ describe("session-scoped Agent team runtime binding", () => {
     await expect(listSessionAgentFiles({ dataRoot, session: session() })).resolves.toEqual([
       { name: "ceo", path: path.join(dataRoot, "agents", "ceo.md") },
     ]);
+    await expect(resolveSessionAgentTeamHealth({ dataRoot, session: session() })).resolves.toEqual({
+      health: "usable",
+      reason: null,
+    });
   });
 
   it("reports a bound unavailable team explicitly and exposes repair health", async () => {

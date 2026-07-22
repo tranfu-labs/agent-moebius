@@ -1,8 +1,9 @@
-import { Check, Circle, Loader2, Square } from "lucide-react";
+import { Square } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
+import { sanitizeMachineText } from "@/console/machine-text";
 
 export type RunBlockStepStatus = "completed" | "running" | "pending";
 
@@ -35,15 +36,9 @@ const roleLabels: Record<string, string> = {
   user: "你",
 };
 
-const stepStatusLabels: Record<RunBlockStepStatus, string> = {
-  completed: "已完成",
-  pending: "未开始",
-  running: "进行中",
-};
-
 export function RunBlock({
   role,
-  elapsedTime,
+  elapsedTime: _elapsedTime,
   summary,
   rawOutput: _rawOutput,
   steps,
@@ -51,9 +46,8 @@ export function RunBlock({
   className,
 }: RunBlockProps): JSX.Element {
   const roleLabel = localizeRole(role);
-  const elapsed = nonBlank(elapsedTime) ?? "耗时未知";
   const usableSteps = steps?.length ? steps : null;
-  const fallbackSummary = nonBlank(summary) ?? "正在运行，等待进展";
+  const fallbackSummary = sanitizeMachineText(nonBlank(summary) ?? "正在推进这一步…", "正在推进这一步…");
 
   const handleInterruptKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -66,18 +60,17 @@ export function RunBlock({
     <div className={cn("max-w-[680px] border-y border-line py-3", className)}>
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold text-ink">{roleLabel}</span>
-        <span className="text-xs text-sub tnum">{elapsed}</span>
         <Button
           type="button"
           variant="outline"
           size="sm"
           className="ml-auto"
-          aria-label={`中断${roleLabel}运行`}
+          aria-label={`停下${roleLabel}当前这一步`}
           onClick={onInterrupt}
           onKeyDown={handleInterruptKeyDown}
         >
           <Square className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-          中断
+          停下
         </Button>
       </div>
 
@@ -96,37 +89,15 @@ export function RunBlock({
   );
 }
 
-function RunStepItem({ step, index }: { step: RunBlockStep; index: number }): JSX.Element {
+function RunStepItem({ step }: { step: RunBlockStep; index: number }): JSX.Element {
   const summary = nonBlank(step.summary);
 
   return (
-    <div>
-      <div className="grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2 text-sm">
-        <span className="mt-0.5 flex h-4 w-4 items-center justify-center" aria-hidden="true">
-          <StepStatusIcon status={step.status} />
-        </span>
-        <span className="min-w-0">
-          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className={cn(step.status === "running" ? "font-semibold text-ink" : "text-sub")}>
-              {index + 1}. {step.title}
-            </span>
-            <span className="text-xs text-hint">{stepStatusLabels[step.status]}</span>
-          </span>
-          {summary ? <span className="mt-0.5 block text-xs leading-5 text-sub">{summary}</span> : null}
-        </span>
-      </div>
+    <div className="border-l border-line pl-3 text-sm text-ink">
+      <span>{sanitizeMachineText(step.title)}</span>
+      {summary ? <span className="mt-0.5 block text-xs leading-5 text-sub">{sanitizeMachineText(summary)}</span> : null}
     </div>
   );
-}
-
-function StepStatusIcon({ status }: { status: RunBlockStepStatus }): JSX.Element {
-  if (status === "completed") {
-    return <Check className="h-4 w-4 text-sub" strokeWidth={1.5} />;
-  }
-  if (status === "running") {
-    return <Loader2 className="h-4 w-4 animate-spin text-sub" strokeWidth={1.5} />;
-  }
-  return <Circle className="h-3.5 w-3.5 text-hint" strokeWidth={1.5} />;
 }
 
 function localizeRole(role: string): string {

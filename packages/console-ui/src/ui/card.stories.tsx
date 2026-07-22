@@ -17,7 +17,7 @@ export const ConsolePanel: Story = {
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <CardTitle>运行记录</CardTitle>
-          <Badge variant="running">14:31 开发</Badge>
+          <Badge variant="pass">开发</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-sm text-sub">

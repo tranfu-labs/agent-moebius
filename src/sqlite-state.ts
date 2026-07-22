@@ -122,6 +122,7 @@ export type SqliteStateCommand =
       userMessageId: number;
       sessionId: string;
       body: string;
+      systemEventKind: "run-not-started" | "run-stuck" | "user-stopped" | "retry-exhausted" | "other";
       runId: string;
       runDir: string | null;
       now: string;
@@ -134,6 +135,7 @@ export type SqliteStateCommand =
       runDir: string | null;
       error: string | null;
       status?: "displayed" | "failed" | "stuck";
+      systemEventKind: "run-not-started" | "run-stuck" | "user-stopped" | "retry-exhausted" | "other";
       now: string;
     }
   | {
@@ -169,6 +171,7 @@ export type SqliteStateCommand =
       userMessageId: number;
       sessionId: string;
       reason: string;
+      interruptionKind?: "user" | "redirect" | "context-unavailable";
       runId: string | null;
       runDir: string | null;
       now: string;

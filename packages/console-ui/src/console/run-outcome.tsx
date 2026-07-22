@@ -3,7 +3,7 @@ import { AlertTriangle, Ban, CirclePause, Clock3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
 
-export type RunOutcomeStatus = "failed" | "stuck" | "interrupted" | "dead-letter";
+export type RunOutcomeStatus = "run-not-started" | "run-stuck" | "user-stopped" | "retry-exhausted";
 
 export interface RunOutcomeProps {
   status: RunOutcomeStatus;
@@ -12,21 +12,22 @@ export interface RunOutcomeProps {
   rawOutput?: string | null;
   defaultOpen?: boolean;
   onOpenDiagnostics?: () => void;
+  onRetry?: () => void;
   className?: string;
 }
 
 const outcomeLabels: Record<RunOutcomeStatus, string> = {
-  "dead-letter": "多次尝试仍失败，已停止自动重试",
-  failed: "运行失败",
-  interrupted: "运行已中断",
-  stuck: "运行长时间无响应",
+  "retry-exhausted": "这一步反复没跑起来，已经不再重试",
+  "run-not-started": "这一步没跑起来",
+  "user-stopped": "你让这一步停下了",
+  "run-stuck": "这一步卡住了",
 };
 
 const outcomeDescriptions: Record<RunOutcomeStatus, string> = {
-  "dead-letter": "自动重试已经停止，可查看日志后决定下一步。",
-  failed: "本轮没有完成，可查看日志后重新尝试。",
-  interrupted: "本轮已停止，当前会话仍然保留。",
-  stuck: "长时间没有新输出，本轮已停止。",
+  "retry-exhausted": "你可以说点什么，或换一个成员接手。",
+  "run-not-started": "你可以重试，或直接说话、换一个成员接手。",
+  "user-stopped": "已经产生的文件改动会保留；你可以继续说话，开启新的一轮。",
+  "run-stuck": "你可以重试，或直接说话、换一个成员接手。",
 };
 
 const roleLabels: Record<string, string> = {
@@ -46,7 +47,8 @@ export function RunOutcome({
   rawReason: _rawReason,
   rawOutput: _rawOutput,
   defaultOpen: _defaultOpen,
-  onOpenDiagnostics,
+  onOpenDiagnostics: _onOpenDiagnostics,
+  onRetry,
   className,
 }: RunOutcomeProps): JSX.Element {
   const roleLabel = role ? localizeRole(role) : null;
@@ -57,15 +59,15 @@ export function RunOutcome({
         <OutcomeIcon status={status} />
       </span>
       <span className="min-w-0">
-        <span className={cn("text-sm font-semibold", status === "interrupted" ? "text-ink" : "text-danger")}>
+        <span className={cn("text-sm font-semibold", status === "user-stopped" ? "text-ink" : "text-danger")}>
           {outcomeLabels[status]}
         </span>
         {roleLabel ? <span className="ml-2 text-xs text-sub">{roleLabel}</span> : null}
         <span className="mt-1 block text-sm leading-6 text-sub">{outcomeDescriptions[status]}</span>
       </span>
-      {onOpenDiagnostics && status !== "interrupted" ? (
-        <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
-          查看日志
+      {status === "run-not-started" || status === "run-stuck" ? (
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          重试
         </Button>
       ) : null}
     </div>
@@ -73,13 +75,13 @@ export function RunOutcome({
 }
 
 function OutcomeIcon({ status }: { status: RunOutcomeStatus }): JSX.Element {
-  if (status === "failed") {
+  if (status === "run-not-started") {
     return <AlertTriangle className="h-4 w-4 text-danger" strokeWidth={1.5} />;
   }
-  if (status === "stuck") {
+  if (status === "run-stuck") {
     return <Clock3 className="h-4 w-4 text-danger" strokeWidth={1.5} />;
   }
-  if (status === "interrupted") {
+  if (status === "user-stopped") {
     return <CirclePause className="h-4 w-4 text-sub" strokeWidth={1.5} />;
   }
   return <Ban className="h-4 w-4 text-danger" strokeWidth={1.5} />;

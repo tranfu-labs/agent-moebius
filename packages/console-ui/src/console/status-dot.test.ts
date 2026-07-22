@@ -1,0 +1,40 @@
+import { describe, expect, it } from "vitest";
+
+import { deriveProjectStatusDot, deriveStatusDot, type StatusDotFacts } from "./status-dot";
+
+const idle: StatusDotFacts = {
+  unresolvedSystemEventKind: null,
+  isNonContinuable: false,
+  unreadSince: null,
+  isRunning: false,
+  lastMessageMentionsAgent: false,
+};
+
+describe("conversation status dots", () => {
+  it("uses red for the three unresolved exceptions and non-continuable state", () => {
+    for (const kind of ["run-not-started", "run-stuck", "retry-exhausted"] as const) {
+      expect(deriveStatusDot({ ...idle, unresolvedSystemEventKind: kind })).toBe("red");
+    }
+    expect(deriveStatusDot({ ...idle, isNonContinuable: true })).toBe("red");
+  });
+
+  it("uses blue only for unseen idle results whose last message mentions nobody", () => {
+    expect(deriveStatusDot({ ...idle, unreadSince: "2026-07-22T00:00:00Z" })).toBe("blue");
+    expect(deriveStatusDot({ ...idle, unreadSince: "x", lastMessageMentionsAgent: true })).toBe("none");
+    expect(deriveStatusDot({ ...idle, unreadSince: "x", isRunning: true })).toBe("blink");
+  });
+
+  it("does not make stopped or normally completed conversations red", () => {
+    expect(deriveStatusDot(idle)).toBe("none");
+    expect(deriveStatusDot({ ...idle, lastMessageMentionsAgent: true })).toBe("none");
+  });
+
+  it("keeps red above blue above running for collapsed projects", () => {
+    expect(deriveProjectStatusDot([
+      { ...idle, isRunning: true },
+      { ...idle, unreadSince: "x" },
+      { ...idle, unresolvedSystemEventKind: "run-stuck" },
+    ])).toBe("red");
+    expect(deriveProjectStatusDot([{ ...idle, isRunning: true }, { ...idle, unreadSince: "x" }])).toBe("blue");
+  });
+});

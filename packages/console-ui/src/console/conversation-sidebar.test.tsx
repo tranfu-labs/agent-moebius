@@ -37,10 +37,12 @@ describe("ConversationSidebar", () => {
   });
 
   it("derives one status dot with red, blue, blink, none priority", () => {
-    expect(deriveStatusDot({ awaitsHumanReason: "answer", unreadSince: "2026-07-09T00:02:00.000Z", isRunning: true })).toBe("red");
-    expect(deriveStatusDot({ awaitsHumanReason: null, unreadSince: "2026-07-09T00:02:00.000Z", isRunning: true })).toBe("blue");
-    expect(deriveStatusDot({ awaitsHumanReason: null, unreadSince: null, isRunning: true })).toBe("blink");
-    expect(deriveStatusDot({ awaitsHumanReason: null, unreadSince: null, isRunning: false })).toBe("none");
+    expect(deriveStatusDot({ unresolvedSystemEventKind: "run-stuck", unreadSince: "2026-07-09T00:02:00.000Z", isRunning: true })).toBe("red");
+    expect(deriveStatusDot({ unreadSince: "2026-07-09T00:02:00.000Z", isRunning: false, lastMessageMentionsAgent: false })).toBe("blue");
+    expect(deriveStatusDot({ unreadSince: null, isRunning: true })).toBe("blink");
+    expect(deriveStatusDot({ unreadSince: null, isRunning: false })).toBe("none");
+    expect(deriveStatusDot({ awaitsHumanReason: "legacy-value", unreadSince: null, isRunning: false })).toBe("none");
+    expect(deriveStatusDot({ unreadSince: "2026-07-09T00:02:00.000Z", isRunning: false, lastMessageMentionsAgent: true })).toBe("none");
   });
 
   it("places the dragged project around row midpoints without mutating input", () => {
@@ -59,10 +61,10 @@ describe("ConversationSidebar", () => {
   });
 
   it("aggregates project status with red, blue, blink, none priority", () => {
-    const none = { awaitsHumanReason: null, unreadSince: null, isRunning: false };
+    const none = { unreadSince: null, isRunning: false };
     const blink = { ...none, isRunning: true };
     const blue = { ...none, unreadSince: "2026-07-09T00:02:00.000Z" };
-    const red = { ...none, awaitsHumanReason: "acceptance" };
+    const red = { ...none, unresolvedSystemEventKind: "retry-exhausted" as const };
 
     expect(deriveProjectStatusDot([blink, blue, red])).toBe("red");
     expect(deriveProjectStatusDot([blink, blue])).toBe("blue");
@@ -95,7 +97,7 @@ describe("ConversationSidebar", () => {
       ...project,
       sessions: project.sessions.map((session) => ({
         ...session,
-        awaitsHumanReason: null,
+        unresolvedSystemEventKind: null,
         unreadSince: session.id === "waiting-summary" ? "2026-07-09T00:04:00.000Z" : null,
         isRunning: session.id === "idle-refactor"
       }))
@@ -475,10 +477,10 @@ const project: ConversationSidebarProject = {
   id: "agent-moebius",
   path: "/Users/example/work/agent-moebius",
   sessions: [
-    { id: "idle-refactor", title: "导出功能重构", awaitsHumanReason: null, unreadSince: null, isRunning: false, createdAt: "2026-07-09T00:01:00.000Z" },
-    { id: "docs-history", title: "文档记录", awaitsHumanReason: null, unreadSince: "2026-07-09T00:00:30.000Z", isRunning: false, createdAt: "2026-07-09T00:00:00.000Z" },
-    { id: "running-progress", title: "进度提示", awaitsHumanReason: null, unreadSince: null, isRunning: true, createdAt: "2026-07-09T00:03:00.000Z" },
-    { id: "waiting-summary", title: "失败汇总", awaitsHumanReason: "acceptance", unreadSince: "2026-07-09T00:02:30.000Z", isRunning: true, createdAt: "2026-07-09T00:02:00.000Z" }
+    { id: "idle-refactor", title: "导出功能重构", unreadSince: null, isRunning: false, createdAt: "2026-07-09T00:01:00.000Z" },
+    { id: "docs-history", title: "文档记录", unreadSince: "2026-07-09T00:00:30.000Z", isRunning: false, lastMessageMentionsAgent: false, createdAt: "2026-07-09T00:00:00.000Z" },
+    { id: "running-progress", title: "进度提示", unreadSince: null, isRunning: true, createdAt: "2026-07-09T00:03:00.000Z" },
+    { id: "waiting-summary", title: "失败汇总", unresolvedSystemEventKind: "retry-exhausted", unreadSince: "2026-07-09T00:02:30.000Z", isRunning: true, createdAt: "2026-07-09T00:02:00.000Z" }
   ]
 };
 

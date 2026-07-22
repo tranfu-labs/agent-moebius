@@ -13,24 +13,29 @@ import {
 export function SessionTeamMenu({
   team,
   pendingTeam,
+  missingTeamId,
+  health,
   teams,
   disabled,
   onSelectTeam,
 }: {
   team?: OperatorAgentTeam;
   pendingTeam?: OperatorAgentTeam;
+  missingTeamId?: string | null;
+  health?: "usable" | "deleted" | "needs-repair" | null;
   teams: readonly OperatorAgentTeam[];
   disabled?: boolean;
   onSelectTeam?: (team: OperatorAgentTeam) => void;
 }): JSX.Element | null {
   const displayedTeam = pendingTeam ?? team;
-  if (displayedTeam === undefined) {
+  if (displayedTeam === undefined && missingTeamId == null) {
     return null;
   }
-  const teamLabel = displayedTeam.name?.trim() || "未命名团队";
-  const needsRepair = team?.status === "needs-repair" && pendingTeam === undefined;
-  const accessibleLabel = needsRepair
-    ? `Agent 团队：${teamLabel}，需要修复，点击切换`
+  const teamLabel = displayedTeam?.name?.trim() || missingTeamId || "未命名团队";
+  const needsAttention = pendingTeam === undefined && (health === "deleted" || health === "needs-repair" || team?.status === "needs-repair");
+  const stateLabel = health === "deleted" ? "已删除" : "需要修复";
+  const accessibleLabel = needsAttention
+    ? `Agent 团队：${teamLabel}，${stateLabel}，点击切换`
     : `Agent 团队：${teamLabel}，点击切换`;
   const choices = teams.filter((candidate) => candidate.canCreateConversation);
 
@@ -41,19 +46,19 @@ export function SessionTeamMenu({
           type="button"
           className={cn(
             "inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink",
-            needsRepair ? "bg-danger/10 text-danger" : "text-sub",
+            needsAttention ? "bg-danger/10 text-danger" : "text-sub",
           )}
           aria-label={accessibleLabel}
           title={accessibleLabel}
           disabled={disabled}
         >
-          {needsRepair ? (
+          {needsAttention ? (
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
           ) : (
             <Diamond className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
           )}
           <span className="truncate">{teamLabel}</span>
-          {needsRepair ? <span className="whitespace-nowrap font-medium">需要修复</span> : null}
+          {needsAttention ? <span className="whitespace-nowrap font-medium">{stateLabel}</span> : null}
           <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={1.5} aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
@@ -61,9 +66,9 @@ export function SessionTeamMenu({
         {choices.map((candidate) => (
           <DropdownMenuCheckboxItem
             key={candidate.teamKey}
-            checked={candidate.teamKey === displayedTeam.teamKey}
+            checked={candidate.teamKey === displayedTeam?.teamKey}
             onSelect={() => {
-              if (candidate.teamKey !== displayedTeam.teamKey) {
+              if (candidate.teamKey !== displayedTeam?.teamKey) {
                 onSelectTeam?.(candidate);
               }
             }}

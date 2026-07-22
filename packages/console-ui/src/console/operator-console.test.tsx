@@ -424,7 +424,7 @@ describe("OperatorConsole", () => {
     expect(teamButton).toHaveTextContent("客户支持团队需要修复");
     expect(screen.getByRole("textbox", { name: "消息内容" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
-    expect(screen.getByText("历史对话仍可查看；修复团队后可继续发送")).toBeVisible();
+    expect(screen.getByText("历史对话只读；修复或改选团队后可继续")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
     expect(onSend).not.toHaveBeenCalled();
@@ -849,13 +849,13 @@ describe("OperatorConsole", () => {
     expect(screen.getAllByText("默认会话").length).toBeGreaterThan(0);
     expect(screen.getByText("验收会话")).toBeVisible();
     expect(screen.getByText("开发")).toBeVisible();
-    expect(screen.getByText("00:12")).toBeVisible();
+    expect(screen.queryByText("00:12")).not.toBeInTheDocument();
     expect(screen.getByText("live tail from codex")).toBeVisible();
     expect(screen.getByText("独立工作空间")).toBeVisible();
     expect(screen.queryByText("0 通过")).not.toBeInTheDocument();
     expect(screen.queryByText("查看当前会话原始信息")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /中断开发运行/u }));
+    fireEvent.click(screen.getByRole("button", { name: /停下开发当前这一步/u }));
     expect(onInterrupt).toHaveBeenCalledWith("session-a", "run-1");
   });
 
@@ -864,20 +864,20 @@ describe("OperatorConsole", () => {
     renderConsole({
       onOpenDiagnostics,
       messages: [
-        message({ id: 1, status: "interrupted", body: "@dev interrupted", error: "interrupted:user-interrupted" }),
-        message({ id: 2, speaker: "system", status: "failed", body: "Codex failed: exit:42", error: "exit:42" }),
-        message({ id: 3, speaker: "system", status: "stuck", body: "Codex stuck: idle-timeout:10ms", error: "idle-timeout:10ms" }),
+        message({ id: 1, status: "interrupted", systemEventKind: "user-stopped", body: "你让这一步停下了", error: "interrupted:user-interrupted" }),
+        message({ id: 2, speaker: "system", status: "failed", systemEventKind: "run-not-started", body: "这一步没跑起来", error: "exit:42" }),
+        message({ id: 3, speaker: "system", status: "stuck", systemEventKind: "run-stuck", body: "这一步卡住了", error: "idle-timeout:10ms" }),
       ],
     });
 
-    expect(screen.getByText("运行已中断")).toBeVisible();
-    expect(screen.getByText("运行失败")).toBeVisible();
-    expect(screen.getByText("运行长时间无响应")).toBeVisible();
+    expect(screen.getByText("你让这一步停下了")).toBeVisible();
+    expect(screen.getByText("这一步没跑起来")).toBeVisible();
+    expect(screen.getByText("这一步卡住了")).toBeVisible();
     expect(screen.queryByText("interrupted:user-interrupted")).not.toBeInTheDocument();
     expect(screen.queryByText("idle-timeout:10ms")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "查看日志" })[0]!);
-    expect(onOpenDiagnostics).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "查看日志" })).not.toBeInTheDocument();
+    expect(onOpenDiagnostics).not.toHaveBeenCalled();
   });
 
   it("renders derived sessions as peers while exposing their parent through hover and assistive text", () => {
@@ -909,6 +909,7 @@ describe("OperatorConsole", () => {
           id: 1,
           speaker: "system",
           status: "failed",
+          systemEventKind: "retry-exhausted",
           body: "dead-letter body handoff runDir",
           error: "cwd=/tmp/project runDir=/tmp/run direct worktree",
           runDir: "/tmp/agent-moebius-run",
@@ -920,8 +921,8 @@ describe("OperatorConsole", () => {
       },
     });
 
-    expect(screen.getByText("正在运行，等待进展")).toBeVisible();
-    expect(screen.getByText("多次尝试仍失败，已停止自动重试")).toBeVisible();
+    expect(screen.getByText("正在推进这一步…")).toBeVisible();
+    expect(screen.getByText("这一步反复没跑起来，已经不再重试")).toBeVisible();
     expect(screen.queryByText(/\/tmp\/agent-moebius-run/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/cwd=\/tmp/u)).not.toBeInTheDocument();
     expect(screen.queryByText("查看详情")).not.toBeInTheDocument();
@@ -1112,7 +1113,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByText("历史对话只读；修复文件夹后可继续")).toBeVisible();
     expect(screen.getByRole("button", { name: "工作空间：独立工作空间，点击切换" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "默认会话，正在运行" }));
+    fireEvent.click(screen.getByRole("button", { name: "默认会话，需要你处理" }));
     expect(onSelectSession).toHaveBeenCalledWith({ sessionId: "session-a", projectId: "local" });
     expect(onSend).not.toHaveBeenCalled();
 
@@ -1229,6 +1230,7 @@ const sessions: OperatorSession[] = [
     title: "验收会话",
     status: "failed",
     awaitsHumanReason: "exception",
+    unresolvedSystemEventKind: "retry-exhausted",
     unreadSince: null,
     runningCount: 0,
     waitingCount: 0,
@@ -1364,6 +1366,7 @@ function message(input: Partial<OperatorMessage> & { id: number; body: string })
     runId: input.runId ?? null,
     runDir: input.runDir ?? null,
     error: input.error ?? null,
+    systemEventKind: input.systemEventKind ?? "other",
     createdAt: input.createdAt ?? "2026-07-09T00:00:00.000Z",
     updatedAt: input.updatedAt ?? "2026-07-09T00:00:01.000Z",
   };

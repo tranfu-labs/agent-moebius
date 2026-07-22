@@ -20,6 +20,8 @@ export function ComposerContext({
   selectedSession,
   agentTeam,
   pendingAgentTeam,
+  missingAgentTeamId,
+  agentTeamHealth,
   teams,
   canChangeProject,
   disabled,
@@ -32,6 +34,8 @@ export function ComposerContext({
   selectedSession: OperatorSession | null;
   agentTeam?: OperatorAgentTeam;
   pendingAgentTeam?: OperatorAgentTeam;
+  missingAgentTeamId?: string | null;
+  agentTeamHealth?: "usable" | "deleted" | "needs-repair" | null;
   teams: readonly OperatorAgentTeam[];
   canChangeProject: boolean;
   disabled: boolean;
@@ -161,6 +165,8 @@ export function ComposerContext({
         <SessionTeamMenu
           team={agentTeam}
           pendingTeam={pendingAgentTeam}
+          missingTeamId={missingAgentTeamId}
+          health={agentTeamHealth}
           teams={teams}
           disabled={disabled}
           onSelectTeam={selectedSession && onChangeSessionTeam

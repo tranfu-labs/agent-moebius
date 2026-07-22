@@ -21,6 +21,7 @@ import {
   type LocalConsoleWorkspaceMode,
   type LocalConsoleAgentTeamOwnership,
   type LocalConsoleSpeaker,
+  type LocalConsoleSystemEventKind,
   type LocalConsoleStore,
 } from "./types.js";
 
@@ -214,11 +215,12 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     userMessageId: number;
     sessionId: string;
     body: string;
+    systemEventKind?: LocalConsoleSystemEventKind;
     runId: string;
     runDir: string | null;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-system-and-complete", ...input });
+    await this.run({ kind: "local-record-system-and-complete", ...input, systemEventKind: input.systemEventKind ?? "other" });
   }
 
   async recordSystemMessage(input: {
@@ -228,9 +230,10 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string | null;
     error: string | null;
     status?: "displayed" | "failed" | "stuck";
+    systemEventKind?: LocalConsoleSystemEventKind;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-system", ...input });
+    await this.run({ kind: "local-record-system", ...input, systemEventKind: input.systemEventKind ?? "other" });
   }
 
   async recordMessageProcessed(input: {
@@ -315,6 +318,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     userMessageId: number;
     sessionId: string;
     reason: string;
+    interruptionKind?: "user" | "redirect" | "context-unavailable";
     runId: string | null;
     runDir: string | null;
     now: string;
@@ -471,6 +475,7 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
       runId: readNullableString(value.runId, "runId"),
       runDir: readNullableString(value.runDir, "runDir"),
       error: readNullableString(value.error, "error"),
+      systemEventKind: readSystemEventKind(value.systemEventKind),
       failureCount: "failureCount" in value ? readNumber(value.failureCount, "failureCount") : 0,
       lastFailureReason: "lastFailureReason" in value ? readNullableString(value.lastFailureReason, "lastFailureReason") : null,
       createdAt: readString(value.createdAt, "createdAt"),
@@ -503,6 +508,10 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
     status: readSessionStatus(value.status),
     awaitsHumanReason: readAwaitsHumanReason(value.awaitsHumanReason),
     unreadSince: readNullableString(value.unreadSince, "unreadSince"),
+    unresolvedSystemEventKind: "unresolvedSystemEventKind" in value && value.unresolvedSystemEventKind !== null
+      ? readSystemEventKind(value.unresolvedSystemEventKind)
+      : null,
+    lastMessageMentionsAgent: value.lastMessageMentionsAgent === true,
     runningCount: readNumber(value.runningCount, "runningCount"),
     waitingCount: readNumber(value.waitingCount, "waitingCount"),
     stuckCount: readNumber(value.stuckCount, "stuckCount"),
@@ -519,6 +528,19 @@ function readNullableAgentTeamOwnership(value: unknown): "system" | "user" | nul
     return value;
   }
   throw new Error(`Invalid local console agent team ownership: ${String(value)}`);
+}
+
+function readSystemEventKind(value: unknown): LocalConsoleSystemEventKind {
+  if (
+    value === "run-not-started" ||
+    value === "run-stuck" ||
+    value === "user-stopped" ||
+    value === "retry-exhausted" ||
+    value === "other"
+  ) {
+    return value;
+  }
+  throw new Error(`Invalid local console system event kind: ${String(value)}`);
 }
 
 function readWorkspaceMode(value: unknown, field: string): "direct" | "worktree" {

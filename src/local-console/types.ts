@@ -12,6 +12,15 @@ export type LocalConsoleMessageStatus =
   | "stuck"
   | "displayed";
 
+export const LOCAL_CONSOLE_SYSTEM_EVENT_KINDS = [
+  "run-not-started",
+  "run-stuck",
+  "user-stopped",
+  "retry-exhausted",
+  "other",
+] as const;
+export type LocalConsoleSystemEventKind = (typeof LOCAL_CONSOLE_SYSTEM_EVENT_KINDS)[number];
+
 export interface LocalConsoleMessage {
   id: number;
   sessionId: string;
@@ -22,6 +31,7 @@ export interface LocalConsoleMessage {
   runId: string | null;
   runDir: string | null;
   error: string | null;
+  systemEventKind: LocalConsoleSystemEventKind;
   failureCount: number;
   lastFailureReason: string | null;
   createdAt: string;
@@ -51,7 +61,21 @@ export type LocalConsoleAwaitsHumanReason = (typeof LOCAL_CONSOLE_AWAITS_HUMAN_R
 export type LocalConsoleProjectSourceType = typeof LOCAL_CONSOLE_PROJECT_SOURCE_TYPE;
 export type LocalConsoleWorkspaceMode = "direct" | "worktree";
 export type LocalConsoleAgentTeamOwnership = "system" | "user";
-export type LocalConsoleAgentTeamHealth = "usable" | "needs-repair";
+export type LocalConsoleAgentTeamHealth = "usable" | "deleted" | "needs-repair";
+
+export type LocalConsoleNonContinuableKind =
+  | "project-unavailable"
+  | "team-deleted"
+  | "team-needs-repair";
+
+export type LocalConsoleContinuationStatus =
+  | { canContinue: true; kind: "available"; reason: null; recoveryAction: null }
+  | {
+      canContinue: false;
+      kind: LocalConsoleNonContinuableKind;
+      reason: string;
+      recoveryAction: "repair-project" | "select-team" | "repair-or-select-team";
+    };
 
 export interface LocalConsoleAgentTeamSnapshotMember {
   name: string;
@@ -78,6 +102,7 @@ export interface LocalConsoleSessionSummary {
   agentTeamId?: string | null;
   agentTeamHealth?: LocalConsoleAgentTeamHealth | null;
   agentTeamHealthReason?: string | null;
+  continuation?: LocalConsoleContinuationStatus;
   agentTeamPendingOwnership?: LocalConsoleAgentTeamOwnership | null;
   agentTeamPendingId?: string | null;
   workspaceMode: LocalConsoleWorkspaceMode;
@@ -88,6 +113,8 @@ export interface LocalConsoleSessionSummary {
   status: LocalConsoleSessionStatus;
   awaitsHumanReason: LocalConsoleAwaitsHumanReason | null;
   unreadSince: string | null;
+  unresolvedSystemEventKind?: LocalConsoleSystemEventKind | null;
+  lastMessageMentionsAgent?: boolean;
   runningCount: number;
   waitingCount: number;
   stuckCount: number;
@@ -303,6 +330,7 @@ export interface LocalConsoleStore {
     userMessageId: number;
     sessionId: string;
     body: string;
+    systemEventKind?: LocalConsoleSystemEventKind;
     runId: string;
     runDir: string | null;
     now: string;
@@ -314,6 +342,7 @@ export interface LocalConsoleStore {
     runDir: string | null;
     error: string | null;
     status?: "displayed" | "failed" | "stuck";
+    systemEventKind?: LocalConsoleSystemEventKind;
     now: string;
   }): Promise<void>;
   recordMessageProcessed(input: {
@@ -381,6 +410,7 @@ export interface LocalConsoleStore {
     userMessageId: number;
     sessionId: string;
     reason: string;
+    interruptionKind?: "user" | "redirect" | "context-unavailable";
     runId: string | null;
     runDir: string | null;
     now: string;

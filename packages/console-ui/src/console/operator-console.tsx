@@ -10,7 +10,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
-import { AgentMessage } from "@/console/agent-message";
 import {
   type AgentTeamDetailState,
   type AgentTeamSaveAllFailureView,
@@ -31,6 +30,7 @@ import {
 import { RoleComposer } from "@/console/role-composer";
 import { RunBlock } from "@/console/run-block";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
+import { containsMachineText, sanitizeMachineText } from "@/console/machine-text";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
@@ -84,7 +84,7 @@ export interface OperatorSession {
   parentSessionId?: string | null;
   agentTeamOwnership?: "system" | "user" | null;
   agentTeamId?: string | null;
-  agentTeamHealth?: "usable" | "needs-repair" | null;
+  agentTeamHealth?: "usable" | "deleted" | "needs-repair" | null;
   agentTeamHealthReason?: string | null;
   agentTeamPendingOwnership?: "system" | "user" | null;
   agentTeamPendingId?: string | null;
@@ -96,6 +96,14 @@ export interface OperatorSession {
   status: OperatorSessionStatus;
   awaitsHumanReason: "answer" | "confirmation" | "acceptance" | "exception" | null;
   unreadSince: string | null;
+  unresolvedSystemEventKind?: "run-not-started" | "run-stuck" | "user-stopped" | "retry-exhausted" | "other" | null;
+  lastMessageMentionsAgent?: boolean;
+  continuation?: {
+    canContinue: boolean;
+    kind: "available" | "project-unavailable" | "team-deleted" | "team-needs-repair";
+    reason: string | null;
+    recoveryAction: "repair-project" | "select-team" | "repair-or-select-team" | null;
+  };
   runningCount: number;
   waitingCount: number;
   stuckCount: number;
@@ -139,6 +147,7 @@ export interface OperatorMessage {
   runId: string | null;
   runDir: string | null;
   error: string | null;
+  systemEventKind?: "run-not-started" | "run-stuck" | "user-stopped" | "retry-exhausted" | "other";
   createdAt: string;
   updatedAt: string;
 }
@@ -363,22 +372,24 @@ export function OperatorConsole({
         (team) => team.teamKey === `${selectedSession.agentTeamPendingOwnership}:${selectedSession.agentTeamPendingId}`,
       )
     : undefined;
-  const runtimeConversationAgentTeam = conversationAgentTeam === undefined || selectedSession?.agentTeamHealth == null
+  const runtimeConversationAgentTeam: OperatorAgentTeam | undefined = conversationAgentTeam === undefined || selectedSession?.agentTeamHealth == null
     ? conversationAgentTeam
     : {
         ...conversationAgentTeam,
-        status: selectedSession.agentTeamHealth,
+        status: selectedSession.agentTeamHealth === "usable" ? "usable" : "needs-repair",
         canCreateConversation: selectedSession.agentTeamHealth === "usable",
       };
-  const selectedAgentTeamNeedsRepair = selectedSession?.agentTeamHealth == null
+  const selectedAgentTeamUnavailable = selectedSession?.agentTeamHealth == null
     ? conversationAgentTeam?.status === "needs-repair"
-    : selectedSession.agentTeamHealth === "needs-repair";
+    : selectedSession.agentTeamHealth === "needs-repair" || selectedSession.agentTeamHealth === "deleted";
+  const continuationBlocked = selectedSession?.continuation?.canContinue === false;
   const canSend = composerValue.trim() !== ""
     && activeRun === null
     && !isSending
     && !isSessionProjectUpdating
     && !activeProjectUnavailable
-    && !selectedAgentTeamNeedsRepair;
+    && !selectedAgentTeamUnavailable
+    && !continuationBlocked;
   const emptyConversation = messages.length === 0 && activeRun === null;
   const requestedSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
   const sidebarAutoCollapsed = !isFirstRunOnboarding && requestedSidebarOpen && isNarrowWindow;
@@ -754,7 +765,6 @@ export function OperatorConsole({
                     <div data-testid="active-run-block">
                       <RunBlock
                         role={activeRun.role ?? "dev"}
-                        elapsedTime={formatElapsed(activeRun.elapsedMs)}
                         summary={safeRunSummary(activeRun.lastOutputSummary)}
                         rawOutput={runRawOutput(activeRun)}
                         onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
@@ -782,18 +792,26 @@ export function OperatorConsole({
                   value={composerValue}
                   onValueChange={onComposerChange}
                   onSubmit={submitComposer}
-                  disabled={activeRun !== null || isSending || isSessionProjectUpdating || activeProjectUnavailable || selectedAgentTeamNeedsRepair}
+                  disabled={activeRun !== null || isSending || isSessionProjectUpdating || activeProjectUnavailable || selectedAgentTeamUnavailable || continuationBlocked}
                   placeholder={activeProjectUnavailable
                     ? "项目文件夹不可用，请先使用红色扳手修复"
-                    : selectedAgentTeamNeedsRepair
-                      ? "当前 Agent 团队需要修复"
+                    : selectedSession?.agentTeamHealth === "deleted"
+                      ? "这支团队已删除，请改选一支团队"
+                      : selectedAgentTeamUnavailable
+                        ? "当前 Agent 团队需要修复"
+                        : continuationBlocked
+                          ? selectedSession?.continuation?.reason ?? "当前对话暂时不能继续"
                       : activeRun
                         ? "当前 agent 正在执行…"
                         : "描述你的目标，@ 一个角色开始…"}
                   statusText={activeProjectUnavailable
                     ? "历史对话只读；修复文件夹后可继续"
-                    : selectedAgentTeamNeedsRepair
-                      ? "历史对话仍可查看；修复团队后可继续发送"
+                    : selectedSession?.agentTeamHealth === "deleted"
+                      ? "历史对话只读；改选一支团队后可继续"
+                      : selectedAgentTeamUnavailable
+                        ? "历史对话只读；修复或改选团队后可继续"
+                        : continuationBlocked
+                          ? selectedSession?.continuation?.reason ?? "历史对话只读"
                       : activeRun
                         ? "当前正在执行，完成后可继续发送"
                         : undefined}
@@ -804,6 +822,8 @@ export function OperatorConsole({
                       selectedSession={selectedSession}
                       agentTeam={runtimeConversationAgentTeam}
                       pendingAgentTeam={pendingConversationAgentTeam}
+                      missingAgentTeamId={selectedSession?.agentTeamHealth === "deleted" ? selectedSession.agentTeamId : null}
+                      agentTeamHealth={selectedSession?.agentTeamHealth ?? null}
                       teams={agentTeamsState.status === "ready" ? agentTeamsState.teams : []}
                       canChangeProject={
                         selectedSession !== null &&
@@ -1286,25 +1306,14 @@ function TimelineEntry({
     );
   }
 
-  if (message.speaker === "agent") {
-    return (
-      <AgentMessage
-        role={message.role ?? "agent"}
-        rawMarkdown={message.body}
-        timestamp={formatTime(message.updatedAt)}
-        className="py-4"
-      />
-    );
-  }
-
   return (
-    <div className="py-4 pl-10 text-sm">
+    <div className="group py-4 pl-10 text-sm">
       <div className="mb-1.5 flex items-center gap-2 text-xs text-sub">
-        <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : "系统提示"}</span>
-        <span className="tnum text-hint">{formatTime(message.updatedAt)}</span>
+        <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : message.speaker === "agent" ? localizeTimelineRole(message.role) : "系统提示"}</span>
+        <span className="tnum text-hint opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">{formatTime(message.updatedAt)}</span>
       </div>
       <div className="whitespace-pre-wrap break-words leading-6 text-ink">
-        {message.speaker === "system" ? systemSummary(message) : message.body}
+        {message.speaker === "system" ? systemSummary(message) : sanitizeMachineText(message.body)}
       </div>
     </div>
   );
@@ -1327,9 +1336,15 @@ function toSidebarProject(project: OperatorProject): ConversationSidebarProject 
         && session.parentSessionId !== session.sessionId
         ? sessionsById.get(session.parentSessionId)?.title
         : undefined,
-      awaitsHumanReason: session.awaitsHumanReason,
       unreadSince: session.unreadSince,
       isRunning: session.status === "running" || session.runningCount > 0,
+      unresolvedSystemEventKind: session.unresolvedSystemEventKind === "run-not-started"
+        || session.unresolvedSystemEventKind === "run-stuck"
+        || session.unresolvedSystemEventKind === "retry-exhausted"
+        ? session.unresolvedSystemEventKind
+        : null,
+      lastMessageMentionsAgent: session.lastMessageMentionsAgent ?? false,
+      isNonContinuable: project.directoryAvailable === false || session.continuation?.canContinue === false,
       createdAt: session.createdAt,
       summary: sessionSummary(session),
     })),
@@ -1350,57 +1365,25 @@ function sessionSummary(session: OperatorSession): string | undefined {
 }
 
 function terminalOutcome(message: OperatorMessage): RunOutcomeStatus | null {
-  const rawText = `${message.status}\n${message.body}\n${message.error ?? ""}`.toLowerCase();
-  if (rawText.includes("dead-letter")) {
-    return "dead-letter";
-  }
-  if (message.status === "stuck" || (message.speaker !== "system" && /(?:idle|max-duration)-timeout/u.test(rawText))) {
-    return "stuck";
-  }
-  if (message.status === "interrupted" || (message.speaker !== "system" && rawText.includes("interrupted:"))) {
-    return "interrupted";
-  }
-  if (message.status === "failed" || (message.speaker !== "system" && nonBlank(message.error))) {
-    return "failed";
-  }
-  return null;
+  return message.speaker === "system" && message.systemEventKind !== undefined && message.systemEventKind !== "other"
+    ? message.systemEventKind
+    : null;
 }
 
 function systemSummary(message: OperatorMessage): string {
-  switch (message.status) {
-    case "pending":
-      return "系统消息排队中";
-    case "running":
-      return "系统任务执行中";
-    case "completed":
-    case "displayed":
-      return "系统消息已记录";
-    case "failed":
-      return "运行失败，请查看日志";
-    case "interrupted":
-      return "运行已中断";
-    case "stuck":
-      return "运行长时间无响应，请查看日志";
-  }
+  return sanitizeMachineText(message.body, "系统记录已更新。");
 }
 
 function safeRunSummary(summary: string | null | undefined): string {
   const text = nonBlank(summary);
-  if (!text || forbiddenMachineTextPattern.test(text)) {
-    return "正在运行，等待进展";
+  if (!text || containsMachineText(text)) {
+    return "正在推进这一步…";
   }
-  return text;
+  return sanitizeMachineText(text, "正在推进这一步…");
 }
 
 function runRawOutput(activeRun: OperatorRunSnapshot): string {
   return [activeRun.stdoutTail, activeRun.stderrTail, activeRun.tailDiagnostic].filter(nonBlank).join("\n");
-}
-
-function formatElapsed(elapsedMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1_000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function formatTime(value: string): string {
@@ -1420,4 +1403,15 @@ function nonBlank(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-const forbiddenMachineTextPattern = /\b(?:cwd|runDir|direct|worktree|dead-letter|handoff)\b|(?:^|\s)\/(?:tmp|Users|home)\//iu;
+function localizeTimelineRole(role: string | null): string {
+  const labels: Record<string, string> = {
+    ceo: "CEO",
+    dev: "开发",
+    "dev-manager": "技术负责人",
+    "hermes-user": "用户代表",
+    "product-manager": "产品",
+    qa: "测试",
+    secretary: "秘书",
+  };
+  return role === null ? "团队成员" : labels[role] ?? "团队成员";
+}

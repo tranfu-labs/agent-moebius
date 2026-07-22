@@ -4,12 +4,13 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parentPort, workerData } from "node:worker_threads";
 import { issueKeyToSessionId, parseIssueKey, sessionIdToIssueKey } from "./session-key.js";
+import { parseAgentMentions } from "./conversation.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
   LOCAL_CONSOLE_PROJECT_ID,
   LOCAL_CONSOLE_PROJECT_SOURCE_TYPE,
-  type LocalConsoleAwaitsHumanReason,
   type LocalConsoleSessionSummary,
+  type LocalConsoleSystemEventKind,
   type MoveEmptySessionResult,
 } from "./local-console/types.js";
 import type { SqliteStateCommand, SqliteStateSource } from "./sqlite-state.js";
@@ -48,6 +49,7 @@ interface WorkerLocalMessage {
   runId: string | null;
   runDir: string | null;
   error: string | null;
+  systemEventKind: LocalConsoleSystemEventKind;
   failureCount: number;
   lastFailureReason: string | null;
   createdAt: string;
@@ -295,6 +297,9 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       run_id TEXT,
       run_dir TEXT,
       error TEXT,
+      system_event_kind TEXT NOT NULL DEFAULT 'other' CHECK (
+        system_event_kind IN ('run-not-started', 'run-stuck', 'user-stopped', 'retry-exhausted', 'other')
+      ),
       failure_count INTEGER NOT NULL DEFAULT 0,
       last_failure_reason TEXT,
       source_kind TEXT,
@@ -414,8 +419,10 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   migrateSessionsCreatedAt(database, now);
   migrateSessionsProjectId(database, now);
   ensureSessionAgentTeamColumns(database);
+  migrateLegacyLocalSessionTeamBindings(database);
   migrateSessionWorkspaceContext(database);
   migrateSessionAttentionState(database);
+  migrateSystemEventKinds(database);
   database.exec(
     "CREATE INDEX IF NOT EXISTS idx_sessions_local_project_created_at ON sessions(project_id, created_at DESC, session_id ASC) WHERE source_type = 'local'",
   );
@@ -426,6 +433,33 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   markSchemaMigration(database, "main-sidebar-t8-project-removal");
   markSchemaMigration(database, "main-sidebar-t11-session-archive");
   markSchemaMigration(database, "main-sidebar-t3-session-attention-state");
+}
+
+function migrateLegacyLocalSessionTeamBindings(database: SqliteDatabase): void {
+  database.exec(`
+    UPDATE sessions
+    SET agent_team_ownership = 'system', agent_team_id = 'development'
+    WHERE source_type = 'local'
+      AND (agent_team_ownership IS NULL OR agent_team_id IS NULL)
+  `);
+  const unbound = database
+    .prepare("SELECT session_id FROM sessions WHERE source_type = 'local' AND (agent_team_ownership IS NULL OR agent_team_id IS NULL) LIMIT 1")
+    .get();
+  if (unbound !== undefined) {
+    throw new Error("local console team migration left an unbound session");
+  }
+  markSchemaMigration(database, "main-conversation-timeline-team-binding");
+}
+
+function migrateSystemEventKinds(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "session_messages", "system_event_kind")) {
+    database.exec(
+      "ALTER TABLE session_messages ADD COLUMN system_event_kind TEXT NOT NULL DEFAULT 'other' CHECK (system_event_kind IN ('run-not-started', 'run-stuck', 'user-stopped', 'retry-exhausted', 'other'))",
+    );
+  }
+  database.exec("UPDATE session_messages SET system_event_kind = 'other' WHERE system_event_kind IS NULL");
+  database.exec("UPDATE sessions SET awaits_human_reason = NULL WHERE source_type = 'local'");
+  markSchemaMigration(database, "main-conversation-timeline-system-events");
 }
 
 function ensureSessionAgentTeamColumns(database: SqliteDatabase): void {
@@ -1589,11 +1623,13 @@ function createLocalChildSession(
     insertSystemMessage(
       database,
       input.parentSessionId,
-      `Local child session created: ${input.title} (${input.childSessionId})`,
+      `团队创建了子任务：${input.title}。`,
       null,
       null,
       null,
       input.now,
+      "displayed",
+      "other",
     );
     ensureLocalCursor(database, input.childSessionId, input.now);
     return requireLocalSession(database, input.childSessionId);
@@ -1850,7 +1886,7 @@ function recordSystemAndComplete(
   return transaction(database, () => {
     ensureLocalCursor(database, input.sessionId, input.now);
     const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
-    insertSystemMessage(database, input.sessionId, input.body, input.runId, input.runDir, null, input.now);
+    insertSystemMessage(database, input.sessionId, input.body, input.runId, input.runDir, null, input.now, "displayed", input.systemEventKind);
     completeSourceMessage(database, source, "completed", null, input.runId, input.runDir, input.now);
     return null;
   });
@@ -1861,7 +1897,17 @@ function recordSystemMessage(
   input: Extract<SqliteStateCommand, { kind: "local-record-system" }>,
 ): null {
   return transaction(database, () => {
-    insertSystemMessage(database, input.sessionId, input.body, input.runId, input.runDir, input.error, input.now, input.status ?? "displayed");
+    insertSystemMessage(
+      database,
+      input.sessionId,
+      input.body,
+      input.runId,
+      input.runDir,
+      input.error,
+      input.now,
+      input.status ?? "displayed",
+      input.systemEventKind,
+    );
     return null;
   });
 }
@@ -1873,14 +1919,14 @@ function recordFailure(database: SqliteDatabase, input: Extract<SqliteStateComma
     insertSystemMessage(
       database,
       input.sessionId,
-      `Codex failed: ${input.error}`,
+      "这一步没跑起来。你可以重试，或直接说话、换一个成员接手。",
       input.runId,
       input.runDir,
       input.error,
       input.now,
       source.speaker === "agent" ? "failed" : "displayed",
+      "run-not-started",
     );
-    setSessionAwaitsHumanReason(database, input.sessionId, "exception", input.now);
     completeSourceMessage(database, source, "failed", input.error, input.runId, input.runDir, input.now);
     return null;
   });
@@ -1895,6 +1941,17 @@ function recordRetryableFailure(
     const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
     const nextFailureCount = source.failureCount + 1;
     const nextStatus = source.speaker === "user" ? "pending" : source.status;
+    insertSystemMessage(
+      database,
+      input.sessionId,
+      "这一步没跑起来。系统会继续尝试；你也可以直接说话、换一个成员接手。",
+      input.runId,
+      input.runDir,
+      input.error,
+      input.now,
+      "displayed",
+      "run-not-started",
+    );
     database
       .prepare(
         `UPDATE session_messages
@@ -1921,7 +1978,7 @@ function recordDeadLetterAndComplete(
     ensureLocalCursor(database, input.sessionId, input.now);
     const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
     const failureCount = Math.max(source.failureCount + 1, input.failureCount);
-    const body = buildDeadLetterBody(source.id, failureCount, input.error);
+    const body = "这一步反复没跑起来，已经不再重试。你可以说点什么，或换一个成员接手。";
     insertSystemMessage(
       database,
       input.sessionId,
@@ -1931,6 +1988,7 @@ function recordDeadLetterAndComplete(
       input.error,
       input.now,
       "displayed",
+      "retry-exhausted",
     );
     database
       .prepare(
@@ -1957,7 +2015,6 @@ function recordDeadLetterAndComplete(
         )
         .run(input.error, failureCount, input.error, input.now, source.id, input.sessionId);
     }
-    setSessionAwaitsHumanReason(database, input.sessionId, "exception", input.now);
     completeSourceMessage(database, source, "failed", input.error, input.runId, input.runDir, input.now, failureCount, input.error);
     return null;
   });
@@ -1970,12 +2027,17 @@ function recordInterrupted(database: SqliteDatabase, input: Extract<SqliteStateC
     insertSystemMessage(
       database,
       input.sessionId,
-      `Codex interrupted: ${input.reason}`,
+      input.interruptionKind === "context-unavailable"
+        ? "这一步依赖的项目或团队内容已经不可用，因此已停止。已经产生的文件改动会保留。"
+        : input.interruptionKind === "redirect"
+          ? "新的指令到了，当前这一步已经停下；这个成员会带着新指令重新开始。"
+        : "你让这一步停下了。已经产生的文件改动会保留。",
       input.runId,
       input.runDir,
       input.reason,
       input.now,
       source.speaker === "agent" ? "interrupted" : "displayed",
+      input.interruptionKind === "user" || input.interruptionKind === undefined ? "user-stopped" : "other",
     );
     completeSourceMessage(database, source, "interrupted", input.reason, input.runId, input.runDir, input.now);
     return null;
@@ -1989,14 +2051,14 @@ function recordStuck(database: SqliteDatabase, input: Extract<SqliteStateCommand
     insertSystemMessage(
       database,
       input.sessionId,
-      `Codex stuck: ${input.reason}`,
+      "这一步卡住了。你可以重试，或直接说话、换一个成员接手。",
       input.runId,
       input.runDir,
       input.reason,
       input.now,
       source.speaker === "agent" ? "stuck" : "displayed",
+      "run-stuck",
     );
-    setSessionAwaitsHumanReason(database, input.sessionId, "exception", input.now);
     completeSourceMessage(database, source, "stuck", input.reason, input.runId, input.runDir, input.now);
     return null;
   });
@@ -2076,7 +2138,7 @@ function recordLocalAcceptancePrePassResult(
         .run(input.sessionId, input.taskId, input.role, input.verdict, input.evidenceJson, input.messageId, input.now);
     }
 
-    insertSystemMessage(database, input.sessionId, input.visibleBody, input.runId, null, null, input.now);
+    insertSystemMessage(database, input.sessionId, input.visibleBody, input.runId, null, null, input.now, "displayed", "other");
 
     if (input.parentSessionId !== null) {
       ensureSession(database, input.parentSessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
@@ -2096,11 +2158,15 @@ function recordLocalAcceptancePrePassResult(
       insertSystemMessage(
         database,
         input.parentSessionId,
-        `Local acceptance progress: ${input.parentEventStatus} (${input.parentEventKey})`,
+        input.parentEventStatus === "completed"
+          ? "子任务验收通过，整体进度已更新。"
+          : "子任务验收结果已更新，请查看对话中的验收说明。",
         input.runId,
         null,
         null,
         input.now,
+        "displayed",
+        "other",
       );
     }
 
@@ -2130,13 +2196,23 @@ function recordLocalAcceptancePrePassResult(
         database
           .prepare(
             `INSERT INTO session_messages
-              (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
-             VALUES (?, 'system', 'dev', ?, 'displayed', NULL, NULL, NULL, 'local-acceptance-repair', ?, ?, ?)`,
+              (session_id, speaker, role, body, status, run_id, run_dir, error, system_event_kind, source_kind, source_id, created_at, updated_at)
+             VALUES (?, 'system', 'dev', ?, 'displayed', NULL, NULL, NULL, 'other', 'local-acceptance-repair', ?, ?, ?)`,
           )
           .run(input.repairChildSessionId, input.repairInitialBody, input.repairHiddenKey, input.now, input.now);
         ensureLocalCursor(database, input.repairChildSessionId, input.now);
       }
-      insertSystemMessage(database, parentSessionId, `Local repair session ready: ${input.repairTitle} (${input.repairChildSessionId})`, input.runId, null, null, input.now);
+      insertSystemMessage(
+        database,
+        parentSessionId,
+        `团队已创建修复任务：${input.repairTitle}。`,
+        input.runId,
+        null,
+        null,
+        input.now,
+        "displayed",
+        "other",
+      );
     }
 
     completeSourceMessage(database, source, "completed", null, input.runId, null, input.now);
@@ -2273,7 +2349,17 @@ function markStaleRunning(
       .map(readLocalMessageRow);
 
     for (const row of rows) {
-      insertSystemMessage(database, input.sessionId, `Recovered stale local run as stuck: ${input.reason}`, row.runId, row.runDir, input.reason, input.now);
+      insertSystemMessage(
+        database,
+        input.sessionId,
+        "这一步卡住了。你可以重试，或直接说话、换一个成员接手。",
+        row.runId,
+        row.runDir,
+        input.reason,
+        input.now,
+        "stuck",
+        "run-stuck",
+      );
       completeSourceMessage(database, row, "stuck", input.reason, row.runId, row.runDir, input.now);
       count += 1;
     }
@@ -2305,19 +2391,16 @@ function markStaleRunning(
       insertSystemMessage(
         database,
         input.sessionId,
-        `Recovered stale local handoff as stuck: ${input.reason}`,
+        "这一步卡住了。你可以重试，或直接说话、换一个成员接手。",
         activeRunId,
         source.runDir,
         input.reason,
         input.now,
         "stuck",
+        "run-stuck",
       );
       completeSourceMessage(database, source, "stuck", input.reason, activeRunId, source.runDir, input.now);
       count += 1;
-    }
-
-    if (count > 0) {
-      setSessionAwaitsHumanReason(database, input.sessionId, "exception", input.now);
     }
 
     return count;
@@ -2465,15 +2548,16 @@ function insertSystemMessage(
   error: string | null,
   now: string,
   status = "displayed",
+  systemEventKind: LocalConsoleSystemEventKind = "other",
 ): void {
   ensureSession(database, sessionId, now, undefined, LOCAL_CONSOLE_PROJECT_ID);
   database
     .prepare(
       `INSERT INTO session_messages
-        (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
-      VALUES (?, 'system', NULL, ?, ?, ?, ?, ?, 'local-message', NULL, ?, ?)`,
+        (session_id, speaker, role, body, status, run_id, run_dir, error, system_event_kind, source_kind, source_id, created_at, updated_at)
+      VALUES (?, 'system', NULL, ?, ?, ?, ?, ?, ?, 'local-message', NULL, ?, ?)`,
     )
-    .run(sessionId, body, status, runId, runDir, error, now, now);
+    .run(sessionId, body, status, runId, runDir, error, systemEventKind, now, now);
 }
 
 function requireLocalMessage(database: SqliteDatabase, id: number, sessionId: string): WorkerLocalMessage {
@@ -2552,8 +2636,10 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
   }
   const sessionId = readString(row.session_id, "session_id");
   const counts = readSessionCounts(database, sessionId);
-  const awaitsHumanReason = readNullableAwaitsHumanReason(row.awaits_human_reason);
-  counts.waiting = awaitsHumanReason === null ? 0 : 1;
+  const awaitsHumanReason = null;
+  counts.waiting = 0;
+  const unresolvedSystemEventKind = readUnresolvedSystemEventKind(database, sessionId);
+  const lastMessageMentionsAgent = readLastMessageMentionsAgent(database, sessionId);
   const childCountRow = database
     .prepare("SELECT COUNT(*) AS count FROM sessions WHERE parent_session_id = ?")
     .get(sessionId);
@@ -2571,6 +2657,8 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
     status: sessionStatusFromCounts(counts),
     awaitsHumanReason,
     unreadSince: readNullableString(row.unread_since, "unread_since"),
+    unresolvedSystemEventKind,
+    lastMessageMentionsAgent,
     runningCount: counts.running,
     waitingCount: counts.waiting,
     stuckCount: counts.stuck,
@@ -2580,6 +2668,37 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
     createdAt: readString(row.created_at, "created_at"),
     updatedAt: readString(row.updated_at, "updated_at"),
   };
+}
+
+function readUnresolvedSystemEventKind(
+  database: SqliteDatabase,
+  sessionId: string,
+): LocalConsoleSystemEventKind | null {
+  const row = database
+    .prepare(
+      `SELECT speaker, system_event_kind
+       FROM session_messages
+       WHERE session_id = ?
+         AND (
+           speaker IN ('user', 'agent')
+           OR system_event_kind IN ('run-not-started', 'run-stuck', 'user-stopped', 'retry-exhausted')
+         )
+       ORDER BY id DESC
+       LIMIT 1`,
+    )
+    .get(sessionId);
+  if (!isRecord(row) || row.speaker !== "system") {
+    return null;
+  }
+  const kind = readSystemEventKind(row.system_event_kind);
+  return kind === "run-not-started" || kind === "run-stuck" || kind === "retry-exhausted" ? kind : null;
+}
+
+function readLastMessageMentionsAgent(database: SqliteDatabase, sessionId: string): boolean {
+  const row = database
+    .prepare("SELECT body FROM session_messages WHERE session_id = ? ORDER BY id DESC LIMIT 1")
+    .get(sessionId);
+  return isRecord(row) && parseAgentMentions(readString(row.body, "body")).length > 0;
 }
 
 function readSessionCounts(database: SqliteDatabase, sessionId: string): {
@@ -2619,45 +2738,8 @@ function updateSessionAttentionAfterAgentResponse(
   now: string,
 ): void {
   database
-    .prepare("UPDATE sessions SET awaits_human_reason = ?, unread_since = ?, updated_at = ? WHERE session_id = ?")
-    .run(awaitsHumanReasonFromAgentResponse(body), now, now, sessionId);
-}
-
-function setSessionAwaitsHumanReason(
-  database: SqliteDatabase,
-  sessionId: string,
-  reason: LocalConsoleAwaitsHumanReason,
-  now: string,
-): void {
-  database
-    .prepare("UPDATE sessions SET awaits_human_reason = ?, updated_at = ? WHERE session_id = ?")
-    .run(reason, now, sessionId);
-}
-
-function awaitsHumanReasonFromAgentResponse(body: string): LocalConsoleAwaitsHumanReason | null {
-  const markerIndex = body.lastIndexOf("等待真人：");
-  if (markerIndex < 0) {
-    return null;
-  }
-  const request = body.slice(markerIndex + "等待真人：".length).split(/\r?\n/u, 1)[0] ?? "";
-  if (/验收/u.test(request)) {
-    return "acceptance";
-  }
-  if (/异常|错误|失败|修复|重试|卡住/u.test(request)) {
-    return "exception";
-  }
-  if (/确认|批准|同意|选择|决定/u.test(request)) {
-    return "confirmation";
-  }
-  return "answer";
-}
-
-function readNullableAwaitsHumanReason(value: unknown): LocalConsoleAwaitsHumanReason | null {
-  const reason = readNullableString(value, "awaits_human_reason");
-  if (reason === null || reason === "answer" || reason === "confirmation" || reason === "acceptance" || reason === "exception") {
-    return reason;
-  }
-  throw new Error(`Invalid awaits_human_reason: ${reason}`);
+    .prepare("UPDATE sessions SET awaits_human_reason = NULL, unread_since = ?, updated_at = ? WHERE session_id = ?")
+    .run(now, now, sessionId);
 }
 
 function sessionStatusFromCounts(counts: {
@@ -2699,6 +2781,7 @@ function readLocalMessageRow(row: unknown): WorkerLocalMessage {
     runId: readNullableString(row.run_id, "run_id"),
     runDir: readNullableString(row.run_dir, "run_dir"),
     error: readNullableString(row.error, "error"),
+    systemEventKind: readSystemEventKind(row.system_event_kind),
     failureCount: "failure_count" in row ? readNumber(row.failure_count, "failure_count") : 0,
     lastFailureReason: "last_failure_reason" in row ? readNullableString(row.last_failure_reason, "last_failure_reason") : null,
     createdAt: readString(row.created_at, "created_at"),
@@ -2706,17 +2789,17 @@ function readLocalMessageRow(row: unknown): WorkerLocalMessage {
   };
 }
 
-function buildDeadLetterBody(sourceMessageId: number, failureCount: number, reason: string): string {
-  const sanitizedReason = sanitizeDeadLetterReason(reason);
-  return [
-    `Local dead-letter: source message ${String(sourceMessageId)} stopped after ${String(failureCount)} failed attempts.`,
-    `Reason: ${sanitizedReason}`,
-    "Add a new local message to continue; this dead-letter record will not trigger an agent.",
-  ].join("\n");
-}
-
-function sanitizeDeadLetterReason(reason: string): string {
-  return reason.replace(/@([A-Za-z][A-Za-z0-9_-]*)/gu, "agent:$1");
+function readSystemEventKind(value: unknown): LocalConsoleSystemEventKind {
+  if (
+    value === "run-not-started" ||
+    value === "run-stuck" ||
+    value === "user-stopped" ||
+    value === "retry-exhausted" ||
+    value === "other"
+  ) {
+    return value;
+  }
+  throw new Error(`Invalid system_event_kind: ${String(value)}`);
 }
 
 function ensureSession(
@@ -2730,6 +2813,8 @@ function ensureSession(
   const parsed = sessionId.startsWith("github:") ? parseIssueKey(sessionId.slice("github:".length)) : null;
   const sourceType = parsed === null ? "local" : "github";
   const resolvedProjectId = sourceType === "local" ? (projectId ?? LOCAL_CONSOLE_PROJECT_ID) : null;
+  const resolvedTeamOwnership = sourceType === "local" ? (agentTeam?.ownership ?? "system") : null;
+  const resolvedTeamId = sourceType === "local" ? (agentTeam?.id ?? "development") : null;
   database
     .prepare(
       `INSERT INTO sessions
@@ -2752,8 +2837,8 @@ function ensureSession(
       parsed?.owner ?? null,
       parsed?.repo ?? null,
       parsed?.issueNumber ?? null,
-      agentTeam?.ownership ?? null,
-      agentTeam?.id ?? null,
+      resolvedTeamOwnership,
+      resolvedTeamId,
       sourceType,
       resolvedProjectId,
       title ?? null,

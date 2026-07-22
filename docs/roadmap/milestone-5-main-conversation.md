@@ -57,7 +57,7 @@ change：`openspec/changes/main-conversation-session-context/`
 
 覆盖验收 #5（工作空间与团队可变部分）#6 #7 #8 #9 #20。
 
-### - [ ] C · `main-conversation-timeline-truth` — 时间线说人话（`成品级`）
+### - [x] C · `main-conversation-timeline-truth` — 时间线说人话（`成品级`）→ packages/console-ui/src/console/status-dot.ts:13
 
 change：`openspec/changes/main-conversation-timeline-truth/`
 
