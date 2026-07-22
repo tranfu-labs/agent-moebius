@@ -2,10 +2,10 @@
 
 本 delta 为会话新增「对话基线提交」与「对话级改动计数」两条 Requirement，均为新增，不替换既有条目。
 
-## Requirement: #22 对话基线提交在会话诞生时落库
+## Requirement: #22 对话基线提交在会话诞生时记录为事实
 Source: docs/product/pages/main-conversation.md#区域与信息
 
-系统 MUST 在会话随首条消息创建时持久化该对话开始时项目所在的提交，作为「这段对话改了什么」的唯一基线；迁移 MUST 幂等；既有会话缺少基线时 MUST 降级为「改动不可用」。系统 MUST NOT 在事后从当前 HEAD 推导基线，MUST NOT 因缺少基线使会话不可用或阻塞运行。
+系统 MUST 在会话随首条消息创建时，通过每会话 jsonl 事实写漏斗持久化该对话开始时项目所在的提交，作为「这段对话改了什么」的唯一基线；SQLite MUST NOT 成为该基线的唯一事实源；迁移 MUST 幂等；既有会话缺少基线时 MUST 降级为「改动不可用」。系统 MUST NOT 在事后从当前 HEAD 推导基线，MUST NOT 因缺少基线使会话不可用或阻塞运行。
 
 ### Scenario: 会话诞生时记录基线
 - GIVEN 用户在一个 Git 项目下发出第一条消息

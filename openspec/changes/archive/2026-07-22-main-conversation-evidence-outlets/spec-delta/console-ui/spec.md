@@ -1,16 +1,16 @@
 # console-ui delta：main-conversation-evidence-outlets
 
-本 delta 修改 `main-conversation-timeline-truth` 交付的 `#11 运行操作条只属于当前步骤`（补入「完整输出」），并新增结果卡片一条。合并时以本文替换同名 Requirement，NEVER 与旧版并存。
+本 delta 修改 `main-conversation-timeline-truth` 交付的 #11 运行记录（补入「完整输出」），并新增结果卡片一条。合并时以本文替换同类 Requirement，NEVER 与旧版并存。
 
-## Requirement: #11 运行操作条只属于当前步骤，完整输出留在历史上
-Source: docs/product/pages/main-conversation.md#区域与信息
+## Requirement: #11 运行记录只提供完整输出
+Source: docs/product/pages/main-conversation.md#运行中的操作条
 
-系统 MUST 在成员工作时只展示它当前最新的一句，并在末尾同时提供「停下」与「完整输出」；步骤结束后 MUST 移除「停下」，MUST 在该步骤的历史记录上保留「完整输出」且可重新展开；四种事实的记录 MUST 同样提供「完整输出」。打开意图 MUST 接入既有 `sub-session-panel` 的单内容降级显示，按需打开的完整输出内容 MAY 包含机器信息。系统 MUST NOT 显示计时，MUST NOT 把全量输出堆积进时间线，MUST NOT 用操作台故障诊断入口代替「完整输出」，MUST NOT 在入口文案或时间线常驻内容中泄露运行目录、工作目录、数据库路径或内部标识，MUST NOT 在降级显示中长出标签条、类型选择、文件树、加号新建或任何右侧栏正式形态。
+系统 MUST 让活动运行记录继续原地展示当前最新可见输出，并在记录末尾只提供「完整输出」；四种事实记录 MUST 同样提供「完整输出」。系统 MUST NOT 在活动运行记录或已结束历史记录中呈现「停下」或计时；停下入口 MUST 仅位于空草稿的运行中输入框按钮。「完整输出」MUST 在步骤结束后保留在历史记录上。打开意图 MUST 接入既有 `sub-session-panel` 的单内容降级显示，按需打开的完整输出内容 MAY 包含机器信息。系统 MUST NOT 把全量输出堆积进时间线，MUST NOT 用操作台故障诊断入口代替「完整输出」，MUST NOT 在入口文案或时间线常驻内容中泄露运行目录、工作目录、数据库路径或内部标识，MUST NOT 在降级显示中长出标签条、类型选择、文件树、加号新建或任何右侧栏正式形态。
 
-### Scenario: 当前步骤结束后入口留存
-- GIVEN 时间线正在展示一个成员的最新一句、「停下」和「完整输出」
+### Scenario: 步骤结束后入口留存
+- GIVEN 时间线正在展示一个成员的最新一句和「完整输出」，停下入口位于空草稿输入框
 - WHEN 该步骤结束
-- THEN 「停下」消失，该步骤的历史记录上仍有「完整输出」并可再次打开
+- THEN 该步骤的历史记录上仍有「完整输出」并可再次打开，记录上没有停下按钮或计时
 
 ### Scenario: 没跑起来的记录也能调出完整输出
 - GIVEN 一个步骤留下了「这一步没跑起来」的记录

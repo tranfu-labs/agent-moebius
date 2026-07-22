@@ -739,7 +739,7 @@ Source: docs/product/pages/main-conversation.md#区域与信息
 ## Requirement: #11 运行记录只提供完整输出
 Source: docs/product/pages/main-conversation.md#运行中的操作条
 
-系统 MUST 让活动运行记录继续原地展示当前最新可见输出，并在记录末尾只提供「完整输出」。系统 MUST NOT 在活动运行记录或已结束历史记录中呈现「停下」或计时；停下入口 MUST 仅位于空草稿的运行中输入框按钮。「完整输出」MUST 在步骤结束后保留在历史记录上。
+系统 MUST 让活动运行记录继续原地展示当前最新可见输出，并在记录末尾只提供「完整输出」；四种事实记录 MUST 同样提供「完整输出」。系统 MUST NOT 在活动运行记录或已结束历史记录中呈现「停下」或计时；停下入口 MUST 仅位于空草稿的运行中输入框按钮。「完整输出」MUST 在步骤结束后保留在历史记录上。打开意图 MUST 接入既有 `sub-session-panel` 的单内容降级显示，按需打开的完整输出内容 MAY 包含机器信息。系统 MUST NOT 把全量输出堆积进时间线，MUST NOT 用操作台故障诊断入口代替「完整输出」，MUST NOT 在入口文案或时间线常驻内容中泄露运行目录、工作目录、数据库路径或内部标识，MUST NOT 在降级显示中长出标签条、类型选择、文件树、加号新建或任何右侧栏正式形态。
 
 ### Scenario: 查看活动运行记录
 - GIVEN 时间线正在展示一个成员的活动运行记录
@@ -752,6 +752,16 @@ Source: docs/product/pages/main-conversation.md#运行中的操作条
 - WHEN 用户查看该步骤的历史记录
 - THEN 完整输出入口继续保留
 - AND 历史记录中没有停下按钮或计时
+
+### Scenario: 没跑起来的记录也能调出完整输出
+- GIVEN 一个步骤留下了「这一步没跑起来」的记录
+- WHEN 用户查看该记录
+- THEN 记录上提供「完整输出」，与「重试」并存
+
+### Scenario: 完整输出按需显示且不提前实现右侧栏
+- GIVEN 时间线上的「完整输出」入口没有展示路径、内部标识或计时
+- WHEN 用户打开该入口
+- THEN 既有子会话面板以单内容方式展示完整输出，内容可以包含机器信息，但界面没有标签条、类型选择、文件树或新建入口
 
 ## Requirement: 主时间线运行记录复用正文列
 Source: docs/product/pages/main-conversation.md#页面结构
@@ -1047,3 +1057,28 @@ Source: docs/product/pages/main-conversation.md#停下
 - GIVEN 时间线包含多条已发送的用户与 Agent 历史消息且没有对应的 `user-stopped` 记录操作
 - WHEN 用户查看历史消息可用操作
 - THEN 不存在编辑、分叉、重发或重跑历史消息的入口
+
+## Requirement: #22 一轮结束留下结果卡片
+Source: docs/product/pages/main-conversation.md#区域与信息
+
+系统 MUST 在没有任何成员在工作且没有待处理交棒时，于时间线末尾展示结果卡片，说明这段对话期间有几个文件发生改动并提供一步打开改动内容的入口；右侧栏正式形态就绪前，该入口 MUST 接入既有 `sub-session-panel` 的单内容降级显示；没有文件改动时 MUST 如实说明；项目文件夹不是 Git 仓库时 MUST NOT 出现结果卡片。系统 MUST NOT 在卡片上铺开文件清单，MUST NOT 声称这些改动由团队成员造成，MUST NOT 按单个步骤结束反复产出卡片，MUST NOT 在入口或卡片中泄露路径与内部标识，MUST NOT 新增标签条、类型选择、文件树、加号新建或任何右侧栏正式形态。
+
+### Scenario: 一轮结束且有改动
+- GIVEN 一轮工作结束且没有成员继续接力，这段对话期间有 2 个文件发生改动
+- WHEN 用户查看时间线末尾
+- THEN 出现结果卡片说明有 2 个文件发生改动，只给数量与查看入口，措辞不归因于成员
+
+### Scenario: 一轮结束但什么都没改
+- GIVEN 一轮工作结束且这段对话期间没有文件发生改动
+- WHEN 用户查看时间线末尾
+- THEN 结果卡片如实说明没有文件发生改动，不省略卡片
+
+### Scenario: 非 Git 项目不出卡片
+- GIVEN 当前会话的项目文件夹不是 Git 仓库
+- WHEN 一轮工作结束
+- THEN 时间线末尾不出现结果卡片
+
+### Scenario: 查看改动使用单内容降级显示
+- GIVEN 一张结果卡片只展示改动文件数量与「查看改动」入口
+- WHEN 用户点击「查看改动」
+- THEN 既有子会话面板打开单内容摘要，且没有标签条、类型选择、文件清单、路径或内部标识
