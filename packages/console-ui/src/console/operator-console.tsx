@@ -861,7 +861,7 @@ export function OperatorConsole({
                     </div>
 
                     {activeRun ? (
-                      <div data-testid="active-run-block">
+                      <div className="pl-10" data-testid="active-run-block">
                         <RunBlock
                           role={activeRun.role ?? "dev"}
                           summary={safeRunSummary(activeRun.lastOutputSummary)}
@@ -869,7 +869,7 @@ export function OperatorConsole({
                           rawOutput={runRawOutput(activeRun)}
                           onOpenExternalLink={onOpenExternalLink}
                           onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
-                          className="mt-3"
+                          className="mt-3 max-w-none"
                         />
                       </div>
                     ) : null}

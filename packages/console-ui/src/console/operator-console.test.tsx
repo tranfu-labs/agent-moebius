@@ -873,6 +873,19 @@ describe("OperatorConsole", () => {
     expect(title).toHaveClass("w-full", "max-w-[760px]", "pl-10", "text-left");
   });
 
+  it("aligns the active run with the same content column as historical messages", () => {
+    renderConsole({ activeRun: runSnapshot });
+
+    const historicalMessage = screen.getByText("@dev hello").closest(".group");
+    const activeRunHost = screen.getByTestId("active-run-block");
+    const activeRun = activeRunHost.firstElementChild;
+
+    expect(historicalMessage).toHaveClass("pl-10");
+    expect(activeRunHost).toHaveClass("pl-10");
+    expect(activeRun).toHaveClass("max-w-none");
+    expect(activeRun).not.toHaveClass("max-w-[680px]");
+  });
+
   it("keeps the selected conversation mounted when its project is collapsed", () => {
     const onSelectSession = vi.fn();
     renderConsole({ onSelectSession });

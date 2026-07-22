@@ -13,7 +13,7 @@
 - 暗色画布近纯黑（`--canvas: #0A0B0D`）、卡面微亮（`--card: #15161A`）、描边可见（`--line` alpha 0.12）；亮色保持既有对比关系。
 - 状态色相族令牌：`--status-{run,info,violet,neutral}-{fg,bg,line}` 及裁决 `--pass` / `--danger` 配套 tint，亮暗双主题成对定义；亮色为同族压深 fg + 浅 tint bg。
 - 桌面窗口顶层 header 统一使用 `--window-header-height: 46px`；macOS 交通灯、sidebar 展开/折叠按钮和会话 sticky 标题都由该高度容器配合 `items-center` 自然居中，禁止为单个控件追加 `top`、`padding-top` 或 translate 补偿。
-- 会话 sticky 标题与消息行文字使用同一条左边界；只调整标题的行内缩进，不改变消息列表结构。
+- 会话 sticky 标题、历史消息正文与主时间线活动 run 的角色名/实时正文使用同一条左边界；活动 run 的操作贴住同一正文列右边界。该正文列由宿主建立，通用 `RunBlock` 不内置主时间线缩进。
 
 ## 排版
 

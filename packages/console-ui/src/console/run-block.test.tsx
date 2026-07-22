@@ -27,8 +27,9 @@ const steps: RunBlockStep[] = [
 
 describe("RunBlock", () => {
   it("shows only live human-readable work and a stop control", () => {
-    render(<RunBlock role="dev" elapsedTime="3分12秒" steps={steps} onInterrupt={vi.fn()} />);
+    const { container } = render(<RunBlock role="dev" elapsedTime="3分12秒" steps={steps} onInterrupt={vi.fn()} />);
 
+    expect(container.firstElementChild).toHaveClass("max-w-[680px]");
     expect(screen.getByText("开发")).toBeVisible();
     expect(screen.queryByText("3分12秒")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "停下开发当前这一步" })).toBeVisible();
