@@ -297,9 +297,9 @@ The operator console MUST keep root-session selection stable after refresh. Miss
 ### Requirement: Sidebar collapse, restore, and layout memory
 
 - MUST provide a `关闭侧边栏` control fixed in the sidebar header that hides the sidebar when activated.
-- MUST reserve the macOS traffic-light safety area in a dedicated 40px top row, render only the sidebar close control in that row, and render the product logo and brand in a separate row below it.
+- MUST reserve the macOS traffic-light safety area in a dedicated 40px top row, render only the sidebar close control in that row, vertically center that control with the native traffic lights, and render the product logo and brand in a separate row below it.
 - MUST provide a `打开侧边栏` control fixed in the main content when the sidebar is hidden, functional and not a decorative placeholder.
-- MUST position the `打开侧边栏` control to the right of the macOS traffic-light safety area when the sidebar is hidden.
+- MUST position the `打开侧边栏` control to the right of the macOS traffic-light safety area and vertically center it with the native traffic lights when the sidebar is hidden.
 - MUST expand the main content region to reclaim the space when the sidebar is hidden.
 - MUST persist the last explicit user choice of collapsed/expanded across app restarts.
 - MUST keep the sidebar visible during the first-run onboarding regardless of the persisted choice.

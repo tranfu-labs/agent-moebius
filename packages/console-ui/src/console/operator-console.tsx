@@ -546,7 +546,7 @@ export function OperatorConsole({
         style={{ width: `${sidebarWidth}px` }}
       >
         <header
-          className="window-drag-region flex h-10 shrink-0 items-center justify-end pl-[76px] pr-2"
+          className="window-drag-region flex h-10 shrink-0 items-center justify-end pl-[76px] pr-2 pt-[6px]"
           data-testid="sidebar-window-controls"
         >
           <button
@@ -722,7 +722,7 @@ export function OperatorConsole({
           {!effectiveSidebarOpen ? (
             <button
               type="button"
-              className="window-no-drag absolute left-[96px] top-1.5 z-20 flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
+              className="window-no-drag absolute left-[96px] top-[9px] z-20 flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
               aria-label="打开侧边栏"
               title="打开侧边栏"
               onClick={() => setSidebarOpen(true)}

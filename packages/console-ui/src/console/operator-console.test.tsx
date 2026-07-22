@@ -35,7 +35,7 @@ describe("OperatorConsole", () => {
 
     expect(screen.getByRole("img", { name: "Moebius Logo" })).toBeVisible();
     expect(screen.getByText("Moebius")).toBeVisible();
-    expect(windowControls).toHaveClass("window-drag-region", "h-10", "pl-[76px]");
+    expect(windowControls).toHaveClass("window-drag-region", "h-10", "pl-[76px]", "pt-[6px]");
     expect(brandRegion).toHaveClass("window-drag-region", "h-10", "px-3");
     expect(brandRegion).not.toHaveClass("pl-[76px]");
     expect(windowControls).not.toContainElement(screen.getByRole("img", { name: "Moebius Logo" }));
@@ -754,7 +754,7 @@ describe("OperatorConsole", () => {
     const mainWindowDragRegion = screen.getByTestId("main-window-drag-region");
     const openSidebarButton = screen.getByRole("button", { name: "打开侧边栏" });
     expect(openSidebarButton).toHaveAttribute("title", "打开侧边栏");
-    expect(openSidebarButton).toHaveClass("window-no-drag", "left-[96px]", "top-1.5");
+    expect(openSidebarButton).toHaveClass("window-no-drag", "left-[96px]", "top-[9px]");
     expect(mainWindowDragRegion).toHaveClass("z-30");
     expect(mainWindowDragRegion).toContainElement(openSidebarButton);
     expect(selectedSessionRow).toHaveAttribute("aria-current", "page");
