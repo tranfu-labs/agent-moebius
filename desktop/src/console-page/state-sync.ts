@@ -195,7 +195,8 @@ export async function loadEvidenceView(options: {
     };
   }
 
-  const response = await options.fetch(endpoint(
+  const fetch = options.fetch;
+  const response = await fetch(endpoint(
     options.apiBase,
     `/api/local-console/sessions/${encodeURIComponent(options.intent.sessionId)}/runs/${encodeURIComponent(options.intent.runId)}/output`,
   ));

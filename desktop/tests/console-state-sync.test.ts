@@ -106,11 +106,14 @@ describe("loadEvidenceView", () => {
   });
 
   it("loads persisted run output using the session and run locator", async () => {
-    const fetch = vi.fn(async (_input: string | URL | Request) => jsonResponse({
-      stdout: "complete stdout",
-      stderr: "complete stderr",
-      fallback: "recorded fallback",
-    }));
+    const fetch = vi.fn(function (this: unknown, _input: string | URL | Request) {
+      expect(this).toBeUndefined();
+      return Promise.resolve(jsonResponse({
+        stdout: "complete stdout",
+        stderr: "complete stderr",
+        fallback: "recorded fallback",
+      }));
+    });
     const view = await loadEvidenceView({
       apiBase: "http://127.0.0.1:8787/",
       intent: {
