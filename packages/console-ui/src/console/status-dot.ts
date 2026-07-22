@@ -7,6 +7,8 @@ export interface StatusDotFacts {
   isNonContinuable?: boolean;
   unreadSince: string | null;
   isRunning: boolean;
+  hasPendingControlWork?: boolean;
+  /** Legacy field retained only for source compatibility; it never affects the dot. */
   lastMessageMentionsAgent?: boolean;
 }
 
@@ -14,10 +16,11 @@ export function deriveStatusDot(facts: StatusDotFacts): ConversationStatusDot {
   if ((facts.unresolvedSystemEventKind ?? null) !== null || facts.isNonContinuable === true) {
     return "red";
   }
-  if (!facts.isRunning && facts.unreadSince !== null && facts.lastMessageMentionsAgent !== true) {
+  const isRunning = facts.isRunning || facts.hasPendingControlWork === true;
+  if (!isRunning && facts.unreadSince !== null) {
     return "blue";
   }
-  if (facts.isRunning) {
+  if (isRunning) {
     return "blink";
   }
   return "none";

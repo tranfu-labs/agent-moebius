@@ -7,7 +7,7 @@ const idle: StatusDotFacts = {
   isNonContinuable: false,
   unreadSince: null,
   isRunning: false,
-  lastMessageMentionsAgent: false,
+  hasPendingControlWork: false,
 };
 
 describe("conversation status dots", () => {
@@ -18,9 +18,10 @@ describe("conversation status dots", () => {
     expect(deriveStatusDot({ ...idle, isNonContinuable: true })).toBe("red");
   });
 
-  it("uses blue only for unseen idle results whose last message mentions nobody", () => {
+  it("uses blue only for unseen idle results with no pending control work", () => {
     expect(deriveStatusDot({ ...idle, unreadSince: "2026-07-22T00:00:00Z" })).toBe("blue");
-    expect(deriveStatusDot({ ...idle, unreadSince: "x", lastMessageMentionsAgent: true })).toBe("none");
+    expect(deriveStatusDot({ ...idle, unreadSince: "x", hasPendingControlWork: true })).toBe("blink");
+    expect(deriveStatusDot({ ...idle, unreadSince: "x", lastMessageMentionsAgent: true })).toBe("blue");
     expect(deriveStatusDot({ ...idle, unreadSince: "x", isRunning: true })).toBe("blink");
   });
 

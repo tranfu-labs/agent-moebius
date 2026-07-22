@@ -38,11 +38,11 @@ describe("ConversationSidebar", () => {
 
   it("derives one status dot with red, blue, blink, none priority", () => {
     expect(deriveStatusDot({ unresolvedSystemEventKind: "run-stuck", unreadSince: "2026-07-09T00:02:00.000Z", isRunning: true })).toBe("red");
-    expect(deriveStatusDot({ unreadSince: "2026-07-09T00:02:00.000Z", isRunning: false, lastMessageMentionsAgent: false })).toBe("blue");
+    expect(deriveStatusDot({ unreadSince: "2026-07-09T00:02:00.000Z", isRunning: false, hasPendingControlWork: false })).toBe("blue");
     expect(deriveStatusDot({ unreadSince: null, isRunning: true })).toBe("blink");
     expect(deriveStatusDot({ unreadSince: null, isRunning: false })).toBe("none");
     expect(deriveStatusDot({ awaitsHumanReason: "legacy-value", unreadSince: null, isRunning: false })).toBe("none");
-    expect(deriveStatusDot({ unreadSince: "2026-07-09T00:02:00.000Z", isRunning: false, lastMessageMentionsAgent: true })).toBe("none");
+    expect(deriveStatusDot({ unreadSince: "2026-07-09T00:02:00.000Z", isRunning: false, hasPendingControlWork: true })).toBe("blink");
   });
 
   it("places the dragged project around row midpoints without mutating input", () => {

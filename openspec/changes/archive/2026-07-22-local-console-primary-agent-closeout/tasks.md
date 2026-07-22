@@ -1,0 +1,28 @@
+# 任务：local-console-primary-agent-closeout
+
+- [x] 锁定并解析团队主 Agent 单一事实
+  - [x] 复用 `orderPrimaryFirst()` 与 SQLite `sort_order`，runtime 以团队快照首成员作为主 Agent，不新增重复 schema 字段。
+  - [x] 为会话绑定、团队切换、子会话继承和未绑定 legacy 回退补契约测试。
+- [x] 把本地接力最终交回主 Agent
+  - [x] 调整 local runtime trigger 优先级：显式 mention > 用户无 mention 到主 Agent > 非主 Agent无 mention 回主 Agent > 主 Agent无 mention 结束。
+  - [x] 新增 local-only prompt builder，注入主 Agent、成员名单与收尾契约，移除本地 prompt 中的 GitHub Issue 运行说明。
+  - [x] 覆盖直接点名成员仍回主 Agent、显式成员接力优先、主 Agent不自循环和 restart catch-up。
+  - [x] 覆盖运行中切换团队：旧成员当前步骤结束后，新团队名单与新主 Agent接管，不重放旧步骤。
+  - [x] 从消息与 cursor 派生唯一的后端 `hasPendingControlWork`，让 session/project summary、sidebar 蓝点、child summary 与结果卡片统一消费；不得把它解释成成功或验收裁决；补 cursor pending/active、聚合不重复计数、重启和异常优先级联合测试。
+  - [x] 保持用户停下、没跑起来、卡住和项目/团队不可用的现有终态，不为失败执行伪造主 Agent 回复。
+- [x] 移除本地程序化验收
+  - [x] 删除 acceptance parser、runtime pre-pass、blocked/reminder 文案、自动 acceptance fact / repair / parent progress 生产写路径。
+  - [x] 保留既有 SQLite 验收表作为只读 legacy 数据，不执行破坏性删表迁移，正常运行不得新增事实。
+  - [x] 让 local child descriptor 的 `taskChecks` 可选且最多 3 条，兼容读取旧 `acceptanceStatements`；两者缺失仍可创建 child，冲突则明确失败。给共享 parser 增加显式 local policy，默认 GitHub strict 契约保持不变。
+  - [x] 把 local child 初始正文中的可选检查点标题改为“任务检查参考”，无检查点时省略整节，不再暴露 formal acceptance 入口。
+  - [x] 删除或替换旧 acceptance-loop 单测和 acceptance script cases，补“验收/通过/不通过”任意正文不产生副作用回归。
+- [x] 更新内置开发团队协作规则
+  - [x] 更新 `team.json` 描述。
+  - [x] 将 dev-manager、dev、qa 的 `AGENT.md` 改成本地原生 persona，移除 GitHub issue 与 formal acceptance 契约，明确主理收尾、自由专业判断与回主 Agent；保留现有 stage marker 生命周期契约，避免破坏 `code-verified` worktree diff 触发。
+  - [x] 验证系统团队重播后新会话使用新 persona，既有会话快照保持不被覆盖。
+- [x] 更新本地事实文档与验证证据
+  - [x] 更新 `docs/roadmap/milestone-4-local-console.md`，标记旧 acceptance-loop 行为被本产品决策取代。
+  - [x] 更新根 `AGENTS.md` 中的本地运行、验收脚本与 acceptance-loop 描述，保留 GitHub runner 段落不变。
+  - [x] 更新 `docs/architecture/module-map.md` 的 local-console 职责并回流改造后架构图。
+  - [x] 与 `main-conversation-evidence-outlets` 对齐：结果卡片只消费本 change 的 `hasPendingControlWork=false`；不得保留 `lastMessageMentionsAgent` 第二套结束判据。
+  - [x] 运行 local-console 单测、更新后的 acceptance case、`pnpm typecheck`、desktop build 与 `git diff --check`。

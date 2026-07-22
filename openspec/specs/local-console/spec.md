@@ -4,7 +4,7 @@
 
 `local-console` 是默认本地对话操作台的数据通道。它复用 GitHub issue runner 已有的 conversation、mention trigger、agent persona 与 Codex driver 能力，但输入输出落在本机 HTTP API 与 `.state/local-console.sqlite`，供 Electron 操作台或本地浏览器客户端使用。本域同时承载辅助只读 observer 的诊断与呈现事实；observer 运行时仍是独立旁路，不并入本地会话状态机。
 
-本域规定持久化本地项目及其多会话、运行直播、中断、卡住状态、本地错误记录、agent 接力位点、本地 no-mention 交棒总线、workspace diff 事实、T5 child session orchestration 的本地子会话等价能力、T5 本地验收走查/验收回流切片，以及 dead-letter / recovery 可见收敛；不承载 T5 的完整 CEO 兜底、完整 GitHub child issue 编排、artifact publishing parity，也不承载 T6 的 GitHub/local 互斥启动 flag。
+本域规定持久化本地项目及其多会话、运行直播、中断、卡住状态、本地错误记录、agent 接力位点、主 Agent 最终控制权、本地专用 prompt、workspace diff 事实、child session orchestration 的本地子会话等价能力，以及 dead-letter / recovery 可见收敛；本地自然语言不产生验收控制事件，既有验收表只作历史只读兼容。
 
 ## 业务规则
 
@@ -204,39 +204,11 @@ Source: docs/product/pages/main-left-sidebar.md#入口与去向
 - MUST continue startup catch-up from the next unprocessed local trigger after restart.
 
 ### 边界
-- MUST keep GitHub runner semantics untouched while allowing the local child session orchestration, local acceptance-loop, and dead-letter/recovery slices in this domain.
-- MUST allow T5 child session orchestration only as local child session creation, `sessions.parent_session_id` persistence, and parent-timeline card aggregation.
-- MUST allow local acceptance-role walkthrough parsing, local acceptance fact recording, parent integration progress, repair routing, and visible format diagnostics in `.state/local-console.sqlite`.
+- MUST keep GitHub runner semantics untouched while allowing local child sessions, primary-Agent closeout, and dead-letter/recovery in this domain.
+- MUST allow child session orchestration only as local child session creation, `sessions.parent_session_id` persistence, and parent-timeline card aggregation.
+- MUST keep existing local acceptance tables readable as legacy history, but normal local execution MUST NOT write new acceptance facts or integration events and MUST NOT use them for routing, repair, join, or status.
 - MUST NOT modify `conversation`, `triggers`, agent mention parsing, stage parsing, CEO guardrail, goal-ledger business rules, GitHub issue timeline normalization, GitHub issue intake scheduling, GitHub comment publication, reaction targets, release artifact publication, issue media handling, issue worktree behavior, GitHub driver pool semantics, or other GitHub issue runner semantics to satisfy local-console behavior.
-- MUST NOT use the local child session, acceptance-loop, or dead-letter/recovery slices to implement unrelated T5 local equivalents such as full CEO no-mention fallback, artifact publishing parity, extra worktree diff return behavior beyond the existing T5 store fact, or unconfirmed cross-mode behavior.
-- MUST NOT implement T6 GitHub/local mutually exclusive startup flag or cross-mode data migration in this domain.
-
-### 本地验收走查解析
-- MUST parse acceptance-role walkthrough messages that use one line per formal acceptance statement plus one final overall conclusion line.
-- MUST accept `qa`, `product-manager`, and `hermes-user` as local acceptance roles for this pre-pass.
-- MUST require each walkthrough item to be numbered from 1 through the number of formal acceptance statements without gaps.
-- MUST require each walkthrough item to state either pass or fail and include evidence text.
-- MUST require the overall `验收结论：通过/不通过` line to match the per-statement results.
-- MUST NOT infer a pass fact from a summary-only acceptance message that lacks parseable per-statement walkthrough lines.
-- MUST preserve enough acceptance history to audit a failed walkthrough followed by a later passing recheck.
-- MUST use the latest valid acceptance fact for routing decisions when the same acceptance role rechecks after repair.
-
-### 本地验收 pre-pass 回流
-- MUST run acceptance pre-pass before normal mention trigger handling.
-- MUST write local acceptance facts before consuming any handoff mention in the same acceptance message.
-- MUST create or update parent integration progress after all in-scope local child session acceptance facts pass.
-- MUST route acceptance failure into a repair path instead of treating the original implementation as accepted.
-- MUST keep acceptance facts, integration events, repair references, visible system messages, and cursor advancement within an atomic local SQLite boundary.
-- MUST NOT advance the local processing cursor as successfully handled when visible acceptance side effects fail to write.
-- MUST NOT consume a handoff mention from the same acceptance message when acceptance pre-pass fails before required visible side effects are written.
-- MUST dedupe parent integration progress and repair routing by stable local keys across retries.
-- MUST surface a visible blocked or error state when formal acceptance statements cannot be found for an acceptance-role message.
-
-### 本地验收格式诊断
-- MUST produce a visible format reminder or error state when an acceptance-role message clearly attempts acceptance but cannot be parsed.
-- MUST NOT save a passed acceptance fact for an unparseable walkthrough.
-- MUST keep the original message retryable or visibly diagnosed when format handling fails.
-- MUST ensure format reminders contain no legal agent mention and do not trigger an agent run by themselves.
+- MUST NOT implement unrelated GitHub parity such as artifact publishing, GitHub child issue side effects, extra worktree diff return behavior beyond the existing local store fact, or unconfirmed cross-mode behavior.
 
 ### 辅助只读 observer 入口
 - MUST 提供本地只读观察页入口 `pnpm observer`。
@@ -574,64 +546,6 @@ When local child session recovery retries that key
 Then recovery fails closed with a visible error
 And neither child session is selected as a successful recovery.
 
-### 场景 LC.T5.7：本地验收角色通过走查写入事实并驱动父级回流
-Given a local child session has formal acceptance statements
-When `product-manager`, `hermes-user`, or `qa` writes parseable numbered walkthrough lines and `验收结论：通过`
-Then the local console records a passed local acceptance fact
-And the evidence records statement-level results
-And the parent session receives one deduped integration progress or request event.
-
-### 场景 LC.T5.8：本地验收角色不通过走查创建回修路径
-Given a local child session has formal acceptance statements
-When an acceptance role writes one or more failed walkthrough lines and `验收结论：不通过`
-Then the local console records a failed local acceptance fact
-And a stable repair handoff or repair child session is created or recovered
-And the parent session can see the repair reference.
-
-### 场景 LC.T5.9：先失败后复验通过使用最新事实
-Given an acceptance role first writes a parseable failed walkthrough
-And a repair path is created or recovered
-When the same acceptance role later writes a parseable passing walkthrough for the same task
-Then the latest passed fact drives parent rejoin or integration progress
-And the previous failed repair remains visible as a system record, repair reference, or historical acceptance fact.
-
-### 场景 LC.T5.10：父级可见写失败可重试且不消费同消息 handoff
-Given a local child acceptance fact is ready to trigger parent integration progress
-And writing the visible parent progress fails
-When local acceptance pre-pass settles
-Then the triggering message cursor is not advanced
-And any handoff mention in the same message is not consumed
-And a completed parent integration request is not recorded
-And a later retry creates only one deduped parent integration progress.
-
-### 场景 LC.T5.11：验收格式错误产生可见提醒
-Given a local child session has formal acceptance statements
-When an acceptance role writes `验收结论：通过` without parseable numbered walkthrough lines
-Then the local console writes a visible format reminder or error state
-And no passed local acceptance fact is recorded
-And the missing fact remains visible in local T5 facts or session status.
-
-### 场景 LC.T5.12：格式错误同消息 handoff 不触发普通交棒
-Given a local child session has formal acceptance statements
-When an acceptance role writes malformed walkthrough lines and also includes a legal handoff mention
-Then the local console writes a visible format reminder or error state
-And no passed local acceptance fact is recorded
-And the handoff mention in that same message is not consumed by normal trigger handling.
-
-### 场景 LC.T5.13：缺 formal acceptance statements 时阻塞验收
-Given a local child session has no readable formal acceptance statements
-When an acceptance role writes an acceptance walkthrough
-Then the local console writes a visible blocked or error state
-And no passed acceptance fact is recorded
-And the local console does not invent an acceptance scope.
-
-### 场景 LC.T5.14：验收 store timeout 释放 drain
-Given a local acceptance pre-pass SQLite command never settles
-When the configured local store timeout is reached
-Then the session drain is released
-And the triggering message remains retryable or visibly diagnosed
-And no successful acceptance fact is saved for that attempt.
-
 ### 场景 LC.T5.DL1：连续失败只 dead-letter 一次
 Given a local source message repeatedly fails with the same non-timeout processing error
 When the failure count reaches the local retry limit
@@ -762,7 +676,7 @@ And no expected business rejection is returned as 500.
 
 ### Requirement: Local and GitHub runtime isolation
 
-The local-console domain MUST keep GitHub runner semantics untouched while allowing local equivalents for CEO routing, child sessions, acceptance pre-pass, dead-letter recovery, local role threads, local evidence, worktree diff return, and the terminal startup selection that makes local mode the default.
+The local-console domain MUST keep GitHub runner semantics untouched while allowing local equivalents for CEO routing, child sessions, primary-Agent closeout, dead-letter recovery, local role threads, local evidence, worktree diff return, and the terminal startup selection that makes local mode the default.
 
 The local-console domain MUST NOT modify GitHub issue timeline normalization, mention trigger rules, GitHub CEO orchestration, issue intake scheduling, GitHub comment publication, reaction targets, release artifact publication, issue media handling, issue worktree behavior, observer behavior, or GitHub driver pool semantics.
 
@@ -955,19 +869,113 @@ Source: docs/product/pages/main-conversation.md#区域与信息
 - THEN 每条系统记录都有非空类型、旧等待值均被清空且 exception 不触发异常红点
 
 ## Requirement: #14 用户消息遵循团队主 Agent 与重定向语义
-Source: docs/product/pages/main-conversation.md#操作与反馈
+Source: docs/product/pages/main-conversation.md#说话与提及
 
-系统 MUST 把未提及成员的用户消息交给当前团队主 Agent；提及正在工作的成员时 MUST 中止它的当前步骤并用新指令重新开始；未绑定存量会话 MUST 继续使用共享 agents 名单。系统 MUST NOT 从共享 agents 目录补充已绑定团队的团队外成员，主 Agent 转达给正在工作成员的消息 MUST 使用相同重定向语义。
+系统 MUST 把未提及成员的用户消息交给当前团队主 Agent；用户直接 mention 其他成员时 MUST 先运行该成员，但正常成功接力的最终控制权仍 MUST 回到主 Agent。非主 Agent 回复有合法 mention 时 MUST 优先按显式交棒继续，无合法 mention 时 MUST 确定性运行主 Agent；主 Agent 回复无合法 mention 时 MUST 推进 cursor 并结束本轮。提及正在工作的成员时 MUST 中止它的当前步骤并用新指令重新开始。系统 MUST NOT 把主 Agent 强制插入每次显式成员间交棒，MUST NOT 让主 Agent 无 mention 回复再次触发自己。
 
 ### Scenario: 无提及消息进入主 Agent
 - GIVEN 会话绑定的团队主 Agent 为 dev-manager 且没有成员正在工作
 - WHEN 用户发送一条不含 mention 的消息
 - THEN 运行时以 dev-manager 启动该消息且没有调用旧兜底路由
 
+### Scenario: 用户直接点名成员也回主 Agent
+- GIVEN 团队主 Agent 是 dev-manager
+- WHEN 用户直接 mention qa 且 qa 回复没有合法 mention
+- THEN 下一棒是 dev-manager
+- AND 当前版本不为直接点名建立例外
+
+### Scenario: 显式成员接力优先
+- GIVEN 最新回复来自非主 Agent qa
+- WHEN 回复包含唯一合法 mention @dev
+- THEN 下一棒是 dev
+- AND runtime 不提前把控制权拉回主 Agent
+
+### Scenario: 主 Agent 无 mention 自然结束
+- GIVEN 最新回复来自主 Agent
+- WHEN 回复没有合法 mention
+- THEN runtime 推进该消息处理位点并结束本轮
+- AND 不启动新的主 Agent run
+
 ### Scenario: 未绑定存量会话继续推进
 - GIVEN 存量会话没有团队绑定且共享 agents 名单可用
 - WHEN 用户从本地 HTTP 入口发送消息
-- THEN 消息由共享名单中的 Agent 处理且会话没有进入团队已删除状态
+- THEN 消息由共享名单首成员处理且会话没有进入团队已删除状态
+
+## Requirement: 会话团队快照首成员是主 Agent 单一事实
+Source: docs/product/pages/agent-teams.md#主-Agent
+
+新建、切换或继承的本地会话团队快照 MUST 把已校验团队的主 Agent 保存为首成员，runtime MUST 使用首成员作为最终控制权回交目标。系统 MUST NOT 新增第二份主 Agent 持久化事实，MUST NOT 从团队外共享 agents 补充已绑定团队。
+
+### Scenario: 运行中切换团队后由新主 Agent 收尾
+- GIVEN 旧团队成员正在运行且新团队快照处于 pending
+- WHEN 旧成员完成当前步骤，pending 快照生效
+- THEN runtime 只用新团队名单解析该回复之后的控制权
+- AND 没有指向新团队可用成员的合法交棒时运行新团队主 Agent
+- AND 不重放旧成员已经完成的步骤
+
+## Requirement: 本地自由文本不产生验收控制事件
+Source: docs/product/pages/main-conversation.md#专业判断与程序状态
+
+本地 runtime MUST 把 Agent 正文中的“验收”“通过”“不通过”、测试结论和复核意见保留为普通时间线内容，MUST NOT 因正文关键词或发送角色运行 acceptance pre-pass、写入 acceptance fact、创建 acceptance repair、推进 parent integration progress 或吞掉同消息合法 handoff。既有 SQLite acceptance 数据 MAY 只读保留，但 MUST NOT 再驱动本地行为。
+
+### Scenario: QA 标题包含验收仍正常交棒
+- GIVEN qa 回复包含“测试与验收”“通过”或“不通过”以及合法 @dev
+- WHEN local runtime 处理该回复
+- THEN 下一棒是 dev
+- AND 不出现 missing-acceptance-statements 或验收格式诊断系统消息
+- AND 不新增 local acceptance fact
+
+### Scenario: 无 mention 专业结论回到主 Agent
+- GIVEN 非主 Agent 回复包含“验收结论：通过”但没有合法 mention
+- WHEN local runtime 处理该回复
+- THEN 正文不被解析为机器验收事实
+- AND 下一棒回到主 Agent
+
+### Scenario: 子会话创建不要求 formal acceptance statements
+- GIVEN 本地 child descriptor 没有 taskChecks 或 acceptanceStatements
+- WHEN local child executor 解析并创建子会话
+- THEN 子会话仍被创建且初始正文不出现空检查章节
+- AND 相同缺字段输入在 GitHub strict caller 下仍按原契约拒绝
+
+### Scenario: 可选任务检查兼容旧字段
+- GIVEN 本地 descriptor 带 1 到 3 条 taskChecks 或 legacy acceptanceStatements
+- WHEN local child executor 创建子会话
+- THEN 内容以“任务检查参考”展示
+- AND 不建立 formal acceptance scope 或验收事实
+
+### Scenario: 新旧检查字段冲突时拒绝
+- GIVEN taskChecks 与 acceptanceStatements 同时存在且内容不同
+- WHEN local orchestration parser 校验 descriptor
+- THEN 明确拒绝且不创建半条 child session
+
+## Requirement: 主 Agent 控制上下文只在本地 prompt 注入
+Source: docs/product/pages/agent-teams.md#页面目标
+
+local runtime MUST 使用本地专用 prompt 提供当前团队主 Agent、可用成员与最终回交规则，MUST 保留成员 AGENT.md 对专业职责的所有权。本地 prompt MUST NOT 声称时间线是 GitHub Issue，不得出现 GitHub comment/reaction 或 role envelope 运行指令；共享 GitHub prompt 与 runner 行为 MUST 保持不变。
+
+### Scenario: 用户 persona 未写回交规则仍闭环
+- GIVEN 用户团队成员 persona 没有写明主 Agent
+- WHEN 非主 Agent 完成回复且没有合法 mention
+- THEN runtime 仍依据团队快照运行主 Agent
+- AND 用户团队文件不被覆盖
+
+## Requirement: 主 Agent 收尾前接力状态保持进行中
+Source: docs/product/pages/main-conversation.md#说话与提及
+
+系统 MUST 从 cursor 尚未评估的 user/agent trigger source、active claim 与真实 running message 派生唯一的 hasPendingControlWork，并由 session/project summary 与子会话状态消费。只要该事实为 true，会话 MUST 保持进行中；主 Agent 无 mention 回复完成评估并推进 cursor 后，该事实 MUST 变为 false。该事实只表示控制流是否仍有下一棒，MUST NOT 表示任务成功、验收通过或语义完成，也 MUST NOT 遮蔽失败、卡住、停下或不可继续事实。
+
+### Scenario: 专业成员完成但主 Agent 尚未收尾
+- GIVEN 非主 Agent 无 mention 回复已经落库
+- AND 该回复尚未处理或主 Agent run 已 claim
+- WHEN 读取 session、project 或 child summary
+- THEN 会话仍为进行中
+- AND 不显示已结束或最终结果提示
+
+### Scenario: 主 Agent 收尾后结束
+- GIVEN 主 Agent 无 mention 回复已经落库并完成 trigger 评估
+- WHEN cursor 推进到该回复
+- THEN hasPendingControlWork 为 false
+- AND 会话可进入 idle
 
 ## Requirement: #17 不可继续状态可判定并可恢复
 Source: docs/product/pages/main-conversation.md#三种不可继续状态的共同规则

@@ -515,6 +515,7 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
       ? readSystemEventKind(value.unresolvedSystemEventKind)
       : null,
     lastMessageMentionsAgent: value.lastMessageMentionsAgent === true,
+    hasPendingControlWork: value.hasPendingControlWork === true,
     runningCount: readNumber(value.runningCount, "runningCount"),
     waitingCount: readNumber(value.waitingCount, "waitingCount"),
     stuckCount: readNumber(value.stuckCount, "stuckCount"),

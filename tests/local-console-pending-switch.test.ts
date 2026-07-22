@@ -182,6 +182,76 @@ describe("pending session context switches", () => {
     }
   }, 15_000);
 
+  it("lets the new team primary Agent close out after the old member finishes", async () => {
+    const root = await makeGitRoot();
+    let finishOldRun!: (result: CodexRunResult) => void;
+    const prompts: string[] = [];
+    const runCodex = vi.fn((options: CodexRunOptions): Promise<CodexRunResult> => {
+      prompts.push(options.prompt);
+      if (prompts.length === 1) {
+        return new Promise((resolve) => {
+          finishOldRun = resolve;
+        });
+      }
+      return Promise.resolve({ ...successfulRun(root, "new-primary"), finalText: "新主理人已收尾" });
+    });
+    const started = await startLocalConsoleServer({
+      host: "127.0.0.1",
+      port: 0,
+      projectRoot: root,
+      workdirRoot: path.join(root, "workdir"),
+      sqlitePath: path.join(root, "team-primary-switch.sqlite"),
+      listAgentFiles: async () => [],
+      loadAgentTeamSnapshot: async (binding) => ({
+        members: binding.id === "marketing"
+          ? [{ name: "manager", agentMarkdown: "# manager\n\nROLE:manager\n" }]
+          : [{ name: "dev", agentMarkdown: "# dev\n\nROLE:dev\n" }],
+      }),
+      runCodex,
+      makeRunDir: (count) => path.join(root, `run-team-primary-${String(count)}`),
+    });
+
+    try {
+      const created = await requestJson(started.url, "/api/local-console/sessions", {
+        method: "POST",
+        body: {
+          projectId: "local",
+          initialMessage: "@dev 完成旧团队步骤",
+          agentTeamOwnership: "system",
+          agentTeamId: "development",
+        },
+      });
+      const sessionId = (created.session as { sessionId: string }).sessionId;
+      await waitFor(() => runCodex.mock.calls.length === 1);
+      await requestJson(started.url, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/team`, {
+        method: "PATCH",
+        body: { agentTeamOwnership: "user", agentTeamId: "marketing" },
+      });
+
+      finishOldRun({ ...successfulRun(root, "old-member"), finalText: "旧成员步骤完成" });
+      await waitFor(async () => {
+        const state = await readState(started.url, sessionId);
+        return state.messages.some((message) => message.speaker === "agent" && message.role === "manager")
+          && state.selectedSession?.hasPendingControlWork === false;
+      });
+
+      const settled = await readState(started.url, sessionId);
+      expect(settled.messages.filter((message) => message.speaker === "agent").map((message) => message.role)).toEqual([
+        "dev",
+        "manager",
+      ]);
+      expect(settled.selectedSession).toMatchObject({
+        agentTeamId: "marketing",
+        agentTeamPendingId: null,
+        hasPendingControlWork: false,
+      });
+      expect(prompts[0]).toContain("ROLE:dev");
+      expect(prompts[1]).toContain("ROLE:manager");
+    } finally {
+      await started.close();
+    }
+  }, 15_000);
+
   it("freezes the selected team content through the server boundary and promotes its pending snapshot", async () => {
     const root = await makeGitRoot();
     let selectedMarketingMarkdown = "# dev\n\nselected marketing version\n";
@@ -409,7 +479,7 @@ async function makeGitRoot(): Promise<string> {
   return root;
 }
 
-function successfulRun(root: string, suffix: string): CodexRunResult {
+function successfulRun(root: string, suffix: string): Extract<CodexRunResult, { ok: true }> {
   return {
     ok: true,
     finalText: `done ${suffix}\n\n<!-- agent-stage: code-verified -->`,

@@ -207,23 +207,6 @@ export type SqliteStateCommand =
       now: string;
     }
   | {
-      kind: "local-record-acceptance-fact";
-      sessionId: string;
-      taskId: string;
-      role: string;
-      verdict: "passed" | "failed";
-      evidenceJson: string;
-      now: string;
-    }
-  | {
-      kind: "local-record-integration-event";
-      sessionId: string;
-      eventKey: string;
-      status: "requested" | "completed" | "failed" | "blocked";
-      detailJson: string;
-      now: string;
-    }
-  | {
       kind: "local-record-dead-letter";
       sessionId: string;
       sourceMessageId: number;
@@ -244,26 +227,6 @@ export type SqliteStateCommand =
       affectedFilesJson: string;
       status: "generated" | "applied" | "failed" | "abandoned" | "rolled_back";
       error: string | null;
-      now: string;
-    }
-  | {
-      kind: "local-record-acceptance-prepass-result";
-      sessionId: string;
-      messageId: number;
-      runId: string;
-      taskId: string;
-      role: string;
-      verdict: "passed" | "failed" | "format_error" | "blocked";
-      evidenceJson: string;
-      visibleBody: string;
-      parentSessionId: string | null;
-      parentEventKey: string | null;
-      parentEventStatus: "requested" | "completed" | "failed" | "blocked" | null;
-      parentEventDetailJson: string | null;
-      repairChildSessionId: string | null;
-      repairTitle: string | null;
-      repairHiddenKey: string | null;
-      repairInitialBody: string | null;
       now: string;
     }
   | { kind: "local-list-t5-facts"; sessionId: string | null }

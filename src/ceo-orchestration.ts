@@ -158,11 +158,14 @@ export type ParseCeoOrchestrationResult =
   | { ok: true; value: ParsedCeoOrchestration }
   | { ok: false; reason: string };
 
+export type CeoChildTaskCheckPolicy = "strict-acceptance" | "local-optional";
+
 export function parseCeoOrchestrationOutput(input: {
   output: string;
   scripts: readonly CeoScript[];
   availableAgentNames: readonly string[];
   visibleTaskIds: readonly string[];
+  childTaskCheckPolicy?: CeoChildTaskCheckPolicy;
 }): ParseCeoOrchestrationResult {
   if (parseTrailingStageMarker(input.output, [CEO_ORCHESTRATION_STAGE]) !== CEO_ORCHESTRATION_STAGE) {
     return { ok: false, reason: "missing-in-progress-stage-marker" };
@@ -218,6 +221,7 @@ export function parseCeoOrchestrationOutput(input: {
       parsed,
       workflowId: workflowId.value,
       availableAgentNames: input.availableAgentNames,
+      childTaskCheckPolicy: input.childTaskCheckPolicy ?? "strict-acceptance",
     });
   }
 
@@ -250,6 +254,7 @@ export function parseCeoOrchestrationOutput(input: {
     availableAgentNames: input.availableAgentNames,
     visibleTaskIds: input.visibleTaskIds,
     requireVisibleTaskIds: true,
+    taskCheckPolicy: input.childTaskCheckPolicy ?? "strict-acceptance",
   });
   if (!issues.ok) {
     return issues;
@@ -654,6 +659,7 @@ function parseGoalIntakeAction(input: {
   parsed: Record<string, unknown>;
   workflowId: string;
   availableAgentNames: readonly string[];
+  childTaskCheckPolicy: CeoChildTaskCheckPolicy;
 }): ParseCeoOrchestrationResult {
   const mode = getNonEmptyString(input.parsed["mode"], "mode");
   if (!mode.ok) {
@@ -781,7 +787,8 @@ function parseGoalIntakeAction(input: {
       availableAgentNames: input.availableAgentNames,
       visibleTaskIds: [],
       requireVisibleTaskIds: false,
-      acceptanceCount: { min: 1, max: 3 },
+      taskCheckPolicy: input.childTaskCheckPolicy,
+      ...(input.childTaskCheckPolicy === "strict-acceptance" ? { acceptanceCount: { min: 1, max: 3 } } : {}),
     });
     if (!issues.ok) {
       return issues;
@@ -1054,6 +1061,7 @@ function parseChildIssueDescriptors(input: {
   visibleTaskIds: readonly string[];
   requireVisibleTaskIds: boolean;
   acceptanceCount?: { min: number; max: number };
+  taskCheckPolicy: CeoChildTaskCheckPolicy;
 }): { ok: true; value: CeoChildIssueDescriptor[] } | { ok: false; reason: string } {
   if (!Array.isArray(input.value) || input.value.length === 0) {
     return { ok: false, reason: "issues-empty" };
@@ -1118,10 +1126,7 @@ function parseChildIssueDescriptors(input: {
       return { ok: false, reason: `invalid-quality-baseline:${qualityBaselineValue}` };
     }
 
-    const acceptanceStatements = getNonEmptyStringArray(
-      descriptor["acceptanceStatements"],
-      `${path}.acceptanceStatements`,
-    );
+    const acceptanceStatements = parseChildTaskChecks(descriptor, path, input.taskCheckPolicy);
     if (!acceptanceStatements.ok) {
       return acceptanceStatements;
     }
@@ -1154,6 +1159,43 @@ function parseChildIssueDescriptors(input: {
   }
 
   return { ok: true, value: result };
+}
+
+function parseChildTaskChecks(
+  descriptor: Record<string, unknown>,
+  path: string,
+  policy: CeoChildTaskCheckPolicy,
+): { ok: true; value: string[] } | { ok: false; reason: string } {
+  if (policy === "strict-acceptance") {
+    return getNonEmptyStringArray(descriptor["acceptanceStatements"], `${path}.acceptanceStatements`);
+  }
+
+  const taskChecksValue = descriptor["taskChecks"];
+  const legacyValue = descriptor["acceptanceStatements"];
+  if (taskChecksValue === undefined && legacyValue === undefined) {
+    return { ok: true, value: [] };
+  }
+
+  const taskChecks = taskChecksValue === undefined
+    ? null
+    : getBoundedNonEmptyStringArray(taskChecksValue, `${path}.taskChecks`, 1, 3);
+  if (taskChecks !== null && !taskChecks.ok) {
+    return taskChecks;
+  }
+  const legacy = legacyValue === undefined
+    ? null
+    : getBoundedNonEmptyStringArray(legacyValue, `${path}.acceptanceStatements`, 1, 3);
+  if (legacy !== null && !legacy.ok) {
+    return legacy;
+  }
+  if (
+    taskChecks !== null &&
+    legacy !== null &&
+    JSON.stringify(taskChecks.value) !== JSON.stringify(legacy.value)
+  ) {
+    return { ok: false, reason: `${path}.task-check-fields-conflict` };
+  }
+  return { ok: true, value: taskChecks?.value ?? legacy?.value ?? [] };
 }
 
 function validateRoundtableParticipants(

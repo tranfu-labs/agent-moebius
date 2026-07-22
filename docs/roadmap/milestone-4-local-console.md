@@ -85,11 +85,13 @@ T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packa
 
 ### - [x] T5 · 本地全功能对等（终点线，`成品级`）
 
-拿 `github-issue-runner` spec 的 MUST 清单逐条核，把 GitHub 模式全部能力在本地补齐原生形态：交棒总线、CEO 无 mention 兜底路由、验收走查、开子会话编排（CEO「开子 issue」→「开子会话」，含 `sessions.parent_session_id` 写入判定与写入路径）、dead-letter 降级、**workspace 隔离/回滚语义（T4.6 worktree 开启态）与 GitHub `issue-worktree` 路径对等——开分支、diff 回流、不污染原目录三点全等**。漏一条即未达终点。
+T5 历史上按 GitHub runner 逐项对等实现了交棒总线、CEO 无 mention 兜底路由、验收走查、子会话编排、dead-letter 与 workspace 隔离/回滚。2026-07-22 的产品决策取消本地程序化验收：本地不再追求 GitHub 验收 pre-pass 对等，改由团队主 Agent 对每轮会话最终接回控制权、结合专业成员意见继续推进或向用户收尾；GitHub runner 行为不在本次调整范围。
 
 验收场景（细化时保留）：在纯本地发起一个多子任务目标 → 应看到 CEO 兜底路由、按会话拆子会话（`parent_session_id` 落库并在桌面台侧栏正确渲染树形层级）、qa 走查、验收回流全部在本地跑通，与 GitHub 模式行为对齐；worktree 开启态下走一遍 dev 修改回流 → 与 `issue-worktree` 在开分支 / 回流 / 原目录洁净三点上行为全等；逐条比对 spec MUST 清单无遗漏。
 
-子切片证据（2026-07-10，#112）：T5 本地验收走查 / 验收回流已按 `openspec/changes/archive/2026-07-10-local-console-t5-acceptance-loop/` 实现并归档。正式 2 条验收语句与 product-manager 确认接受的 QA 增补 5 条验收口径，汇总证据见 `artifacts/acceptance/t5-evidence.json` 的 `acceptance-loop-suite`：边界替换消除预 T5 acceptance 禁止冲突；通过走查写入 passed fact 并驱动 parent integration progress；格式错误写 visible reminder 且不保存 passed fact、不消费同消息 handoff；parent visible write 失败后 cursor / handoff / completed event 不被错误推进，retry 后只生成一个 deduped parent progress；先失败后复验通过保留 failed repair reference 并以 latest passed fact 驱动 rejoin；缺 formal acceptance statements 时 visible blocked 且不伪造范围；SQLite store timeout 后 session drain 释放且不保存成功验收事实。自动化回归：`pnpm exec tsx scripts/acceptance/local-console-t5.ts --case acceptance-loop-suite`、`pnpm exec vitest run tests/local-console.test.ts`、`pnpm typecheck` 均退出码 0；`pnpm exec openspec validate local-console-t5-acceptance-loop --strict` 在归档前退出码 0，归档后 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case boundary-replacement` 退出码 0。
+历史子切片证据（2026-07-10，#112，已被 2026-07-22 产品决策取代）：当时的本地验收走查 / 验收回流按 `openspec/changes/archive/2026-07-10-local-console-t5-acceptance-loop/` 实现并归档，曾写入 passed fact、驱动 parent integration progress、创建 repair 并诊断缺少 formal acceptance statements。这些记录仅说明历史实现，不再是当前产品规范或可运行验收入口；旧 SQLite 表保留为只读历史数据。
+
+当前证据（2026-07-22）：`pnpm exec tsx scripts/acceptance/local-console-t5.ts --case primary-agent-closeout` 覆盖用户直接点名 QA 后调用顺序 `qa → dev-manager`、最终可见回复由主 Agent 收尾，并确认正文中的“验收 / 通过 / 不通过”没有新增 acceptance fact 或 integration event。结构化 child 的检查点改为可选“任务检查参考”，缺失时仍可创建；GitHub strict parser 默认契约保持不变。
 
 验收证据（2026-07-10，#116）：T5 集成收尾按 `pnpm exec tsx scripts/acceptance/local-console-t5.ts --case all` 生成全量证据 `artifacts/acceptance/t5-evidence.json`，覆盖多子任务目标、CEO 兜底路由、`parent_session_id` 树、qa/product-manager 走查、父级集成回流、worktree diff 回流对等、dead-letter 降级、MUST 矩阵与 fake `gh` 零调用。MUST 矩阵以 `openspec/specs/github-issue-runner/spec.md` 当前 564 行含 `MUST`、475 行项目符号 `- MUST` 为口径，并由 `openspec/changes/local-console-t5-full-parity/proposal.md` / `tasks.md` 映射。自动化回归：`pnpm test` 退出码 0（root 35 文件 425 测试、desktop 5 文件 15 测试、console-ui 3 文件 10 测试）；`pnpm typecheck` 退出码 0；`pnpm --filter @agent-moebius/desktop build` 退出码 0；`pnpm --filter @agent-moebius/console-ui test` 退出码 0。T6 互斥 flag 与 M3 A-K 遗留卡点仍不在 T5 范围。
 
@@ -136,11 +138,11 @@ T4 已把 UI 层 `OperatorProject / OperatorSession` 双层骨架建好（`packa
 
 ### - [ ] T8 · 里程碑终点真人验收（真实 codex 全链路，硬性 gate，`成品级`）
 
-**问题**：T3–T6 的验收证据全部由 stub codex 脚本产生（`scripts/acceptance/local-console-t45/t46/t5.ts` 的 `runCodex` 均为 fixture 注入的假实现），整个 M4 唯一一次真实 codex 运行是 T2 的单条 hello。本文档「成功标准」所写的**真人从桌面台发起真实多角色目标、真实 codex 走完方案链与本地验收**从未被演练。脚本验收覆盖异常路径、符合各任务「数据正确级」档位，但按 `milestone-standards.md`，`成品级` 终点必须面向真实使用验收——**本任务是 M4 关闭的硬性 gate，未过则 T5 的完成态只视为「脚本级对等」**。
+**问题**：T3–T6 的自动化证据主要由 stub codex 脚本产生（`scripts/acceptance/local-console-t45/t46/t5.ts` 的 `runCodex` 均为 fixture 注入的假实现），整个 M4 唯一一次真实 codex 运行是 T2 的单条 hello。本文档「成功标准」所写的**真人从桌面台发起真实多角色目标、真实 codex 走完自然接力并由主 Agent 收尾**尚未演练。脚本覆盖异常路径，但 `成品级` 终点仍需面向真实使用验证。
 
-范围：真人从桌面壳发起一个真实多角色协作目标（打开真实 git 目录），真实 codex 跑完 ceo → dev-manager → dev → qa 方案链与本地验收走查，全程状态在桌面台完备可见；不修代码，只演练、留证、回流缺陷。演练中发现的缺陷按严重度决定是否 gate（阻断多角色链路 / 状态失真的必须修复后重跑；纯体验项回流 T6.5 或后续任务）。
+范围：真人从桌面壳发起一个真实多角色协作目标（打开真实 git 目录），真实 codex 由主 Agent 按上下文调度专业成员、允许成员间显式接力，并最终回到主 Agent 自由收尾；全程状态在桌面台完备可见。专业成员可以自然表达测试、通过或不通过意见，但不应触发程序化验收系统提示。
 
-验收场景（细化时保留）：(a) 不配置任何 repository、不做 `gh auth`，启动桌面壳 → 打开一个真实 git 目录 → 发一条目标形状消息 → 应看到四角色真实接力完成方案链、验收走查回流，全程零 GitHub 调用；(b) 全程关键节点截图 + 结束后 SQLite 快照落 `artifacts/acceptance/`（真实 codex 版本号入证据文件）；(c) 期间进行中 / 等待真人 / 卡住 / 错误状态在桌面台完备可见，任一状态失真记为不通过；(d) 若启用 worktree 模式 → 原目录 `git status` 全程无脏改。
+验收场景（细化时保留）：(a) 不配置任何 repository、不做 `gh auth`，启动桌面壳 → 打开一个真实 git 目录 → 发一条目标形状消息 → 应看到主 Agent 调度真实成员、成员按需接力并最终回到主 Agent 收尾，全程零 GitHub 调用；(b) 在测试成员回复中自然出现“验收 / 通过 / 不通过” → 不出现 `missing-acceptance-statements`、格式诊断或自动返工子会话；(c) 全程关键节点截图 + 结束后 SQLite 快照落 `artifacts/acceptance/`（真实 codex 版本号入证据文件）；(d) 期间进行中 / 等待真人 / 卡住 / 错误状态在桌面台完备可见，任一状态失真记为不通过；(e) 若启用 worktree 模式 → 原目录 `git status` 全程无脏改。
 
 ## 非目标
 

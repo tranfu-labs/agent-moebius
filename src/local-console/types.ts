@@ -135,6 +135,7 @@ export interface LocalConsoleSessionSummary {
   unreadSince: string | null;
   unresolvedSystemEventKind?: LocalConsoleSystemEventKind | null;
   lastMessageMentionsAgent?: boolean;
+  hasPendingControlWork?: boolean;
   runningCount: number;
   waitingCount: number;
   stuckCount: number;

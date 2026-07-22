@@ -10,7 +10,6 @@ import {
   type CeoChildIssueDescriptor,
   type CeoOrchestrationGroup,
 } from "../ceo-orchestration.js";
-import { buildRolePromptPlan } from "../conversation.js";
 import { parseAgentMentions } from "../conversation.js";
 import {
   type CodexRunOptions,
@@ -21,17 +20,6 @@ import {
 import { log } from "../log.js";
 import { parseTrailingStageMarker } from "../stages.js";
 import { resolveTrigger } from "../triggers/index.js";
-import {
-  buildLocalAcceptanceBlockedMessage,
-  buildLocalAcceptanceEvidence,
-  buildLocalAcceptancePrePassDecision,
-  buildLocalAcceptanceReminder,
-  extractLocalAcceptanceStatements,
-  extractLocalTaskId,
-  isLocalAcceptanceRole,
-  parseLocalAcceptanceWalkthrough,
-  type LocalAcceptancePrePassDecision,
-} from "./acceptance-loop.js";
 import { readLocalConsoleOutputTail } from "./output-tail.js";
 import {
   listLocalChildSessionSummaries,
@@ -40,10 +28,9 @@ import {
 import { maybeRouteLocalNoMentionMessage, type LocalRouteJudgment } from "./route-bus.js";
 import {
   createLocalChildSession,
-  listLocalT5Facts,
-  recordLocalAcceptancePrePassResult,
   recordLocalWorkspaceDiff,
 } from "./t5-store.js";
+import { buildLocalAgentPrompt } from "./prompt.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
 import { deriveSessionTitle } from "./title.js";
 import {
@@ -664,19 +651,6 @@ export class LocalConsoleRuntime {
             return;
           }
           const claimedMessage = activeMessage;
-          let acceptanceHandled = false;
-          try {
-            acceptanceHandled = await this.maybeProcessAcceptancePrePass(claimedMessage, sessionId, nextRunId);
-          } catch (error) {
-            activeMessage = null;
-            activeRunId = null;
-            throw error;
-          }
-          if (acceptanceHandled) {
-            activeMessage = null;
-            activeRunId = null;
-            continue;
-          }
           if (this.inactiveSessions.has(sessionId)) {
             return;
           }
@@ -701,13 +675,26 @@ export class LocalConsoleRuntime {
             timeline,
             availableAgentNames: agentFiles.map((agent) => agent.name),
           });
-          const trigger = explicitTrigger.kind === "skip" && claimedMessage.speaker === "user"
-            ? agentFiles[0] === undefined
-              ? explicitTrigger
-              : { kind: "run-agent" as const, role: agentFiles[0].name, reason: "mention" as const }
+          const primaryAgent = agentFiles[0]?.name ?? null;
+          const trigger = explicitTrigger.kind === "skip" && primaryAgent !== null
+            ? claimedMessage.speaker === "user" || (claimedMessage.speaker === "agent" && claimedMessage.role !== primaryAgent)
+              ? { kind: "run-agent" as const, role: primaryAgent, reason: "mention" as const }
+              : explicitTrigger
             : explicitTrigger;
 
           if (trigger.kind !== "run-agent") {
+            if (claimedMessage.speaker === "agent") {
+              await this.storeCall("local-console-store-primary-closeout-complete", () =>
+                this.options.store.recordMessageProcessed({
+                  userMessageId: claimedMessage.id,
+                  sessionId,
+                  runId: nextRunId,
+                  runDir: null,
+                  now: this.nowIso(),
+                }),
+              );
+              continue;
+            }
             let route: Awaited<ReturnType<typeof maybeRouteLocalNoMentionMessage>>;
             try {
               route = await maybeRouteLocalNoMentionMessage({
@@ -754,27 +741,13 @@ export class LocalConsoleRuntime {
           const agentMarkdown = selectedAgent.agentMarkdown
             ?? await fs.readFile(requireAgentFilePath(selectedAgent), "utf8");
           const agentManifest = parseAgentManifest(agentMarkdown);
-          const plan = buildRolePromptPlan({
+          const prompt = buildLocalAgentPrompt({
             role: trigger.role,
             agentMarkdown: agentManifest.body,
             timeline,
-            state: null,
+            primaryAgent: primaryAgent ?? trigger.role,
+            availableAgentNames: agentFiles.map((agent) => agent.name),
           });
-
-          if (plan.kind === "skip") {
-            await this.storeCall("local-console-store-skip", () =>
-              this.options.store.recordSystemAndComplete({
-                userMessageId: claimedMessage.id,
-                sessionId,
-                body: "这一步不需要启动成员，已跳过。",
-                systemEventKind: "other",
-                runId: nextRunId,
-                runDir: null,
-                now: this.nowIso(),
-              }),
-            );
-            continue;
-          }
 
           activeRunDir = this.options.makeRunDir(messages.length, this.now());
           const resolvedRunDir = path.resolve(activeRunDir);
@@ -808,7 +781,7 @@ export class LocalConsoleRuntime {
           });
 
           const result = await this.options.runCodex({
-            prompt: plan.prompt,
+            prompt,
             runDir: activeRunDir,
             cwd: workspace.cwd,
             mode: { kind: "full" },
@@ -1203,199 +1176,6 @@ export class LocalConsoleRuntime {
     await this.recordFailureOrDeadLetterBestEffort(message, sessionId, runId, result.runDir, result.reason);
   }
 
-  private async maybeProcessAcceptancePrePass(
-    message: LocalConsoleMessage,
-    sessionId: string,
-    runId: string,
-  ): Promise<boolean> {
-    if (message.speaker !== "agent" || !isLocalAcceptanceRole(message.role)) {
-      return false;
-    }
-    const role = message.role;
-
-    const context = await this.loadAcceptanceContext(sessionId);
-    const taskId = extractLocalTaskId(context.initialBody ?? "", `local-task:${sessionId}`);
-    const parseResult = parseLocalAcceptanceWalkthrough(message.body, context.acceptanceStatements);
-    const decision = buildLocalAcceptancePrePassDecision({
-      message,
-      role,
-      taskId,
-      acceptanceStatements: context.acceptanceStatements,
-      parseResult,
-    });
-    if (decision === null) {
-      return false;
-    }
-
-    const parentEvent =
-      decision.kind === "pass" && context.parentSessionId !== null
-        ? {
-            eventKey: `local-acceptance:${sessionId}:${taskId}`,
-            status: "requested" as const,
-            detail: {
-              childSessionId: sessionId,
-              taskId,
-              role,
-              messageId: message.id,
-              verdict: "passed",
-            },
-          }
-        : null;
-    const repair =
-      decision.kind === "fail"
-        ? this.buildRepairDescriptor({
-            sessionId,
-            parentSessionId: context.parentSessionId,
-            taskId,
-            role,
-            messageId: message.id,
-            statementResults: decision.statementResults,
-          })
-        : null;
-
-    try {
-      await this.storeCall("local-console-store-acceptance-prepass", () =>
-        recordLocalAcceptancePrePassResult(
-          {
-            sqlitePath: this.options.store.sqlitePath,
-            timeoutMs: this.storeTimeoutMs,
-          },
-          {
-            sessionId,
-            messageId: message.id,
-            runId,
-            taskId,
-            role,
-            verdict: decision.kind === "pass" ? "passed" : decision.kind === "fail" ? "failed" : decision.kind === "blocked" ? "blocked" : "format_error",
-            evidence: this.buildAcceptanceEvidence(message, decision),
-            visibleBody: this.buildAcceptanceVisibleBody(decision),
-            parentSessionId: context.parentSessionId,
-            parentEventKey: parentEvent?.eventKey ?? null,
-            parentEventStatus: parentEvent?.status ?? null,
-            parentEventDetail: parentEvent?.detail ?? null,
-            repairChildSessionId: repair?.childSessionId ?? null,
-            repairTitle: repair?.title ?? null,
-            repairHiddenKey: repair?.hiddenKey ?? null,
-            repairInitialBody: repair?.initialBody ?? null,
-            now: this.nowIso(),
-          },
-        ),
-      );
-      return true;
-    } catch (error) {
-      await this.releaseForRetryBestEffort(message, sessionId);
-      throw error;
-    }
-  }
-
-  private async loadAcceptanceContext(sessionId: string): Promise<{
-    parentSessionId: string | null;
-    initialBody: string | null;
-    acceptanceStatements: string[];
-  }> {
-    const messages = await this.storeCall("local-console-store-list-acceptance-context", () =>
-      this.options.store.listMessages(sessionId),
-    );
-    const initialBody =
-      messages.find((message) =>
-        (message.speaker === "user" || message.speaker === "system") &&
-        /(?:Acceptance statements|验收语句)/iu.test(message.body)
-      )?.body ?? null;
-    const facts = await this.storeCall("local-console-store-list-acceptance-edges", () =>
-      listLocalT5Facts({ sqlitePath: this.options.store.sqlitePath, timeoutMs: this.storeTimeoutMs }, sessionId),
-    );
-    const edge = (facts.sessionEdges as Array<{ parent_session_id?: unknown; child_session_id?: unknown }>).find((entry) =>
-      entry.child_session_id === sessionId,
-    );
-    return {
-      parentSessionId: typeof edge?.parent_session_id === "string" ? edge.parent_session_id : null,
-      initialBody,
-      acceptanceStatements: initialBody === null ? [] : extractLocalAcceptanceStatements(initialBody),
-    };
-  }
-
-  private buildAcceptanceVisibleBody(decision: LocalAcceptancePrePassDecision): string {
-    if (decision.kind === "blocked") {
-      return buildLocalAcceptanceBlockedMessage({ role: decision.role, reason: decision.diagnostics.join(", ") });
-    }
-    if (decision.kind === "format-error") {
-      return buildLocalAcceptanceReminder({
-        role: decision.role,
-        expectedCount: decision.acceptanceStatements.length,
-        diagnostics: decision.diagnostics,
-      });
-    }
-    const label = decision.kind === "pass" ? "通过" : "不通过";
-    return [
-      `本地验收事实已记录：${label}`,
-      `taskId: ${decision.taskId}`,
-      `role: ${decision.role}`,
-      `statementResults: ${decision.statementResults.map((result) => `${result.index}:${result.status}`).join(", ")}`,
-    ].join("\n");
-  }
-
-  private buildAcceptanceEvidence(
-    message: LocalConsoleMessage,
-    decision: LocalAcceptancePrePassDecision,
-  ): Record<string, unknown> {
-    if (decision.kind === "pass" || decision.kind === "fail") {
-      return buildLocalAcceptanceEvidence({
-        message,
-        role: decision.role,
-        taskId: decision.taskId,
-        acceptanceStatements: decision.acceptanceStatements,
-        parsed: {
-          kind: "parsed",
-          verdict: decision.kind === "pass" ? "passed" : "failed",
-          statementResults: decision.statementResults,
-          rawConclusion: decision.rawConclusion ?? (decision.kind === "pass" ? "通过" : "不通过"),
-        },
-      });
-    }
-    return {
-      role: decision.role,
-      taskId: decision.taskId,
-      messageId: message.id,
-      sourceBodyDigest: decision.bodyDigest,
-      diagnostics: decision.diagnostics,
-      acceptanceStatements: decision.acceptanceStatements,
-    };
-  }
-
-  private buildRepairDescriptor(input: {
-    sessionId: string;
-    parentSessionId: string | null;
-    taskId: string;
-    role: string;
-    messageId: number;
-    statementResults: LocalAcceptancePrePassDecision["statementResults"];
-  }): {
-    childSessionId: string;
-    title: string;
-    hiddenKey: string;
-    initialBody: string;
-  } {
-    const owner = input.parentSessionId ?? input.sessionId;
-    const digest = Buffer.from(`${owner}:${input.taskId}:${input.role}`).toString("base64url").slice(0, 16);
-    const failed = input.statementResults.filter((result) => result.status === "failed").map((result) => `${result.index}. ${result.evidence}`);
-    return {
-      childSessionId: `local:repair:${digest}`,
-      title: `Repair ${input.taskId}`,
-      hiddenKey: `local-acceptance-repair:${digest}`,
-      initialBody: [
-        `Repair handoff for ${input.taskId}`,
-        "",
-        `Source session: ${input.sessionId}`,
-        `Source message: ${input.messageId}`,
-        "Failed statements:",
-        ...(failed.length === 0 ? ["- 未提供逐条失败依据"] : failed.map((line) => `- ${line}`)),
-        "",
-        "Initial handoff:",
-        "@dev 请修复本地验收不通过项。",
-      ].join("\n"),
-    };
-  }
-
   private async recordNoTrigger(message: LocalConsoleMessage, sessionId: string, runId: string): Promise<void> {
     if (message.speaker === "agent") {
       await this.storeCall("local-console-store-no-trigger-agent", () =>
@@ -1591,6 +1371,7 @@ export class LocalConsoleRuntime {
       scripts,
       availableAgentNames: input.availableAgentNames,
       visibleTaskIds,
+      childTaskCheckPolicy: "local-optional",
     });
     if (!parsed.ok) {
       return null;
@@ -1867,7 +1648,7 @@ function renderLocalChildSessionInitialBody(input: {
   descriptor: CeoChildIssueDescriptor;
   orchestrationKey: string;
 }): string {
-  const acceptance = input.descriptor.acceptanceStatements.map((statement, index) => `${String(index + 1)}. ${statement}`).join("\n");
+  const taskChecks = input.descriptor.acceptanceStatements.map((statement, index) => `${String(index + 1)}. ${statement}`).join("\n");
   const dependencies =
     input.descriptor.dependencies.length === 0
       ? "- none"
@@ -1882,12 +1663,10 @@ Quality baseline: ${input.descriptor.qualityBaseline}
 
 Dependencies:
 ${dependencies}
-
-Acceptance statements:
-${acceptance}
+${taskChecks === "" ? "" : `\n任务检查参考:\n${taskChecks}\n`}
 
 Initial handoff:
-@${input.descriptor.initialRole} 请按本子会话的质量基准与验收语句推进。
+@${input.descriptor.initialRole} 请按任务描述、质量基准和现有上下文推进。
 
 Conflict group: ${input.group.id}
 Conflict reason: ${input.group.reason}

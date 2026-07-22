@@ -83,6 +83,41 @@ ${JSON.stringify({
     });
   });
 
+  it("keeps GitHub acceptance strict while allowing optional local task checks", () => {
+    const base = {
+      action: "spawn_child_issues",
+      workflowId: "milestone-spawn-child-issues",
+      summary: "拆解完成",
+      groups: [group],
+    };
+    const withoutChecks = { ...descriptor, acceptanceStatements: undefined };
+    const parse = (issue: unknown, childTaskCheckPolicy?: "local-optional") =>
+      parseCeoOrchestrationOutput({
+        output: `${JSON.stringify({ ...base, issues: [issue] })}\n\n<!-- agent-moebius:stage=in-progress -->`,
+        scripts,
+        availableAgentNames: ["dev"],
+        visibleTaskIds: ["task-1"],
+        childTaskCheckPolicy,
+      });
+
+    expect(parse(withoutChecks)).toMatchObject({
+      ok: false,
+      reason: "issues.0.acceptanceStatements:invalid",
+    });
+    expect(parse(withoutChecks, "local-optional")).toMatchObject({
+      ok: true,
+      value: { issues: [{ acceptanceStatements: [] }] },
+    });
+    expect(parse({ ...withoutChecks, taskChecks: ["运行单元测试"] }, "local-optional")).toMatchObject({
+      ok: true,
+      value: { issues: [{ acceptanceStatements: ["运行单元测试"] }] },
+    });
+    expect(parse({ ...descriptor, taskChecks: ["另一个检查"] }, "local-optional")).toMatchObject({
+      ok: false,
+      reason: "issues.0.task-check-fields-conflict",
+    });
+  });
+
   it("rejects invalid JSON and does not produce descriptors", () => {
     expect(
       parseCeoOrchestrationOutput({

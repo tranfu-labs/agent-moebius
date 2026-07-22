@@ -100,6 +100,7 @@ export interface OperatorSession {
   awaitsHumanReason: "answer" | "confirmation" | "acceptance" | "exception" | null;
   unreadSince: string | null;
   unresolvedSystemEventKind?: "run-not-started" | "run-stuck" | "user-stopped" | "retry-exhausted" | "other" | null;
+  hasPendingControlWork?: boolean;
   lastMessageMentionsAgent?: boolean;
   continuation?: {
     canContinue: boolean;
@@ -1498,13 +1499,13 @@ function toSidebarProject(project: OperatorProject): ConversationSidebarProject 
       id: session.sessionId,
       title: session.title,
       unreadSince: session.unreadSince,
-      isRunning: session.status === "running" || session.runningCount > 0,
+      isRunning: session.status === "running" || session.runningCount > 0 || session.hasPendingControlWork === true,
+      hasPendingControlWork: session.hasPendingControlWork ?? false,
       unresolvedSystemEventKind: session.unresolvedSystemEventKind === "run-not-started"
         || session.unresolvedSystemEventKind === "run-stuck"
         || session.unresolvedSystemEventKind === "retry-exhausted"
         ? session.unresolvedSystemEventKind
         : null,
-      lastMessageMentionsAgent: session.lastMessageMentionsAgent ?? false,
       isNonContinuable: project.directoryAvailable === false || session.continuation?.canContinue === false,
       createdAt: session.createdAt,
       summary: sessionSummary(session),

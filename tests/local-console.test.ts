@@ -14,13 +14,11 @@ import {
 } from "../src/local-console/server.js";
 import { LocalConsoleRuntime, type LocalConsoleAgentFile } from "../src/local-console/runtime.js";
 import { readLocalConsoleOutputTail } from "../src/local-console/output-tail.js";
-import { parseLocalAcceptanceWalkthrough } from "../src/local-console/acceptance-loop.js";
+import { buildLocalAgentPrompt } from "../src/local-console/prompt.js";
 import {
   createLocalChildSession,
   listLocalT5Facts,
-  recordLocalAcceptanceFact,
   recordLocalDeadLetter,
-  recordLocalIntegrationEvent,
   recordLocalRouteDecision,
 } from "../src/local-console/t5-store.js";
 import {
@@ -60,41 +58,20 @@ afterEach(() => {
 });
 
 describe("local console", () => {
-  it("parses local acceptance walkthroughs strictly", () => {
-    expect(
-      parseLocalAcceptanceWalkthrough(
-        ["1. 通过 — evidence one", "2. 不通过 — evidence two", "验收结论：不通过"].join("\n"),
-        ["a", "b"],
-      ),
-    ).toMatchObject({
-      kind: "parsed",
-      verdict: "failed",
-      statementResults: [
-        { index: 1, status: "passed", evidence: "evidence one" },
-        { index: 2, status: "failed", evidence: "evidence two" },
-      ],
+  it("builds a local-native prompt with primary-agent closeout rules", () => {
+    const prompt = buildLocalAgentPrompt({
+      role: "qa",
+      agentMarkdown: "# QA\n\n检查质量。",
+      primaryAgent: "dev-manager",
+      availableAgentNames: ["dev-manager", "dev", "qa"],
+      timeline: [{ index: 0, speaker: "user", body: "所有人依次报数", source: "comment" }],
     });
 
-    expect(
-      parseLocalAcceptanceWalkthrough(
-        ["1. 通过 — evidence one", "验收结论：通过", "@dev continue"].join("\n"),
-        ["a", "b"],
-      ),
-    ).toMatchObject({
-      kind: "unparsed",
-      attemptedAcceptance: true,
-      diagnostics: expect.arrayContaining(["statement-count-mismatch:1/2", "missing-index:2"]),
-    });
-
-    expect(
-      parseLocalAcceptanceWalkthrough(
-        ["1. 不通过 — failed", "验收结论：通过"].join("\n"),
-        ["a"],
-      ),
-    ).toMatchObject({
-      kind: "unparsed",
-      diagnostics: expect.arrayContaining(["conclusion-mismatch"]),
-    });
+    expect(prompt).toContain("本地对话 session");
+    expect(prompt).toContain("当前团队主 Agent：@dev-manager");
+    expect(prompt).toContain("“验收”“通过”“不通过”");
+    expect(prompt).not.toContain("GitHub Issue");
+    expect(prompt).not.toContain("role envelope");
   });
 
   it("stores user and agent messages in SQLite", async () => {
@@ -245,7 +222,7 @@ describe("local console", () => {
     }
   });
 
-  it("archives without consuming the handoff cursor, preserves attention state, and restores from the same position", async () => {
+  it("blocks archive while control work is pending and allows it after the handoff is processed", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
     const store = await createSqliteLocalConsoleStore({ sqlitePath });
@@ -290,9 +267,30 @@ describe("local console", () => {
       });
       expect(handoff).toMatchObject({ speaker: "agent", role: "dev", status: "displayed" });
 
+      expect((await store.listSessions()).find((session) => session.sessionId === target.sessionId)).toMatchObject({
+        hasPendingControlWork: true,
+        status: "running",
+        runningCount: 1,
+      });
       await expect(store.archiveSession!({
         sessionId: target.sessionId,
         now: "2030-01-02T00:00:05.000Z",
+      })).rejects.toMatchObject({ code: "SESSION_HAS_RUNNING_AGENT" });
+      await store.recordMessageProcessed({
+        userMessageId: handoff!.id,
+        sessionId: target.sessionId,
+        runId: "run-archive-handoff",
+        runDir: null,
+        now: "2030-01-02T00:00:06.000Z",
+      });
+      expect((await store.listSessions()).find((session) => session.sessionId === target.sessionId)).toMatchObject({
+        hasPendingControlWork: false,
+        status: "idle",
+        runningCount: 0,
+      });
+      await expect(store.archiveSession!({
+        sessionId: target.sessionId,
+        now: "2030-01-02T00:00:07.000Z",
       })).resolves.toEqual({
         sessionId: target.sessionId,
         projectId,
@@ -308,10 +306,10 @@ describe("local console", () => {
            FROM sessions s JOIN local_message_cursors c ON c.session_id = s.session_id
            WHERE s.session_id = ?`,
         ).get(target.sessionId)).toMatchObject({
-          archived_at: "2030-01-02T00:00:05.000Z",
+          archived_at: "2030-01-02T00:00:07.000Z",
           awaits_human_reason: null,
           unread_since: "2030-01-02T00:00:03.000Z",
-          processed_through_message_id: user.id,
+          processed_through_message_id: handoff!.id,
           active_message_id: null,
           active_run_id: null,
         });
@@ -322,11 +320,11 @@ describe("local console", () => {
       await expect(store.claimNextPendingMessage({
         sessionId: target.sessionId,
         runId: "run-while-archived",
-        now: "2030-01-02T00:00:06.000Z",
+        now: "2030-01-02T00:00:08.000Z",
       })).resolves.toBeNull();
       await expect(store.restoreSession!({
         sessionId: target.sessionId,
-        now: "2030-01-02T00:00:07.000Z",
+        now: "2030-01-02T00:00:09.000Z",
       })).resolves.toMatchObject({
         sessionId: target.sessionId,
         awaitsHumanReason: null,
@@ -335,8 +333,8 @@ describe("local console", () => {
       await expect(store.claimNextPendingMessage({
         sessionId: target.sessionId,
         runId: "run-restored-handoff",
-        now: "2030-01-02T00:00:08.000Z",
-      })).resolves.toMatchObject({ id: handoff!.id, speaker: "agent", role: "dev" });
+        now: "2030-01-02T00:00:10.000Z",
+      })).resolves.toBeNull();
 
       const running = await store.createSession({
         sessionId: "local:archive-running",
@@ -1025,7 +1023,7 @@ describe("local console", () => {
     }
   });
 
-  it("persists T5 child session and local fact records idempotently", async () => {
+  it("persists T5 child sessions and remaining local records idempotently", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
     const store = await createSqliteLocalConsoleStore({ sqlitePath });
@@ -1074,27 +1072,6 @@ describe("local console", () => {
           now: "2026-07-09T00:00:03.000Z",
         },
       );
-      await recordLocalAcceptanceFact(
-        { sqlitePath },
-        {
-          sessionId: "local:child",
-          taskId: "task-1",
-          role: "product-manager",
-          verdict: "passed",
-          evidence: { lines: [1, 2] },
-          now: "2026-07-09T00:00:04.000Z",
-        },
-      );
-      await recordLocalIntegrationEvent(
-        { sqlitePath },
-        {
-          sessionId: "local:parent",
-          eventKey: "integration:1",
-          status: "requested",
-          detail: { child: "local:child" },
-          now: "2026-07-09T00:00:05.000Z",
-        },
-      );
       await recordLocalDeadLetter(
         { sqlitePath },
         {
@@ -1115,237 +1092,57 @@ describe("local console", () => {
       const facts = await listLocalT5Facts({ sqlitePath });
       expect(facts.sessionEdges).toHaveLength(1);
       expect(facts.routeDecisions).toHaveLength(1);
-      expect(facts.acceptanceFacts).toHaveLength(1);
-      expect(facts.integrationEvents).toHaveLength(1);
+      expect(facts.acceptanceFacts).toHaveLength(0);
+      expect(facts.integrationEvents).toHaveLength(0);
       expect(facts.deadLetters).toHaveLength(1);
     } finally {
       await store.close();
     }
   });
 
-  it("records local acceptance pass facts and parent integration before trigger handling", async () => {
+  it("treats acceptance words as ordinary agent content and returns the turn to the primary Agent", async () => {
     const root = await makeFixtureRoot();
-    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
-    await writeAgent(root, "product-manager", "# product-manager\n\nROLE:product-manager");
-    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
-    const store = await createSqliteLocalConsoleStore({ sqlitePath });
-    await store.init();
-    await store.createSession({ sessionId: "local:parent-accept", title: "parent", now: "2026-07-10T00:00:00.000Z" });
-    await createLocalChildSession(
-      { sqlitePath },
-      {
-        parentSessionId: "local:parent-accept",
-        childSessionId: "local:child-accept",
-        projectId: LOCAL_CONSOLE_PROJECT_ID,
-        title: "child accept",
-        relation: "task",
-        hiddenKey: "accept-child-key",
-        initialRole: "dev",
-        initialBody: acceptanceChildBody(["跑 one → 应退出码 0", "跑 two → 应退出码 0"], "task-accept"),
-        now: "2026-07-10T00:00:01.000Z",
-      },
-    );
-    await appendDisplayedAgent(store, "local:child-accept", "product-manager", [
-      "1. 通过 — one ok",
-      "2. 通过 — two ok",
-      "验收结论：通过",
-      "@dev should-not-run",
-    ].join("\n"), 2);
-    await store.close();
-
-    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected"));
+    await writeAgent(root, "dev-manager", "# dev-manager\n\nROLE:dev-manager");
+    await writeAgent(root, "qa", "# qa\n\nROLE:qa");
+    const calls: string[] = [];
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      const role = roleFromPrompt(options.prompt);
+      calls.push(role);
+      return codexOk(
+        options,
+        role === "qa"
+          ? "验收结论：通过。未发现阻塞问题。"
+          : "报数与检查已经完成，还有什么指示？",
+      );
+    });
     const started = await startLocalConsoleServer({
       projectRoot: root,
-      sqlitePath,
       port: 0,
-      runCodex,
-      makeRunDir: (count) => path.join(root, "runs", `accept-${String(count)}`),
-      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
-    });
-    try {
-      await started.runtime.processPending("local:child-accept");
-      const facts = await listLocalT5Facts({ sqlitePath }, "local:child-accept");
-      const parentFacts = await listLocalT5Facts({ sqlitePath }, "local:parent-accept");
-      expect(facts.acceptanceFacts).toHaveLength(1);
-      expect(facts.acceptanceFacts[0]).toMatchObject({ verdict: "passed", task_id: "task-accept", role: "product-manager" });
-      expect(parentFacts.integrationEvents).toHaveLength(1);
-      expect(runCodex).not.toHaveBeenCalled();
-      const state = await getState(started.url, "local:child-accept");
-      expect(state.messages).toEqual(expect.arrayContaining([
-        expect.objectContaining({ speaker: "system", body: expect.stringContaining("本地验收事实已记录：通过") }),
-      ]));
-    } finally {
-      await started.close();
-    }
-  });
-
-  it("keeps failed acceptance history and routes latest repair recheck", async () => {
-    const root = await makeFixtureRoot();
-    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
-    await writeAgent(root, "product-manager", "# product-manager\n\nROLE:product-manager");
-    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
-    const store = await createSqliteLocalConsoleStore({ sqlitePath });
-    await store.init();
-    await store.createSession({ sessionId: "local:parent-recheck", title: "parent", now: "2026-07-10T00:00:00.000Z" });
-    await createLocalChildSession(
-      { sqlitePath },
-      {
-        parentSessionId: "local:parent-recheck",
-        childSessionId: "local:child-recheck",
-        projectId: LOCAL_CONSOLE_PROJECT_ID,
-        title: "child recheck",
-        relation: "task",
-        hiddenKey: "recheck-child-key",
-        initialRole: "dev",
-        initialBody: acceptanceChildBody(["跑 one → 应退出码 0"], "task-recheck"),
-        now: "2026-07-10T00:00:01.000Z",
-      },
-    );
-    const source = await appendDisplayedAgent(store, "local:child-recheck", "product-manager", [
-      "1. 不通过 — one failed",
-      "验收结论：不通过",
-    ].join("\n"), 2);
-    await store.close();
-
-    const firstStore = await createSqliteLocalConsoleStore({ sqlitePath });
-    const firstRuntime = new LocalConsoleRuntime({
-      store: firstStore,
       listAgentFiles: async () => [
-        { name: "dev", path: path.join(root, "agents", "dev.md") },
-        { name: "product-manager", path: path.join(root, "agents", "product-manager.md") },
+        { name: "dev-manager", path: path.join(root, "agents", "dev-manager.md") },
+        { name: "qa", path: path.join(root, "agents", "qa.md") },
       ],
-      projectRoot: root,
-      workdirRoot: path.join(root, "workdir"),
-      runCodex: vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected")),
-      makeRunDir: (count) => path.join(root, "runs", `recheck-${String(count)}`),
-      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
-    });
-    await firstRuntime.init();
-    try {
-      await firstRuntime.processPending("local:child-recheck");
-      let facts = await listLocalT5Facts({ sqlitePath }, "local:child-recheck");
-      let parentFacts = await listLocalT5Facts({ sqlitePath }, "local:parent-recheck");
-      expect(facts.acceptanceFacts).toHaveLength(1);
-      expect(facts.acceptanceFacts[0]).toMatchObject({ verdict: "failed", superseded_at: null });
-      expect(parentFacts.sessionEdges).toEqual(expect.arrayContaining([expect.objectContaining({ relation: "repair" })]));
-    } finally {
-      await firstRuntime.close();
-    }
-
-    const store2 = await createSqliteLocalConsoleStore({ sqlitePath });
-    await store2.init();
-    await appendDisplayedAgent(store2, "local:child-recheck", "product-manager", [
-      "1. 通过 — repair verified",
-      "验收结论：通过",
-    ].join("\n"), source.id + 10);
-    await store2.close();
-
-    const restarted = await startLocalConsoleServer({
-      projectRoot: root,
-      sqlitePath,
-      port: 0,
-      runCodex: vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected")),
-      makeRunDir: (count) => path.join(root, "runs", `recheck-pass-${String(count)}`),
-      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
-    });
-    try {
-      await restarted.runtime.processPending("local:child-recheck");
-      const facts = await listLocalT5Facts({ sqlitePath }, "local:child-recheck");
-      const parentFacts = await listLocalT5Facts({ sqlitePath }, "local:parent-recheck");
-      expect(facts.acceptanceFacts).toHaveLength(2);
-      expect(facts.acceptanceFacts).toEqual(expect.arrayContaining([
-        expect.objectContaining({ verdict: "failed", superseded_at: expect.any(String) }),
-        expect.objectContaining({ verdict: "passed", superseded_at: null }),
-      ]));
-      expect(parentFacts.integrationEvents).toEqual(expect.arrayContaining([
-        expect.objectContaining({ status: "requested" }),
-      ]));
-    } finally {
-      await restarted.close();
-    }
-  });
-
-  it("diagnoses malformed acceptance without consuming same-message handoff", async () => {
-    const root = await makeFixtureRoot();
-    await writeAgent(root, "dev", "# dev\n\nROLE:dev");
-    await writeAgent(root, "qa", "# qa\n\nROLE:qa");
-    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
-    const store = await createSqliteLocalConsoleStore({ sqlitePath });
-    await store.init();
-    await store.createSession({ sessionId: "local:parent-format", title: "parent", now: "2026-07-10T00:00:00.000Z" });
-    await createLocalChildSession(
-      { sqlitePath },
-      {
-        parentSessionId: "local:parent-format",
-        childSessionId: "local:child-format",
-        projectId: LOCAL_CONSOLE_PROJECT_ID,
-        title: "child format",
-        relation: "task",
-        hiddenKey: "format-child-key",
-        initialRole: "dev",
-        initialBody: acceptanceChildBody(["跑 one → 应退出码 0", "跑 two → 应退出码 0"], "task-format"),
-        now: "2026-07-10T00:00:01.000Z",
-      },
-    );
-    await appendDisplayedAgent(store, "local:child-format", "qa", [
-      "1. 通过 — one ok",
-      "验收结论：通过",
-      "@dev should-not-run",
-    ].join("\n"), 2);
-    await store.close();
-
-    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected"));
-    const started = await startLocalConsoleServer({
-      projectRoot: root,
-      sqlitePath,
-      port: 0,
       runCodex,
-      makeRunDir: (count) => path.join(root, "runs", `format-${String(count)}`),
+      makeRunDir: (count) => path.join(root, "runs", `ordinary-acceptance-${String(count)}`),
       storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
     });
     try {
-      await started.runtime.processPending("local:child-format");
-      const facts = await listLocalT5Facts({ sqlitePath }, "local:child-format");
-      expect(facts.acceptanceFacts).toHaveLength(0);
-      expect(runCodex).not.toHaveBeenCalled();
-      const state = await getState(started.url, "local:child-format");
-      expect(state.messages).toEqual(expect.arrayContaining([
-        expect.objectContaining({ speaker: "system", body: expect.stringContaining("本地验收走查格式无法解析") }),
+      const session = await createSession(started.url, "ordinary acceptance words");
+      await postSessionMessage(started.url, session.sessionId, "@qa 请报数，并说明通过或不通过");
+      const state = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.filter((entry) => entry.speaker === "agent").length === 2,
+      );
+      expect(calls).toEqual(["qa", "dev-manager"]);
+      expect(state.messages.filter((entry) => entry.speaker === "agent").map((entry) => entry.role)).toEqual([
+        "qa",
+        "dev-manager",
+      ]);
+      expect(state.messages.filter((entry) => entry.speaker === "system")).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ body: expect.stringContaining("formal acceptance statements") }),
       ]));
-    } finally {
-      await started.close();
-    }
-  });
-
-  it("blocks acceptance when formal statements are missing", async () => {
-    const root = await makeFixtureRoot();
-    await writeAgent(root, "qa", "# qa\n\nROLE:qa");
-    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
-    const store = await createSqliteLocalConsoleStore({ sqlitePath });
-    await store.init();
-    await store.createSession({ sessionId: "local:no-projection", title: "no projection", now: "2026-07-10T00:00:00.000Z" });
-    await appendDisplayedAgent(store, "local:no-projection", "qa", [
-      "1. 通过 — ok",
-      "验收结论：通过",
-    ].join("\n"), 1);
-    await store.close();
-
-    const started = await startLocalConsoleServer({
-      projectRoot: root,
-      sqlitePath,
-      port: 0,
-      runCodex: vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, "unexpected")),
-      makeRunDir: (count) => path.join(root, "runs", `blocked-${String(count)}`),
-      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
-    });
-    try {
-      await started.runtime.processPending("local:no-projection");
-      const facts = await listLocalT5Facts({ sqlitePath }, "local:no-projection");
+      const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, session.sessionId);
       expect(facts.acceptanceFacts).toHaveLength(0);
-      const state = await getState(started.url, "local:no-projection");
-      expect(state.messages).toEqual(expect.arrayContaining([
-        expect.objectContaining({ speaker: "system", body: expect.stringContaining("未找到 formal acceptance statements") }),
-      ]));
+      expect(facts.integrationEvents).toHaveLength(0);
     } finally {
       await started.close();
     }
@@ -1458,7 +1255,7 @@ describe("local console", () => {
           description: "Implement task A",
           initialRole: "dev",
           qualityBaseline: "production",
-          acceptanceStatements: ["跑 A → 应通过"],
+          taskChecks: ["跑 A → 应通过"],
           dependencies: [],
           provenance: "local test",
         },
@@ -1469,7 +1266,6 @@ describe("local console", () => {
           description: "Implement task B",
           initialRole: "dev",
           qualityBaseline: "production",
-          acceptanceStatements: ["跑 B → 应通过"],
           dependencies: ["task-a"],
           provenance: "local test",
         },
@@ -1504,6 +1300,13 @@ describe("local console", () => {
         expect.objectContaining({ title: "Task A", memberName: "开发" }),
         expect.objectContaining({ title: "Task B", memberName: "开发" }),
       ]));
+      const taskA = childSessions.find((session) => session.title === "Task A")!;
+      const taskB = childSessions.find((session) => session.title === "Task B")!;
+      const taskAState = await getState(started.url, taskA.sessionId);
+      const taskBState = await getState(started.url, taskB.sessionId);
+      expect(taskAState.messages[0]?.body).toContain("任务检查参考:\n1. 跑 A → 应通过");
+      expect(taskBState.messages[0]?.body).not.toContain("任务检查参考:");
+      expect(taskAState.messages[0]?.body).not.toContain("Acceptance statements:");
       const facts = await listLocalT5Facts({ sqlitePath: started.sqlitePath }, parent.sessionId);
       expect(facts.sessionEdges).toHaveLength(2);
 
@@ -1720,11 +1523,15 @@ describe("local console", () => {
       await writeAgent(root, role, `# ${role}\n\nROLE:${role}`);
     }
     const calls: Array<{ role: string; at: number }> = [];
+    let primaryCallCount = 0;
     const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
       const role = roleFromPrompt(options.prompt);
       calls.push({ role, at: Date.now() });
+      if (role === "ceo") {
+        primaryCallCount += 1;
+        return codexOk(options, primaryCallCount === 1 ? "@dev-manager please review" : "Team handoff complete");
+      }
       const next: Record<string, string> = {
-        ceo: "@dev-manager please review",
         "dev-manager": "@dev please implement",
         dev: "@qa please test",
         qa: "QA done",
@@ -1742,15 +1549,16 @@ describe("local console", () => {
       const session = await createSession(started.url, "handoff");
       await postSessionMessage(started.url, session.sessionId, "@ceo 我想做 X");
       const state = await waitForState(started.url, session.sessionId, (data) =>
-        data.messages.filter((entry) => entry.speaker === "agent").length === 4,
+        data.messages.filter((entry) => entry.speaker === "agent").length === 5,
       );
       expect(state.messages.filter((entry) => entry.speaker === "agent").map((entry) => entry.role)).toEqual([
         "ceo",
         "dev-manager",
         "dev",
         "qa",
+        "ceo",
       ]);
-      expect(calls.map((entry) => entry.role)).toEqual(["ceo", "dev-manager", "dev", "qa"]);
+      expect(calls.map((entry) => entry.role)).toEqual(["ceo", "dev-manager", "dev", "qa", "ceo"]);
       for (let index = 1; index < calls.length; index += 1) {
         expect(calls[index]!.at - calls[index - 1]!.at).toBeLessThan(1_000);
       }
@@ -1759,7 +1567,7 @@ describe("local console", () => {
     }
   }, 10_000);
 
-  it("stops an already-claimed handoff drain on archive and resumes that handoff only after restore", async () => {
+  it("rejects archive while a claimed handoff is resolving, then archives after it completes", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "qa", "# QA\n\nROLE:qa");
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
@@ -1810,23 +1618,19 @@ describe("local console", () => {
         new URL(`/api/local-console/sessions/${encodeURIComponent(LOCAL_CONSOLE_DEFAULT_SESSION_ID)}/archive`, started.url),
         { method: "POST" },
       );
-      expect(archive.status).toBe(200);
+      expect(archive.status).toBe(409);
       releaseAgentList.resolve([{ name: "qa", path: path.join(root, "agents", "qa.md") }]);
-      await waitFor(() => !(started.runtime as unknown as { processingSessions: Set<string> }).processingSessions.has(
-        LOCAL_CONSOLE_DEFAULT_SESSION_ID,
-      ));
-      expect(runCodex).not.toHaveBeenCalled();
-
-      const restore = await fetch(
-        new URL(`/api/local-console/sessions/${encodeURIComponent(LOCAL_CONSOLE_DEFAULT_SESSION_ID)}/restore`, started.url),
-        { method: "POST" },
-      );
-      expect(restore.status).toBe(200);
       const state = await waitForState(started.url, LOCAL_CONSOLE_DEFAULT_SESSION_ID, (data) =>
-        data.messages.some((message) => message.speaker === "agent" && message.role === "qa" && message.body === "QA resumed"),
+        data.messages.some((message) => message.speaker === "agent" && message.role === "qa" && message.body === "QA resumed") &&
+        data.selectedSession?.hasPendingControlWork === false,
       );
       expect(runCodex).toHaveBeenCalledTimes(1);
       expect(state.messages.filter((message) => message.speaker === "agent").map((message) => message.role)).toEqual(["dev", "qa"]);
+      const archiveAfterCompletion = await fetch(
+        new URL(`/api/local-console/sessions/${encodeURIComponent(LOCAL_CONSOLE_DEFAULT_SESSION_ID)}/archive`, started.url),
+        { method: "POST" },
+      );
+      expect(archiveAfterCompletion.status).toBe(200);
     } finally {
       await started.close();
     }
@@ -2641,82 +2445,6 @@ async function writeCeoScript(root: string, id: string, action: string): Promise
   );
 }
 
-async function appendDisplayedAgent(
-  store: LocalConsoleStore,
-  sessionId: string,
-  role: string,
-  body: string,
-  offsetSeconds: number,
-): Promise<LocalConsoleMessage> {
-  const existingMessages = await store.listMessages(sessionId);
-  const hasPendingInitialHandoff = existingMessages.some(
-    (message) => message.speaker === "user" && message.status === "pending" && message.body.includes("Acceptance statements:"),
-  );
-  if (hasPendingInitialHandoff) {
-    const initial = await store.claimNextPendingMessage({
-      sessionId,
-      runId: `run-initial-${String(offsetSeconds)}`,
-      now: localTestNow(offsetSeconds),
-    });
-    expect(initial).not.toBeNull();
-    await store.recordSystemAndComplete({
-      userMessageId: initial!.id,
-      sessionId,
-      body: "Initial handoff completed in fixture",
-      runId: `run-initial-${String(offsetSeconds)}`,
-      runDir: `/tmp/run-initial-${String(offsetSeconds)}`,
-      now: localTestNow(offsetSeconds + 1),
-    });
-  }
-  const user = await store.appendUserMessage({
-    sessionId,
-    body: `@${role} 请验收`,
-    now: localTestNow(offsetSeconds + 2),
-  });
-  let claimed: LocalConsoleMessage | null = null;
-  const claimDeadline = Date.now() + 5_000;
-  while (claimed === null && Date.now() < claimDeadline) {
-    claimed = await store.claimNextPendingMessage({
-      sessionId,
-      runId: `run-${String(offsetSeconds)}`,
-      now: localTestNow(offsetSeconds + 3),
-    });
-    if (claimed === null) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-  }
-  expect(claimed?.id).toBe(user.id);
-  await store.recordAgentResponse({
-    userMessageId: user.id,
-    sessionId,
-    role,
-    body,
-    runId: `run-${String(offsetSeconds)}`,
-    runDir: `/tmp/run-${String(offsetSeconds)}`,
-    now: localTestNow(offsetSeconds + 4),
-  });
-  const messages = await store.listMessages(sessionId);
-  const agent = messages.find((message) => message.speaker === "agent" && message.role === role && message.body === body);
-  expect(agent).toBeDefined();
-  return agent!;
-}
-
-function acceptanceChildBody(statements: string[], taskId: string): string {
-  return [
-    `Ledger task id: ${taskId}`,
-    "",
-    "Acceptance statements:",
-    ...statements.map((statement, index) => `${index + 1}. ${statement}`),
-    "",
-    "Initial handoff:",
-    "@dev 请实现。",
-  ].join("\n");
-}
-
-function localTestNow(offsetSeconds: number): string {
-  return new Date(Date.UTC(2026, 6, 10, 0, 0, offsetSeconds)).toISOString();
-}
-
 function message(input: { id: number; body: string; speaker?: "user" | "agent" | "system"; role?: string | null }): LocalConsoleMessage {
   return {
     id: input.id,
@@ -2822,7 +2550,7 @@ async function waitForState(
   sessionId: string,
   predicate: (snapshot: LocalStateResponse) => boolean,
 ): Promise<LocalStateResponse> {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 10_000;
   let latest: LocalStateResponse | null = null;
   while (Date.now() < deadline) {
     try {

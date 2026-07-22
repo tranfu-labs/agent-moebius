@@ -35,15 +35,15 @@ describe("built-in team seed", () => {
       canCreateConversation: true,
       definition: {
         name: "开发团队",
-        description: "负责软件方案、实现、审查和最终验收",
+        description: "负责软件方案、实现、测试、复核和主理收尾",
         primaryAgentSlug: "dev-manager",
         memberOrder: ["dev-manager", "dev", "qa"],
       },
     });
     expect(snapshot.members.map(({ slug, displayName, description }) => ({ slug, displayName, description }))).toEqual([
-      { slug: "dev-manager", displayName: "开发经理", description: "负责技术决策、架构选型与质量保证。" },
+      { slug: "dev-manager", displayName: "开发经理", description: "负责技术决策、团队调度与会话收尾。" },
       { slug: "dev", displayName: "开发", description: "负责方案落地、代码实现与验证。" },
-      { slug: "qa", displayName: "软件测试", description: "负责测试设计、对抗性审查与验收。" },
+      { slug: "qa", displayName: "软件测试", description: "负责测试执行、风险复核与质量意见。" },
     ]);
 
     const packageJson = JSON.parse(await fs.readFile(path.join(repositoryRoot, "desktop", "package.json"), "utf8")) as {

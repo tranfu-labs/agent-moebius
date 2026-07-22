@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600">
+  <style>
+    text { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+    .title { font-size: 22px; font-weight: 600; fill: #111827; }
+    .label { font-size: 14px; font-weight: 600; fill: #111827; }
+    .sub { font-size: 12px; fill: #6b7280; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#2563eb"/></marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#ea580c"/></marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#16a34a"/></marker>
+  </defs>
+  <rect width="960" height="600" fill="#ffffff"/>
+  <text x="48" y="48" class="title">改造后：显式接力优先，最终控制权回主 Agent</text>
+
+  <rect x="48" y="116" width="180" height="76" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="138" y="146" text-anchor="middle" class="label">最新时间线消息</text>
+  <text x="138" y="168" text-anchor="middle" class="sub">user 或 agent</text>
+
+  <polygon points="382,94 488,154 382,214 276,154" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="382" y="149" text-anchor="middle" class="label">有合法 @mention？</text>
+  <text x="382" y="170" text-anchor="middle" class="sub">只判断显式结构</text>
+
+  <rect x="580" y="82" width="252" height="76" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="706" y="112" text-anchor="middle" class="label">运行被 mention 的成员</text>
+  <text x="706" y="134" text-anchor="middle" class="sub">成员间自由接力，不插入主 Agent</text>
+
+  <polygon points="382,282 488,342 382,402 276,342" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+  <text x="382" y="337" text-anchor="middle" class="label">消息来自主 Agent？</text>
+  <text x="382" y="358" text-anchor="middle" class="sub">团队快照首成员</text>
+
+  <rect x="580" y="276" width="252" height="76" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+  <text x="706" y="306" text-anchor="middle" class="label">本轮自然结束</text>
+  <text x="706" y="328" text-anchor="middle" class="sub">主 Agent 已给出可见收尾</text>
+
+  <rect x="276" y="466" width="212" height="76" rx="8" fill="#faf5ff" stroke="#e9d5ff" stroke-width="1.5"/>
+  <text x="382" y="496" text-anchor="middle" class="label">运行主 Agent</text>
+  <text x="382" y="518" text-anchor="middle" class="sub">读取完整时间线后自由决策</text>
+
+  <rect x="580" y="466" width="252" height="76" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="706" y="496" text-anchor="middle" class="label">专业文字保持普通内容</text>
+  <text x="706" y="518" text-anchor="middle" class="sub">验收 / 通过 / 不通过不触发状态</text>
+
+  <path d="M228 154 L276 154" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M488 132 L536 132 L536 120 L580 120" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <rect x="500" y="103" width="34" height="20" rx="4" fill="#ffffff" opacity="0.95"/><text x="517" y="117" text-anchor="middle" class="sub">是</text>
+  <path d="M382 214 L382 282" fill="none" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+  <rect x="392" y="238" width="34" height="20" rx="4" fill="#ffffff" opacity="0.95"/><text x="409" y="252" text-anchor="middle" class="sub">否</text>
+  <path d="M488 320 L536 320 L536 314 L580 314" fill="none" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <rect x="500" y="291" width="34" height="20" rx="4" fill="#ffffff" opacity="0.95"/><text x="517" y="305" text-anchor="middle" class="sub">是</text>
+  <path d="M382 402 L382 466" fill="none" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+  <rect x="392" y="422" width="34" height="20" rx="4" fill="#ffffff" opacity="0.95"/><text x="409" y="436" text-anchor="middle" class="sub">否</text>
+  <path d="M488 504 L580 504" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow-green)"/>
+
+  <g transform="translate(48,566)">
+    <line x1="0" y1="8" x2="30" y2="8" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/><text x="40" y="12" class="sub">显式接力</text>
+    <line x1="150" y1="8" x2="180" y2="8" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/><text x="190" y="12" class="sub">结构回交</text>
+    <line x1="300" y1="8" x2="330" y2="8" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/><text x="340" y="12" class="sub">收尾 / 普通内容</text>
+  </g>
+</svg>

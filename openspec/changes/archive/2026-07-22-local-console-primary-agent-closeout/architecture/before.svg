@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600">
+  <style>
+    text { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+    .title { font-size: 22px; font-weight: 600; fill: #111827; }
+    .label { font-size: 14px; font-weight: 600; fill: #111827; }
+    .sub { font-size: 12px; fill: #6b7280; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#2563eb"/></marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#dc2626"/></marker>
+    <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#6b7280"/></marker>
+  </defs>
+  <rect width="960" height="600" fill="#ffffff"/>
+  <text x="48" y="48" class="title">现状：验收 pre-pass 抢在普通交棒之前</text>
+
+  <rect x="48" y="104" width="180" height="76" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="138" y="136" text-anchor="middle" class="label">Agent 回复</text>
+  <text x="138" y="158" text-anchor="middle" class="sub">qa / product-manager / hermes</text>
+
+  <rect x="300" y="104" width="220" height="76" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+  <text x="410" y="134" text-anchor="middle" class="label">Acceptance pre-pass</text>
+  <text x="410" y="156" text-anchor="middle" class="sub">正文含 验收 / 通过 / 不通过</text>
+
+  <rect x="596" y="64" width="252" height="92" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+  <text x="722" y="96" text-anchor="middle" class="label">验收副作用</text>
+  <text x="722" y="118" text-anchor="middle" class="sub">fact / repair / parent progress</text>
+  <text x="722" y="138" text-anchor="middle" class="sub">或 missing-acceptance-statements</text>
+
+  <rect x="596" y="216" width="252" height="76" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="722" y="246" text-anchor="middle" class="label">普通 mention trigger</text>
+  <text x="722" y="268" text-anchor="middle" class="sub">只有 pre-pass 未处理才到达</text>
+
+  <rect x="300" y="360" width="220" height="76" rx="8" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="410" y="390" text-anchor="middle" class="label">Agent 无 mention</text>
+  <text x="410" y="412" text-anchor="middle" class="sub">只推进 cursor，接力结束</text>
+
+  <rect x="596" y="360" width="252" height="76" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="722" y="390" text-anchor="middle" class="label">控制权悬空</text>
+  <text x="722" y="412" text-anchor="middle" class="sub">不保证回到团队主 Agent</text>
+
+  <path d="M228 142 L300 142" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M520 126 L596 110" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrow-red)"/>
+  <rect x="534" y="101" width="58" height="20" rx="4" fill="#ffffff" opacity="0.95"/>
+  <text x="563" y="115" text-anchor="middle" class="sub">命中</text>
+  <path d="M520 158 L558 158 L558 254 L596 254" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <rect x="526" y="187" width="64" height="20" rx="4" fill="#ffffff" opacity="0.95"/>
+  <text x="558" y="201" text-anchor="middle" class="sub">未处理</text>
+  <path d="M138 180 L138 398 L300 398" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow-gray)"/>
+  <path d="M520 398 L596 398" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow-gray)"/>
+
+  <g transform="translate(48,530)">
+    <line x1="0" y1="8" x2="30" y2="8" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/><text x="40" y="12" class="sub">正常消息流</text>
+    <line x1="166" y1="8" x2="196" y2="8" stroke="#dc2626" stroke-width="2" marker-end="url(#arrow-red)"/><text x="206" y="12" class="sub">语义副作用</text>
+    <line x1="340" y1="8" x2="370" y2="8" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow-gray)"/><text x="380" y="12" class="sub">无 mention 结束</text>
+  </g>
+</svg>

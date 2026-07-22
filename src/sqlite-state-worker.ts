@@ -200,16 +200,10 @@ function runCommand(input: WorkerInput): unknown {
         return recordStuck(database, input.command);
       case "local-record-route-decision":
         return recordLocalRouteDecision(database, input.command);
-      case "local-record-acceptance-fact":
-        return recordLocalAcceptanceFact(database, input.command);
-      case "local-record-integration-event":
-        return recordLocalIntegrationEvent(database, input.command);
       case "local-record-dead-letter":
         return recordLocalDeadLetter(database, input.command);
       case "local-record-workspace-diff":
         return recordLocalWorkspaceDiff(database, input.command);
-      case "local-record-acceptance-prepass-result":
-        return recordLocalAcceptancePrePassResult(database, input.command);
       case "local-list-t5-facts":
         return listLocalT5Facts(database, input.command.sessionId);
       case "local-mark-stale-running":
@@ -1141,22 +1135,19 @@ function removeLocalProject(
     if (!isRecord(project)) {
       throw new Error(`local console project not found: ${input.projectId}`);
     }
-    const running = database
-      .prepare(
-        `SELECT 1 AS found
-         FROM session_messages m
-         JOIN sessions s ON s.session_id = m.session_id
-         WHERE s.project_id = ? AND s.archived_at IS NULL AND m.status = 'running'
-         LIMIT 1`,
-      )
-      .get(input.projectId);
-    if (running !== undefined && !input.force) {
-      throw new Error("PROJECT_HAS_RUNNING_AGENTS");
-    }
-    const sessionRows = database
+    const activeSessionRows = database
       .prepare("SELECT session_id FROM sessions WHERE project_id = ? AND source_type = 'local' AND archived_at IS NULL")
       .all(input.projectId);
-    const archivedSessionIds = sessionRows.map((row) => {
+    const hasPendingControlWorkInProject = activeSessionRows.some((row) => {
+      if (!isRecord(row)) {
+        throw new Error("Invalid local console session row");
+      }
+      return hasPendingLocalControlWork(database, readString(row.session_id, "session_id"));
+    });
+    if (hasPendingControlWorkInProject && !input.force) {
+      throw new Error("PROJECT_HAS_RUNNING_AGENTS");
+    }
+    const archivedSessionIds = activeSessionRows.map((row) => {
       if (!isRecord(row)) {
         throw new Error("Invalid local console session row");
       }
@@ -1489,10 +1480,7 @@ function archiveLocalSession(
     if (row.archived_at !== null) {
       throw new Error(`local console session already archived: ${input.sessionId}`);
     }
-    const running = database
-      .prepare("SELECT 1 AS found FROM session_messages WHERE session_id = ? AND status = 'running' LIMIT 1")
-      .get(input.sessionId);
-    if (running !== undefined) {
+    if (hasPendingLocalControlWork(database, input.sessionId)) {
       throw new Error("SESSION_HAS_RUNNING_AGENT");
     }
 
@@ -1771,6 +1759,42 @@ function hasRunningMessage(database: SqliteDatabase, sessionId: string): boolean
       .prepare("SELECT id FROM session_messages WHERE session_id = ? AND status = 'running' ORDER BY id ASC LIMIT 1")
       .get(sessionId) !== undefined
   );
+}
+
+function hasPendingLocalControlWork(database: SqliteDatabase, sessionId: string): boolean {
+  if (hasRunningMessage(database, sessionId)) {
+    return true;
+  }
+  const cursor = database
+    .prepare(
+      `SELECT processed_through_message_id, active_message_id
+       FROM local_message_cursors
+       WHERE session_id = ?`,
+    )
+    .get(sessionId);
+  if (!isRecord(cursor)) {
+    return false;
+  }
+  if (cursor.active_message_id !== null) {
+    return true;
+  }
+  const processedThroughMessageId = readNumber(
+    cursor.processed_through_message_id,
+    "processed_through_message_id",
+  );
+  return database
+    .prepare(
+      `SELECT 1 AS found
+       FROM session_messages
+       WHERE session_id = ?
+         AND id > ?
+         AND (
+           (speaker = 'user' AND status IN ('pending', 'running'))
+           OR (speaker = 'agent' AND status = 'displayed')
+         )
+       LIMIT 1`,
+    )
+    .get(sessionId, processedThroughMessageId) !== undefined;
 }
 
 function hasSessionMessage(database: SqliteDatabase, sessionId: string): boolean {
@@ -2183,164 +2207,6 @@ function insertLocalRouteDecision(
     .run(input.sessionId, input.messageId, input.routeKey, input.outcome, input.targetRole, input.reason, input.now);
 }
 
-function recordLocalAcceptanceFact(
-  database: SqliteDatabase,
-  input: Extract<SqliteStateCommand, { kind: "local-record-acceptance-fact" }>,
-): null {
-  return transaction(database, () => {
-    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
-    supersedeLocalAcceptanceFacts(database, input.sessionId, input.taskId, input.role, input.now);
-    database
-      .prepare(
-        `INSERT INTO local_acceptance_facts
-          (session_id, task_id, role, verdict, evidence_json, source_message_id, superseded_at, created_at)
-         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)`,
-      )
-      .run(input.sessionId, input.taskId, input.role, input.verdict, input.evidenceJson, input.now);
-    return null;
-  });
-}
-
-function recordLocalAcceptancePrePassResult(
-  database: SqliteDatabase,
-  input: Extract<SqliteStateCommand, { kind: "local-record-acceptance-prepass-result" }>,
-): null {
-  return transaction(database, () => {
-    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
-    ensureLocalCursor(database, input.sessionId, input.now);
-    const source = requireLocalMessage(database, input.messageId, input.sessionId);
-    if (source.speaker !== "agent") {
-      throw new Error(`local acceptance pre-pass requires agent message: ${String(input.messageId)}`);
-    }
-
-    if (input.verdict === "passed" || input.verdict === "failed") {
-      supersedeLocalAcceptanceFacts(database, input.sessionId, input.taskId, input.role, input.now);
-      database
-        .prepare(
-          `INSERT INTO local_acceptance_facts
-            (session_id, task_id, role, verdict, evidence_json, source_message_id, superseded_at, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
-        )
-        .run(input.sessionId, input.taskId, input.role, input.verdict, input.evidenceJson, input.messageId, input.now);
-    }
-
-    insertSystemMessage(database, input.sessionId, input.visibleBody, input.runId, null, null, input.now, "displayed", "other");
-
-    if (input.parentSessionId !== null) {
-      ensureSession(database, input.parentSessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
-    }
-
-    if (input.parentSessionId !== null && input.parentEventKey !== null && input.parentEventStatus !== null) {
-      const detailJson = input.parentEventDetailJson ?? "{}";
-      database
-        .prepare(
-          `INSERT INTO local_integration_events
-            (session_id, event_key, status, detail_json, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(session_id, event_key)
-           DO UPDATE SET status = excluded.status, detail_json = excluded.detail_json, updated_at = excluded.updated_at`,
-        )
-        .run(input.parentSessionId, input.parentEventKey, input.parentEventStatus, detailJson, input.now, input.now);
-      insertSystemMessage(
-        database,
-        input.parentSessionId,
-        input.parentEventStatus === "completed"
-          ? "子任务验收通过，整体进度已更新。"
-          : "子任务验收结果已更新，请查看对话中的验收说明。",
-        input.runId,
-        null,
-        null,
-        input.now,
-        "displayed",
-        "other",
-      );
-    }
-
-    if (
-      input.repairChildSessionId !== null &&
-      input.repairTitle !== null &&
-      input.repairHiddenKey !== null &&
-      input.repairInitialBody !== null
-    ) {
-      const parentSessionId = input.parentSessionId ?? input.sessionId;
-      const existing = database
-        .prepare("SELECT child_session_id FROM session_edges WHERE parent_session_id = ? AND hidden_key = ? LIMIT 1")
-        .get(parentSessionId, input.repairHiddenKey);
-      if (!isRecord(existing)) {
-        ensureSession(database, input.repairChildSessionId, input.now, input.repairTitle, LOCAL_CONSOLE_PROJECT_ID);
-        database
-          .prepare("UPDATE sessions SET parent_session_id = ?, title = COALESCE(title, ?), updated_at = ? WHERE session_id = ?")
-          .run(parentSessionId, input.repairTitle, input.now, input.repairChildSessionId);
-        database
-          .prepare(
-            `INSERT INTO session_edges (parent_session_id, child_session_id, relation, hidden_key, created_at)
-             VALUES (?, ?, 'repair', ?, ?)
-             ON CONFLICT(parent_session_id, child_session_id, relation)
-             DO UPDATE SET hidden_key = COALESCE(session_edges.hidden_key, excluded.hidden_key)`,
-          )
-          .run(parentSessionId, input.repairChildSessionId, input.repairHiddenKey, input.now);
-        database
-          .prepare(
-            `INSERT INTO session_messages
-              (session_id, speaker, role, body, status, run_id, run_dir, error, system_event_kind, source_kind, source_id, created_at, updated_at)
-             VALUES (?, 'system', 'dev', ?, 'displayed', NULL, NULL, NULL, 'other', 'local-acceptance-repair', ?, ?, ?)`,
-          )
-          .run(input.repairChildSessionId, input.repairInitialBody, input.repairHiddenKey, input.now, input.now);
-        ensureLocalCursor(database, input.repairChildSessionId, input.now);
-      }
-      insertSystemMessage(
-        database,
-        parentSessionId,
-        `团队已创建修复任务：${input.repairTitle}。`,
-        input.runId,
-        null,
-        null,
-        input.now,
-        "displayed",
-        "other",
-      );
-    }
-
-    completeSourceMessage(database, source, "completed", null, input.runId, null, input.now);
-    return null;
-  });
-}
-
-function supersedeLocalAcceptanceFacts(
-  database: SqliteDatabase,
-  sessionId: string,
-  taskId: string,
-  role: string,
-  now: string,
-): void {
-  database
-    .prepare(
-      `UPDATE local_acceptance_facts
-       SET superseded_at = ?
-       WHERE session_id = ? AND task_id = ? AND role = ? AND superseded_at IS NULL`,
-    )
-    .run(now, sessionId, taskId, role);
-}
-
-function recordLocalIntegrationEvent(
-  database: SqliteDatabase,
-  input: Extract<SqliteStateCommand, { kind: "local-record-integration-event" }>,
-): null {
-  return transaction(database, () => {
-    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
-    database
-      .prepare(
-        `INSERT INTO local_integration_events
-          (session_id, event_key, status, detail_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(session_id, event_key)
-         DO UPDATE SET status = excluded.status, detail_json = excluded.detail_json, updated_at = excluded.updated_at`,
-      )
-      .run(input.sessionId, input.eventKey, input.status, input.detailJson, input.now, input.now);
-    return null;
-  });
-}
-
 function recordLocalDeadLetter(
   database: SqliteDatabase,
   input: Extract<SqliteStateCommand, { kind: "local-record-dead-letter" }>,
@@ -2722,6 +2588,11 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
   }
   const sessionId = readString(row.session_id, "session_id");
   const counts = readSessionCounts(database, sessionId);
+  const hasPendingControlWork = hasPendingLocalControlWork(database, sessionId);
+  const effectiveCounts = {
+    ...counts,
+    running: hasPendingControlWork ? Math.max(1, counts.running) : counts.running,
+  };
   const awaitsHumanReason = null;
   counts.waiting = 0;
   const unresolvedSystemEventKind = readUnresolvedSystemEventKind(database, sessionId);
@@ -2740,12 +2611,13 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
     workspaceMode: readLocalWorkspaceMode(row.workspace_mode, "workspace_mode"),
     workspacePendingMode: null,
     title: readNullableString(row.title, "title") ?? fallbackSessionTitle(sessionId),
-    status: sessionStatusFromCounts(counts),
+    status: sessionStatusFromCounts(effectiveCounts),
     awaitsHumanReason,
     unreadSince: readNullableString(row.unread_since, "unread_since"),
     unresolvedSystemEventKind,
     lastMessageMentionsAgent,
-    runningCount: counts.running,
+    hasPendingControlWork,
+    runningCount: effectiveCounts.running,
     waitingCount: counts.waiting,
     stuckCount: counts.stuck,
     errorCount: counts.failed,
