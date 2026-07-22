@@ -2001,6 +2001,7 @@ describe("local console", () => {
       expect(state.activeRun).toMatchObject({
         sessionId: session.sessionId,
         status: "running",
+        liveMarkdown: null,
         lastOutputSummary: "正在运行，等待输出",
         interruptible: true,
       });
@@ -2012,6 +2013,67 @@ describe("local console", () => {
       await waitForState(started.url, session.sessionId, (data) =>
         data.messages.some((entry) => entry.status === "interrupted"),
       );
+    } finally {
+      await started.close();
+    }
+  });
+
+  it("replaces live Markdown in one active run and persists only the final agent message", async () => {
+    const root = await makeFixtureRoot();
+    await writeAgent(root, "dev", "# Dev");
+    const captured: {
+      options?: CodexRunOptions;
+      finish?: (result: CodexRunResult) => void;
+    } = {};
+    const runCodex = vi.fn((options: CodexRunOptions) => {
+      captured.options = options;
+      options.onVisibleAgentMarkdown?.("## 第一段\n\n正在检查。");
+      return new Promise<CodexRunResult>((resolve) => {
+        captured.finish = resolve;
+      });
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const session = await createSession(started.url, "live Markdown");
+      await postSessionMessage(started.url, session.sessionId, "@dev 展示进度");
+      const first = await waitForState(started.url, session.sessionId, (data) =>
+        data.activeRun?.liveMarkdown === "## 第一段\n\n正在检查。",
+      );
+      const runId = first.activeRun?.runId;
+      expect(first.messages).toHaveLength(1);
+
+      captured.options?.onVisibleAgentMarkdown?.("## 第二段\n\n检查完成。");
+      const second = await waitForState(started.url, session.sessionId, (data) =>
+        data.activeRun?.liveMarkdown === "## 第二段\n\n检查完成。",
+      );
+      expect(second.activeRun?.runId).toBe(runId);
+      expect(second.messages).toHaveLength(1);
+
+      const options = captured.options;
+      const finishRun = captured.finish;
+      if (options === undefined || finishRun === undefined) {
+        throw new Error("Codex run was not captured");
+      }
+      finishRun({
+        ok: true,
+        finalText: "## 最终结果\n\n只落库一次。",
+        threadId: "thread-live",
+        cachedInputTokens: null,
+        runDir: options.runDir,
+        stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+        stderrPath: path.join(options.runDir, "stderr.log"),
+      });
+      const completed = await waitForState(started.url, session.sessionId, (data) =>
+        data.activeRun === null && data.messages.some((entry) => entry.speaker === "agent"),
+      );
+      expect(completed.messages.map((entry) => entry.speaker)).toEqual(["user", "agent"]);
+      expect(completed.messages[1]?.body).toBe("## 最终结果\n\n只落库一次。");
     } finally {
       await started.close();
     }
@@ -2636,6 +2698,7 @@ interface LocalRunSnapshotResponse {
   cwd: string | null;
   workspaceMode: "direct" | "worktree" | null;
   worktreeUnavailableReason: string | null;
+  liveMarkdown: string | null;
   lastOutputSummary: string;
   interruptible: boolean;
 }

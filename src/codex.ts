@@ -18,6 +18,7 @@ export interface CodexRunOptions {
   interruptKillDelayMs?: number;
   idleTimeoutMs?: number;
   maxDurationMs?: number;
+  onVisibleAgentMarkdown?: (text: string) => void;
 }
 
 export type CodexWatchdogKind = "idle" | "max-duration";
@@ -100,6 +101,94 @@ export type CodexRunResult =
 
 const INTERRUPT_TERMINATION_DELAY_MS = 5_000;
 const INTERRUPT_KILL_DELAY_MS = 5_000;
+export const CODEX_JSONL_MAX_LINE_BYTES = 1024 * 1024;
+
+export interface CodexJsonlFramer {
+  push(chunk: Buffer | string): unknown[];
+  finish(): unknown[];
+}
+
+export function createCodexJsonlFramer(options: {
+  maxLineBytes?: number;
+  onDiagnostic?: (message: string) => void;
+} = {}): CodexJsonlFramer {
+  const maxLineBytes = options.maxLineBytes ?? CODEX_JSONL_MAX_LINE_BYTES;
+  let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  let droppingOverlongLine = false;
+
+  const parseLine = (line: Buffer): unknown[] => {
+    const withoutCarriageReturn = line.at(-1) === 0x0d ? line.subarray(0, -1) : line;
+    if (withoutCarriageReturn.length === 0) {
+      return [];
+    }
+    if (withoutCarriageReturn.length > maxLineBytes) {
+      options.onDiagnostic?.(`codex-jsonl-line-too-large:${withoutCarriageReturn.length}`);
+      return [];
+    }
+    const parsed = parseJsonLine(withoutCarriageReturn.toString("utf8"));
+    if (parsed === null) {
+      options.onDiagnostic?.("codex-jsonl-malformed-line");
+      return [];
+    }
+    return [parsed];
+  };
+
+  const push = (chunk: Buffer | string): unknown[] => {
+    let incoming = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8");
+    const events: unknown[] = [];
+
+    if (droppingOverlongLine) {
+      const newlineIndex = incoming.indexOf(0x0a);
+      if (newlineIndex < 0) {
+        return events;
+      }
+      droppingOverlongLine = false;
+      incoming = incoming.subarray(newlineIndex + 1);
+    }
+
+    let buffered = pending.length === 0 ? incoming : Buffer.concat([pending, incoming]);
+    pending = Buffer.alloc(0);
+    while (buffered.length > 0) {
+      const newlineIndex = buffered.indexOf(0x0a);
+      if (newlineIndex < 0) {
+        if (buffered.length > maxLineBytes) {
+          options.onDiagnostic?.(`codex-jsonl-line-too-large:${buffered.length}+`);
+          droppingOverlongLine = true;
+        } else {
+          pending = buffered;
+        }
+        break;
+      }
+      events.push(...parseLine(buffered.subarray(0, newlineIndex)));
+      buffered = buffered.subarray(newlineIndex + 1);
+    }
+    return events;
+  };
+
+  return {
+    push,
+    finish() {
+      if (droppingOverlongLine || pending.length === 0) {
+        pending = Buffer.alloc(0);
+        droppingOverlongLine = false;
+        return [];
+      }
+      options.onDiagnostic?.(`codex-jsonl-trailing-partial-line:${pending.length}`);
+      pending = Buffer.alloc(0);
+      return [];
+    },
+  };
+}
+
+export function extractVisibleAgentMarkdown(event: unknown): string | null {
+  if (!isRecord(event) || event.type !== "item.completed" || !isRecord(event.item)) {
+    return null;
+  }
+  if (event.item.type !== "agent_message" || typeof event.item.text !== "string") {
+    return null;
+  }
+  return event.item.text.trim().length > 0 ? event.item.text : null;
+}
 
 export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   const { prompt, runDir, mode = { kind: "full" }, cwd, signal, imagePaths = [], idleTimeoutMs, maxDurationMs } = options;
@@ -118,6 +207,11 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
 
   const stdoutFile = createWriteStream(stdoutPath, { flags: "a" });
   const stderrFile = createWriteStream(stderrPath, { flags: "a" });
+  const streamFramer = createCodexJsonlFramer({
+    onDiagnostic: (message) => {
+      stderrFile.write(`[agent-moebius] ${message}\n`);
+    },
+  });
 
   const child = spawn("codex", buildCodexArgs(prompt, mode, imagePaths), {
     cwd,
@@ -190,7 +284,21 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   const recordStdoutActivity = () => {
     watchdogs.recordActivity();
   };
+  const handleVisibleStdout = (chunk: Buffer) => {
+    for (const event of streamFramer.push(chunk)) {
+      const markdown = extractVisibleAgentMarkdown(event);
+      if (markdown === null || options.onVisibleAgentMarkdown === undefined) {
+        continue;
+      }
+      try {
+        options.onVisibleAgentMarkdown(markdown);
+      } catch (error) {
+        stderrFile.write(`[agent-moebius] codex-visible-markdown-callback-failed:${formatUnknownError(error)}\n`);
+      }
+    }
+  };
   child.stdout.on("data", recordStdoutActivity);
+  child.stdout.on("data", handleVisibleStdout);
 
   child.stdout.pipe(stdoutFile, { end: false });
   child.stderr.pipe(stderrFile, { end: false });
@@ -199,6 +307,18 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
 
   watchdogs.clear();
   child.stdout.removeListener("data", recordStdoutActivity);
+  child.stdout.removeListener("data", handleVisibleStdout);
+  for (const event of streamFramer.finish()) {
+    const markdown = extractVisibleAgentMarkdown(event);
+    if (markdown === null || options.onVisibleAgentMarkdown === undefined) {
+      continue;
+    }
+    try {
+      options.onVisibleAgentMarkdown(markdown);
+    } catch (error) {
+      stderrFile.write(`[agent-moebius] codex-visible-markdown-callback-failed:${formatUnknownError(error)}\n`);
+    }
+  }
   signal?.removeEventListener("abort", handleAbort);
   if (terminationTimer !== null) {
     clearTimeout(terminationTimer);
@@ -286,6 +406,10 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
     stdoutPath,
     stderrPath,
   };
+}
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function extractFinalAssistant(lines: string[]): string | null {
@@ -379,6 +503,10 @@ function parseJsonLine(line: string): unknown | null {
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isAssistantEvent(value: unknown): boolean {

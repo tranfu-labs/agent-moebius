@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   app,
   BrowserWindow,
@@ -63,6 +63,11 @@ import {
   recordSuccessfulConversationAgentTeam,
 } from "./team-conversation-preference.js";
 import { decideUpdate, type ReleaseMetadata } from "./updater.js";
+import {
+  installExternalNavigationGuards,
+  OPEN_EXTERNAL_LINK_IPC_CHANNEL,
+  openValidatedExternalLink,
+} from "./external-link.js";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(dirname, "..", "..");
@@ -165,6 +170,7 @@ async function boot(): Promise<void> {
 }
 
 function createWindow(): void {
+  const consolePagePath = path.join(dirname, "console-page", "index.html");
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 760,
@@ -183,7 +189,8 @@ function createWindow(): void {
     mainWindow = null;
   });
   mainWindow.webContents.on("did-finish-load", publishStatus);
-  void mainWindow.loadFile(path.join(dirname, "console-page", "index.html"));
+  installExternalNavigationGuards(mainWindow.webContents, pathToFileURL(consolePagePath).href);
+  void mainWindow.loadFile(consolePagePath);
 }
 
 async function startObserver(): Promise<void> {
@@ -319,6 +326,9 @@ ipcMain.handle("action:open-status-page", async () => {
 });
 
 ipcMain.handle("local-console:get-url", async () => status.localConsole.url ?? null);
+
+ipcMain.handle(OPEN_EXTERNAL_LINK_IPC_CHANNEL, async (_event, url: unknown) =>
+  openValidatedExternalLink(url, shell));
 
 ipcMain.handle(TEAM_IPC_CHANNELS.list, async () => listAgentTeams({
   dataRoot: status.dataRoot,

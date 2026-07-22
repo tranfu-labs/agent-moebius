@@ -38,6 +38,7 @@ import {
   type LastUsedAgentTeam,
   type SuccessfulConversationAgentTeamRequest,
 } from "./team-conversation-preference.js";
+import { OPEN_EXTERNAL_LINK_IPC_CHANNEL } from "./external-link.js";
 
 export interface AgentMoebiusDesktopApi {
   onStatus(listener: (snapshot: DesktopStatusSnapshot) => void): () => void;
@@ -73,6 +74,7 @@ export interface AgentMoebiusDesktopApi {
   recordSuccessfulConversationAgentTeam(
     request: SuccessfulConversationAgentTeamRequest,
   ): Promise<LastUsedAgentTeam>;
+  openExternalLink(url: string): Promise<void>;
 }
 
 const api: AgentMoebiusDesktopApi = {
@@ -174,6 +176,9 @@ const api: AgentMoebiusDesktopApi = {
       TEAM_CONVERSATION_PREFERENCE_IPC_CHANNELS.recordSuccessful,
       request,
     ) as Promise<LastUsedAgentTeam>;
+  },
+  openExternalLink(url) {
+    return ipcRenderer.invoke(OPEN_EXTERNAL_LINK_IPC_CHANNEL, url) as Promise<void>;
   },
 };
 

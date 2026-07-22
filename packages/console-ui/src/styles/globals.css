@@ -1,4 +1,6 @@
 @import "./tokens.css";
+@import "streamdown/styles.css";
+@import "katex/dist/katex.min.css";
 
 /* 自托管 Inter Variable（latin 子集，含 cv01/ss03，wght 100-900，OFL 1.1） */
 @font-face {
@@ -59,5 +61,37 @@
   .scroll-thin {
     scrollbar-width: thin;
     scrollbar-color: var(--line-strong) transparent;
+  }
+}
+
+@layer components {
+  .markdown-message {
+    overflow-wrap: anywhere;
+  }
+
+  .markdown-message [data-streamdown="heading-1"] {
+    @apply mb-2 mt-4 text-xl font-semibold;
+  }
+
+  .markdown-message [data-streamdown="heading-2"] {
+    @apply mb-2 mt-4 text-lg font-semibold;
+  }
+
+  .markdown-message [data-streamdown="heading-3"] {
+    @apply mb-2 mt-3 text-base font-semibold;
+  }
+
+  .markdown-message [data-streamdown="blockquote"] {
+    @apply my-3 border-line-strong text-sub;
+  }
+
+  .markdown-message [data-streamdown="table-wrapper"],
+  .markdown-message [data-streamdown="code-block"],
+  .markdown-message [data-streamdown="mermaid-block"] {
+    @apply max-w-full overflow-x-auto;
+  }
+
+  .markdown-message [data-streamdown="image"] {
+    @apply h-auto max-w-full;
   }
 }

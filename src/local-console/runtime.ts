@@ -110,6 +110,7 @@ interface ActiveLocalRun {
   branchName: string | null;
   baseRef: string | null;
   originalRepoRoot: string | null;
+  liveMarkdown: string | null;
   startedAt: string;
   controller: AbortController;
 }
@@ -776,6 +777,7 @@ export class LocalConsoleRuntime {
             branchName: workspace.branchName,
             baseRef: workspace.baseRef,
             originalRepoRoot: workspace.originalRepoRoot,
+            liveMarkdown: null,
             startedAt: this.nowIso(),
             controller,
           });
@@ -788,6 +790,12 @@ export class LocalConsoleRuntime {
             signal: controller.signal,
             ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
             ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
+            onVisibleAgentMarkdown: (text) => {
+              const active = this.activeRuns.get(sessionId);
+              if (active?.runId === nextRunId) {
+                active.liveMarkdown = text;
+              }
+            },
           });
 
           if (!result.ok) {
@@ -1238,6 +1246,7 @@ export class LocalConsoleRuntime {
       baseRef: active.baseRef,
       stdoutTail: tail.stdoutTail,
       stderrTail: tail.stderrTail,
+      liveMarkdown: active.liveMarkdown,
       lastOutputSummary: tail.lastOutputSummary,
       tailDiagnostic: tail.tailDiagnostic,
       interruptible: true,

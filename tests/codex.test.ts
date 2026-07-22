@@ -5,9 +5,11 @@ import path from "node:path";
 import {
   buildCodexArgs,
   codexTimeoutKind,
+  createCodexJsonlFramer,
   createRunWatchdogs,
   extractCodexOutput,
   extractFinalAssistant,
+  extractVisibleAgentMarkdown,
   isInterruptedCodexRunResult,
   run,
 } from "../src/codex.js";
@@ -219,6 +221,102 @@ setInterval(() => {}, 1000);
       if (!result.ok) {
         expect(result.reason).toBe("interrupted:codex-run-timeout:20ms");
       }
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+});
+
+describe("Codex visible Markdown stream", () => {
+  it("frames split JSONL chunks and skips malformed or unknown events", () => {
+    const diagnostics: string[] = [];
+    const framer = createCodexJsonlFramer({ onDiagnostic: (message) => diagnostics.push(message) });
+
+    expect(framer.push('{"type":"item.comp')).toEqual([]);
+    const events = framer.push('leted","item":{"type":"agent_message","text":"第一段"}}\nnot-json\n{"type":"turn.started"}\n');
+
+    expect(events.map(extractVisibleAgentMarkdown)).toEqual(["第一段", null]);
+    expect(diagnostics).toContain("codex-jsonl-malformed-line");
+    expect(framer.finish()).toEqual([]);
+  });
+
+  it("drops an overlong line and resumes at the next newline", () => {
+    const diagnostics: string[] = [];
+    const framer = createCodexJsonlFramer({
+      maxLineBytes: 32,
+      onDiagnostic: (message) => diagnostics.push(message),
+    });
+
+    expect(framer.push("x".repeat(40))).toEqual([]);
+    const events = framer.push('\n{"type":"item.completed"}\n');
+
+    expect(events).toEqual([{ type: "item.completed" }]);
+    expect(diagnostics).toEqual(["codex-jsonl-line-too-large:40+"]);
+  });
+
+  it("drops a trailing JSON fragment that never closes with a newline", () => {
+    const diagnostics: string[] = [];
+    const framer = createCodexJsonlFramer({ onDiagnostic: (message) => diagnostics.push(message) });
+
+    expect(framer.push('{"type":"item.completed","item":{"type":"agent_message"')).toEqual([]);
+    expect(framer.finish()).toEqual([]);
+    expect(diagnostics).toEqual(["codex-jsonl-trailing-partial-line:55"]);
+  });
+
+  it("only accepts completed agent_message items as visible Markdown", () => {
+    const events = [
+      { type: "thread.started", thread_id: "thread" },
+      { type: "item.completed", item: { type: "reasoning", text: "hidden" } },
+      { type: "item.completed", item: { type: "command_execution", text: "pnpm test" } },
+      { type: "item.started", item: { type: "agent_message", text: "partial" } },
+      { type: "item.completed", item: { type: "agent_message", text: "  " } },
+      { type: "item.completed", item: { type: "agent_message", text: "## 可见进度" } },
+    ];
+
+    expect(events.map(extractVisibleAgentMarkdown)).toEqual([null, null, null, null, null, "## 可见进度"]);
+  });
+
+  it("delivers complete visible segments without making callback failures fatal", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const binDir = path.join(tempDir, "bin");
+    const runDir = path.join(tempDir, "run");
+    await fs.mkdir(binDir);
+    const codexPath = path.join(binDir, "codex");
+    await fs.writeFile(
+      codexPath,
+      `#!/usr/bin/env node
+const events = [
+  { type: "thread.started", thread_id: "thread-live" },
+  { type: "item.completed", item: { type: "agent_message", text: "第一段" } },
+  { type: "item.completed", item: { type: "command_execution", text: "noise" } },
+  { type: "item.completed", item: { type: "agent_message", text: "最终段" } }
+];
+for (const event of events) process.stdout.write(JSON.stringify(event) + "\\n");
+`,
+      "utf8",
+    );
+    await fs.chmod(codexPath, 0o755);
+
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    const visible: string[] = [];
+    try {
+      const result = await run({
+        prompt: "hello",
+        runDir,
+        onVisibleAgentMarkdown(text) {
+          visible.push(text);
+          if (text === "第一段") {
+            throw new Error("consumer unavailable");
+          }
+        },
+      });
+
+      expect(result).toMatchObject({ ok: true, finalText: "最终段", threadId: "thread-live" });
+      expect(visible).toEqual(["第一段", "最终段"]);
+      expect(await fs.readFile(path.join(runDir, "stderr.log"), "utf8")).toContain(
+        "codex-visible-markdown-callback-failed:consumer unavailable",
+      );
     } finally {
       process.env.PATH = previousPath;
     }

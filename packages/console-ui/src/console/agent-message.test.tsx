@@ -22,14 +22,17 @@ describe("AgentMessage", () => {
 
     expect(screen.getByText("开发")).toBeVisible();
     expect(screen.getByText("方案已写好")).toBeVisible();
-    expect(screen.getByText("已补齐运行块人话化展示。")).toBeVisible();
+    const conclusions = screen.getAllByText("已补齐运行块人话化展示。");
+    expect(conclusions).toHaveLength(2);
+    expect(conclusions[0]).toBeVisible();
+    expect(conclusions[1]).not.toBeVisible();
     expect(screen.getByText("交给「测试」请审查方案")).toBeVisible();
 
-    const rawMarker = screen.getByText(/agent-moebius:stage=plan-written/u);
-    expect(rawMarker).not.toBeVisible();
+    const rawHeading = screen.getByText("结论");
+    expect(rawHeading).not.toBeVisible();
 
     fireEvent.click(screen.getByLabelText("展开开发原文"));
-    expect(rawMarker).toBeVisible();
+    expect(rawHeading).toBeVisible();
     expect(screen.getByText(/交棒：@qa 请审查方案/u)).toBeVisible();
   });
 
@@ -51,7 +54,7 @@ describe("AgentMessage", () => {
     expect(screen.queryByText("方案已写好")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("展开测试原文"));
-    expect(screen.getByText(/已补齐运行块人话化展示/u)).toBeVisible();
+    expect(screen.getAllByText(/已补齐运行块人话化展示/u).some((item) => item.closest("p") !== null)).toBe(true);
   });
 
   it("uses neutral fallbacks for incomplete Markdown", () => {
@@ -68,13 +71,13 @@ describe("AgentMessage", () => {
 
     const summary = screen.getByLabelText("展开开发原文");
     expect(summary).not.toBeNull();
-    const rawMarker = screen.getByText(/agent-moebius:stage=plan-written/u);
+    const rawHeading = screen.getByText("结论");
 
     fireEvent.keyDown(summary!, { key: "Enter" });
-    expect(rawMarker).toBeVisible();
+    expect(rawHeading).toBeVisible();
 
     fireEvent.keyDown(summary!, { key: " " });
-    expect(rawMarker).not.toBeVisible();
+    expect(rawHeading).not.toBeVisible();
   });
 
   it("parses conclusion, stage, and humanized handoff deterministically", () => {

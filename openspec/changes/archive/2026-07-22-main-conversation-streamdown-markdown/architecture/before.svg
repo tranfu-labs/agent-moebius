@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680">
+  <style>
+    text { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; fill: #111827; }
+    .title { font-size: 22px; font-weight: 600; }
+    .subtitle { font-size: 13px; fill: #6b7280; }
+    .label { font-size: 15px; font-weight: 600; }
+    .detail { font-size: 12px; fill: #6b7280; }
+    .box { fill: #ffffff; stroke: #d1d5db; stroke-width: 1.5; rx: 8; }
+    .blue { fill: #eff6ff; stroke: #bfdbfe; stroke-width: 1.5; rx: 8; }
+    .orange { fill: #fff7ed; stroke: #fed7aa; stroke-width: 1.5; rx: 8; }
+    .green { fill: #f0fdf4; stroke: #bbf7d0; stroke-width: 1.5; rx: 8; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="680" fill="#ffffff"/>
+  <text x="40" y="44" class="title">现状：运行摘要与历史正文都是纯文本</text>
+  <text x="40" y="68" class="subtitle">架构基线：docs/architecture/local-console-operator.svg</text>
+
+  <rect x="40" y="120" width="180" height="88" class="blue"/>
+  <text x="60" y="153" class="label">Codex CLI</text>
+  <text x="60" y="178" class="detail">--json 结构化事件</text>
+  <text x="60" y="196" class="detail">stdout chunk</text>
+
+  <rect x="280" y="120" width="190" height="88" class="box"/>
+  <text x="300" y="153" class="label">stdout.jsonl</text>
+  <text x="300" y="178" class="detail">完整落盘</text>
+  <text x="300" y="196" class="detail">含消息、工具与诊断</text>
+
+  <rect x="530" y="104" width="220" height="120" class="orange"/>
+  <text x="550" y="139" class="label">有界 tail reader</text>
+  <text x="550" y="164" class="detail">最近 64KB</text>
+  <text x="550" y="182" class="detail">递归找最后一段文本</text>
+  <text x="550" y="200" class="detail">折叠为 160 字 summary</text>
+
+  <rect x="810" y="104" width="220" height="120" class="box"/>
+  <text x="830" y="139" class="label">activeRun snapshot</text>
+  <text x="830" y="164" class="detail">lastOutputSummary</text>
+  <text x="830" y="182" class="detail">stdout/stderr tail</text>
+  <text x="830" y="200" class="detail">renderer 每秒轮询</text>
+
+  <rect x="810" y="292" width="220" height="104" class="orange"/>
+  <text x="830" y="327" class="label">RunBlock</text>
+  <text x="830" y="352" class="detail">一行纯文本摘要</text>
+  <text x="830" y="370" class="detail">Markdown 不渲染</text>
+
+  <rect x="280" y="452" width="190" height="104" class="green"/>
+  <text x="300" y="487" class="label">finalText extractor</text>
+  <text x="300" y="512" class="detail">run 结束后读取文件</text>
+  <text x="300" y="530" class="detail">只取最终 Agent 文本</text>
+
+  <rect x="530" y="452" width="220" height="104" class="box"/>
+  <text x="550" y="487" class="label">SQLite messages</text>
+  <text x="550" y="512" class="detail">一条最终 Agent message</text>
+  <text x="550" y="530" class="detail">用户正文同样落库</text>
+
+  <rect x="810" y="452" width="220" height="104" class="orange"/>
+  <text x="830" y="487" class="label">TimelineEntry</text>
+  <text x="830" y="512" class="detail">whitespace-pre-wrap</text>
+  <text x="830" y="530" class="detail">用户 / Agent 都是纯文本</text>
+
+  <line x1="220" y1="164" x2="280" y2="164" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <line x1="470" y1="164" x2="530" y2="164" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <line x1="750" y1="164" x2="810" y2="164" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <line x1="920" y1="224" x2="920" y2="292" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+
+  <path d="M375 208 L375 452" fill="none" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <line x1="470" y1="504" x2="530" y2="504" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <line x1="750" y1="504" x2="810" y2="504" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  <rect x="236" y="145" width="28" height="22" fill="#ffffff" opacity="0.95"/>
+  <text x="250" y="160" text-anchor="middle" class="detail">事件</text>
+  <rect x="762" y="145" width="38" height="22" fill="#ffffff" opacity="0.95"/>
+  <text x="781" y="160" text-anchor="middle" class="detail">摘要</text>
+  <rect x="386" y="319" width="42" height="22" fill="#ffffff" opacity="0.95"/>
+  <text x="407" y="334" text-anchor="middle" class="detail">完成</text>
+
+  <line x1="42" y1="624" x2="78" y2="624" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="88" y="628" class="detail">活动输出路径</text>
+  <line x1="232" y1="624" x2="268" y2="624" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="278" y="628" class="detail">最终消息路径</text>
+  <text x="720" y="628" class="subtitle">问题：可见 Markdown 被压成摘要；历史正文不解析</text>
+</svg>

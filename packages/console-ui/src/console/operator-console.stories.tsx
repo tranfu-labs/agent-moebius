@@ -133,6 +133,7 @@ const sample: OperatorConsoleProps = {
     worktreeUnavailableReason: null,
     stdoutTail: "stdout tail with raw detail",
     stderrTail: null,
+    liveMarkdown: "## 正在整合\n\n- 保留一个活动节点\n- 原地更新 Markdown",
     lastOutputSummary: "正在整合复合组件",
     tailDiagnostic: null,
     interruptible: true,

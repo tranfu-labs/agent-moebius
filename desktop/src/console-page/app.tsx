@@ -139,6 +139,7 @@ interface DesktopApi {
   recordSuccessfulConversationAgentTeam?: (
     request: SuccessfulConversationAgentTeamRequest,
   ) => Promise<LastUsedAgentTeam>;
+  openExternalLink?: (url: string) => Promise<void>;
 }
 
 interface DesktopStatusSnapshot {
@@ -1447,6 +1448,13 @@ function App(): JSX.Element {
       onArchiveSession={actions.archiveSession}
       onInterrupt={interrupt}
       onOpenDiagnostics={openDiagnostics}
+      onOpenExternalLink={window.agentMoebius?.openExternalLink === undefined
+        ? undefined
+        : (url) => {
+          void window.agentMoebius?.openExternalLink?.(url).catch((error: unknown) => {
+            setClientError(error instanceof Error ? error.message : String(error));
+          });
+        }}
       onRetryProjectList={() => {
         setClientError(null);
         void refresh(selectionRef.current);

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { RunBlock, type RunBlockStep } from "./run-block";
@@ -57,7 +57,7 @@ describe("RunBlock", () => {
     expect(screen.getByText("正在整理测试设计")).toBeVisible();
     expect(screen.getByRole("button", { name: "停下测试当前这一步" })).toBeVisible();
     expect(screen.queryByText("idle-timeout raw detail")).not.toBeInTheDocument();
-    expect(screen.getByTestId("run-live-output")).toHaveClass("max-w-full", "overflow-x-auto", "whitespace-pre");
+    expect(screen.getByTestId("run-live-output")).toHaveClass("max-w-full", "overflow-x-auto");
   });
 
   it("uses deterministic fallbacks when steps, summary, and elapsed time are missing or blank", () => {
@@ -86,5 +86,20 @@ describe("RunBlock", () => {
 
     expect(screen.queryByText(specialRaw)).not.toBeInTheDocument();
     expect(screen.queryByText("查看原始输出")).not.toBeInTheDocument();
+  });
+
+  it("replaces live Markdown inside the same run node", async () => {
+    const { rerender } = render(
+      <RunBlock role="dev" liveMarkdown={"## 第一段\n\n正在检查。"} onInterrupt={vi.fn()} />,
+    );
+    const liveNode = screen.getByTestId("run-live-output");
+    expect(screen.getByRole("heading", { name: "第一段" })).toBeInTheDocument();
+
+    rerender(<RunBlock role="dev" liveMarkdown={"## 第二段\n\n检查完成。"} onInterrupt={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "第二段" })).toBeInTheDocument());
+    expect(screen.getByTestId("run-live-output")).toBe(liveNode);
+    expect(screen.queryByRole("heading", { name: "第一段" })).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("run-live-output")).toHaveLength(1);
   });
 });

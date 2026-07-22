@@ -2,7 +2,14 @@ import type { Config } from "tailwindcss";
 
 const config = {
   darkMode: ["class"],
-  content: ["./src/**/*.{ts,tsx}", "./.storybook/**/*.{ts,tsx}"],
+  content: [
+    "./src/**/*.{ts,tsx}",
+    "./.storybook/**/*.{ts,tsx}",
+    "./node_modules/streamdown/dist/**/*.js",
+    "./node_modules/@streamdown/{code,cjk,math,mermaid}/dist/**/*.js",
+    "../../node_modules/.pnpm/streamdown@*/node_modules/streamdown/dist/**/*.js",
+    "../../node_modules/.pnpm/@streamdown+{code,cjk,math,mermaid}@*/node_modules/@streamdown/*/dist/**/*.js",
+  ],
   theme: {
     extend: {
       colors: {
@@ -34,7 +41,8 @@ const config = {
         border: "var(--border)",
         muted: "var(--muted)",
         "muted-foreground": "var(--muted-foreground)",
-        ring: "var(--ring)"
+        ring: "var(--ring)",
+        sidebar: "var(--card)"
       },
       borderRadius: {
         lg: "var(--radius)",

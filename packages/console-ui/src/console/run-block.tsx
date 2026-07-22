@@ -4,6 +4,7 @@ import type { KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
 import { sanitizeMachineText } from "@/console/machine-text";
+import { MarkdownMessage } from "@/console/markdown-message";
 
 export type RunBlockStepStatus = "completed" | "running" | "pending";
 
@@ -21,6 +22,8 @@ export interface RunBlockProps {
   summary?: string | null;
   rawOutput?: string | null;
   steps?: RunBlockStep[] | null;
+  liveMarkdown?: string | null;
+  onOpenExternalLink?: (url: string) => void;
   onInterrupt(): void;
   className?: string;
 }
@@ -42,6 +45,8 @@ export function RunBlock({
   summary,
   rawOutput: _rawOutput,
   steps,
+  liveMarkdown,
+  onOpenExternalLink,
   onInterrupt,
   className,
 }: RunBlockProps): JSX.Element {
@@ -81,8 +86,13 @@ export function RunBlock({
           ))}
         </div>
       ) : (
-        <div className="mt-3 max-w-full overflow-x-auto whitespace-pre text-sm text-sub" data-testid="run-live-output">
-          {fallbackSummary}
+        <div className="mt-3 max-w-full overflow-x-auto text-sm text-sub" data-testid="run-live-output">
+          <MarkdownMessage
+            content={nonBlank(liveMarkdown) ?? fallbackSummary}
+            density="live"
+            mode={nonBlank(liveMarkdown) ? "streaming" : "static"}
+            onOpenExternalLink={onOpenExternalLink}
+          />
         </div>
       )}
     </div>

@@ -30,6 +30,7 @@ import {
 } from "@/console/conversation-sidebar";
 import { RoleComposer, type RoleCompletion } from "@/console/role-composer";
 import { RunBlock } from "@/console/run-block";
+import { MarkdownMessage } from "@/console/markdown-message";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { SubSessionCard, type SubSessionCardItem } from "@/console/sub-session-card";
 import { SubSessionPanel } from "@/console/sub-session-panel";
@@ -179,6 +180,7 @@ export interface OperatorRunSnapshot {
   worktreeUnavailableReason: string | null;
   stdoutTail: string | null;
   stderrTail: string | null;
+  liveMarkdown: string | null;
   lastOutputSummary: string;
   tailDiagnostic: string | null;
   interruptible: boolean;
@@ -239,6 +241,7 @@ export interface OperatorConsoleProps {
   onArchiveSession?: (sessionId: string, projectId: string) => void | Promise<void>;
   onInterrupt(sessionId: string, runId: string): void;
   onOpenDiagnostics?: () => void;
+  onOpenExternalLink?: (url: string) => void;
   onRetryProjectList?: () => void;
   onRetryAgentTeams?: () => void;
   onCreateAgentTeam?: (information: AgentTeamInformationInput) => Promise<OperatorAgentTeam>;
@@ -321,6 +324,7 @@ export function OperatorConsole({
   onArchiveSession,
   onInterrupt,
   onOpenDiagnostics,
+  onOpenExternalLink,
   onRetryProjectList,
   onRetryAgentTeams,
   onCreateAgentTeam,
@@ -444,7 +448,7 @@ export function OperatorConsole({
     if (timeline !== null && followTimelineRef.current) {
       timeline.scrollTop = timeline.scrollHeight;
     }
-  }, [messages.length, activeRun?.lastOutputSummary, selectedSessionId]);
+  }, [messages.length, activeRun?.lastOutputSummary, activeRun?.liveMarkdown, selectedSessionId]);
 
   const openSubSession = (sessionId: string) => {
     parentScrollTopRef.current = timelineScrollRef.current?.scrollTop ?? 0;
@@ -851,6 +855,7 @@ export function OperatorConsole({
                           openedSubSessionId={openedSubSession?.session.sessionId ?? null}
                           onOpenSubSession={openSubSession}
                           onOpenDiagnostics={onOpenDiagnostics}
+                          onOpenExternalLink={onOpenExternalLink}
                         />
                       ))}
                     </div>
@@ -860,7 +865,9 @@ export function OperatorConsole({
                         <RunBlock
                           role={activeRun.role ?? "dev"}
                           summary={safeRunSummary(activeRun.lastOutputSummary)}
+                          liveMarkdown={activeRun.liveMarkdown}
                           rawOutput={runRawOutput(activeRun)}
+                          onOpenExternalLink={onOpenExternalLink}
                           onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
                           className="mt-3"
                         />
@@ -965,13 +972,20 @@ export function OperatorConsole({
               >
                 <div className="divide-y divide-line">
                   {openedSubSession.messages.map((message) => (
-                    <TimelineEntry key={message.id} message={message} onOpenDiagnostics={onOpenDiagnostics} />
+                    <TimelineEntry
+                      key={message.id}
+                      message={message}
+                      onOpenDiagnostics={onOpenDiagnostics}
+                      onOpenExternalLink={onOpenExternalLink}
+                    />
                   ))}
                   {openedSubSession.activeRun ? (
                     <RunBlock
                       role={openedSubSession.activeRun.role ?? "dev"}
                       summary={safeRunSummary(openedSubSession.activeRun.lastOutputSummary)}
+                      liveMarkdown={openedSubSession.activeRun.liveMarkdown}
                       rawOutput={runRawOutput(openedSubSession.activeRun)}
+                      onOpenExternalLink={onOpenExternalLink}
                       onInterrupt={() => onInterrupt(
                         openedSubSession.activeRun!.sessionId,
                         openedSubSession.activeRun!.runId,
@@ -1442,12 +1456,14 @@ function TimelineEntry({
   openedSubSessionId = null,
   onOpenSubSession,
   onOpenDiagnostics,
+  onOpenExternalLink,
 }: {
   message: OperatorMessage;
   childSessions?: readonly OperatorChildSessionSummary[];
   openedSubSessionId?: string | null;
   onOpenSubSession?: (sessionId: string) => void;
   onOpenDiagnostics?: () => void;
+  onOpenExternalLink?: (url: string) => void;
 }): JSX.Element {
   if (message.sourceKind === "local-child-session-card") {
     const sessionIds = parseChildSessionCardIds(message.body);
@@ -1480,9 +1496,11 @@ function TimelineEntry({
         <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : message.speaker === "agent" ? localizeTimelineRole(message.role) : "系统提示"}</span>
         <span className="tnum text-hint opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">{formatTime(message.updatedAt)}</span>
       </div>
-      <div className="whitespace-pre-wrap break-words leading-6 text-ink">
-        {message.speaker === "system" ? systemSummary(message) : sanitizeMachineText(message.body)}
-      </div>
+      {message.speaker === "system" ? (
+        <div className="whitespace-pre-wrap break-words leading-6 text-ink">{systemSummary(message)}</div>
+      ) : (
+        <MarkdownMessage content={message.body} mode="static" onOpenExternalLink={onOpenExternalLink} />
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { ArrowRight, Check, ChevronRight, Circle, CheckCircle2, Code2, FileText 
 import { useState, type KeyboardEvent, type MouseEvent } from "react";
 
 import { cn } from "@/lib/utils";
+import { MarkdownMessage } from "@/console/markdown-message";
 
 export type AgentStage = "in-progress" | "plan-written" | "code-verified";
 
@@ -14,6 +15,7 @@ export interface AgentMessageProps {
   timestamp?: string | null;
   defaultOpen?: boolean;
   className?: string;
+  onOpenExternalLink?: (url: string) => void;
 }
 
 const roleLabels: Record<string, string> = {
@@ -52,6 +54,7 @@ export function AgentMessage({
   timestamp,
   defaultOpen = false,
   className,
+  onOpenExternalLink,
 }: AgentMessageProps): JSX.Element {
   const [open, setOpen] = useState(defaultOpen);
   const parsed = parseAgentMarkdown(rawMarkdown);
@@ -109,7 +112,9 @@ export function AgentMessage({
           </span>
         </span>
       </summary>
-      <pre className="ml-11 mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words border-l border-line pl-4 font-mono text-xs leading-5 text-ink">{rawMarkdown}</pre>
+      <div className="ml-11 mt-3 max-h-96 overflow-auto border-l border-line pl-4 text-xs leading-5 text-ink">
+        <MarkdownMessage content={rawMarkdown} mode="static" onOpenExternalLink={onOpenExternalLink} />
+      </div>
     </details>
   );
 }

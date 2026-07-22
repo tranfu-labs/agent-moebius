@@ -257,6 +257,7 @@ export interface LocalConsoleRunSnapshot {
   baseRef?: string | null;
   stdoutTail: string | null;
   stderrTail: string | null;
+  liveMarkdown: string | null;
   lastOutputSummary: string;
   tailDiagnostic: string | null;
   interruptible: boolean;

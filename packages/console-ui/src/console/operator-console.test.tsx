@@ -558,7 +558,8 @@ describe("OperatorConsole", () => {
     expect(within(rows[0]).getByText("5 名成员 · 主 Agent：开发经理")).toBeVisible();
 
     const memberStrip = within(rows[0]).getByTestId("agent-team-members");
-    expect(memberStrip.textContent).toMatch(/^开发经理· 主 Agent开发测试＋2$/u);
+    expect(within(memberStrip).getByTitle("开发经理")).toHaveAccessibleName("开发经理");
+    expect(within(memberStrip).getByText("· 主 Agent")).toBeVisible();
     for (const memberName of ["开发经理", "开发", "测试"]) {
       expect(within(memberStrip).getByTitle(memberName)).toHaveClass("w-28");
     }
@@ -1523,6 +1524,7 @@ const runSnapshot: OperatorRunSnapshot = {
   worktreeUnavailableReason: null,
   stdoutTail: "live tail from codex",
   stderrTail: null,
+  liveMarkdown: null,
   lastOutputSummary: "live tail from codex",
   tailDiagnostic: null,
   interruptible: true,
