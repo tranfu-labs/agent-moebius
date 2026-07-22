@@ -1,7 +1,7 @@
 # agent-moebius · AI 项目操作手册
 
 ## 项目概览
-本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。本地会话创建时可原子绑定一支 Agent 团队；执行名单按 session 严格解析，未绑定的存量会话才回退共享 `agents/`。本地附件在数据根的专用托管区保存不可变内容，在 `local-console.sqlite` 保存草稿/消息有序引用；消息提交原子 claim 引用，运行前再复制到本轮 runDir，图片进入 Codex `--image`，普通文件只通过 prompt manifest 交付。
+本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。本地会话创建时可原子绑定一支 Agent 团队；执行名单按 session 严格解析，未绑定的存量会话才回退共享 `agents/`。每个本地会话以数据根 `sessions/` 下的只追加 jsonl 作为消息与会话事件唯一事实源，`local-console.sqlite` 保留可变流转状态与可重建索引；两边冲突时以 jsonl 为准。本地附件在数据根的专用托管区保存不可变内容，在 `local-console.sqlite` 保存草稿/消息有序引用；消息提交原子 claim 引用，运行前再复制到本轮 runDir，图片进入 Codex `--image`，普通文件只通过 prompt manifest 交付。
 
 ## 项目结构
 ```text
@@ -41,7 +41,7 @@
 │   ├── format-ceo.ts           # CEO guardrail 完整公开 issue context 校正与 fail-open 处理
 │   ├── ceo-scripts.ts          # CEO 剧本文件加载与 workflow 校验
 │   ├── ceo-orchestration.ts    # CEO agent 结构化编排输出解析、校验、key 与 child issue body 渲染
-│   ├── local-console/           # 本地会话、托管附件、loopback API、运行准备与 SQLite store 边界
+│   ├── local-console/           # 本地会话 jsonl 事实日志、托管附件、loopback API、运行准备与 SQLite 索引边界
 │   ├── observer/               # 本地只读观察页：读配置、目标账本、.state 与 run manifest，不写状态
 │   ├── triggers/               # mention 触发方式
 │   ├── agent-prescripts/       # Codex 执行前准备脚本与内置 workspace capability
@@ -90,7 +90,7 @@
 - **默认 local**：`pnpm start` 缺省进入 local console/local runtime，不加载 GitHub intake、不创建 GitHub heartbeat、不扫描或读取 GitHub issue。
 - **纯 GitHub runner**：GitHub-mode flag 的确切名称是 `--github-mode`，固定用法是 `pnpm start -- --github-mode`；带 flag 后只启动 GitHub runner heartbeat，不启动 local console server。
 - **常驻 runner 迁移**：本启动形态合入后，原常驻命令 `pnpm start` MUST 更新为 `pnpm start -- --github-mode`，否则会进入默认 local 模式。
-- **数据隔离**：local 模式使用 `.state/local-console.sqlite`；GitHub 模式使用 `.state/github-runner.sqlite`。两种模式的运行时数据互不可见、不镜像，同一启动流程不并发启用两条写入链路。
+- **数据隔离**：local 模式使用数据根 `sessions/*.jsonl` 会话事实日志与 `.state/local-console.sqlite` 可变状态/索引；GitHub 模式使用 `.state/github-runner.sqlite`。两种模式的运行时数据互不可见、不镜像，同一启动流程不并发启用两条写入链路。
 
 - 运行本地模式：`pnpm start`
   - 默认只启动 local console/local runtime，使用 `.state/local-console.sqlite`；不加载 GitHub intake、不创建 GitHub heartbeat、不扫描或读取 GitHub issue。
@@ -150,7 +150,7 @@
 - 运行入口使用 `tsx src/runner.ts`；自动化测试使用 Vitest。
 - GitHub 认证复用本机 `gh auth login`，仓库内不得保存 token。
 - 启动模式只接受两种形态：`pnpm start` 缺省 local；`pnpm start -- --github-mode` 进入纯 GitHub runner。两种 runtime 不得在同一 `start()` 流程并存。
-- local runtime 数据只写 `.state/local-console.sqlite`；GitHub runner state 只写 `.state/github-runner.sqlite`。首次 GitHub-mode 启动会从历史共库中有界迁移 GitHub intake、role thread、agent context、goal ledger，不迁移 local session 数据；迁移失败时在扫描前可见失败，不 silent rebaseline。
+- local runtime 的会话消息与事件只经主进程 store 串行追加到数据根 `sessions/*.jsonl`，可变流转状态与可重建索引写 `.state/local-console.sqlite`；GitHub runner state 只写 `.state/github-runner.sqlite`。首次 GitHub-mode 启动会从历史共库中有界迁移 GitHub intake、role thread、agent context、goal ledger，不迁移 local session 数据；迁移失败时在扫描前可见失败，不 silent rebaseline。
 - 当前 repository 白名单先读取数据根下的提交版 `config.toml` 示例，再由同一数据根下的 `config.local.toml` 覆盖；未设置 `AGENT_MOEBIUS_DATA_ROOT` 时数据根等于项目根目录，终端形态行为与原来一致。`config.local.toml` 为本地专用且被 `.gitignore` 忽略。默认白名单为空。
 - `config.local.toml` 示例：
   ```toml
@@ -190,7 +190,7 @@
 - GitHub response intake 状态保存在被忽略的 `.state/github-response-intake.json`，记录 repo 闲时扫描时间、issue `updatedAt`、active/idle 模式、active 无变化次数、失败次数 / 最近失败原因、下次轮询时间，以及可选的外部无 mention 兜底路由判定 ledger（按 comment id 或 `issue-body:<digest>` 有界 key 记录 outcome、判定时间、reason 与 targetRole，不能保存完整 issue body/comment）。
 - 目标账本状态保存在被忽略的 `.state/goal-ledger.json`，记录 goal / milestone / task / phase、质量基准、验收语句、依赖、provenance、父子 issue reference（含有界 note）、run manifest reference、验收 fact、集成验收 event 与阶段归档引用；`src/goal-ledger.ts` 只做纯业务 schema、部分入账、goal-intake pending proposal / confirm helpers、ready gate、阶段切换、当前阶段上下文投影、join 评估与归档引用回查，`src/goal-ledger-state.ts` 负责原子读写、entry-level merge、同文件写串行化、可注入 IO 与 timeout / AbortSignal 包装。CEO 编排可以通过 runner 显式读取当前 projection 并写入 task child issue reference / orchestration key；验收 pre-pass 可以通过 runner 显式写入 bounded acceptance provenance 和 integration event；目标账本自身不得调用 GitHub、Codex、shell，不得成为 runner 心跳、observer UI、worktree 或 fan-out 拓扑的隐式入口。
 - Codex stdout/stderr 运行目录格式为 `/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/`；`<sequence>` 是 runner 进程内递增后缀，用来避免并发 runs 在同一 timestamp + count 下复用同一目录。本轮下载的输入媒体位于 `input-media/`，准备发布的输出产物位于 `output-artifacts/`。
-- `src/codex.ts` 在保持 stdout/stderr 完整落盘与最终文本提取的同时，以 1 MiB 单行上限 framing 完整 JSONL 行，可选回调只暴露 `item.completed` 的 `agent_message` 正文。local runtime 只把最新一段存于当前 `ActiveLocalRun.liveMarkdown` 内存/API snapshot，不写 SQLite、不推进 cursor；run 结束后仍只落库一条最终 Agent 消息。
+- `src/codex.ts` 在保持 stdout/stderr 完整落盘与最终文本提取的同时，以 1 MiB 单行上限 framing 完整 JSONL 行，可选回调只暴露 `item.completed` 的 `agent_message` 正文。local runtime 只把最新一段投影到当前 `ActiveLocalRun.liveMarkdown` 内存/API snapshot，各段 Agent 可见进度事实追加到会话 jsonl，但不写 `session_messages`、不推进 cursor；run 结束后仍只形成一条最终 Agent 消息事实。
 - 默认工作根目录为仓库同级 `agent-moebius-workdir`，可通过 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖；启动日志会打印解析后的路径。
 - 默认数据根为项目根目录；可通过 `AGENT_MOEBIUS_DATA_ROOT` 覆盖 `config.toml`、`config.local.toml` 与 `agents/` 的解析位置。桌面打包态默认数据根为 `~/.agent-moebius`，开发态默认仓库根。
 - Codex 默认走本机 `~/.codex/auth.json` 订阅登录；在 `config.local.toml` 里加 `[codex] provider = "<name>"` 即切到 API 网关（例如 `tranfu` / `derouter`）。provider 名会按约定 `<NAME>_API_KEY` / `<NAME>_BASE_URL` 从 `process.env` 读，`.env` 在项目根被 `src/config.ts` 顶层用 `process.loadEnvFile` 加载一次；缺任一变量会在启动时抛可见错误并且 NEVER spawn codex。切换只追加 `-c model_provider=... -c model_providers.<name>.{name,base_url,env_key,wire_api}` 到 `codex exec` 尾部，NEVER 改写用户 `~/.codex/config.toml`，也 NEVER 触碰 `--yolo / --json / -m gpt-5.6-sol / xhigh` 等既有 flag。模型名默认 `gpt-5.6-sol`，可通过 `[codex] model = "..."` 覆盖（空白/未设 → 回落默认），与 provider 相互独立。

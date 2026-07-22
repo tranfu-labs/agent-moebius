@@ -21,6 +21,24 @@ export type SqliteStateCommand =
   | { kind: "load-goal-ledger" }
   | { kind: "save-goal-ledger"; state: unknown }
   | { kind: "local-init" }
+  | { kind: "local-session-fact-migration-status" }
+  | { kind: "local-complete-session-fact-migration"; now: string }
+  | { kind: "local-list-session-message-indexes" }
+  | { kind: "local-rebuild-session-message-index"; sessionId: string; messages: unknown[] }
+  | { kind: "local-find-message-session"; messageId: number }
+  | {
+      kind: "local-commit-session-fact-write";
+      factCommand: unknown;
+      facts: Array<{
+        sessionId: string;
+        logPath: string;
+        eventId: string;
+        type: string;
+        recordedAt: string;
+        payload: unknown;
+        beforeMessages: unknown[];
+      }>;
+    }
   | { kind: "local-create-project"; folderPath: string; worktreeMode: boolean; now: string }
   | { kind: "local-update-project"; projectId: string; worktreeMode: boolean; now: string }
   | { kind: "local-rename-project"; projectId: string; title: string; now: string }

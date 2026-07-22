@@ -27,7 +27,7 @@ describe("local attachment HTTP boundary", () => {
       stdoutPath: path.join(options.runDir, "stdout.jsonl"),
       stderrPath: path.join(options.runDir, "stderr.log"),
     }));
-    const started = await startLocalConsoleServer({
+    let started = await startLocalConsoleServer({
       projectRoot: root,
       port: 0,
       attachmentCapability: capability,
@@ -92,15 +92,44 @@ describe("local attachment HTTP boundary", () => {
       expect(attachmentPayload).not.toContain(root);
       expect(attachmentPayload).not.toContain("storageKey");
       expect(attachmentPayload).not.toContain("blobId");
+      expect(viewBody.messages.flatMap((message) => message.attachments ?? [])).toHaveLength(2);
+      const factLogPath = path.join(
+        root,
+        "sessions",
+        `${Buffer.from(created.session.sessionId, "utf8").toString("base64url")}.jsonl`,
+      );
+      const factLog = await fs.readFile(factLogPath, "utf8");
+      expect(factLog).toContain(imageBody.attachment.attachmentId);
+      expect(factLog).toContain(fileUpload.attachment!.attachmentId);
       const preview = await fetch(
         new URL(`api/local-console/attachments/${encodeURIComponent(imageBody.attachment.attachmentId)}/preview?sessionId=${encodeURIComponent(created.session.sessionId)}`, started.url),
         { headers: capabilityHeaders(capability) },
       );
       expect(preview.headers.get("content-type")).toBe("image/png");
+
+      await started.close();
+      started = await startLocalConsoleServer({
+        projectRoot: root,
+        port: 0,
+        attachmentCapability: capability,
+        runCodex,
+        storeTimeoutMs: 10_000,
+        makeRunDir: (count) => path.join(root, "runs", `restart-${String(count)}`),
+      });
+      const reopenedView = await fetch(
+        new URL(`api/local-console/sessions/${encodeURIComponent(created.session.sessionId)}/view`, started.url),
+      );
+      const reopenedBody = await reopenedView.json() as { messages: Array<{ attachments?: unknown[] }> };
+      expect(reopenedBody.messages.flatMap((message) => message.attachments ?? [])).toHaveLength(2);
+      const reopenedPreview = await fetch(
+        new URL(`api/local-console/attachments/${encodeURIComponent(imageBody.attachment.attachmentId)}/preview?sessionId=${encodeURIComponent(created.session.sessionId)}`, started.url),
+        { headers: capabilityHeaders(capability) },
+      );
+      expect(reopenedPreview.status).toBe(200);
     } finally {
       await started.close();
     }
-  });
+  }, 15_000);
 });
 
 async function upload(

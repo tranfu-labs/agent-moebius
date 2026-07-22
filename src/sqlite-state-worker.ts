@@ -27,6 +27,7 @@ interface SqliteStatement {
 }
 
 interface SqliteDatabase {
+  readonly isTransaction: boolean;
   exec(sql: string): void;
   prepare(sql: string): SqliteStatement;
   close(): void;
@@ -58,6 +59,8 @@ interface WorkerLocalMessage {
   createdAt: string;
   updatedAt: string;
 }
+
+const SESSION_FACT_MIGRATION_VERSION = "session-jsonl-fact-log-v1";
 
 try {
   const input = workerData as WorkerInput;
@@ -119,6 +122,18 @@ function runCommand(input: WorkerInput): unknown {
         return saveGoalLedger(database, input.command.state, true);
       case "local-init":
         return initLocalConsole(database);
+      case "local-session-fact-migration-status":
+        return sessionFactMigrationStatus(database);
+      case "local-complete-session-fact-migration":
+        return completeSessionFactMigration(database, input.command.now);
+      case "local-list-session-message-indexes":
+        return listSessionMessageIndexes(database);
+      case "local-rebuild-session-message-index":
+        return rebuildSessionMessageIndex(database, input.command.sessionId, input.command.messages);
+      case "local-find-message-session":
+        return findMessageSession(database, input.command.messageId);
+      case "local-commit-session-fact-write":
+        return commitSessionFactWrite(database, input.command.factCommand, input.command.facts);
       case "local-create-project":
         return createLocalProject(database, input.command);
       case "local-update-project":
@@ -1077,6 +1092,238 @@ function initLocalConsole(database: SqliteDatabase): null {
   return null;
 }
 
+function sessionFactMigrationStatus(database: SqliteDatabase): { complete: boolean } {
+  return {
+    complete: database
+      .prepare("SELECT 1 AS found FROM schema_migrations WHERE version = ?")
+      .get(SESSION_FACT_MIGRATION_VERSION) !== undefined,
+  };
+}
+
+function completeSessionFactMigration(database: SqliteDatabase, now: string): null {
+  database
+    .prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+    .run(SESSION_FACT_MIGRATION_VERSION, now);
+  return null;
+}
+
+function listSessionMessageIndexes(database: SqliteDatabase): Array<{ sessionId: string; parentSessionId: string | null; messages: WorkerLocalMessage[] }> {
+  return database
+    .prepare("SELECT session_id, parent_session_id FROM sessions WHERE source_type = 'local' ORDER BY created_at ASC, session_id ASC")
+    .all()
+    .map((row) => {
+      if (!isRecord(row)) {
+        throw new Error("Invalid local session migration row");
+      }
+      const sessionId = readString(row.session_id, "session_id");
+      return {
+        sessionId,
+        parentSessionId: readNullableString(row.parent_session_id, "parent_session_id"),
+        messages: listLocalMessages(database, sessionId) as WorkerLocalMessage[],
+      };
+    });
+}
+
+function rebuildSessionMessageIndex(database: SqliteDatabase, sessionId: string, values: unknown[]): null {
+  const messages = values.map(readSessionFactMessage);
+  for (const message of messages) {
+    if (message.sessionId !== sessionId) {
+      throw new Error(`session fact message belongs to ${message.sessionId}, expected ${sessionId}`);
+    }
+    const existing = database.prepare("SELECT session_id FROM session_messages WHERE id = ?").get(message.id);
+    if (isRecord(existing) && readString(existing.session_id, "session_id") !== sessionId) {
+      throw new Error(`session fact message id ${String(message.id)} belongs to another session`);
+    }
+  }
+  transaction(database, () => {
+    const insert = database.prepare(
+      `INSERT INTO session_messages
+        (id, session_id, speaker, role, body, status, run_id, run_dir, error, system_event_kind,
+         failure_count, last_failure_reason, source_kind, source_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         speaker = excluded.speaker,
+         role = excluded.role,
+         body = excluded.body,
+         status = excluded.status,
+         run_id = excluded.run_id,
+         run_dir = excluded.run_dir,
+         error = excluded.error,
+         system_event_kind = excluded.system_event_kind,
+         failure_count = excluded.failure_count,
+         last_failure_reason = excluded.last_failure_reason,
+         source_kind = excluded.source_kind,
+         source_id = excluded.source_id,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`,
+    );
+    for (const message of messages) {
+      insert.run(
+        message.id,
+        message.sessionId,
+        message.speaker,
+        message.role,
+        message.body,
+        message.status,
+        message.runId,
+        message.runDir,
+        message.error,
+        message.systemEventKind,
+        message.failureCount,
+        message.lastFailureReason,
+        message.sourceKind,
+        message.sourceId,
+        message.createdAt,
+        message.updatedAt,
+      );
+    }
+    if (messages.length === 0) {
+      database.prepare("DELETE FROM session_messages WHERE session_id = ?").run(sessionId);
+    } else {
+      const placeholders = messages.map(() => "?").join(", ");
+      database
+        .prepare(`DELETE FROM session_messages WHERE session_id = ? AND id NOT IN (${placeholders})`)
+        .run(sessionId, ...messages.map((message) => message.id));
+    }
+    return null;
+  });
+  return null;
+}
+
+function findMessageSession(database: SqliteDatabase, messageId: number): { sessionId: string } | null {
+  const row = database.prepare("SELECT session_id FROM session_messages WHERE id = ?").get(messageId);
+  if (!isRecord(row)) {
+    return null;
+  }
+  return { sessionId: readString(row.session_id, "session_id") };
+}
+
+function commitSessionFactWrite(
+  database: SqliteDatabase,
+  value: unknown,
+  facts: Array<{
+    sessionId: string;
+    logPath: string;
+    eventId: string;
+    type: string;
+    recordedAt: string;
+    payload: unknown;
+    beforeMessages: unknown[];
+  }>,
+): unknown {
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    throw new Error("Invalid session fact write command");
+  }
+  const command = value as SqliteStateCommand;
+  return transaction(database, () => {
+    const result = executeSessionFactWrite(database, command);
+    const sessions = facts.map((fact) => {
+      const messages = listLocalMessages(database, fact.sessionId) as WorkerLocalMessage[];
+      const before = fact.beforeMessages.map(readSessionFactMessage);
+      appendSessionFactEvent(fact.logPath, {
+        version: 1,
+        eventId: fact.eventId,
+        sessionId: fact.sessionId,
+        type: fact.type,
+        recordedAt: fact.recordedAt,
+        payload: fact.payload,
+        messageUpserts: changedSessionFactMessages(before, messages),
+      });
+      return { sessionId: fact.sessionId, messages };
+    });
+    return { result, sessions };
+  });
+}
+
+function changedSessionFactMessages(before: WorkerLocalMessage[], after: WorkerLocalMessage[]): WorkerLocalMessage[] {
+  const existing = new Map(before.map((message) => [message.id, JSON.stringify(message)]));
+  return after.filter((message) => existing.get(message.id) !== JSON.stringify(message));
+}
+
+function appendSessionFactEvent(logPath: string, event: unknown): void {
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  let current: Buffer;
+  try {
+    current = fs.readFileSync(logPath);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      current = Buffer.alloc(0);
+    } else {
+      throw error;
+    }
+  }
+  const lastNewline = current.lastIndexOf(0x0a);
+  const validLength = current.length === 0 ? 0 : lastNewline < 0 ? 0 : lastNewline + 1;
+  const descriptor = fs.openSync(logPath, current.length === 0 ? "w+" : "r+");
+  try {
+    if (validLength !== current.length) {
+      fs.ftruncateSync(descriptor, validLength);
+    }
+    const line = Buffer.from(`${JSON.stringify(event)}\n`, "utf8");
+    let written = 0;
+    while (written < line.length) {
+      written += fs.writeSync(descriptor, line, written, line.length - written, validLength + written);
+    }
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function executeSessionFactWrite(database: SqliteDatabase, command: SqliteStateCommand): unknown {
+  switch (command.kind) {
+    case "local-create-session": return createLocalSession(database, command);
+    case "local-create-child-session": return createLocalChildSession(database, command);
+    case "local-record-child-session-card": return recordChildSessionCard(database, command);
+    case "local-append-user": return appendUserMessage(database, command);
+    case "local-claim-next": return claimNextPendingMessage(database, command);
+    case "local-set-run-dir": return setRunDir(database, command);
+    case "local-record-message-processed": return recordMessageProcessed(database, command);
+    case "local-record-route-append": return recordLocalRouteAppend(database, command);
+    case "local-record-route-no-action": return recordLocalRouteNoAction(database, command);
+    case "local-release-message-for-retry": return releaseMessageForRetry(database, command);
+    case "local-record-agent-response": return recordAgentResponse(database, command);
+    case "local-record-system-and-complete": return recordSystemAndComplete(database, command);
+    case "local-record-system": return recordSystemMessage(database, command);
+    case "local-record-failure": return recordFailure(database, command);
+    case "local-record-retryable-failure": return recordRetryableFailure(database, command);
+    case "local-record-dead-letter-and-complete": return recordDeadLetterAndComplete(database, command);
+    case "local-record-interrupted": return recordInterrupted(database, command);
+    case "local-record-stuck": return recordStuck(database, command);
+    case "local-record-route-decision": return recordLocalRouteDecision(database, command);
+    case "local-record-dead-letter": return recordLocalDeadLetter(database, command);
+    case "local-record-workspace-diff": return recordLocalWorkspaceDiff(database, command);
+    case "local-mark-stale-running": return markStaleRunning(database, command);
+    default:
+      throw new Error(`Unsupported session fact write command: ${command.kind}`);
+  }
+}
+
+function readSessionFactMessage(value: unknown): WorkerLocalMessage {
+  if (!isRecord(value)) {
+    throw new Error("Invalid session fact message");
+  }
+  return {
+    id: readNumber(value.id, "id"),
+    sessionId: readString(value.sessionId, "sessionId"),
+    speaker: readString(value.speaker, "speaker"),
+    role: readNullableString(value.role, "role"),
+    body: readString(value.body, "body"),
+    status: readString(value.status, "status"),
+    runId: readNullableString(value.runId, "runId"),
+    runDir: readNullableString(value.runDir, "runDir"),
+    error: readNullableString(value.error, "error"),
+    systemEventKind: readSystemEventKind(value.systemEventKind),
+    failureCount: readNumber(value.failureCount, "failureCount"),
+    lastFailureReason: readNullableString(value.lastFailureReason, "lastFailureReason"),
+    sourceKind: readNullableString(value.sourceKind, "sourceKind"),
+    sourceId: readNullableString(value.sourceId, "sourceId"),
+    attachments: Array.isArray(value.attachments) ? value.attachments : [],
+    createdAt: readString(value.createdAt, "createdAt"),
+    updatedAt: readString(value.updatedAt, "updatedAt"),
+  };
+}
+
 function createLocalProject(
   database: SqliteDatabase,
   input: Extract<SqliteStateCommand, { kind: "local-create-project" }>,
@@ -1282,6 +1529,7 @@ function getLocalSessionWorkspace(database: SqliteDatabase, sessionId: string): 
     folderPath: readString(row.folder_path, "folder_path"),
     workspaceMode: readLocalWorkspaceMode(row.workspace_mode, "workspace_mode"),
     workspacePendingMode: null,
+    session: requireLocalSession(database, sessionId),
   };
 }
 
@@ -3235,6 +3483,22 @@ function assertTargetEmptyForImport(database: SqliteDatabase, source: SqliteStat
 }
 
 function transaction<T>(database: SqliteDatabase, body: () => T): T {
+  if (database.isTransaction) {
+    database.exec("SAVEPOINT agent_moebius_nested_transaction");
+    try {
+      const result = body();
+      database.exec("RELEASE SAVEPOINT agent_moebius_nested_transaction");
+      return result;
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK TO SAVEPOINT agent_moebius_nested_transaction");
+        database.exec("RELEASE SAVEPOINT agent_moebius_nested_transaction");
+      } catch {
+        // Keep the original error.
+      }
+      throw error;
+    }
+  }
   database.exec("BEGIN IMMEDIATE");
   try {
     const result = body();
@@ -3259,6 +3523,10 @@ function entriesObject(value: unknown): Array<[string, unknown]> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
 function readString(value: unknown, field: string): string {

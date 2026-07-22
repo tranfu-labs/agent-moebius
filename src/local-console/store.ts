@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
-import { LOCAL_CONSOLE_STORE_TIMEOUT_MS } from "../config.js";
+import { LOCAL_CONSOLE_SESSION_LOG_ROOT, LOCAL_CONSOLE_STORE_TIMEOUT_MS } from "../config.js";
 import { runSqliteStateCommand, type SqliteStateCommand } from "../sqlite-state.js";
 import {
   LOCAL_CONSOLE_PROJECT_ID,
@@ -32,30 +33,40 @@ import {
 
 export interface SqliteLocalConsoleStoreOptions {
   sqlitePath: string;
+  sessionLogRoot?: string;
   busyTimeoutMs?: number;
   timeoutMs?: number;
 }
 
 export async function createSqliteLocalConsoleStore(
   options: SqliteLocalConsoleStoreOptions,
-): Promise<LocalConsoleStore> {
+): Promise<SqliteLocalConsoleStore> {
   await fs.mkdir(path.dirname(options.sqlitePath), { recursive: true });
   return new SqliteLocalConsoleStore(
     options.sqlitePath,
+    options.sessionLogRoot ?? defaultSessionLogRoot(options.sqlitePath),
     options.busyTimeoutMs ?? 2_000,
     options.timeoutMs ?? LOCAL_CONSOLE_STORE_TIMEOUT_MS,
   );
 }
 
 export class SqliteLocalConsoleStore implements LocalConsoleStore {
+  private operationTail: Promise<void> = Promise.resolve();
+  private messageIndexDirty = false;
+
   constructor(
     readonly sqlitePath: string,
+    readonly sessionLogRoot = LOCAL_CONSOLE_SESSION_LOG_ROOT,
     private readonly busyTimeoutMs = 2_000,
     private readonly timeoutMs = LOCAL_CONSOLE_STORE_TIMEOUT_MS,
   ) {}
 
   async init(): Promise<void> {
-    await this.run({ kind: "local-init" });
+    await this.enqueue(async () => {
+      await this.runDirect({ kind: "local-init" });
+      await this.migrateSessionMessages();
+      await this.rebuildMessageIndexDirect();
+    });
   }
 
   async close(): Promise<void> {}
@@ -142,7 +153,11 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     attachmentDraftKey?: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary> {
-    return this.run({ kind: "local-create-session", ...input, projectId: input.projectId ?? LOCAL_CONSOLE_PROJECT_ID });
+    return this.runFact(
+      { kind: "local-create-session", ...input, projectId: input.projectId ?? LOCAL_CONSOLE_PROJECT_ID },
+      [input.sessionId],
+      new Set([input.sessionId]),
+    );
   }
 
   async moveEmptySessionToProject(input: {
@@ -190,7 +205,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     attachmentDraftKey?: string;
     now: string;
   }): Promise<LocalConsoleMessage> {
-    return this.run({ kind: "local-append-user", ...input });
+    return this.runFact({ kind: "local-append-user", ...input }, [input.sessionId], new Set([input.sessionId]));
   }
 
   async addDraftAttachment(input: {
@@ -250,11 +265,11 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
   }
 
   async listMessages(sessionId: string): Promise<LocalConsoleMessage[]> {
-    return this.run({ kind: "local-list", sessionId });
+    return this.enqueue(() => this.readMessagesFromFacts(sessionId));
   }
 
   async hasRunningMessage(sessionId: string): Promise<boolean> {
-    return this.run({ kind: "local-has-running", sessionId });
+    return this.enqueue(async () => (await this.readMessagesFromFacts(sessionId)).some((message) => message.status === "running"));
   }
 
   async claimNextPendingMessage(input: {
@@ -262,11 +277,25 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runId: string;
     now: string;
   }): Promise<LocalConsoleMessage | null> {
-    return this.run({ kind: "local-claim-next", ...input });
+    return this.runFact({ kind: "local-claim-next", ...input }, [input.sessionId]);
   }
 
-  async setRunDir(input: { id: number; runDir: string; now: string }): Promise<void> {
-    await this.run({ kind: "local-set-run-dir", ...input });
+  async setRunDir(input: { id: number; sessionId?: string; runDir: string; now: string }): Promise<void> {
+    await this.enqueue(async () => {
+      const sessionId = input.sessionId ?? (await this.runDirect<{ sessionId: string } | null>({
+        kind: "local-find-message-session",
+        messageId: input.id,
+      }))?.sessionId;
+      if (sessionId === undefined) {
+        throw new Error(`local console message not found: ${String(input.id)}`);
+      }
+      await this.runFactDirect({
+        kind: "local-set-run-dir",
+        id: input.id,
+        runDir: input.runDir,
+        now: input.now,
+      }, [sessionId]);
+    });
   }
 
   async recordAgentResponse(input: {
@@ -278,7 +307,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-agent-response", ...input });
+    await this.runFact({ kind: "local-record-agent-response", ...input }, [input.sessionId]);
   }
 
   async recordSystemAndComplete(input: {
@@ -290,7 +319,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-system-and-complete", ...input, systemEventKind: input.systemEventKind ?? "other" });
+    await this.runFact({ kind: "local-record-system-and-complete", ...input, systemEventKind: input.systemEventKind ?? "other" }, [input.sessionId]);
   }
 
   async recordSystemMessage(input: {
@@ -303,7 +332,11 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     systemEventKind?: LocalConsoleSystemEventKind;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-system", ...input, systemEventKind: input.systemEventKind ?? "other" });
+    await this.runFact(
+      { kind: "local-record-system", ...input, systemEventKind: input.systemEventKind ?? "other" },
+      [input.sessionId],
+      new Set([input.sessionId]),
+    );
   }
 
   async recordMessageProcessed(input: {
@@ -313,7 +346,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-message-processed", ...input });
+    await this.runFact({ kind: "local-record-message-processed", ...input }, [input.sessionId]);
   }
 
   async findRouteDecision(input: { sessionId: string; routeKey: string }): Promise<LocalRouteDecisionRecord | null> {
@@ -330,7 +363,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-route-append", ...input });
+    await this.runFact({ kind: "local-record-route-append", ...input }, [input.sessionId]);
   }
 
   async recordRouteNoAction(input: {
@@ -343,11 +376,11 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-route-no-action", ...input });
+    await this.runFact({ kind: "local-record-route-no-action", ...input }, [input.sessionId]);
   }
 
   async releaseMessageForRetry(input: { userMessageId: number; sessionId: string; now: string }): Promise<void> {
-    await this.run({ kind: "local-release-message-for-retry", ...input });
+    await this.runFact({ kind: "local-release-message-for-retry", ...input }, [input.sessionId]);
   }
 
   async recordFailure(input: {
@@ -358,7 +391,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-failure", ...input });
+    await this.runFact({ kind: "local-record-failure", ...input }, [input.sessionId]);
   }
 
   async recordRetryableFailure(input: {
@@ -369,7 +402,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<LocalConsoleMessage> {
-    return this.run({ kind: "local-record-retryable-failure", ...input });
+    return this.runFact({ kind: "local-record-retryable-failure", ...input }, [input.sessionId]);
   }
 
   async recordDeadLetter(input: {
@@ -381,7 +414,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     failureCount: number;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-dead-letter-and-complete", ...input });
+    await this.runFact({ kind: "local-record-dead-letter-and-complete", ...input }, [input.sessionId]);
   }
 
   async recordInterrupted(input: {
@@ -393,7 +426,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-interrupted", ...input });
+    await this.runFact({ kind: "local-record-interrupted", ...input }, [input.sessionId]);
   }
 
   async recordStuck(input: {
@@ -404,7 +437,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runDir: string | null;
     now: string;
   }): Promise<void> {
-    await this.run({ kind: "local-record-stuck", ...input });
+    await this.runFact({ kind: "local-record-stuck", ...input }, [input.sessionId]);
   }
 
   async markStaleRunning(input: {
@@ -413,18 +446,398 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     now: string;
     reason: string;
   }): Promise<number> {
-    return this.run({ kind: "local-mark-stale-running", ...input });
+    return this.runFact({ kind: "local-mark-stale-running", ...input }, [input.sessionId]);
+  }
+
+  async createChildSession(input: {
+    parentSessionId: string;
+    childSessionId: string;
+    projectId: string;
+    title: string;
+    relation: string;
+    hiddenKey: string;
+    initialBody: string;
+    initialRole: string | null;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary> {
+    return this.runFact(
+      { kind: "local-create-child-session", ...input },
+      [input.parentSessionId, input.childSessionId],
+      new Set([input.childSessionId]),
+    );
+  }
+
+  async recordChildSessionCard(input: {
+    parentSessionId: string;
+    sourceId: string;
+    childSessionIds: string[];
+    runId: string;
+    runDir: string;
+    now: string;
+  }): Promise<void> {
+    await this.runFact({
+      kind: "local-record-child-session-card",
+      parentSessionId: input.parentSessionId,
+      sourceId: input.sourceId,
+      body: JSON.stringify({ version: 1, childSessionIds: input.childSessionIds }),
+      runId: input.runId,
+      runDir: input.runDir,
+      now: input.now,
+    }, [input.parentSessionId]);
+  }
+
+  async recordWorkspaceDiff(input: {
+    sessionId: string;
+    runId: string;
+    originalRepoRoot: string | null;
+    baseRef: string;
+    branchName: string;
+    worktreePath: string;
+    patchPath: string;
+    affectedFiles: string[];
+    status: "generated" | "applied" | "failed" | "abandoned" | "rolled_back";
+    error: string | null;
+    now: string;
+  }): Promise<void> {
+    await this.runFact({
+      kind: "local-record-workspace-diff",
+      ...input,
+      affectedFilesJson: JSON.stringify(input.affectedFiles),
+    }, [input.sessionId]);
+  }
+
+  async recordProgressEvent(input: {
+    sessionId: string;
+    runId: string;
+    role: string;
+    body: string;
+    now: string;
+  }): Promise<void> {
+    await this.enqueue(async () => {
+      await this.readMessagesFromFacts(input.sessionId);
+      await this.appendFactEvent(input.sessionId, {
+        version: 1,
+        eventId: crypto.randomUUID(),
+        sessionId: input.sessionId,
+        type: "agent_progress",
+        recordedAt: input.now,
+        payload: {
+          runId: input.runId,
+          role: input.role,
+          body: input.body,
+        },
+        messageUpserts: [],
+      });
+    });
+  }
+
+  getSessionFactLogPath(sessionId: string): string {
+    return path.join(this.sessionLogRoot, `${Buffer.from(sessionId, "utf8").toString("base64url")}.jsonl`);
+  }
+
+  async rebuildMessageIndex(sessionId?: string): Promise<void> {
+    await this.enqueue(() => this.rebuildMessageIndexDirect(sessionId));
   }
 
   private async run<T>(command: SqliteStateCommand): Promise<T> {
+    return this.enqueue(async () => {
+      if (this.messageIndexDirty) {
+        await this.rebuildMessageIndexDirect();
+        this.messageIndexDirty = false;
+      }
+      return this.runDirect<T>(command);
+    });
+  }
+
+  private async runDirect<T>(command: SqliteStateCommand, sqlitePath = this.sqlitePath): Promise<T> {
     const result = await runSqliteStateCommand<unknown>({
-      sqlitePath: this.sqlitePath,
+      sqlitePath,
       busyTimeoutMs: this.busyTimeoutMs,
       timeoutMs: this.timeoutMs,
       command,
     });
     return normalizeResult(result) as T;
   }
+
+  private async runFact<T>(
+    command: SqliteStateCommand,
+    sessionIds: string[],
+    allowMissing = new Set<string>(),
+  ): Promise<T> {
+    return this.enqueue(() => this.runFactDirect<T>(command, sessionIds, allowMissing));
+  }
+
+  private async runFactDirect<T>(
+    command: SqliteStateCommand,
+    sessionIds: string[],
+    allowMissing = new Set<string>(),
+  ): Promise<T> {
+    const uniqueSessionIds = [...new Set(sessionIds)];
+    if (this.messageIndexDirty) {
+      await this.rebuildMessageIndexDirect();
+      this.messageIndexDirty = false;
+    }
+    const before = new Map<string, LocalConsoleMessage[]>();
+    for (const sessionId of uniqueSessionIds) {
+      const messages = await this.readMessagesFromFacts(sessionId, allowMissing.has(sessionId));
+      before.set(sessionId, messages);
+    }
+
+    try {
+      const committed = await this.runDirect<{
+        result: T;
+        sessions: Array<{ sessionId: string; messages: LocalConsoleMessage[] }>;
+      }>({
+        kind: "local-commit-session-fact-write",
+        factCommand: command,
+        facts: uniqueSessionIds.map((sessionId) => {
+          const event = buildFactEvent(command, sessionId, []);
+          return {
+            sessionId,
+            logPath: this.getSessionFactLogPath(sessionId),
+            eventId: event.eventId,
+            type: event.type,
+            recordedAt: event.recordedAt,
+            payload: event.payload,
+            beforeMessages: before.get(sessionId) ?? [],
+          };
+        }),
+      });
+      return committed.result;
+    } catch (error) {
+      this.messageIndexDirty = true;
+      throw error;
+    }
+  }
+
+  private async migrateSessionMessages(): Promise<void> {
+    const status = await this.runDirect<{ complete: boolean }>({ kind: "local-session-fact-migration-status" });
+    const indexes = await this.runDirect<Array<{ sessionId: string; parentSessionId: string | null; messages: LocalConsoleMessage[] }>>({
+      kind: "local-list-session-message-indexes",
+    });
+    if (!status.complete) {
+      const childIdsByParent = new Map<string, string[]>();
+      for (const index of indexes) {
+        if (index.parentSessionId !== null) {
+          const childIds = childIdsByParent.get(index.parentSessionId) ?? [];
+          childIds.push(index.sessionId);
+          childIdsByParent.set(index.parentSessionId, childIds);
+        }
+      }
+      for (const index of indexes) {
+        const logPath = this.getSessionFactLogPath(index.sessionId);
+        if (await fileExists(logPath)) {
+          await this.readMessagesFromFacts(index.sessionId);
+          continue;
+        }
+        await this.appendFactEvent(index.sessionId, {
+          version: 1,
+          eventId: crypto.randomUUID(),
+          sessionId: index.sessionId,
+          type: "session_history_migrated",
+          recordedAt: new Date().toISOString(),
+          payload: {
+            source: "session_messages",
+            parentSessionId: index.parentSessionId,
+            childSessionIds: childIdsByParent.get(index.sessionId) ?? [],
+          },
+          messageUpserts: index.messages,
+        });
+        const migrated = await this.readMessagesFromFacts(index.sessionId);
+        assertMigrationSample(index.sessionId, index.messages, migrated);
+      }
+      await this.runDirect({ kind: "local-complete-session-fact-migration", now: new Date().toISOString() });
+    }
+  }
+
+  private async rebuildMessageIndexDirect(sessionId?: string): Promise<void> {
+    const indexes = await this.runDirect<Array<{ sessionId: string }>>({ kind: "local-list-session-message-indexes" });
+    const sessionIds = sessionId === undefined
+      ? [...new Set([...indexes.map((index) => index.sessionId), ...await this.listFactLogSessionIds()])]
+      : [sessionId];
+    for (const currentSessionId of sessionIds) {
+      const messages = await this.readMessagesFromFacts(currentSessionId);
+      await this.runDirect({ kind: "local-rebuild-session-message-index", sessionId: currentSessionId, messages });
+    }
+  }
+
+  private async listFactLogSessionIds(): Promise<string[]> {
+    let entries;
+    try {
+      entries = await fs.readdir(this.sessionLogRoot, { withFileTypes: true });
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map((entry) => {
+        const encoded = entry.name.slice(0, -".jsonl".length);
+        const decoded = Buffer.from(encoded, "base64url").toString("utf8");
+        if (Buffer.from(decoded, "utf8").toString("base64url") !== encoded) {
+          throw new Error(`invalid session fact log filename: ${entry.name}`);
+        }
+        return decoded;
+      });
+  }
+
+  private async readMessagesFromFacts(sessionId: string, allowMissing = false): Promise<LocalConsoleMessage[]> {
+    const events = await readFactEvents(this.getSessionFactLogPath(sessionId), sessionId, allowMissing);
+    const messages = new Map<number, LocalConsoleMessage>();
+    for (const event of events) {
+      for (const message of event.messageUpserts) {
+        messages.set(message.id, message);
+      }
+    }
+    return [...messages.values()].sort((left, right) => left.id - right.id);
+  }
+
+  private async appendFactEvent(sessionId: string, event: SessionFactEvent): Promise<void> {
+    const logPath = this.getSessionFactLogPath(sessionId);
+    await fs.mkdir(path.dirname(logPath), { recursive: true });
+    const current = await readFileIfExists(logPath);
+    const validLength = completeJsonlLength(current ?? Buffer.alloc(0));
+    const handle = await fs.open(logPath, current === null ? "w+" : "r+");
+    try {
+      if (current !== null && validLength !== current.length) {
+        await handle.truncate(validLength);
+      }
+      const line = Buffer.from(`${JSON.stringify(event)}\n`, "utf8");
+      let written = 0;
+      while (written < line.length) {
+        const result = await handle.write(line, written, line.length - written, validLength + written);
+        written += result.bytesWritten;
+      }
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const pending = this.operationTail.then(operation, operation);
+    this.operationTail = pending.then(() => undefined, () => undefined);
+    return pending;
+  }
+}
+
+interface SessionFactEvent {
+  version: 1;
+  eventId: string;
+  sessionId: string;
+  type: string;
+  recordedAt: string;
+  payload: unknown;
+  messageUpserts: LocalConsoleMessage[];
+}
+
+function buildFactEvent(command: SqliteStateCommand, sessionId: string, messageUpserts: LocalConsoleMessage[]): SessionFactEvent {
+  const type = command.kind === "local-create-child-session"
+    ? sessionId === command.parentSessionId ? "child_session_created" : "session_created"
+    : command.kind.replace(/^local-/u, "").replaceAll("-", "_");
+  return {
+    version: 1,
+    eventId: crypto.randomUUID(),
+    sessionId,
+    type,
+    recordedAt: "now" in command && typeof command.now === "string" ? command.now : new Date().toISOString(),
+    payload: command,
+    messageUpserts,
+  };
+}
+
+async function readFactEvents(logPath: string, sessionId: string, allowMissing: boolean): Promise<SessionFactEvent[]> {
+  const file = await readFileIfExists(logPath);
+  if (file === null) {
+    if (allowMissing) {
+      return [];
+    }
+    throw new Error(`session fact log not found: ${sessionId}`);
+  }
+  const validLength = completeJsonlLength(file);
+  if (validLength !== file.length) {
+    await fs.truncate(logPath, validLength);
+  }
+  const complete = file.subarray(0, validLength).toString("utf8");
+  if (complete === "") {
+    return [];
+  }
+  return complete.trimEnd().split("\n").map((line, index) => parseFactEvent(line, sessionId, index + 1));
+}
+
+function parseFactEvent(line: string, sessionId: string, lineNumber: number): SessionFactEvent {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch (error) {
+    throw new Error(`invalid session fact log ${sessionId} line ${String(lineNumber)}: ${String(error)}`);
+  }
+  if (!isRecord(value) || value.version !== 1 || value.sessionId !== sessionId || !Array.isArray(value.messageUpserts)) {
+    throw new Error(`invalid session fact event ${sessionId} line ${String(lineNumber)}`);
+  }
+  const messageUpserts = value.messageUpserts.map((message) => {
+    const normalized = normalizeStoreRecordIfNeeded(message);
+    if (!isLocalConsoleMessage(normalized) || normalized.sessionId !== sessionId) {
+      throw new Error(`invalid session fact message ${sessionId} line ${String(lineNumber)}`);
+    }
+    return normalized;
+  });
+  return {
+    version: 1,
+    eventId: readString(value.eventId, "eventId"),
+    sessionId,
+    type: readString(value.type, "type"),
+    recordedAt: readString(value.recordedAt, "recordedAt"),
+    payload: value.payload,
+    messageUpserts,
+  };
+}
+
+function isLocalConsoleMessage(value: unknown): value is LocalConsoleMessage {
+  return isRecord(value) && typeof value.id === "number" && typeof value.sessionId === "string" && typeof value.speaker === "string";
+}
+
+function completeJsonlLength(file: Buffer): number {
+  if (file.length === 0) {
+    return 0;
+  }
+  const lastNewline = file.lastIndexOf(0x0a);
+  return lastNewline < 0 ? 0 : lastNewline + 1;
+}
+
+async function readFileIfExists(filePath: string): Promise<Buffer | null> {
+  try {
+    return await fs.readFile(filePath);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  return (await readFileIfExists(filePath)) !== null;
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+function assertMigrationSample(sessionId: string, expected: LocalConsoleMessage[], actual: LocalConsoleMessage[]): void {
+  const expectedSample = [expected[0] ?? null, expected.at(-1) ?? null];
+  const actualSample = [actual[0] ?? null, actual.at(-1) ?? null];
+  if (expected.length !== actual.length || JSON.stringify(expectedSample) !== JSON.stringify(actualSample)) {
+    throw new Error(`session fact migration verification failed: ${sessionId}`);
+  }
+}
+
+function defaultSessionLogRoot(sqlitePath: string): string {
+  const stateDir = path.dirname(sqlitePath);
+  const dataRoot = path.basename(stateDir) === ".state" ? path.dirname(stateDir) : stateDir;
+  return path.join(dataRoot, "sessions");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -521,6 +934,22 @@ function normalizeResult(value: unknown): unknown {
 }
 
 function normalizeStoreRecordIfNeeded(value: unknown): unknown {
+  if (isRecord(value) && "result" in value && Array.isArray(value.sessions)) {
+    return {
+      result: normalizeResult(value.result),
+      sessions: value.sessions.map(normalizeStoreRecordIfNeeded),
+    };
+  }
+  if (isRecord(value) && "sessionId" in value && Array.isArray(value.messages)) {
+    return {
+      sessionId: readString(value.sessionId, "sessionId"),
+      parentSessionId: "parentSessionId" in value ? readNullableString(value.parentSessionId, "parentSessionId") : null,
+      messages: value.messages.map(normalizeStoreRecordIfNeeded),
+    };
+  }
+  if (isRecord(value) && Object.keys(value).length === 1 && "sessionId" in value) {
+    return { sessionId: readString(value.sessionId, "sessionId") };
+  }
   if (isRecord(value) && "routeKey" in value && "outcome" in value) {
     return normalizeRouteDecision(value);
   }

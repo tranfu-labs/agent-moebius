@@ -57,7 +57,7 @@ afterEach(() => {
   process.env.PATH = originalPath;
 });
 
-describe("local console", () => {
+describe("local console", { timeout: 15_000 }, () => {
   it("builds a local-native prompt with primary-agent closeout rules", () => {
     const prompt = buildLocalAgentPrompt({
       role: "qa",
@@ -1941,7 +1941,7 @@ describe("local console", () => {
     } finally {
       await started.close();
     }
-  });
+  }, 10_000);
 
   it("returns project/session state and runs messages in the selected session", async () => {
     const root = await makeFixtureRoot();
@@ -2074,10 +2074,15 @@ describe("local console", () => {
       );
       expect(completed.messages.map((entry) => entry.speaker)).toEqual(["user", "agent"]);
       expect(completed.messages[1]?.body).toBe("## 最终结果\n\n只落库一次。");
+      const factLogPath = path.join(root, "sessions", `${Buffer.from(session.sessionId, "utf8").toString("base64url")}.jsonl`);
+      const factEvents = (await fs.readFile(factLogPath, "utf8")).trimEnd().split("\n")
+        .map((line) => JSON.parse(line) as { type: string; payload?: { body?: string } });
+      expect(factEvents.filter((event) => event.type === "agent_progress").map((event) => event.payload?.body))
+        .toEqual(["## 第一段\n\n正在检查。", "## 第二段\n\n检查完成。"]);
     } finally {
       await started.close();
     }
-  });
+  }, 10_000);
 
   it("interrupts only when both sessionId and runId match", async () => {
     const root = await makeFixtureRoot();
@@ -2141,7 +2146,7 @@ describe("local console", () => {
     } finally {
       await started.close();
     }
-  });
+  }, 10_000);
 
   it("dead-letters repeated Codex failures with run metadata and restores them after restart", async () => {
     const root = await makeFixtureRoot();

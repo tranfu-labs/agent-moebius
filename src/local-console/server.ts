@@ -9,6 +9,7 @@ import {
   LOCAL_CONSOLE_PORT,
   LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS,
   LOCAL_CONSOLE_SQLITE_PATH,
+  LOCAL_CONSOLE_SESSION_LOG_ROOT,
   LOCAL_CONSOLE_STORE_TIMEOUT_MS,
   PROJECT_ROOT,
   TMP_ROOT,
@@ -46,6 +47,7 @@ export interface LocalConsoleServerOptions {
   workdirRoot?: string;
   store?: LocalConsoleStore;
   sqlitePath?: string;
+  sessionLogRoot?: string;
   listAgentFiles?: (sessionId: string) => Promise<LocalConsoleAgentFile[]>;
   loadAgentTeamSnapshot?: LocalConsoleRuntimeOptions["loadAgentTeamSnapshot"];
   resolveAgentTeamHealth?: LocalConsoleRuntimeOptions["resolveAgentTeamHealth"];
@@ -81,6 +83,8 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
     options.store ??
     (await createSqliteLocalConsoleStore({
       sqlitePath,
+      sessionLogRoot: options.sessionLogRoot
+        ?? (options.projectRoot === undefined ? LOCAL_CONSOLE_SESSION_LOG_ROOT : path.join(projectRoot, "sessions")),
       busyTimeoutMs: options.sqliteBusyTimeoutMs ?? LOCAL_CONSOLE_SQLITE_BUSY_TIMEOUT_MS,
       timeoutMs: options.storeTimeoutMs ?? LOCAL_CONSOLE_STORE_TIMEOUT_MS,
     }));

@@ -214,6 +214,9 @@ async function startLocalConsole(): Promise<void> {
     localConsoleAttachmentCapability = randomBytes(32).toString("base64url");
     const store = await createSqliteLocalConsoleStore({
       sqlitePath: path.join(status.dataRoot, ".state", "local-console.sqlite"),
+      // Electron's process-wide single-instance lock above makes this main-process store
+      // the only production writer for per-session fact logs under the data root.
+      sessionLogRoot: path.join(status.dataRoot, "sessions"),
     });
     const findSession = async (sessionId: string) => {
       const session = (await store.listSessions()).find((candidate) => candidate.sessionId === sessionId);

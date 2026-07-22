@@ -141,6 +141,7 @@ export interface LocalConsoleSessionWorkspaceSource {
   folderPath: string;
   workspaceMode: LocalConsoleWorkspaceMode;
   workspacePendingMode: LocalConsoleWorkspaceMode | null;
+  session?: LocalConsoleSessionSummary;
 }
 
 export interface LocalConsoleSessionSummary {
@@ -421,7 +422,7 @@ export interface LocalConsoleStore {
     runId: string;
     now: string;
   }): Promise<LocalConsoleMessage | null>;
-  setRunDir(input: { id: number; runDir: string; now: string }): Promise<void>;
+  setRunDir(input: { id: number; sessionId?: string; runDir: string; now: string }): Promise<void>;
   recordAgentResponse(input: {
     userMessageId: number;
     sessionId: string;

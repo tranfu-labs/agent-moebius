@@ -21,15 +21,8 @@ import { log } from "../log.js";
 import { parseTrailingStageMarker } from "../stages.js";
 import { resolveTrigger } from "../triggers/index.js";
 import { readLocalConsoleOutputTail } from "./output-tail.js";
-import {
-  listLocalChildSessionSummaries,
-  recordLocalChildSessionCard,
-} from "./child-session-summary.js";
+import { listLocalChildSessionSummaries } from "./child-session-summary.js";
 import { maybeRouteLocalNoMentionMessage, type LocalRouteJudgment } from "./route-bus.js";
-import {
-  createLocalChildSession,
-  recordLocalWorkspaceDiff,
-} from "./t5-store.js";
 import { buildLocalAgentPrompt } from "./prompt.js";
 import type { LocalAttachmentManager } from "./attachments.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
@@ -48,6 +41,7 @@ import {
   LocalConsoleSessionWorkspaceLockedError,
   type LocalConsoleRunSnapshot,
   type LocalConsoleSessionSummary,
+  type LocalConsoleSessionWorkspaceSource,
   type LocalConsoleWorkspaceMode,
   type LocalConsoleAgentTeamOwnership,
   type LocalConsoleAgentTeamSnapshot,
@@ -98,6 +92,49 @@ export interface LocalConsoleRuntimeOptions {
   failureRetryLimit?: number;
   attachmentManager?: LocalAttachmentManager;
   now?: () => Date;
+}
+
+interface SessionFactWritingStore extends LocalConsoleStore {
+  getSessionFactLogPath(sessionId: string): string;
+  recordProgressEvent(input: {
+    sessionId: string;
+    runId: string;
+    role: string;
+    body: string;
+    now: string;
+  }): Promise<void>;
+  createChildSession(input: {
+    parentSessionId: string;
+    childSessionId: string;
+    projectId: string;
+    title: string;
+    relation: string;
+    hiddenKey: string;
+    initialBody: string;
+    initialRole: string | null;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary>;
+  recordChildSessionCard(input: {
+    parentSessionId: string;
+    sourceId: string;
+    childSessionIds: string[];
+    runId: string;
+    runDir: string;
+    now: string;
+  }): Promise<void>;
+  recordWorkspaceDiff(input: {
+    sessionId: string;
+    runId: string;
+    originalRepoRoot: string | null;
+    baseRef: string;
+    branchName: string;
+    worktreePath: string;
+    patchPath: string;
+    affectedFiles: string[];
+    status: "generated" | "applied" | "failed" | "abandoned" | "rolled_back";
+    error: string | null;
+    now: string;
+  }): Promise<void>;
 }
 
 interface ActiveLocalRun {
@@ -471,23 +508,17 @@ export class LocalConsoleRuntime {
     await this.assertProjectDirectoryAvailable(input.projectId);
     try {
       return await this.storeCall("local-console-store-create-child-session", () =>
-        createLocalChildSession(
-          {
-            sqlitePath: this.options.store.sqlitePath,
-            timeoutMs: this.storeTimeoutMs,
-          },
-          {
-            parentSessionId: input.parentSessionId,
-            childSessionId: input.childSessionId,
-            projectId: input.projectId,
-            title: input.title,
-            relation: input.relation ?? "task",
-            hiddenKey: input.hiddenKey,
-            initialBody: input.initialBody,
-            initialRole: input.initialRole ?? null,
-            now: this.nowIso(),
-          },
-        ),
+        this.sessionFactStore().createChildSession({
+          parentSessionId: input.parentSessionId,
+          childSessionId: input.childSessionId,
+          projectId: input.projectId,
+          title: input.title,
+          relation: input.relation ?? "task",
+          hiddenKey: input.hiddenKey,
+          initialBody: input.initialBody,
+          initialRole: input.initialRole ?? null,
+          now: this.nowIso(),
+        }),
       );
     } catch (error) {
       const message = formatLocalError(error);
@@ -495,6 +526,10 @@ export class LocalConsoleRuntime {
       await this.recordVisibleChildSessionFailureBestEffort(input.parentSessionId, message);
       throw error;
     }
+  }
+
+  getSessionFactLogPath(sessionId: string): string {
+    return this.sessionFactStore().getSessionFactLogPath(sessionId);
   }
 
   async submitUserMessage(
@@ -654,14 +689,15 @@ export class LocalConsoleRuntime {
     this.processingSessions.add(sessionId);
 
     try {
+      await this.repairStaleRunning(sessionId);
       while (true) {
         if (this.closing || this.inactiveSessions.has(sessionId)) {
           return;
         }
-        if (!(await this.sessionCanContinue(sessionId))) {
+        const workspaceSource = await this.continuableSessionWorkspace(sessionId);
+        if (workspaceSource === null) {
           return;
         }
-        await this.repairStaleRunning(sessionId);
         if (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId))) {
           return;
         }
@@ -790,6 +826,7 @@ export class LocalConsoleRuntime {
           await this.storeCall("local-console-store-set-rundir", () =>
             this.options.store.setRunDir({
               id: claimedMessage.id,
+              sessionId,
               runDir: resolvedRunDir,
               now: this.nowIso(),
             }),
@@ -804,7 +841,7 @@ export class LocalConsoleRuntime {
           prompt += preparedAttachments.promptSuffix;
 
           const controller = new AbortController();
-          const workspace = await this.resolveWorkspace(sessionId, controller.signal);
+          const workspace = await this.resolveWorkspace(sessionId, workspaceSource, controller.signal);
           if (this.inactiveSessions.has(sessionId)) {
             return;
           }
@@ -825,22 +862,39 @@ export class LocalConsoleRuntime {
             controller,
           });
 
-          const result = await this.options.runCodex({
-            prompt,
-            runDir: activeRunDir,
-            cwd: workspace.cwd,
-            mode: { kind: "full" },
-            signal: controller.signal,
-            ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
-            ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
-            ...(preparedAttachments.imagePaths.length === 0 ? {} : { imagePaths: preparedAttachments.imagePaths }),
-            onVisibleAgentMarkdown: (text) => {
-              const active = this.activeRuns.get(sessionId);
-              if (active?.runId === nextRunId) {
-                active.liveMarkdown = text;
-              }
-            },
-          });
+          let progressFactTail = Promise.resolve();
+          const result = await (async () => {
+            try {
+              return await this.options.runCodex({
+                prompt,
+                runDir: activeRunDir,
+                cwd: workspace.cwd,
+                mode: { kind: "full" },
+                signal: controller.signal,
+                ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
+                ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
+                ...(preparedAttachments.imagePaths.length === 0 ? {} : { imagePaths: preparedAttachments.imagePaths }),
+                onVisibleAgentMarkdown: (text) => {
+                  const active = this.activeRuns.get(sessionId);
+                  if (active?.runId === nextRunId) {
+                    active.liveMarkdown = text;
+                    const recordedAt = this.nowIso();
+                    progressFactTail = progressFactTail.then(() =>
+                      this.storeCall("local-console-store-record-progress", () =>
+                        this.sessionFactStore().recordProgressEvent({
+                          sessionId,
+                          runId: nextRunId,
+                          role: trigger.role,
+                          body: text,
+                          now: recordedAt,
+                        })));
+                  }
+                },
+              });
+            } finally {
+              await progressFactTail;
+            }
+          })();
 
           if (!result.ok) {
             await this.recordFailedCodexResult(claimedMessage, sessionId, nextRunId, result);
@@ -891,17 +945,14 @@ export class LocalConsoleRuntime {
           if (childSessionCard !== null) {
             try {
               await this.storeCall("local-console-store-child-session-card", () =>
-                recordLocalChildSessionCard(
-                  { sqlitePath: this.options.store.sqlitePath, timeoutMs: this.storeTimeoutMs },
-                  {
-                    parentSessionId: sessionId,
-                    sourceId: childSessionCard.sourceId,
-                    childSessionIds: childSessionCard.childSessionIds,
-                    runId: nextRunId,
-                    runDir: result.runDir,
-                    now: this.nowIso(),
-                  },
-                ));
+                this.sessionFactStore().recordChildSessionCard({
+                  parentSessionId: sessionId,
+                  sourceId: childSessionCard.sourceId,
+                  childSessionIds: childSessionCard.childSessionIds,
+                  runId: nextRunId,
+                  runDir: result.runDir,
+                  now: this.nowIso(),
+                }));
             } catch (error) {
               const reason = formatLocalError(error);
               this.lastError = reason;
@@ -1027,17 +1078,22 @@ export class LocalConsoleRuntime {
     }
   }
 
-  private async sessionCanContinue(sessionId: string): Promise<boolean> {
-    if (!(await this.sessionProjectDirectoryAvailable(sessionId))) {
-      return false;
+  private async continuableSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource | null> {
+    const source = await this.storeCall("local-console-store-session-workspace", () =>
+      this.options.store.getSessionWorkspace(sessionId),
+    );
+    if (!(await directoryAvailable(source.folderPath))) {
+      return null;
     }
-    const session = (await this.storeCall("local-console-store-list-sessions", () => this.options.store.listSessions()))
-      .find((candidate) => candidate.sessionId === sessionId);
+    const session = source.session ?? (await this.storeCall(
+      "local-console-store-list-sessions",
+      () => this.options.store.listSessions(),
+    )).find((candidate) => candidate.sessionId === sessionId);
     if (session === undefined) {
-      return false;
+      return null;
     }
     const healthy = await this.withAgentTeamHealth(session);
-    return healthy.agentTeamHealth !== "deleted" && healthy.agentTeamHealth !== "needs-repair";
+    return healthy.agentTeamHealth === "deleted" || healthy.agentTeamHealth === "needs-repair" ? null : source;
   }
 
   private async sessionProjectDirectoryAvailable(sessionId: string): Promise<boolean> {
@@ -1172,8 +1228,11 @@ export class LocalConsoleRuntime {
     }
   }
 
-  private async resolveWorkspace(sessionId: string, signal: AbortSignal): Promise<ResolvedLocalWorkspace> {
-    const source = await this.storeCall("local-console-store-session-workspace", () => this.options.store.getSessionWorkspace(sessionId));
+  private async resolveWorkspace(
+    sessionId: string,
+    source: LocalConsoleSessionWorkspaceSource,
+    signal: AbortSignal,
+  ): Promise<ResolvedLocalWorkspace> {
     const workspace = await resolveLocalWorkspaceSource({
       projectId: source.projectId,
       sessionId,
@@ -1516,53 +1575,55 @@ export class LocalConsoleRuntime {
         signal,
       });
       await this.storeCall("local-console-store-record-workspace-diff", () =>
-        recordLocalWorkspaceDiff(
-          {
-            sqlitePath: this.options.store.sqlitePath,
-            timeoutMs: this.storeTimeoutMs,
-          },
-          {
-            sessionId,
-            runId,
-            originalRepoRoot: workspace.originalRepoRoot,
-            baseRef: diff.baseRef,
-            branchName: diff.branchName,
-            worktreePath: diff.worktreePath,
-            patchPath: diff.patchPath,
-            affectedFiles: diff.affectedFiles,
-            status: "generated",
-            error: null,
-            now: this.nowIso(),
-          },
-        ),
+        this.sessionFactStore().recordWorkspaceDiff({
+          sessionId,
+          runId,
+          originalRepoRoot: workspace.originalRepoRoot,
+          baseRef: diff.baseRef,
+          branchName: diff.branchName,
+          worktreePath: diff.worktreePath,
+          patchPath: diff.patchPath,
+          affectedFiles: diff.affectedFiles,
+          status: "generated",
+          error: null,
+          now: this.nowIso(),
+        }),
       );
     } catch (error) {
       const message = formatLocalError(error);
       log({ event: "local-console-workspace-diff-failed", error: message, sessionId, runId });
-      await recordLocalWorkspaceDiff(
-        {
-          sqlitePath: this.options.store.sqlitePath,
-          timeoutMs: this.storeTimeoutMs,
-        },
-        {
-          sessionId,
-          runId,
-          originalRepoRoot: workspace.originalRepoRoot,
-          baseRef: workspace.baseRef ?? "unknown",
-          branchName: workspace.branchName ?? "unknown",
-          worktreePath: workspace.worktreePath,
-          patchPath: path.join(runDir, "workspace.patch"),
-          affectedFiles: [],
-          status: "failed",
-          error: message,
-          now: this.nowIso(),
-        },
-      );
+      await this.sessionFactStore().recordWorkspaceDiff({
+        sessionId,
+        runId,
+        originalRepoRoot: workspace.originalRepoRoot,
+        baseRef: workspace.baseRef ?? "unknown",
+        branchName: workspace.branchName ?? "unknown",
+        worktreePath: workspace.worktreePath,
+        patchPath: path.join(runDir, "workspace.patch"),
+        affectedFiles: [],
+        status: "failed",
+        error: message,
+        now: this.nowIso(),
+      });
     }
   }
 
   private async storeCall<T>(label: string, operation: () => Promise<T>): Promise<T> {
     return await withLocalConsoleTimeout(Promise.resolve().then(operation), this.storeTimeoutMs, label);
+  }
+
+  private sessionFactStore(): SessionFactWritingStore {
+    const store = this.options.store as Partial<SessionFactWritingStore> & LocalConsoleStore;
+    if (
+      typeof store.createChildSession !== "function" ||
+      typeof store.recordChildSessionCard !== "function" ||
+      typeof store.recordWorkspaceDiff !== "function" ||
+      typeof store.recordProgressEvent !== "function" ||
+      typeof store.getSessionFactLogPath !== "function"
+    ) {
+      throw new Error("local console store does not provide the session fact write funnel");
+    }
+    return store as SessionFactWritingStore;
   }
 
   private nowIso(): string {
