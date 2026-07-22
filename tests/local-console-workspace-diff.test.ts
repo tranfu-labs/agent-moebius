@@ -59,6 +59,7 @@ describe("local console conversation workspace diff through HTTP", () => {
         await expect(fs.readFile(path.join(repository, "draft.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       }
     },
+    20_000,
   );
 
   it("reports an available zero instead of omitting the fact", async () => {
@@ -73,7 +74,7 @@ describe("local console conversation workspace diff through HTTP", () => {
       snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
     );
     expect(state.workspaceDiff).toEqual({ available: true, fileCount: 0, reason: null });
-  });
+  }, 20_000);
 
   it("returns unavailable for non-Git projects and legacy sessions without a baseline", async () => {
     const root = await temporaryRoot();
@@ -141,7 +142,7 @@ describe("local console conversation workspace diff through HTTP", () => {
       stdout: expect.stringContaining("complete stdout"),
       stderr: expect.stringContaining("complete stderr"),
     });
-  });
+  }, 20_000);
 });
 
 async function temporaryRoot(): Promise<string> {

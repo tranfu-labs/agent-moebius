@@ -41,12 +41,13 @@
 受影响模块：
 
 - `src/local-console/workspace-diff.ts`（新增或扩展现有 diff 逻辑）：对话级改动计数，覆盖 direct 与 worktree 两种模式，非 Git 返回不可用。
-- `src/sqlite-state-worker.ts`、`src/local-console/store.ts`、`types.ts`：持久化对话开始时的基线提交；计数随快照下发。
+- `src/sqlite-state-worker.ts`、`src/sqlite-state.ts`、`src/local-console/store.ts`、`types.ts`：持久化对话开始时的基线提交，并让基线跨 SQLite worker 的命令类型边界传递；计数随快照下发。
 - `src/local-console/runtime.ts`：一轮结束（无成员接力）时产出结果卡片所需事实；现有 `affectedFiles` 只在 worktree + `code-verified` 下生成，需扩展覆盖面。
 - `src/local-console/server.ts`：计数随会话快照下发；本片不新增改动清单路由（清单属右侧栏）。
 - `packages/console-ui/src/console/result-card.tsx`：新增，含共置测试与 Story。
 - `packages/console-ui/src/console/run-block.tsx`、`run-outcome.tsx`：恢复 `rawOutput` 的出口，改为发出打开过程标签的意图。
 - `packages/console-ui/src/console/operator-console.tsx`：结果卡片接线；区分「操作台故障→开发者诊断」与「某一步的完整输出」两个不同入口，不复用同一个回调。
+- `packages/console-ui/src/console/sub-session-panel.tsx`：保留既有子会话默认语义，只增加可选的中性无障碍标签，供证据内容复用同一个单内容面板。
 - `packages/console-ui/src/index.ts`：导出结果卡片与打开意图类型。
 - `desktop/src/console-page/app.tsx`、`state-sync.ts`：接通计数读取与打开意图；右侧栏就绪前接现有面板降级显示。
 - `tests/local-console-workspace-diff.test.ts`（新增）、`tests/local-console.test.ts`、`desktop/tests/console-state-sync.test.ts` 及组件共置测试。

@@ -1061,10 +1061,12 @@ describe("OperatorConsole", () => {
       onCloseEvidence,
     });
 
-    expect(screen.getByTestId("sub-session-panel")).toBeVisible();
+    const panel = screen.getByTestId("sub-session-panel");
+    expect(panel).toBeVisible();
     expect(screen.getByTestId("evidence-panel-content")).toHaveTextContent("full raw output /tmp/run");
-    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
-    expect(screen.queryByText(/新建标签|类型选择/u)).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("tablist")).not.toBeInTheDocument();
+    expect(within(panel).queryByText(/新建标签|类型选择|文件树|加号新建/u)).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: /新建|添加/u })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭证据内容" }));
     expect(onCloseEvidence).toHaveBeenCalledTimes(1);
   });
