@@ -92,33 +92,6 @@ export async function listLocalChildSessionSummaries(
   return summarizeChildSessions(parentSessionId, sources);
 }
 
-export async function recordLocalChildSessionCard(
-  options: ChildSessionSummaryCommandOptions,
-  input: {
-    parentSessionId: string;
-    sourceId: string;
-    childSessionIds: string[];
-    runId: string;
-    runDir: string;
-    now: string;
-  },
-): Promise<void> {
-  await runSqliteStateCommand({
-    sqlitePath: options.sqlitePath,
-    busyTimeoutMs: options.busyTimeoutMs,
-    timeoutMs: options.timeoutMs ?? LOCAL_CONSOLE_STORE_TIMEOUT_MS,
-    command: {
-      kind: "local-record-child-session-card",
-      parentSessionId: input.parentSessionId,
-      sourceId: input.sourceId,
-      body: JSON.stringify({ version: 1, childSessionIds: input.childSessionIds }),
-      runId: input.runId,
-      runDir: input.runDir,
-      now: input.now,
-    },
-  });
-}
-
 function extractInitialHandoffRole(body: string | null): string | null {
   if (body === null) return null;
   const handoff = /Initial handoff:\s*\n\s*@([a-z0-9][a-z0-9-]*)/iu.exec(body);

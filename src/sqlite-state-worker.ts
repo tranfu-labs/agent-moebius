@@ -132,6 +132,26 @@ function runCommand(input: WorkerInput): unknown {
         return rebuildSessionMessageIndex(database, input.command.sessionId, input.command.messages);
       case "local-find-message-session":
         return findMessageSession(database, input.command.messageId);
+      case "local-create-session":
+      case "local-create-child-session":
+      case "local-record-child-session-card":
+      case "local-append-user":
+      case "local-claim-next":
+      case "local-set-run-dir":
+      case "local-record-message-processed":
+      case "local-record-route-append":
+      case "local-record-route-no-action":
+      case "local-release-message-for-retry":
+      case "local-record-agent-response":
+      case "local-record-system-and-complete":
+      case "local-record-system":
+      case "local-record-failure":
+      case "local-record-retryable-failure":
+      case "local-record-dead-letter-and-complete":
+      case "local-record-interrupted":
+      case "local-record-stuck":
+      case "local-mark-stale-running":
+        return rejectDirectSessionMessageWrite(input.command);
       case "local-commit-session-fact-write":
         return commitSessionFactWrite(database, input.command.factCommand, input.command.facts);
       case "local-create-project":
@@ -160,26 +180,18 @@ function runCommand(input: WorkerInput): unknown {
         return listLocalSessionAgentTeamSnapshot(database, input.command.sessionId);
       case "local-record-project-workspace-status":
         return recordLocalProjectWorkspaceStatus(database, input.command);
-      case "local-create-session":
-        return createLocalSession(database, input.command);
       case "local-move-empty-session":
         return moveEmptyLocalSession(database, input.command);
       case "local-archive-session":
         return archiveLocalSession(database, input.command);
       case "local-restore-session":
         return restoreLocalSession(database, input.command);
-      case "local-create-child-session":
-        return createLocalChildSession(database, input.command);
       case "local-list-child-session-summary-sources":
         return listChildSessionSummarySources(database, input.command.parentSessionId);
-      case "local-record-child-session-card":
-        return recordChildSessionCard(database, input.command);
       case "local-list-sessions":
         return listLocalSessions(database);
       case "local-mark-session-result-read":
         return markSessionResultRead(database, input.command);
-      case "local-append-user":
-        return appendUserMessage(database, input.command);
       case "local-add-draft-attachment":
         return addDraftAttachment(database, input.command);
       case "local-list-draft-attachments":
@@ -201,36 +213,8 @@ function runCommand(input: WorkerInput): unknown {
         return listLocalMessages(database, input.command.sessionId);
       case "local-has-running":
         return hasRunningMessage(database, input.command.sessionId);
-      case "local-claim-next":
-        return claimNextPendingMessage(database, input.command);
-      case "local-set-run-dir":
-        return setRunDir(database, input.command);
-      case "local-record-message-processed":
-        return recordMessageProcessed(database, input.command);
       case "local-find-route-decision":
         return findLocalRouteDecision(database, input.command);
-      case "local-record-route-append":
-        return recordLocalRouteAppend(database, input.command);
-      case "local-record-route-no-action":
-        return recordLocalRouteNoAction(database, input.command);
-      case "local-release-message-for-retry":
-        return releaseMessageForRetry(database, input.command);
-      case "local-record-agent-response":
-        return recordAgentResponse(database, input.command);
-      case "local-record-system-and-complete":
-        return recordSystemAndComplete(database, input.command);
-      case "local-record-system":
-        return recordSystemMessage(database, input.command);
-      case "local-record-failure":
-        return recordFailure(database, input.command);
-      case "local-record-retryable-failure":
-        return recordRetryableFailure(database, input.command);
-      case "local-record-dead-letter-and-complete":
-        return recordDeadLetterAndComplete(database, input.command);
-      case "local-record-interrupted":
-        return recordInterrupted(database, input.command);
-      case "local-record-stuck":
-        return recordStuck(database, input.command);
       case "local-record-route-decision":
         return recordLocalRouteDecision(database, input.command);
       case "local-record-dead-letter":
@@ -239,14 +223,18 @@ function runCommand(input: WorkerInput): unknown {
         return recordLocalWorkspaceDiff(database, input.command);
       case "local-list-t5-facts":
         return listLocalT5Facts(database, input.command.sessionId);
-      case "local-mark-stale-running":
-        return markStaleRunning(database, input.command);
       default:
         assertNever(input.command);
     }
   } finally {
     database.close();
   }
+}
+
+function rejectDirectSessionMessageWrite(command: SqliteStateCommand): never {
+  throw new Error(
+    `Direct session message write is forbidden by ADR-0004; use local-commit-session-fact-write: ${command.kind}`,
+  );
 }
 
 function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {

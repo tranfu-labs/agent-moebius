@@ -1,5 +1,4 @@
 import { runSqliteStateCommand } from "../sqlite-state.js";
-import type { LocalConsoleSessionSummary } from "./types.js";
 
 export interface LocalT5CommandOptions {
   sqlitePath: string;
@@ -14,27 +13,6 @@ export interface LocalT5Facts {
   deadLetters: unknown[];
   workspaceDiffs: unknown[];
   sessionEdges: unknown[];
-}
-
-export async function createLocalChildSession(
-  options: LocalT5CommandOptions,
-  input: {
-    parentSessionId: string;
-    childSessionId: string;
-    projectId: string;
-    title: string;
-    relation: string;
-    hiddenKey: string;
-    initialBody: string;
-    initialRole?: string | null;
-    now: string;
-  },
-): Promise<LocalConsoleSessionSummary> {
-  return await runLocalT5Command<LocalConsoleSessionSummary>(options, {
-    kind: "local-create-child-session",
-    ...input,
-    initialRole: input.initialRole ?? null,
-  });
 }
 
 export async function recordLocalRouteDecision(

@@ -9,7 +9,6 @@ import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../../s
 import { createSqliteLocalConsoleStore } from "../../src/local-console/store.js";
 import { LocalConsoleRuntime } from "../../src/local-console/runtime.js";
 import {
-  createLocalChildSession,
   listLocalT5Facts,
   recordLocalDeadLetter,
   recordLocalRouteDecision,
@@ -223,10 +222,10 @@ async function runMultiChildGoalCase(): Promise<EvidenceItem[]> {
   await store.init();
   try {
     const parent = await store.createSession({ sessionId: "local:parent", title: "T5 parent", now: now(0) });
-    const childA = await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-a", "task-a", now(1)));
-    const childB = await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-b", "task-b", now(2)));
+    const childA = await store.createChildSession(childInput(parent.sessionId, "local:child-a", "task-a", now(1)));
+    const childB = await store.createChildSession(childInput(parent.sessionId, "local:child-b", "task-b", now(2)));
     await recordLocalRouteDecision({ sqlitePath }, { sessionId: parent.sessionId, messageId: 1, routeKey: "route:user", outcome: "append", targetRole: "dev", reason: "goal-shape", now: now(3) });
-    const repair = await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:repair", "repair", now(7)));
+    const repair = await store.createChildSession(childInput(parent.sessionId, "local:repair", "repair", now(7)));
     await recordLocalRouteDecision({ sqlitePath }, { sessionId: childA.sessionId, messageId: 2, routeKey: "route:agent-child", outcome: "append", targetRole: "dev", reason: "agent-authored-no-mention", now: now(8) });
     await recordLocalRouteDecision({ sqlitePath }, { sessionId: childB.sessionId, messageId: 3, routeKey: "route:closed-task", outcome: "no_action", targetRole: null, reason: "ledger-task-closed", now: now(9) });
     const facts = await listLocalT5Facts({ sqlitePath });
@@ -253,8 +252,8 @@ async function runChildSessionOrchestrationCase(): Promise<EvidenceItem[]> {
   await store.init();
   try {
     const parent = await store.createSession({ sessionId: "local:parent", title: "Parent goal", now: now(0) });
-    const childA = await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-a", "Task A", now(1)));
-    const childB = await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-b", "Task B", now(2)));
+    const childA = await store.createChildSession(childInput(parent.sessionId, "local:child-a", "Task A", now(1)));
+    const childB = await store.createChildSession(childInput(parent.sessionId, "local:child-b", "Task B", now(2)));
     const rows = readSessionParentRows(sqlitePath);
     assert(rows.filter((row) => row.parent_session_id === parent.sessionId).length === 2, "child parent_session_id rows missing");
 
@@ -264,33 +263,37 @@ async function runChildSessionOrchestrationCase(): Promise<EvidenceItem[]> {
     await timeoutStore.init();
     await timeoutStore.createSession({ sessionId: "local:parent", title: "Parent", now: now(0) });
     await timeoutStore.close();
+    const lockedStore = await createSqliteLocalConsoleStore({
+      sqlitePath: timeoutSqlite,
+      busyTimeoutMs: 5_000,
+      timeoutMs: 50,
+    });
     const lockDb = new DatabaseSync(timeoutSqlite);
     let timeoutError: string | null = null;
     try {
       lockDb.exec("BEGIN EXCLUSIVE");
-      await createLocalChildSession(
-        { sqlitePath: timeoutSqlite, busyTimeoutMs: 5_000, timeoutMs: 50 },
-        childInput("local:parent", "local:child-timeout", "Timeout child", now(1)),
-      );
+      await lockedStore.createChildSession(childInput("local:parent", "local:child-timeout", "Timeout child", now(1)));
     } catch (error) {
       timeoutError = error instanceof Error ? error.message : String(error);
     } finally {
       lockDb.exec("ROLLBACK");
       lockDb.close();
+      await lockedStore.close();
     }
     assert(timeoutError?.includes("timeout") === true, `expected timeout error, got ${String(timeoutError)}`);
 
     const project = await store.createProject({ folderPath: path.join(root, "project-b"), worktreeMode: false, now: now(3) });
     let projectMismatchError: string | null = null;
     try {
-      await createLocalChildSession(
-        { sqlitePath },
-        { ...childInput(parent.sessionId, "local:cross-project", "Cross project", now(4)), projectId: project.projectId },
-      );
+      await store.createChildSession({
+        ...childInput(parent.sessionId, "local:cross-project", "Cross project", now(4)),
+        projectId: project.projectId,
+      });
     } catch (error) {
       projectMismatchError = error instanceof Error ? error.message : String(error);
     }
     assert(projectMismatchError?.includes("project mismatch") === true, `expected project mismatch, got ${String(projectMismatchError)}`);
+    await store.listSessions();
 
     const collisionDb = new DatabaseSync(sqlitePath);
     try {
@@ -312,10 +315,10 @@ async function runChildSessionOrchestrationCase(): Promise<EvidenceItem[]> {
     }
     let collisionError: string | null = null;
     try {
-      await createLocalChildSession(
-        { sqlitePath },
-        { ...childInput(parent.sessionId, "local:collision-c", childA.title, now(6)), hiddenKey: `hidden:${childA.sessionId}` },
-      );
+      await store.createChildSession({
+        ...childInput(parent.sessionId, "local:collision-c", childA.title, now(6)),
+        hiddenKey: `hidden:${childA.sessionId}`,
+      });
     } catch (error) {
       collisionError = error instanceof Error ? error.message : String(error);
     }
@@ -361,8 +364,8 @@ async function runChildSessionSidebarTreeCase(): Promise<EvidenceItem[]> {
   await store.init();
   try {
     const parent = await store.createSession({ sessionId: "local:parent", title: "Parent goal", now: now(0) });
-    await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-a", "Task A", now(1)));
-    await createLocalChildSession({ sqlitePath }, childInput(parent.sessionId, "local:child-b", "Task B", now(2)));
+    await store.createChildSession(childInput(parent.sessionId, "local:child-a", "Task A", now(1)));
+    await store.createChildSession(childInput(parent.sessionId, "local:child-b", "Task B", now(2)));
     const beforeRefresh = await store.listSessions();
     await store.close();
     const restarted = await createSqliteLocalConsoleStore({ sqlitePath });

@@ -13,6 +13,7 @@ import { loadGitHubResponseIntakeState, saveGitHubResponseIntakeState } from "..
 import type { GitHubResponseIntakeState } from "../src/github-response-intake.js";
 import { createEmptyGoalLedgerState } from "../src/goal-ledger.js";
 import { loadGoalLedgerState } from "../src/goal-ledger-state.js";
+import { createSqliteLocalConsoleStore } from "../src/local-console/store.js";
 import { runSqliteStateCommand, SqliteStateTimeoutError } from "../src/sqlite-state.js";
 import { loadRoleThreadStateStore } from "../src/state.js";
 
@@ -152,18 +153,14 @@ describe("GitHub runner state store isolation", () => {
 
 async function seedLocalMessage(sqlitePath: string): Promise<void> {
   const now = "2026-07-11T00:00:00.000Z";
-  const project = await runSqliteStateCommand<{ projectId: string }>({
-    sqlitePath,
-    command: { kind: "local-create-project", folderPath: path.dirname(sqlitePath), worktreeMode: false, now },
-  });
-  await runSqliteStateCommand({
-    sqlitePath,
-    command: { kind: "local-create-session", sessionId: "local:representative", projectId: project.projectId, title: "Local", now },
-  });
-  await runSqliteStateCommand({
-    sqlitePath,
-    command: { kind: "local-append-user", sessionId: "local:representative", body: "local-only", now },
-  });
+  const store = await createSqliteLocalConsoleStore({ sqlitePath });
+  await store.init();
+  try {
+    await store.createSession({ sessionId: "local:representative", title: "Local", now });
+    await store.appendUserMessage({ sessionId: "local:representative", body: "local-only", now });
+  } finally {
+    await store.close();
+  }
 }
 
 function representativeIntake(label: string): GitHubResponseIntakeState {

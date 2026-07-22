@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CodexRunOptions, CodexRunResult } from "../src/codex.js";
 import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../src/local-console/server.js";
 import { createSqliteLocalConsoleStore } from "../src/local-console/store.js";
-import { runSqliteStateCommand } from "../src/sqlite-state.js";
+import { runSqliteStateCommand, type SqliteStateCommand } from "../src/sqlite-state.js";
 
 const roots: string[] = [];
 const servers: StartedLocalConsoleServer[] = [];
@@ -56,6 +56,275 @@ describe("ADR-0004 per-session JSONL fact logs", () => {
     }
   });
 
+  it("rejects every direct worker command that can mutate the session message index", async () => {
+    const root = await fixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const now = "2026-07-22T00:00:00.000Z";
+    const sessionId = "local:blocked";
+    const messageId = 1;
+    const commands: SqliteStateCommand[] = [
+      { kind: "local-create-session", sessionId, projectId: "local", title: "blocked", initialMessage: "blocked", now },
+      {
+        kind: "local-create-child-session",
+        parentSessionId: sessionId,
+        childSessionId: "local:blocked-child",
+        projectId: "local",
+        title: "blocked child",
+        relation: "task",
+        hiddenKey: "blocked-child",
+        initialBody: "blocked",
+        initialRole: "dev",
+        now,
+      },
+      {
+        kind: "local-record-child-session-card",
+        parentSessionId: sessionId,
+        sourceId: "blocked-card",
+        body: "blocked",
+        runId: "run-blocked",
+        runDir: "/tmp/blocked",
+        now,
+      },
+      { kind: "local-append-user", sessionId, body: "blocked", now },
+      { kind: "local-claim-next", sessionId, runId: "run-blocked", now },
+      { kind: "local-set-run-dir", id: messageId, runDir: "/tmp/blocked", now },
+      { kind: "local-record-message-processed", userMessageId: messageId, sessionId, runId: "run-blocked", runDir: null, now },
+      {
+        kind: "local-record-route-append",
+        userMessageId: messageId,
+        sessionId,
+        routeKey: "route-blocked",
+        body: "blocked",
+        targetRole: "dev",
+        runId: "run-blocked",
+        runDir: null,
+        now,
+      },
+      {
+        kind: "local-record-route-no-action",
+        userMessageId: messageId,
+        sessionId,
+        routeKey: "route-blocked",
+        outcome: "no_action",
+        reason: "blocked",
+        runId: "run-blocked",
+        runDir: null,
+        now,
+      },
+      { kind: "local-release-message-for-retry", userMessageId: messageId, sessionId, now },
+      {
+        kind: "local-record-agent-response",
+        userMessageId: messageId,
+        sessionId,
+        role: "dev",
+        body: "blocked",
+        runId: "run-blocked",
+        runDir: "/tmp/blocked",
+        now,
+      },
+      {
+        kind: "local-record-system-and-complete",
+        userMessageId: messageId,
+        sessionId,
+        body: "blocked",
+        systemEventKind: "other",
+        runId: "run-blocked",
+        runDir: null,
+        now,
+      },
+      {
+        kind: "local-record-system",
+        sessionId,
+        body: "blocked",
+        runId: null,
+        runDir: null,
+        error: null,
+        systemEventKind: "other",
+        now,
+      },
+      { kind: "local-record-failure", userMessageId: messageId, sessionId, error: "blocked", runId: null, runDir: null, now },
+      { kind: "local-record-retryable-failure", userMessageId: messageId, sessionId, error: "blocked", runId: null, runDir: null, now },
+      {
+        kind: "local-record-dead-letter-and-complete",
+        userMessageId: messageId,
+        sessionId,
+        error: "blocked",
+        runId: null,
+        runDir: null,
+        failureCount: 5,
+        now,
+      },
+      { kind: "local-record-interrupted", userMessageId: messageId, sessionId, reason: "blocked", runId: null, runDir: null, now },
+      { kind: "local-record-stuck", userMessageId: messageId, sessionId, reason: "blocked", runId: null, runDir: null, now },
+      { kind: "local-mark-stale-running", sessionId, cutoffIso: now, now, reason: "blocked" },
+    ];
+
+    for (const command of commands) {
+      await expect(runSqliteStateCommand({ sqlitePath, command }))
+        .rejects.toThrow(`Direct session message write is forbidden by ADR-0004; use local-commit-session-fact-write: ${command.kind}`);
+    }
+
+    const database = new DatabaseSync(sqlitePath, { readOnly: true });
+    try {
+      expect(database.prepare("SELECT COUNT(*) AS count FROM session_messages").get()).toMatchObject({ count: 0 });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("keeps every message-mutating store facade inside the fact-write funnel", async () => {
+    const root = await fixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    const claimed = async (suffix: string, createdAt: string): Promise<{ sessionId: string; messageId: number }> => {
+      const sessionId = `local:facade-${suffix}`;
+      await store.createSession({ sessionId, title: suffix, now: createdAt });
+      const message = await store.appendUserMessage({ sessionId, body: suffix, now: createdAt });
+      await store.claimNextPendingMessage({ sessionId, runId: `run-${suffix}`, now: createdAt });
+      return { sessionId, messageId: message.id };
+    };
+
+    const agent = await claimed("agent", "2026-07-22T00:01:00.000Z");
+    await store.setRunDir({ id: agent.messageId, sessionId: agent.sessionId, runDir: "/tmp/agent", now: "2026-07-22T00:01:01.000Z" });
+    await store.recordAgentResponse({
+      userMessageId: agent.messageId,
+      sessionId: agent.sessionId,
+      role: "dev",
+      body: "agent response",
+      runId: "run-agent",
+      runDir: "/tmp/agent",
+      now: "2026-07-22T00:01:02.000Z",
+    });
+
+    const processed = await claimed("processed", "2026-07-22T00:02:00.000Z");
+    await store.recordMessageProcessed({
+      userMessageId: processed.messageId,
+      sessionId: processed.sessionId,
+      runId: "run-processed",
+      runDir: null,
+      now: "2026-07-22T00:02:01.000Z",
+    });
+
+    const routeAppend = await claimed("route-append", "2026-07-22T00:03:00.000Z");
+    await store.recordRouteAppend({
+      userMessageId: routeAppend.messageId,
+      sessionId: routeAppend.sessionId,
+      routeKey: "route:append",
+      body: "route append",
+      targetRole: "dev",
+      runId: "run-route-append",
+      runDir: null,
+      now: "2026-07-22T00:03:01.000Z",
+    });
+
+    const routeNoAction = await claimed("route-no-action", "2026-07-22T00:04:00.000Z");
+    await store.recordRouteNoAction({
+      userMessageId: routeNoAction.messageId,
+      sessionId: routeNoAction.sessionId,
+      routeKey: "route:no-action",
+      outcome: "no_action",
+      reason: "none",
+      runId: "run-route-no-action",
+      runDir: null,
+      now: "2026-07-22T00:04:01.000Z",
+    });
+
+    const retry = await claimed("retry", "2026-07-22T00:05:00.000Z");
+    await store.releaseMessageForRetry({ userMessageId: retry.messageId, sessionId: retry.sessionId, now: "2026-07-22T00:05:01.000Z" });
+
+    const systemComplete = await claimed("system-complete", "2026-07-22T00:06:00.000Z");
+    await store.recordSystemAndComplete({
+      userMessageId: systemComplete.messageId,
+      sessionId: systemComplete.sessionId,
+      body: "system complete",
+      runId: "run-system-complete",
+      runDir: null,
+      now: "2026-07-22T00:06:01.000Z",
+    });
+
+    await store.recordSystemMessage({
+      sessionId: "local:facade-system",
+      body: "system",
+      runId: null,
+      runDir: null,
+      error: null,
+      now: "2026-07-22T00:07:00.000Z",
+    });
+
+    const failure = await claimed("failure", "2026-07-22T00:08:00.000Z");
+    await store.recordFailure({ userMessageId: failure.messageId, sessionId: failure.sessionId, error: "failed", runId: null, runDir: null, now: "2026-07-22T00:08:01.000Z" });
+
+    const retryable = await claimed("retryable", "2026-07-22T00:09:00.000Z");
+    await store.recordRetryableFailure({ userMessageId: retryable.messageId, sessionId: retryable.sessionId, error: "retryable", runId: null, runDir: null, now: "2026-07-22T00:09:01.000Z" });
+
+    const deadLetter = await claimed("dead-letter", "2026-07-22T00:10:00.000Z");
+    await store.recordDeadLetter({ userMessageId: deadLetter.messageId, sessionId: deadLetter.sessionId, error: "dead", runId: null, runDir: null, failureCount: 5, now: "2026-07-22T00:10:01.000Z" });
+
+    const interrupted = await claimed("interrupted", "2026-07-22T00:11:00.000Z");
+    await store.recordInterrupted({ userMessageId: interrupted.messageId, sessionId: interrupted.sessionId, reason: "stopped", runId: null, runDir: null, now: "2026-07-22T00:11:01.000Z" });
+
+    const stuck = await claimed("stuck", "2026-07-22T00:12:00.000Z");
+    await store.recordStuck({ userMessageId: stuck.messageId, sessionId: stuck.sessionId, reason: "stuck", runId: null, runDir: null, now: "2026-07-22T00:12:01.000Z" });
+
+    const stale = await claimed("stale", "2026-07-22T00:13:00.000Z");
+    await expect(store.markStaleRunning({
+      sessionId: stale.sessionId,
+      cutoffIso: "2026-07-22T00:13:01.000Z",
+      now: "2026-07-22T00:13:02.000Z",
+      reason: "stale",
+    })).resolves.toBe(1);
+
+    await store.createSession({
+      sessionId: "local:facade-initial",
+      title: "initial",
+      initialMessage: "initial message",
+      now: "2026-07-22T00:14:00.000Z",
+    });
+    await store.createSession({ sessionId: "local:facade-parent", title: "parent", now: "2026-07-22T00:15:00.000Z" });
+    const child = await store.createChildSession({
+      parentSessionId: "local:facade-parent",
+      childSessionId: "local:facade-child",
+      projectId: "local",
+      title: "child",
+      relation: "task",
+      hiddenKey: "facade-child",
+      initialBody: "child handoff",
+      initialRole: "dev",
+      now: "2026-07-22T00:15:01.000Z",
+    });
+    await store.recordChildSessionCard({
+      parentSessionId: "local:facade-parent",
+      sourceId: "facade-card",
+      childSessionIds: [child.sessionId],
+      runId: "run-card",
+      runDir: "/tmp/card",
+      now: "2026-07-22T00:15:02.000Z",
+    });
+
+    for (const sessionId of [
+      agent.sessionId,
+      processed.sessionId,
+      routeAppend.sessionId,
+      routeNoAction.sessionId,
+      retry.sessionId,
+      systemComplete.sessionId,
+      "local:facade-system",
+      failure.sessionId,
+      retryable.sessionId,
+      deadLetter.sessionId,
+      interrupted.sessionId,
+      stuck.sessionId,
+      stale.sessionId,
+      "local:facade-initial",
+      "local:facade-parent",
+      "local:facade-child",
+    ]) {
+      expect((await fs.readFile(store.getSessionFactLogPath(sessionId), "utf8")).endsWith("\n")).toBe(true);
+    }
+    await store.close();
+  }, 20_000);
+
   it("ignores an incomplete tail while reading and truncates it before the next append", async () => {
     const root = await fixtureRoot();
     const store = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });
@@ -84,10 +353,7 @@ describe("ADR-0004 per-session JSONL fact logs", () => {
     const root = await fixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
     await runSqliteStateCommand({ sqlitePath, command: { kind: "local-init" } });
-    await runSqliteStateCommand({
-      sqlitePath,
-      command: { kind: "local-append-user", sessionId: "local:legacy", body: "旧消息", now: "2026-07-22T00:00:00.000Z" },
-    });
+    insertLegacyMessage(sqlitePath, "旧消息", "2026-07-22T00:00:00.000Z");
 
     const store = await createSqliteLocalConsoleStore({ sqlitePath });
     await store.init();
@@ -96,10 +362,7 @@ describe("ADR-0004 per-session JSONL fact logs", () => {
     expect(migratedText).toContain("session_history_migrated");
     await store.close();
 
-    await runSqliteStateCommand({
-      sqlitePath,
-      command: { kind: "local-append-user", sessionId: "local:legacy", body: "marker 后旧表新增", now: "2026-07-22T00:00:01.000Z" },
-    });
+    insertLegacyMessage(sqlitePath, "marker 后旧表新增", "2026-07-22T00:00:01.000Z");
     const reopened = await createSqliteLocalConsoleStore({ sqlitePath });
     await reopened.init();
     expect(await fs.readFile(logPath, "utf8")).toBe(migratedText);
@@ -190,6 +453,28 @@ async function readSessionLog(root: string, sessionId: string): Promise<Array<{ 
   const fileName = `${Buffer.from(sessionId, "utf8").toString("base64url")}.jsonl`;
   const text = await fs.readFile(path.join(root, "sessions", fileName), "utf8");
   return text.trimEnd().split("\n").map((line) => JSON.parse(line) as { type: string });
+}
+
+function insertLegacyMessage(sqlitePath: string, body: string, now: string): void {
+  const database = new DatabaseSync(sqlitePath);
+  try {
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO sessions
+          (session_id, project_id, source_type, title, status, created_at, updated_at)
+         VALUES ('local:legacy', 'local', 'local', 'legacy', 'active', ?, ?)`,
+      )
+      .run(now, now);
+    database
+      .prepare(
+        `INSERT INTO session_messages
+          (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
+         VALUES ('local:legacy', 'user', NULL, ?, 'pending', NULL, NULL, NULL, 'legacy-test-fixture', NULL, ?, ?)`,
+      )
+      .run(body, now, now);
+  } finally {
+    database.close();
+  }
 }
 
 function codexOk(options: CodexRunOptions): CodexRunResult {

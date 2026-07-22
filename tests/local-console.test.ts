@@ -16,7 +16,6 @@ import { LocalConsoleRuntime, type LocalConsoleAgentFile } from "../src/local-co
 import { readLocalConsoleOutputTail } from "../src/local-console/output-tail.js";
 import { buildLocalAgentPrompt } from "../src/local-console/prompt.js";
 import {
-  createLocalChildSession,
   listLocalT5Facts,
   recordLocalDeadLetter,
   recordLocalRouteDecision,
@@ -1030,34 +1029,28 @@ describe("local console", { timeout: 15_000 }, () => {
     await store.init();
     try {
       await store.createSession({ sessionId: "local:parent", title: "parent", now: "2026-07-09T00:00:00.000Z" });
-      const child = await createLocalChildSession(
-        { sqlitePath },
-        {
-          parentSessionId: "local:parent",
-          childSessionId: "local:child",
-          projectId: LOCAL_CONSOLE_PROJECT_ID,
-          title: "child task",
-          relation: "task",
-          hiddenKey: "child-key-1",
-          initialRole: "dev",
-          initialBody: "Initial handoff",
-          now: "2026-07-09T00:00:01.000Z",
-        },
-      );
-      const duplicate = await createLocalChildSession(
-        { sqlitePath },
-        {
-          parentSessionId: "local:parent",
-          childSessionId: "local:child-duplicate",
-          projectId: LOCAL_CONSOLE_PROJECT_ID,
-          title: "duplicate",
-          relation: "task",
-          hiddenKey: "child-key-1",
-          initialRole: "dev",
-          initialBody: "Should recover existing",
-          now: "2026-07-09T00:00:02.000Z",
-        },
-      );
+      const child = await store.createChildSession({
+        parentSessionId: "local:parent",
+        childSessionId: "local:child",
+        projectId: LOCAL_CONSOLE_PROJECT_ID,
+        title: "child task",
+        relation: "task",
+        hiddenKey: "child-key-1",
+        initialRole: "dev",
+        initialBody: "Initial handoff",
+        now: "2026-07-09T00:00:01.000Z",
+      });
+      const duplicate = await store.createChildSession({
+        parentSessionId: "local:parent",
+        childSessionId: "local:child-duplicate",
+        projectId: LOCAL_CONSOLE_PROJECT_ID,
+        title: "duplicate",
+        relation: "task",
+        hiddenKey: "child-key-1",
+        initialRole: "dev",
+        initialBody: "Should recover existing",
+        now: "2026-07-09T00:00:02.000Z",
+      });
       expect(duplicate.sessionId).toBe(child.sessionId);
 
       await recordLocalRouteDecision(
@@ -1163,36 +1156,31 @@ describe("local console", { timeout: 15_000 }, () => {
       await store.createSession({ sessionId: "local:parent", title: "parent", now: "2026-07-09T00:00:01.000Z" });
 
       await expect(
-        createLocalChildSession(
-          { sqlitePath },
-          {
-            parentSessionId: "local:parent",
-            childSessionId: "local:cross-project",
-            projectId: otherProject.projectId,
-            title: "bad child",
-            relation: "task",
-            hiddenKey: "hidden:cross-project",
-            initialRole: "dev",
-            initialBody: "bad",
-            now: "2026-07-09T00:00:02.000Z",
-          },
-        ),
-      ).rejects.toThrow(/project mismatch/u);
-
-      const childA = await createLocalChildSession(
-        { sqlitePath },
-        {
+        store.createChildSession({
           parentSessionId: "local:parent",
-          childSessionId: "local:child-a",
-          projectId: LOCAL_CONSOLE_PROJECT_ID,
-          title: "child A",
+          childSessionId: "local:cross-project",
+          projectId: otherProject.projectId,
+          title: "bad child",
           relation: "task",
-          hiddenKey: "hidden:collision",
+          hiddenKey: "hidden:cross-project",
           initialRole: "dev",
-          initialBody: "child A",
-          now: "2026-07-09T00:00:03.000Z",
-        },
-      );
+          initialBody: "bad",
+          now: "2026-07-09T00:00:02.000Z",
+        }),
+      ).rejects.toThrow(/project mismatch/u);
+      expect((await store.listSessions()).find((entry) => entry.sessionId === "local:cross-project")).toBeUndefined();
+
+      const childA = await store.createChildSession({
+        parentSessionId: "local:parent",
+        childSessionId: "local:child-a",
+        projectId: LOCAL_CONSOLE_PROJECT_ID,
+        title: "child A",
+        relation: "task",
+        hiddenKey: "hidden:collision",
+        initialRole: "dev",
+        initialBody: "child A",
+        now: "2026-07-09T00:00:03.000Z",
+      });
 
       const database = new DatabaseSync(sqlitePath);
       try {
@@ -1214,23 +1202,19 @@ describe("local console", { timeout: 15_000 }, () => {
       }
 
       await expect(
-        createLocalChildSession(
-          { sqlitePath },
-          {
-            parentSessionId: "local:parent",
-            childSessionId: "local:child-c",
-            projectId: LOCAL_CONSOLE_PROJECT_ID,
-            title: "child C",
-            relation: "task",
-            hiddenKey: "hidden:collision",
-            initialRole: "dev",
-            initialBody: "child C",
-            now: "2026-07-09T00:00:05.000Z",
-          },
-        ),
+        store.createChildSession({
+          parentSessionId: "local:parent",
+          childSessionId: "local:child-c",
+          projectId: LOCAL_CONSOLE_PROJECT_ID,
+          title: "child C",
+          relation: "task",
+          hiddenKey: "hidden:collision",
+          initialRole: "dev",
+          initialBody: "child C",
+          now: "2026-07-09T00:00:05.000Z",
+        }),
       ).rejects.toThrow(/hidden key collision/u);
 
-      expect((await store.listSessions()).find((entry) => entry.sessionId === "local:cross-project")).toBeUndefined();
       expect(childA).toMatchObject({ parentSessionId: "local:parent", projectId: LOCAL_CONSOLE_PROJECT_ID });
     } finally {
       await store.close();
