@@ -419,7 +419,7 @@ describe("OperatorConsole", () => {
     });
 
     expect(screen.getByRole("region", { name: "会话时间线" })).toHaveTextContent("@dev hello");
-    const teamButton = screen.getByRole("button", { name: "Agent 团队：客户支持团队，需要修复" });
+    const teamButton = screen.getByRole("button", { name: "Agent 团队：客户支持团队，需要修复，点击切换" });
     expect(teamButton).toHaveClass("text-danger");
     expect(teamButton).toHaveTextContent("客户支持团队需要修复");
     expect(screen.getByRole("textbox", { name: "消息内容" })).toBeDisabled();
@@ -444,7 +444,7 @@ describe("OperatorConsole", () => {
     });
 
     expect(screen.getByRole("textbox", { name: "消息内容" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Agent 团队：开发团队" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Agent 团队：开发团队，点击切换" })).toBeVisible();
   });
 
   it("uses refreshed session health so an externally repaired team unblocks without reopening teams", () => {
@@ -851,7 +851,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByText("开发")).toBeVisible();
     expect(screen.getByText("00:12")).toBeVisible();
     expect(screen.getByText("live tail from codex")).toBeVisible();
-    expect(screen.getByText("隔离工作区")).toBeVisible();
+    expect(screen.getByText("独立工作空间")).toBeVisible();
     expect(screen.queryByText("0 通过")).not.toBeInTheDocument();
     expect(screen.queryByText("查看当前会话原始信息")).not.toBeInTheDocument();
 
@@ -927,13 +927,18 @@ describe("OperatorConsole", () => {
     expect(screen.queryByText("查看详情")).not.toBeInTheDocument();
   });
 
-  it("moves the existing worktree mutation into the composer context", () => {
-    const onToggleProjectWorktree = vi.fn();
-    renderConsole({ onToggleProjectWorktree });
+  it("routes a confirmed workspace change through the selected session", () => {
+    const onChangeSessionWorkspace = vi.fn();
+    renderConsole({ onChangeSessionWorkspace });
 
-    fireEvent.click(screen.getByRole("button", { name: "工作区：隔离工作区，点击切换" }));
-    expect(onToggleProjectWorktree).toHaveBeenCalledWith("local", false);
-    expect(screen.queryByRole("button", { name: /关闭隔离工作区/u })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("button", { name: "工作空间：独立工作空间，点击切换" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(screen.getByText("默认工作空间"));
+    const dialog = screen.getByRole("dialog", { name: "换回默认工作空间" });
+    expect(dialog).toHaveTextContent("之后的改动会直接落在项目文件夹里");
+    fireEvent.click(within(dialog).getByRole("button", { name: "换回去" }));
+    expect(onChangeSessionWorkspace).toHaveBeenCalledWith("session-a", "direct");
   });
 
   it("keeps corrupt lineage records visible once because the rail is flat", () => {
@@ -1095,7 +1100,7 @@ describe("OperatorConsole", () => {
       activeRun: null,
       onSelectSession,
       onSend,
-      onToggleProjectWorktree: vi.fn(),
+      onChangeSessionWorkspace: vi.fn(),
       onSelectFolderForRepair,
       onRepairProjectFolder,
     });
@@ -1105,7 +1110,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
     expect(screen.getByRole("textbox")).toBeDisabled();
     expect(screen.getByText("历史对话只读；修复文件夹后可继续")).toBeVisible();
-    expect(screen.getByRole("button", { name: "工作区：隔离工作区，点击切换" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "工作空间：独立工作空间，点击切换" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "默认会话，正在运行" }));
     expect(onSelectSession).toHaveBeenCalledWith({ sessionId: "session-a", projectId: "local" });
@@ -1198,6 +1203,10 @@ const sessions: OperatorSession[] = [
   {
     sessionId: "session-a",
     projectId: "local",
+    workspaceMode: "worktree",
+    workspacePendingMode: null,
+    workspaceUnavailableReason: null,
+    branchName: "agent/session-a",
     title: "默认会话",
     status: "running",
     awaitsHumanReason: null,
@@ -1213,6 +1222,10 @@ const sessions: OperatorSession[] = [
   {
     sessionId: "session-b",
     projectId: "local",
+    workspaceMode: "direct",
+    workspacePendingMode: null,
+    workspaceUnavailableReason: null,
+    branchName: "main",
     title: "验收会话",
     status: "failed",
     awaitsHumanReason: "exception",
@@ -1238,6 +1251,8 @@ const project: OperatorProject = {
   worktreePath: "/tmp/agent-moebius-local-worktree",
   worktreeUnavailableReason: null,
   workspaceUpdatedAt: "2026-07-09T00:00:01.000Z",
+  branchName: "main",
+  isGitRepository: true,
   directoryAvailable: true,
   directoryUnavailableReason: null,
   sessions,

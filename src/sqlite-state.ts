@@ -29,6 +29,17 @@ export type SqliteStateCommand =
   | { kind: "local-reorder-projects"; projectIds: string[] }
   | { kind: "local-list-projects" }
   | { kind: "local-get-session-workspace"; sessionId: string }
+  | { kind: "local-switch-session-workspace"; sessionId: string; workspaceMode: "direct" | "worktree"; now: string }
+  | {
+      kind: "local-switch-session-team";
+      sessionId: string;
+      agentTeamOwnership: "system" | "user";
+      agentTeamId: string;
+      agentTeamSnapshot?: { members: Array<{ name: string; agentMarkdown: string }> };
+      now: string;
+    }
+  | { kind: "local-apply-pending-session-context"; sessionId: string; now: string }
+  | { kind: "local-list-session-agent-team-snapshot"; sessionId: string }
   | {
       kind: "local-record-project-workspace-status";
       projectId: string;
@@ -45,6 +56,7 @@ export type SqliteStateCommand =
       title: string;
       agentTeamOwnership?: "system" | "user";
       agentTeamId?: string;
+      agentTeamSnapshot?: { members: Array<{ name: string; agentMarkdown: string }> };
       initialMessage?: string;
       now: string;
     }

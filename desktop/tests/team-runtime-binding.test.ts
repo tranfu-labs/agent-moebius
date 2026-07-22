@@ -8,6 +8,7 @@ import { serializeTeamDefinition } from "../src/team-model.js";
 import {
   AgentTeamRosterUnavailableError,
   listSessionAgentFiles,
+  loadAgentTeamSnapshot,
   resolveSessionAgentTeamHealth,
 } from "../src/team-runtime-binding.js";
 import { resolveTeamLocation } from "../src/team-store.js";
@@ -56,6 +57,23 @@ describe("session-scoped Agent team runtime binding", () => {
       reason: expect.stringContaining("missing"),
     });
   });
+
+  it("loads immutable Agent markdown content for a conversation snapshot", async () => {
+    const dataRoot = await makeDataRoot();
+    const team = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    await writeTeam(team.directory, ["dev"]);
+
+    const loaded = await loadAgentTeamSnapshot({
+      dataRoot,
+      ownership: "system",
+      teamId: "development",
+    });
+    await fs.writeFile(path.join(team.directory, "members", "dev", "AGENT.md"), "# dev\n\nchanged later\n", "utf8");
+
+    expect(loaded.members).toEqual([
+      { name: "dev", agentMarkdown: "# dev\n\n负责 dev\n" },
+    ]);
+  });
 });
 
 async function makeDataRoot(): Promise<string> {
@@ -68,6 +86,8 @@ function session(binding?: { ownership: "system" | "user"; id: string }): LocalC
   return {
     sessionId: "local:test",
     projectId: "local",
+    workspaceMode: "direct",
+    workspacePendingMode: null,
     title: "test",
     status: "idle",
     awaitsHumanReason: null,

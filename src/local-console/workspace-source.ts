@@ -45,6 +45,19 @@ interface GitProcessResult {
   stderr: string;
 }
 
+export interface CachedLocalWorkspaceFacts {
+  isGitRepository: boolean;
+  branchName: string | null;
+}
+
+interface WorkspaceFactsCacheEntry {
+  expiresAt: number;
+  value: Promise<CachedLocalWorkspaceFacts>;
+}
+
+const WORKSPACE_FACTS_CACHE_TTL_MS = 2_000;
+const workspaceFactsCache = new Map<string, WorkspaceFactsCacheEntry>();
+
 const defaultDependencies: WorkspaceResolverDependencies = {
   access: (targetPath) => fs.access(targetPath),
   mkdir: async (targetPath, options) => {
@@ -122,6 +135,60 @@ export async function resolveLocalWorkspaceSource(
     branchName,
     baseRef: await readHeadRef(worktreePath, input.signal, effectiveDependencies),
     originalRepoRoot: repoRoot,
+  };
+}
+
+export async function readCachedLocalWorkspaceFacts(input: {
+  folderPath: string;
+  gitTimeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<CachedLocalWorkspaceFacts> {
+  const folderPath = path.resolve(input.folderPath);
+  const cached = workspaceFactsCache.get(folderPath);
+  if (cached !== undefined && cached.expiresAt > Date.now()) {
+    return await cached.value;
+  }
+  const dependencies = {
+    ...defaultDependencies,
+    gitTimeoutMs: input.gitTimeoutMs ?? defaultDependencies.gitTimeoutMs,
+  };
+  const value = inspectLocalWorkspaceFacts(folderPath, input.signal, dependencies);
+  workspaceFactsCache.set(folderPath, {
+    expiresAt: Date.now() + WORKSPACE_FACTS_CACHE_TTL_MS,
+    value,
+  });
+  try {
+    return await value;
+  } catch (error) {
+    workspaceFactsCache.delete(folderPath);
+    throw error;
+  }
+}
+
+export function invalidateLocalWorkspaceFacts(folderPath?: string): void {
+  if (folderPath === undefined) {
+    workspaceFactsCache.clear();
+    return;
+  }
+  workspaceFactsCache.delete(path.resolve(folderPath));
+}
+
+export function localSessionWorktreePath(workdirRoot: string, projectId: string, sessionId: string): string {
+  return localWorktreePath(workdirRoot, projectId, sessionId);
+}
+
+async function inspectLocalWorkspaceFacts(
+  folderPath: string,
+  signal: AbortSignal | undefined,
+  dependencies: WorkspaceResolverDependencies,
+): Promise<CachedLocalWorkspaceFacts> {
+  const repoRoot = await detectGitRepositoryRoot(folderPath, signal, dependencies);
+  if (repoRoot === null) {
+    return { isGitRepository: false, branchName: null };
+  }
+  return {
+    isGitRepository: true,
+    branchName: await readCurrentBranch(folderPath, signal, dependencies),
   };
 }
 

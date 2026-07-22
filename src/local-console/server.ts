@@ -39,6 +39,7 @@ export interface LocalConsoleServerOptions {
   store?: LocalConsoleStore;
   sqlitePath?: string;
   listAgentFiles?: (sessionId: string) => Promise<LocalConsoleAgentFile[]>;
+  loadAgentTeamSnapshot?: LocalConsoleRuntimeOptions["loadAgentTeamSnapshot"];
   resolveAgentTeamHealth?: LocalConsoleRuntimeOptions["resolveAgentTeamHealth"];
   runCodex?: typeof runCodex;
   makeRunDir?: (count: number, now?: Date) => string;
@@ -76,6 +77,7 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
   const runtime = new LocalConsoleRuntime({
     store,
     listAgentFiles: options.listAgentFiles ?? (() => listLocalAgentFiles(path.join(projectRoot, "agents"))),
+    loadAgentTeamSnapshot: options.loadAgentTeamSnapshot,
     resolveAgentTeamHealth: options.resolveAgentTeamHealth,
     runCodex: options.runCodex ?? runCodex,
     makeRunDir: options.makeRunDir ?? makeLocalConsoleRunDir,
@@ -306,6 +308,48 @@ async function handleRequest(
         }
         throw error;
       }
+      return;
+    }
+
+    const sessionWorkspaceMatch = matchSessionRoute(url.pathname, "workspace");
+    if (request.method === "PATCH" && sessionWorkspaceMatch !== null) {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload) || (payload.workspaceMode !== "direct" && payload.workspaceMode !== "worktree")) {
+        sendJson(response, 400, { error: "Expected workspaceMode to be direct or worktree" });
+        return;
+      }
+      try {
+        const session = await runtime.switchSessionWorkspace({
+          sessionId: sessionWorkspaceMatch.sessionId,
+          workspaceMode: payload.workspaceMode,
+        });
+        sendJson(response, 200, { session });
+      } catch (error) {
+        if (formatLocalError(error) === "not-git-repository") {
+          sendJson(response, 409, { error: "这个项目文件夹不是 git 仓库，无法隔离改动", code: "NOT_GIT_REPOSITORY" });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+
+    const sessionTeamMatch = matchSessionRoute(url.pathname, "team");
+    if (request.method === "PATCH" && sessionTeamMatch !== null) {
+      const payload = await readJsonBody(request);
+      if (!isRecord(payload)
+        || (payload.agentTeamOwnership !== "system" && payload.agentTeamOwnership !== "user")
+        || typeof payload.agentTeamId !== "string"
+        || payload.agentTeamId.trim() === "") {
+        sendJson(response, 400, { error: "Expected agentTeamOwnership and a non-empty agentTeamId" });
+        return;
+      }
+      const session = await runtime.switchSessionTeam({
+        sessionId: sessionTeamMatch.sessionId,
+        agentTeamOwnership: payload.agentTeamOwnership,
+        agentTeamId: payload.agentTeamId,
+      });
+      sendJson(response, 200, { session });
       return;
     }
 
@@ -685,7 +729,7 @@ function matchProjectRoute(pathname: string): { projectId: string } | null {
 
 function matchSessionRoute(
   pathname: string,
-  action: "messages" | "read" | "interrupt" | "project" | "archive" | "restore",
+  action: "messages" | "read" | "interrupt" | "project" | "workspace" | "team" | "archive" | "restore",
 ): { sessionId: string } | null {
   const match = new RegExp(`^/api/local-console/sessions/(.+)/${action}$`, "u").exec(pathname);
   if (match === null) {

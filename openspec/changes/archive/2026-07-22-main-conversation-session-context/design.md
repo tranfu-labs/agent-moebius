@@ -11,7 +11,7 @@
 
 `projects` 上的既有列**不删除**——项目仍需要记录 `workspace_cwd`、`worktree_path` 这类与目录本身有关的事实，只有「用哪种模式」这个决策下移到会话。迁移时每段会话的 `workspace_mode` 取其所属 project 当时的 `worktree_mode`，因此升级后所有既有会话的行为与升级前完全一致。
 
-`src/local-console/workspace-resolution.ts` 承载全部判定，签名大致为「给定 session 行 + project 行 → 生效模式 / 待生效模式 / 独立工作空间是否可选及不可选的原因」。它不碰 SQLite 也不碰 git，因此迁移语义、待生效落定时机、非 git 项目的禁用条件都能直接单测。
+`src/local-console/workspace-resolution.ts` 承载无副作用判定，签名大致为「给定 session 行 + project facts → 生效模式 / 待生效模式 / 独立工作空间是否可选及不可选的原因」。它不碰 SQLite 也不碰 git，因此会话值优先、待生效值呈现、非 git 项目的禁用条件都能直接单测；真正的待生效落定仍由下节的 SQLite 收尾事务负责。
 
 ### 切换的待生效语义
 
@@ -42,6 +42,12 @@ PATCH /sessions/:id/{workspace|team}
 
 这句话不是补充说明，是 PRD 点名的功能要求——「团队按钮必须让用户能看出这一点，否则用户会反复修改文件并困惑于行为为何不变」。放在下拉里而不是常驻按钮上：常驻会占掉上下文条本就紧张的横向空间，而这个疑惑只在用户想动团队时才产生。
 
+### 团队内容快照与当前健康分离
+
+只有说明而没有运行时快照会让界面说假话。创建会话或改选团队时，从当下可用团队读取成员 slug 与 `AGENT.md` 内容，作为 effective/pending 两个 slot 存入 local-console SQLite；绑定与内容在同一事务内写入和落定。运行时优先用 effective slot 构建 agent prompt，旧会话没有快照时才兼容回退既有团队目录读取。子会话复制父会话的 effective 快照。
+
+团队当前是否需要修复仍是另一条实时事实：桌面壳继续从团队当前磁盘位置计算 health，用于决定会话能否发送；它不替换已经载入的 prompt 内容。这样同时满足「团队页修改不改变已有会话」和「团队当前损坏时已有会话暂停发送」。
+
 ### 组件拆分范围
 
 只拆本片碰到的那块：`ComposerContext` 与 `SessionAgentTeamButton` 从 `operator-console.tsx` 迁出成 `composer-context.tsx` 与 `session-team-menu.tsx`。不动同文件里的侧边栏、时间线、其余弹窗——那些分别是 C 片和 D 片的范围。
@@ -59,4 +65,5 @@ PATCH /sessions/:id/{workspace|team}
 - **迁移写错会让所有既有会话的工作空间行为突变**。这是本片唯一不可逆的改动。缓解：迁移逻辑单独单测，覆盖「继承所属项目当时的值」「重复执行幂等」「项目已移除的孤儿会话」三类；迁移前后各跑一次既有的 workspace 相关测试。
 - **待生效落定钩子漏挂会让切换永远不生效**。缓解：落定发生在 run 收尾的单一位置，且工作空间与团队共用同一个钩子；单测覆盖「有 run 时写待生效」「run 结束后落定」「落定后不重放已完成步骤」。
 - **抽出 `composer-context.tsx` 会撞 `operator-console.test.tsx`**。缓解：相关用例随组件迁移到共置测试，不在原文件留空壳。
+- **只保存团队 id 会让 #20 的说明与实际 prompt 漂移**。缓解：创建/改选时把成员内容与绑定事务性保存；server 外层测试在选择后修改源团队文件，验证下一步仍使用选择当时的内容，运行中改选则验证 pending 快照随绑定一起落定。
 - **回滚思路**：新增列可保留（有值不影响旧代码读项目值的路径已被删除，需一并回滚），因此回滚需要同时恢复 `resolveWorkspace` 的项目级读取。建议本片单独成 commit，便于整体 revert。

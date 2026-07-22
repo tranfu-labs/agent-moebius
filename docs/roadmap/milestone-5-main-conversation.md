@@ -49,7 +49,7 @@ change：`openspec/changes/main-conversation-new-page/`
 
 覆盖验收 #1 #2 #3 #4 #5（项目锁定部分）#19。
 
-### - [ ] B · `main-conversation-session-context` — 上下文四项完整化（`成品级`）
+### - [x] B · `main-conversation-session-context` — 上下文四项完整化（`成品级`）→ packages/console-ui/src/console/composer-context.tsx:17
 
 change：`openspec/changes/main-conversation-session-context/`
 

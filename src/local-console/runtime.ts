@@ -54,25 +54,36 @@ import {
   LocalConsoleSessionRunningError,
   type LocalConsoleRunSnapshot,
   type LocalConsoleSessionSummary,
+  type LocalConsoleWorkspaceMode,
+  type LocalConsoleAgentTeamOwnership,
+  type LocalConsoleAgentTeamSnapshot,
   type LocalConsoleSnapshot,
   type LocalConsoleStateSnapshot,
   type LocalConsoleStore,
 } from "./types.js";
 import {
   generateLocalWorkspaceDiff,
+  invalidateLocalWorkspaceFacts,
+  localSessionWorktreePath,
+  readCachedLocalWorkspaceFacts,
   readLocalGitStatus,
   resolveLocalWorkspaceSource,
   type ResolvedLocalWorkspace,
 } from "./workspace-source.js";
+import { resolveSessionWorkspaceContext } from "./workspace-resolution.js";
 
 export interface LocalConsoleAgentFile {
   name: string;
-  path: string;
+  path?: string;
+  agentMarkdown?: string;
 }
 
 export interface LocalConsoleRuntimeOptions {
   store: LocalConsoleStore;
   listAgentFiles: (sessionId: string) => Promise<LocalConsoleAgentFile[]>;
+  loadAgentTeamSnapshot?: (
+    binding: { ownership: LocalConsoleAgentTeamOwnership; id: string },
+  ) => Promise<LocalConsoleAgentTeamSnapshot>;
   resolveAgentTeamHealth?: (
     session: LocalConsoleSessionSummary,
   ) => Promise<{ health: "usable" | "needs-repair"; reason: string | null } | null>;
@@ -289,6 +300,9 @@ export class LocalConsoleRuntime {
       throw new Error("Message body must not be empty");
     }
     await this.assertProjectDirectoryAvailable(resolvedProjectId);
+    const agentTeamSnapshot = agentTeam === undefined || this.options.loadAgentTeamSnapshot === undefined
+      ? undefined
+      : await this.options.loadAgentTeamSnapshot(agentTeam);
     const session = await this.storeCall("local-console-store-create-session", () =>
       this.options.store.createSession({
         sessionId,
@@ -296,6 +310,7 @@ export class LocalConsoleRuntime {
         title: normalizedInitialMessage === undefined ? normalizeTitle(title) : deriveSessionTitle(normalizedInitialMessage),
         agentTeamOwnership: agentTeam?.ownership,
         agentTeamId: agentTeam?.id,
+        agentTeamSnapshot,
         initialMessage: normalizedInitialMessage,
         now: this.nowIso(),
       }),
@@ -315,6 +330,49 @@ export class LocalConsoleRuntime {
         ...input,
         now: this.nowIso(),
       }),
+    );
+  }
+
+  async switchSessionWorkspace(input: {
+    sessionId: string;
+    workspaceMode: LocalConsoleWorkspaceMode;
+  }): Promise<LocalConsoleSessionSummary> {
+    const source = await this.storeCall("local-console-store-session-workspace", () =>
+      this.options.store.getSessionWorkspace(input.sessionId),
+    );
+    if (input.workspaceMode === "worktree") {
+      const facts = await readCachedLocalWorkspaceFacts({
+        folderPath: source.folderPath,
+        gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+      });
+      if (!facts.isGitRepository) {
+        throw new Error("not-git-repository");
+      }
+    }
+    const session = await this.storeCall("local-console-store-switch-session-workspace", () =>
+      this.options.store.switchSessionWorkspace({
+        sessionId: input.sessionId,
+        workspaceMode: input.workspaceMode,
+        now: this.nowIso(),
+      }),
+    );
+    invalidateLocalWorkspaceFacts();
+    return session;
+  }
+
+  async switchSessionTeam(input: {
+    sessionId: string;
+    agentTeamOwnership: LocalConsoleAgentTeamOwnership;
+    agentTeamId: string;
+  }): Promise<LocalConsoleSessionSummary> {
+    const agentTeamSnapshot = this.options.loadAgentTeamSnapshot === undefined
+      ? undefined
+      : await this.options.loadAgentTeamSnapshot({
+          ownership: input.agentTeamOwnership,
+          id: input.agentTeamId,
+        });
+    return await this.storeCall("local-console-store-switch-session-team", () =>
+      this.options.store.switchSessionTeam({ ...input, agentTeamSnapshot, now: this.nowIso() }),
     );
   }
 
@@ -453,7 +511,8 @@ export class LocalConsoleRuntime {
     const selectedSessionId = typeof selected === "string" ? selected : (selected.sessionId ?? this.sessionId);
     const requestedProjectId = typeof selected === "string" ? undefined : selected.projectId;
     const storedProjects = await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects());
-    const projects = await Promise.all(storedProjects.map((project) => this.withDirectoryAvailability(project)));
+    const availableProjects = await Promise.all(storedProjects.map((project) => this.withDirectoryAvailability(project)));
+    const projects = await Promise.all(availableProjects.map((project) => this.withSessionWorkspaceContext(project)));
     await this.stopDirectRunsWithUnavailableDirectories(projects);
     const sessions = projects.flatMap((project) => project.sessions);
     const requestedProject = requestedProjectId === undefined ? undefined : projects.find((project) => project.projectId === requestedProjectId);
@@ -550,7 +609,13 @@ export class LocalConsoleRuntime {
             return;
           }
 
-          const agentFiles = await this.options.listAgentFiles(sessionId);
+          const persistedSnapshot = await this.options.store.listSessionAgentTeamSnapshot?.(sessionId) ?? null;
+          const agentFiles = persistedSnapshot === null
+            ? await this.options.listAgentFiles(sessionId)
+            : persistedSnapshot.members.map((member) => ({
+                name: member.name,
+                agentMarkdown: member.agentMarkdown,
+              }));
           if (this.inactiveSessions.has(sessionId)) {
             return;
           }
@@ -609,7 +674,8 @@ export class LocalConsoleRuntime {
             return;
           }
 
-          const agentMarkdown = await fs.readFile(selectedAgent.path, "utf8");
+          const agentMarkdown = selectedAgent.agentMarkdown
+            ?? await fs.readFile(requireAgentFilePath(selectedAgent), "utf8");
           const agentManifest = parseAgentManifest(agentMarkdown);
           const plan = buildRolePromptPlan({
             role: trigger.role,
@@ -742,7 +808,14 @@ export class LocalConsoleRuntime {
           log({ event: "local-console-processing-failed", error: this.lastError });
           return;
         } finally {
+          const completedWorkspace = this.activeRuns.get(sessionId)?.cwd ?? null;
           this.activeRuns.delete(sessionId);
+          await this.storeCall("local-console-store-apply-pending-session-context", () =>
+            this.options.store.applyPendingSessionContext({ sessionId, now: this.nowIso() }),
+          );
+          if (completedWorkspace !== null) {
+            invalidateLocalWorkspaceFacts(completedWorkspace);
+          }
         }
       }
     } catch (error) {
@@ -850,6 +923,43 @@ export class LocalConsoleRuntime {
     }
   }
 
+  private async withSessionWorkspaceContext(project: LocalConsoleProjectSummary): Promise<LocalConsoleProjectSummary> {
+    const projectFacts = project.directoryAvailable === false
+      ? { isGitRepository: false, branchName: null }
+      : await readCachedLocalWorkspaceFacts({
+          folderPath: project.folderPath,
+          gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+        });
+    const sessions = await Promise.all(project.sessions.map(async (session) => {
+      const context = resolveSessionWorkspaceContext(session, projectFacts);
+      let branchName = context.workspaceMode === "direct" ? projectFacts.branchName : null;
+      if (context.workspaceMode === "worktree") {
+        const worktreePath = localSessionWorktreePath(
+          this.options.workdirRoot,
+          project.projectId,
+          session.sessionId,
+        );
+        if (await directoryAvailable(worktreePath)) {
+          branchName = (await readCachedLocalWorkspaceFacts({
+            folderPath: worktreePath,
+            gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+          })).branchName;
+        }
+      }
+      return {
+        ...session,
+        workspaceUnavailableReason: context.independentWorkspaceUnavailableReason,
+        branchName,
+      };
+    }));
+    return {
+      ...project,
+      branchName: projectFacts.branchName,
+      isGitRepository: projectFacts.isGitRepository,
+      sessions,
+    };
+  }
+
   private async stopDirectRunsWithUnavailableDirectories(projects: LocalConsoleProjectSummary[]): Promise<void> {
     const unavailableProjectIds = new Set(
       projects.filter((project) => project.directoryAvailable === false).map((project) => project.projectId),
@@ -873,7 +983,7 @@ export class LocalConsoleRuntime {
       projectId: source.projectId,
       sessionId,
       folderPath: source.folderPath,
-      worktreeMode: source.worktreeMode,
+      worktreeMode: source.workspaceMode === "worktree",
       workdirRoot: this.options.workdirRoot,
       gitTimeoutMs: this.options.workspaceGitTimeoutMs,
       signal,
@@ -1499,6 +1609,13 @@ export async function withLocalConsoleTimeout<T>(
 
 export function formatLocalError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function requireAgentFilePath(agent: LocalConsoleAgentFile): string {
+  if (agent.path === undefined) {
+    throw new Error(`Agent snapshot has no content: ${agent.name}`);
+  }
+  return agent.path;
 }
 
 async function directoryAvailable(folderPath: string): Promise<boolean> {

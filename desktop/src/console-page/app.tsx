@@ -1111,27 +1111,6 @@ function App(): JSX.Element {
     }
   }, [actions, agentTeamsState, newConversation]);
 
-  const toggleProjectWorktree = useCallback(async (projectId: string, worktreeMode: boolean) => {
-    if (apiBase === null) {
-      setClientError("local console server unavailable");
-      return;
-    }
-    try {
-      const response = await fetch(endpoint(apiBase, `/api/local-console/projects/${encodeURIComponent(projectId)}`), {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ worktreeMode }),
-      });
-      const body = await response.json() as { error?: string };
-      if (!response.ok) {
-        throw new Error(body.error ?? "update project failed");
-      }
-      await refresh(selectionRef.current);
-    } catch (error) {
-      setClientError(formatError(error));
-    }
-  }, [apiBase, refresh]);
-
   const showProjectInFolder = useCallback(async (folderPath: string) => {
     try {
       if (window.agentMoebius?.showInFolder === undefined) {
@@ -1321,7 +1300,11 @@ function App(): JSX.Element {
         });
       }}
       onReorderProjects={actions.reorderProjects}
-      onToggleProjectWorktree={toggleProjectWorktree}
+      onChangeSessionWorkspace={actions.changeSessionWorkspace}
+      onChangeSessionTeam={(sessionId, team) => actions.changeSessionTeam(sessionId, {
+        ownership: team.ownership,
+        id: team.id,
+      })}
       onSelectSession={(nextSelection) => {
         dispatchNewConversation({ type: "close" });
         setComposerValue(conversationDraftStoreRef.current.read(sessionDraftKey(nextSelection.sessionId)));
@@ -1411,6 +1394,8 @@ const emptyProject: OperatorProject = {
   worktreePath: null,
   worktreeUnavailableReason: null,
   workspaceUpdatedAt: null,
+  branchName: null,
+  isGitRepository: false,
   directoryAvailable: true,
   directoryUnavailableReason: null,
   sessions: [],

@@ -17,6 +17,9 @@ import {
   type LocalConsoleSessionStatus,
   type LocalConsoleSessionSummary,
   type LocalConsoleSessionWorkspaceSource,
+  type LocalConsoleAgentTeamSnapshot,
+  type LocalConsoleWorkspaceMode,
+  type LocalConsoleAgentTeamOwnership,
   type LocalConsoleSpeaker,
   type LocalConsoleStore,
 } from "./types.js";
@@ -83,6 +86,32 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     return this.run({ kind: "local-get-session-workspace", sessionId });
   }
 
+  async switchSessionWorkspace(input: {
+    sessionId: string;
+    workspaceMode: LocalConsoleWorkspaceMode;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary> {
+    return this.run({ kind: "local-switch-session-workspace", ...input });
+  }
+
+  async switchSessionTeam(input: {
+    sessionId: string;
+    agentTeamOwnership: LocalConsoleAgentTeamOwnership;
+    agentTeamId: string;
+    agentTeamSnapshot?: LocalConsoleAgentTeamSnapshot;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary> {
+    return this.run({ kind: "local-switch-session-team", ...input });
+  }
+
+  async applyPendingSessionContext(input: { sessionId: string; now: string }): Promise<LocalConsoleSessionSummary> {
+    return this.run({ kind: "local-apply-pending-session-context", ...input });
+  }
+
+  async listSessionAgentTeamSnapshot(sessionId: string): Promise<LocalConsoleAgentTeamSnapshot | null> {
+    return this.run({ kind: "local-list-session-agent-team-snapshot", sessionId });
+  }
+
   async recordProjectWorkspaceStatus(input: {
     projectId: string;
     cwd: string;
@@ -100,6 +129,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     title: string;
     agentTeamOwnership?: "system" | "user";
     agentTeamId?: string;
+    agentTeamSnapshot?: LocalConsoleAgentTeamSnapshot;
     initialMessage?: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary> {
@@ -455,6 +485,20 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
       ? readNullableAgentTeamOwnership(value.agentTeamOwnership)
       : null,
     agentTeamId: "agentTeamId" in value ? readNullableString(value.agentTeamId, "agentTeamId") : null,
+    agentTeamPendingOwnership: "agentTeamPendingOwnership" in value
+      ? readNullableAgentTeamOwnership(value.agentTeamPendingOwnership)
+      : null,
+    agentTeamPendingId: "agentTeamPendingId" in value
+      ? readNullableString(value.agentTeamPendingId, "agentTeamPendingId")
+      : null,
+    workspaceMode: "workspaceMode" in value ? readWorkspaceMode(value.workspaceMode, "workspaceMode") : "direct",
+    workspacePendingMode: "workspacePendingMode" in value
+      ? readNullableWorkspaceMode(value.workspacePendingMode, "workspacePendingMode")
+      : null,
+    workspaceUnavailableReason: "workspaceUnavailableReason" in value
+      ? readNullableString(value.workspaceUnavailableReason, "workspaceUnavailableReason")
+      : null,
+    branchName: "branchName" in value ? readNullableString(value.branchName, "branchName") : null,
     title: readString(value.title, "title"),
     status: readSessionStatus(value.status),
     awaitsHumanReason: readAwaitsHumanReason(value.awaitsHumanReason),
@@ -475,6 +519,21 @@ function readNullableAgentTeamOwnership(value: unknown): "system" | "user" | nul
     return value;
   }
   throw new Error(`Invalid local console agent team ownership: ${String(value)}`);
+}
+
+function readWorkspaceMode(value: unknown, field: string): "direct" | "worktree" {
+  const mode = readString(value, field);
+  if (mode === "direct" || mode === "worktree") {
+    return mode;
+  }
+  throw new Error(`Invalid local console ${field}: ${String(value)}`);
+}
+
+function readNullableWorkspaceMode(value: unknown, field: string): "direct" | "worktree" | null {
+  if (value === null) {
+    return null;
+  }
+  return readWorkspaceMode(value, field);
 }
 
 function readAwaitsHumanReason(value: unknown): LocalConsoleAwaitsHumanReason | null {

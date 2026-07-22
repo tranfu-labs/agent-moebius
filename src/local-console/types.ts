@@ -53,11 +53,21 @@ export type LocalConsoleWorkspaceMode = "direct" | "worktree";
 export type LocalConsoleAgentTeamOwnership = "system" | "user";
 export type LocalConsoleAgentTeamHealth = "usable" | "needs-repair";
 
+export interface LocalConsoleAgentTeamSnapshotMember {
+  name: string;
+  agentMarkdown: string;
+}
+
+export interface LocalConsoleAgentTeamSnapshot {
+  members: LocalConsoleAgentTeamSnapshotMember[];
+}
+
 export interface LocalConsoleSessionWorkspaceSource {
   projectId: string;
   title: string;
   folderPath: string;
-  worktreeMode: boolean;
+  workspaceMode: LocalConsoleWorkspaceMode;
+  workspacePendingMode: LocalConsoleWorkspaceMode | null;
 }
 
 export interface LocalConsoleSessionSummary {
@@ -68,6 +78,12 @@ export interface LocalConsoleSessionSummary {
   agentTeamId?: string | null;
   agentTeamHealth?: LocalConsoleAgentTeamHealth | null;
   agentTeamHealthReason?: string | null;
+  agentTeamPendingOwnership?: LocalConsoleAgentTeamOwnership | null;
+  agentTeamPendingId?: string | null;
+  workspaceMode: LocalConsoleWorkspaceMode;
+  workspacePendingMode: LocalConsoleWorkspaceMode | null;
+  workspaceUnavailableReason?: string | null;
+  branchName?: string | null;
   title: string;
   status: LocalConsoleSessionStatus;
   awaitsHumanReason: LocalConsoleAwaitsHumanReason | null;
@@ -112,6 +128,8 @@ export interface LocalConsoleProjectSummary {
   worktreePath: string | null;
   worktreeUnavailableReason: string | null;
   workspaceUpdatedAt: string | null;
+  branchName?: string | null;
+  isGitRepository?: boolean;
   directoryAvailable?: boolean;
   directoryUnavailableReason?: string | null;
   newConversationDisabledReason?: string | null;
@@ -222,6 +240,20 @@ export interface LocalConsoleStore {
   reorderProjects(projectIds: string[]): Promise<LocalConsoleProjectSummary[]>;
   listProjects(): Promise<LocalConsoleProjectSummary[]>;
   getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource>;
+  switchSessionWorkspace(input: {
+    sessionId: string;
+    workspaceMode: LocalConsoleWorkspaceMode;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary>;
+  switchSessionTeam(input: {
+    sessionId: string;
+    agentTeamOwnership: LocalConsoleAgentTeamOwnership;
+    agentTeamId: string;
+    agentTeamSnapshot?: LocalConsoleAgentTeamSnapshot;
+    now: string;
+  }): Promise<LocalConsoleSessionSummary>;
+  applyPendingSessionContext(input: { sessionId: string; now: string }): Promise<LocalConsoleSessionSummary>;
+  listSessionAgentTeamSnapshot?(sessionId: string): Promise<LocalConsoleAgentTeamSnapshot | null>;
   recordProjectWorkspaceStatus(input: {
     projectId: string;
     cwd: string;
@@ -236,6 +268,7 @@ export interface LocalConsoleStore {
     title: string;
     agentTeamOwnership?: LocalConsoleAgentTeamOwnership;
     agentTeamId?: string;
+    agentTeamSnapshot?: LocalConsoleAgentTeamSnapshot;
     initialMessage?: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary>;

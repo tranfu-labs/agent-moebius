@@ -3048,6 +3048,8 @@ function buildSessionSummary(sessionId: string, title = "默认会话", messages
     stuckCount,
     errorCount,
     interruptedCount,
+    workspaceMode: "direct",
+    workspacePendingMode: null,
     createdAt: "2026-07-09T00:00:00.000Z",
     updatedAt: "2026-07-09T00:00:00.000Z",
   };
@@ -3081,7 +3083,8 @@ function buildWorkspaceSource(worktreeMode = false): LocalConsoleSessionWorkspac
     projectId: LOCAL_CONSOLE_PROJECT_ID,
     title: "agent-moebius",
     folderPath: process.cwd(),
-    worktreeMode,
+    workspaceMode: worktreeMode ? "worktree" : "direct",
+    workspacePendingMode: null,
   };
 }
 
@@ -3116,6 +3119,18 @@ class FastFailAppendStore implements LocalConsoleStore {
 
   async getSessionWorkspace(): Promise<LocalConsoleSessionWorkspaceSource> {
     return buildWorkspaceSource();
+  }
+
+  async switchSessionWorkspace(input: { sessionId: string }): Promise<LocalConsoleSessionSummary> {
+    return buildSessionSummary(input.sessionId);
+  }
+
+  async switchSessionTeam(input: { sessionId: string }): Promise<LocalConsoleSessionSummary> {
+    return buildSessionSummary(input.sessionId);
+  }
+
+  async applyPendingSessionContext(input: { sessionId: string }): Promise<LocalConsoleSessionSummary> {
+    return buildSessionSummary(input.sessionId);
   }
 
   async recordProjectWorkspaceStatus(): Promise<void> {}
@@ -3235,6 +3250,18 @@ class FailOnceRecordAgentResponseStore implements LocalConsoleStore {
 
   async getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource> {
     return await this.inner.getSessionWorkspace(sessionId);
+  }
+
+  async switchSessionWorkspace(input: Parameters<LocalConsoleStore["switchSessionWorkspace"]>[0]): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.switchSessionWorkspace(input);
+  }
+
+  async switchSessionTeam(input: Parameters<LocalConsoleStore["switchSessionTeam"]>[0]): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.switchSessionTeam(input);
+  }
+
+  async applyPendingSessionContext(input: Parameters<LocalConsoleStore["applyPendingSessionContext"]>[0]): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.applyPendingSessionContext(input);
   }
 
   async recordProjectWorkspaceStatus(input: {
@@ -3469,6 +3496,18 @@ class FailOnceRecordRouteAppendStore implements LocalConsoleStore {
     return await this.inner.getSessionWorkspace(sessionId);
   }
 
+  async switchSessionWorkspace(input: Parameters<LocalConsoleStore["switchSessionWorkspace"]>[0]): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.switchSessionWorkspace(input);
+  }
+
+  async switchSessionTeam(input: Parameters<LocalConsoleStore["switchSessionTeam"]>[0]): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.switchSessionTeam(input);
+  }
+
+  async applyPendingSessionContext(input: Parameters<LocalConsoleStore["applyPendingSessionContext"]>[0]): Promise<LocalConsoleSessionSummary> {
+    return await this.inner.applyPendingSessionContext(input);
+  }
+
   async recordProjectWorkspaceStatus(input: {
     projectId: string;
     cwd: string;
@@ -3701,6 +3740,18 @@ class RecoveringAppendStore implements LocalConsoleStore {
 
   async getSessionWorkspace(): Promise<LocalConsoleSessionWorkspaceSource> {
     return buildWorkspaceSource();
+  }
+
+  async switchSessionWorkspace(input: { sessionId: string }): Promise<LocalConsoleSessionSummary> {
+    return buildSessionSummary(input.sessionId, this.sessions.get(input.sessionId), this.messages);
+  }
+
+  async switchSessionTeam(input: { sessionId: string }): Promise<LocalConsoleSessionSummary> {
+    return buildSessionSummary(input.sessionId, this.sessions.get(input.sessionId), this.messages);
+  }
+
+  async applyPendingSessionContext(input: { sessionId: string }): Promise<LocalConsoleSessionSummary> {
+    return buildSessionSummary(input.sessionId, this.sessions.get(input.sessionId), this.messages);
   }
 
   async recordProjectWorkspaceStatus(): Promise<void> {}

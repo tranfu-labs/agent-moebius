@@ -130,6 +130,14 @@ function runCommand(input: WorkerInput): unknown {
         return listLocalProjects(database);
       case "local-get-session-workspace":
         return getLocalSessionWorkspace(database, input.command.sessionId);
+      case "local-switch-session-workspace":
+        return switchLocalSessionWorkspace(database, input.command);
+      case "local-switch-session-team":
+        return switchLocalSessionTeam(database, input.command);
+      case "local-apply-pending-session-context":
+        return applyPendingLocalSessionContext(database, input.command);
+      case "local-list-session-agent-team-snapshot":
+        return listLocalSessionAgentTeamSnapshot(database, input.command.sessionId);
       case "local-record-project-workspace-status":
         return recordLocalProjectWorkspaceStatus(database, input.command);
       case "local-create-session":
@@ -246,6 +254,10 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       parent_session_id TEXT,
       agent_team_ownership TEXT CHECK (agent_team_ownership IS NULL OR agent_team_ownership IN ('system', 'user')),
       agent_team_id TEXT,
+      agent_team_pending_ownership TEXT CHECK (agent_team_pending_ownership IS NULL OR agent_team_pending_ownership IN ('system', 'user')),
+      agent_team_pending_id TEXT,
+      workspace_mode TEXT CHECK (workspace_mode IS NULL OR workspace_mode IN ('direct', 'worktree')),
+      workspace_pending_mode TEXT CHECK (workspace_pending_mode IS NULL OR workspace_pending_mode IN ('direct', 'worktree')),
       title TEXT,
       status TEXT NOT NULL,
       archived_at TEXT,
@@ -264,6 +276,14 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       hidden_key TEXT,
       created_at TEXT NOT NULL,
       PRIMARY KEY(parent_session_id, child_session_id, relation)
+    );
+    CREATE TABLE IF NOT EXISTS session_agent_team_members (
+      session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+      slot TEXT NOT NULL CHECK (slot IN ('effective', 'pending')),
+      member_name TEXT NOT NULL,
+      agent_markdown TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      PRIMARY KEY(session_id, slot, member_name)
     );
     CREATE TABLE IF NOT EXISTS session_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -394,6 +414,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   migrateSessionsCreatedAt(database, now);
   migrateSessionsProjectId(database, now);
   ensureSessionAgentTeamColumns(database);
+  migrateSessionWorkspaceContext(database);
   migrateSessionAttentionState(database);
   database.exec(
     "CREATE INDEX IF NOT EXISTS idx_sessions_local_project_created_at ON sessions(project_id, created_at DESC, session_id ASC) WHERE source_type = 'local'",
@@ -414,6 +435,34 @@ function ensureSessionAgentTeamColumns(database: SqliteDatabase): void {
   if (!tableHasColumn(database, "sessions", "agent_team_id")) {
     database.exec("ALTER TABLE sessions ADD COLUMN agent_team_id TEXT");
   }
+  if (!tableHasColumn(database, "sessions", "agent_team_pending_ownership")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN agent_team_pending_ownership TEXT CHECK (agent_team_pending_ownership IS NULL OR agent_team_pending_ownership IN ('system', 'user'))");
+  }
+  if (!tableHasColumn(database, "sessions", "agent_team_pending_id")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN agent_team_pending_id TEXT");
+  }
+}
+
+function migrateSessionWorkspaceContext(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "sessions", "workspace_mode")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN workspace_mode TEXT CHECK (workspace_mode IS NULL OR workspace_mode IN ('direct', 'worktree'))");
+  }
+  if (!tableHasColumn(database, "sessions", "workspace_pending_mode")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN workspace_pending_mode TEXT CHECK (workspace_pending_mode IS NULL OR workspace_pending_mode IN ('direct', 'worktree'))");
+  }
+  database.exec(`
+    UPDATE sessions
+    SET workspace_mode = COALESCE(
+      (
+        SELECT CASE WHEN projects.worktree_mode = 1 THEN 'worktree' ELSE 'direct' END
+        FROM projects
+        WHERE projects.project_id = sessions.project_id
+      ),
+      'direct'
+    )
+    WHERE source_type = 'local' AND workspace_mode IS NULL
+  `);
+  markSchemaMigration(database, "main-conversation-session-context-workspace");
 }
 
 function migrateMainSidebarProjectRemoval(database: SqliteDatabase): void {
@@ -1155,7 +1204,7 @@ function reorderLocalProjects(database: SqliteDatabase, projectIds: string[]): u
 function getLocalSessionWorkspace(database: SqliteDatabase, sessionId: string): unknown {
   const row = database
     .prepare(
-      `SELECT p.project_id, p.title, p.folder_path, p.worktree_mode
+      `SELECT p.project_id, p.title, p.folder_path, s.workspace_mode, s.workspace_pending_mode
        FROM sessions s
        JOIN projects p ON p.project_id = s.project_id
        WHERE s.session_id = ? AND s.source_type = 'local'`,
@@ -1168,7 +1217,136 @@ function getLocalSessionWorkspace(database: SqliteDatabase, sessionId: string): 
     projectId: readString(row.project_id, "project_id"),
     title: readString(row.title, "title"),
     folderPath: readString(row.folder_path, "folder_path"),
-    worktreeMode: readBooleanNumber(row.worktree_mode, "worktree_mode"),
+    workspaceMode: readLocalWorkspaceMode(row.workspace_mode, "workspace_mode"),
+    workspacePendingMode: readNullableLocalWorkspaceMode(row.workspace_pending_mode, "workspace_pending_mode"),
+  };
+}
+
+function switchLocalSessionWorkspace(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-switch-session-workspace" }>,
+): unknown {
+  return transaction(database, () => {
+    requireLocalSession(database, input.sessionId);
+    if (hasRunningMessage(database, input.sessionId)) {
+      database.prepare(
+        "UPDATE sessions SET workspace_pending_mode = ?, updated_at = ? WHERE session_id = ? AND source_type = 'local'",
+      ).run(input.workspaceMode, input.now, input.sessionId);
+    } else {
+      database.prepare(
+        "UPDATE sessions SET workspace_mode = ?, workspace_pending_mode = NULL, updated_at = ? WHERE session_id = ? AND source_type = 'local'",
+      ).run(input.workspaceMode, input.now, input.sessionId);
+    }
+    return requireLocalSession(database, input.sessionId);
+  });
+}
+
+function switchLocalSessionTeam(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-switch-session-team" }>,
+): unknown {
+  return transaction(database, () => {
+    requireLocalSession(database, input.sessionId);
+    if (hasRunningMessage(database, input.sessionId)) {
+      database.prepare(
+        `UPDATE sessions
+         SET agent_team_pending_ownership = ?, agent_team_pending_id = ?, updated_at = ?
+         WHERE session_id = ? AND source_type = 'local'`,
+      ).run(input.agentTeamOwnership, input.agentTeamId, input.now, input.sessionId);
+      replaceLocalSessionAgentTeamSnapshot(database, input.sessionId, "pending", input.agentTeamSnapshot);
+    } else {
+      database.prepare(
+        `UPDATE sessions
+         SET agent_team_ownership = ?, agent_team_id = ?,
+             agent_team_pending_ownership = NULL, agent_team_pending_id = NULL, updated_at = ?
+         WHERE session_id = ? AND source_type = 'local'`,
+      ).run(input.agentTeamOwnership, input.agentTeamId, input.now, input.sessionId);
+      replaceLocalSessionAgentTeamSnapshot(database, input.sessionId, "effective", input.agentTeamSnapshot);
+      replaceLocalSessionAgentTeamSnapshot(database, input.sessionId, "pending", undefined);
+    }
+    return requireLocalSession(database, input.sessionId);
+  });
+}
+
+function applyPendingLocalSessionContext(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-apply-pending-session-context" }>,
+): unknown {
+  return transaction(database, () => {
+    const hasPendingTeam = database
+      .prepare("SELECT 1 AS found FROM sessions WHERE session_id = ? AND agent_team_pending_id IS NOT NULL")
+      .get(input.sessionId) !== undefined;
+    database.prepare(
+      `UPDATE sessions
+       SET workspace_mode = COALESCE(workspace_pending_mode, workspace_mode),
+           workspace_pending_mode = NULL,
+           agent_team_ownership = COALESCE(agent_team_pending_ownership, agent_team_ownership),
+           agent_team_id = COALESCE(agent_team_pending_id, agent_team_id),
+           agent_team_pending_ownership = NULL,
+           agent_team_pending_id = NULL,
+           updated_at = CASE
+             WHEN workspace_pending_mode IS NOT NULL OR agent_team_pending_id IS NOT NULL THEN ?
+             ELSE updated_at
+           END
+       WHERE session_id = ? AND source_type = 'local'`,
+    ).run(input.now, input.sessionId);
+    if (hasPendingTeam) {
+      database.prepare(
+        "DELETE FROM session_agent_team_members WHERE session_id = ? AND slot = 'effective'",
+      ).run(input.sessionId);
+      database.prepare(
+        "UPDATE session_agent_team_members SET slot = 'effective' WHERE session_id = ? AND slot = 'pending'",
+      ).run(input.sessionId);
+    }
+    return requireLocalSession(database, input.sessionId);
+  });
+}
+
+function replaceLocalSessionAgentTeamSnapshot(
+  database: SqliteDatabase,
+  sessionId: string,
+  slot: "effective" | "pending",
+  snapshot: { members: Array<{ name: string; agentMarkdown: string }> } | undefined,
+): void {
+  database.prepare(
+    "DELETE FROM session_agent_team_members WHERE session_id = ? AND slot = ?",
+  ).run(sessionId, slot);
+  if (snapshot === undefined) {
+    return;
+  }
+  const insert = database.prepare(
+    `INSERT INTO session_agent_team_members
+      (session_id, slot, member_name, agent_markdown, sort_order)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  snapshot.members.forEach((member, index) => {
+    insert.run(sessionId, slot, member.name, member.agentMarkdown, index);
+  });
+}
+
+function listLocalSessionAgentTeamSnapshot(
+  database: SqliteDatabase,
+  sessionId: string,
+): { members: Array<{ name: string; agentMarkdown: string }> } | null {
+  const rows = database.prepare(
+    `SELECT member_name, agent_markdown
+     FROM session_agent_team_members
+     WHERE session_id = ? AND slot = 'effective'
+     ORDER BY sort_order ASC, member_name ASC`,
+  ).all(sessionId);
+  if (rows.length === 0) {
+    return null;
+  }
+  return {
+    members: rows.map((row) => {
+      if (!isRecord(row)) {
+        throw new Error("Invalid local session Agent team snapshot row");
+      }
+      return {
+        name: readString(row.member_name, "member_name"),
+        agentMarkdown: readString(row.agent_markdown, "agent_markdown"),
+      };
+    }),
   };
 }
 
@@ -1212,6 +1390,12 @@ function createLocalSession(
       ownership: input.agentTeamOwnership,
       id: input.agentTeamId,
     });
+    replaceLocalSessionAgentTeamSnapshot(
+      database,
+      input.sessionId,
+      "effective",
+      input.agentTeamSnapshot,
+    );
     ensureLocalCursor(database, input.sessionId, input.now);
     if (input.initialMessage !== undefined) {
       database
@@ -1373,6 +1557,13 @@ function createLocalChildSession(
       ownership: parentAgentTeamOwnership ?? undefined,
       id: parentAgentTeamId ?? undefined,
     });
+    database.prepare(
+      `INSERT INTO session_agent_team_members (session_id, slot, member_name, agent_markdown, sort_order)
+       SELECT ?, 'effective', member_name, agent_markdown, sort_order
+       FROM session_agent_team_members
+       WHERE session_id = ? AND slot = 'effective'
+       ON CONFLICT(session_id, slot, member_name) DO NOTHING`,
+    ).run(input.childSessionId, input.parentSessionId);
     database
       .prepare(
         `UPDATE sessions
@@ -2372,6 +2563,10 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
     parentSessionId: readNullableString(row.parent_session_id, "parent_session_id"),
     agentTeamOwnership: readNullableAgentTeamOwnership(row.agent_team_ownership),
     agentTeamId: readNullableString(row.agent_team_id, "agent_team_id"),
+    agentTeamPendingOwnership: readNullableAgentTeamOwnership(row.agent_team_pending_ownership),
+    agentTeamPendingId: readNullableString(row.agent_team_pending_id, "agent_team_pending_id"),
+    workspaceMode: readLocalWorkspaceMode(row.workspace_mode, "workspace_mode"),
+    workspacePendingMode: readNullableLocalWorkspaceMode(row.workspace_pending_mode, "workspace_pending_mode"),
     title: readNullableString(row.title, "title") ?? fallbackSessionTitle(sessionId),
     status: sessionStatusFromCounts(counts),
     awaitsHumanReason,
@@ -2538,8 +2733,8 @@ function ensureSession(
   database
     .prepare(
       `INSERT INTO sessions
-        (session_id, project_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, agent_team_ownership, agent_team_id, title, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'active', ?, ?)
+        (session_id, project_id, source_type, source_owner, source_repo, source_issue_number, parent_session_id, agent_team_ownership, agent_team_id, workspace_mode, title, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, CASE WHEN ? = 'local' THEN COALESCE((SELECT CASE WHEN worktree_mode = 1 THEN 'worktree' ELSE 'direct' END FROM projects WHERE project_id = ?), 'direct') ELSE NULL END, ?, 'active', ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         title = COALESCE(sessions.title, excluded.title),
         agent_team_ownership = COALESCE(sessions.agent_team_ownership, excluded.agent_team_ownership),
@@ -2559,6 +2754,8 @@ function ensureSession(
       parsed?.issueNumber ?? null,
       agentTeam?.ownership ?? null,
       agentTeam?.id ?? null,
+      sourceType,
+      resolvedProjectId,
       title ?? null,
       now,
       now,
@@ -2571,6 +2768,22 @@ function readNullableAgentTeamOwnership(value: unknown): "system" | "user" | nul
     return ownership;
   }
   throw new Error("Invalid agent_team_ownership");
+}
+
+function readLocalWorkspaceMode(value: unknown, field: string): "direct" | "worktree" {
+  const mode = readString(value, field);
+  if (mode === "direct" || mode === "worktree") {
+    return mode;
+  }
+  throw new Error(`Invalid ${field}`);
+}
+
+function readNullableLocalWorkspaceMode(value: unknown, field: string): "direct" | "worktree" | null {
+  const mode = readNullableString(value, field);
+  if (mode === null || mode === "direct" || mode === "worktree") {
+    return mode;
+  }
+  throw new Error(`Invalid ${field}`);
 }
 
 function titleFromMessage(body: string): string {

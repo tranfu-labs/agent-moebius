@@ -48,7 +48,11 @@ import {
 } from "./team-repair-ipc.js";
 import { getTeamsRoot } from "./team-store.js";
 import { seedBuiltInTeams } from "./team-seed.js";
-import { listSessionAgentFiles, resolveSessionAgentTeamHealth } from "./team-runtime-binding.js";
+import {
+  listSessionAgentFiles,
+  loadAgentTeamSnapshot,
+  resolveSessionAgentTeamHealth,
+} from "./team-runtime-binding.js";
 import {
   TEAM_EXTERNAL_CHANGE_IPC_CHANNEL,
   checkAgentTeamMemberExternalChange,
@@ -217,6 +221,11 @@ async function startLocalConsole(): Promise<void> {
       listAgentFiles: async (sessionId) => listSessionAgentFiles({
         dataRoot: status.dataRoot,
         session: await findSession(sessionId),
+      }),
+      loadAgentTeamSnapshot: async (binding) => loadAgentTeamSnapshot({
+        dataRoot: status.dataRoot,
+        ownership: binding.ownership,
+        teamId: binding.id,
       }),
       resolveAgentTeamHealth: async (session) => resolveSessionAgentTeamHealth({
         dataRoot: status.dataRoot,

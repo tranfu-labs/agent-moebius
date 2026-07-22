@@ -382,6 +382,30 @@ export class ConsoleStateActions {
     }
   };
 
+  readonly changeSessionWorkspace = async (
+    sessionId: string,
+    workspaceMode: "direct" | "worktree",
+  ): Promise<void> => {
+    await this.patchSessionContext(
+      sessionId,
+      "workspace",
+      { workspaceMode },
+      "change session workspace failed",
+    );
+  };
+
+  readonly changeSessionTeam = async (
+    sessionId: string,
+    team: { ownership: "system" | "user"; id: string },
+  ): Promise<void> => {
+    await this.patchSessionContext(
+      sessionId,
+      "team",
+      { agentTeamOwnership: team.ownership, agentTeamId: team.id },
+      "change session team failed",
+    );
+  };
+
   readonly reorderProjects = async (projectIds: string[]): Promise<boolean> => {
     if (this.options.apiBase === null || this.options.coordinator.isSelectionMutationPending) {
       if (this.options.apiBase === null) {
@@ -472,6 +496,36 @@ export class ConsoleStateActions {
       this.options.setSending(false);
     }
   };
+
+  private async patchSessionContext(
+    sessionId: string,
+    context: "workspace" | "team",
+    payload: Record<string, unknown>,
+    fallbackError: string,
+  ): Promise<void> {
+    if (this.options.apiBase === null) {
+      this.options.setError("local console server unavailable");
+      return;
+    }
+    try {
+      const fetch = this.options.fetch;
+      const response = await fetch(
+        endpoint(this.options.apiBase, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/${context}`),
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      const body = await response.json() as SessionResponse;
+      if (!response.ok || body.session === undefined) {
+        throw new Error(body.error ?? fallbackError);
+      }
+      await this.options.refresh(this.options.getSelection());
+    } catch (error) {
+      this.options.setError(formatError(error));
+    }
+  }
 
   private beginMutation(kind: SelectionMutationKind): SelectionMutationToken | null {
     const token = this.options.coordinator.beginSelectionMutation(kind);

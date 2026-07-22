@@ -434,6 +434,34 @@ describe("ConsoleStateActions", () => {
     await rebind;
   });
 
+  it("drives session workspace and team changes through their loopback endpoints then refreshes", async () => {
+    const fetch = vi.fn(async () => jsonResponse({ session: { sessionId: "session/a" } }));
+    const refresh = vi.fn(async () => true);
+    const harness = actionHarness({ coordinator: new ConsoleStateCoordinator(), fetch, refresh });
+
+    await harness.actions.changeSessionWorkspace("session/a", "worktree");
+    await harness.actions.changeSessionTeam("session/a", { ownership: "user", id: "marketing" });
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      new URL("http://127.0.0.1:8787/api/local-console/sessions/session%2Fa/workspace"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ workspaceMode: "worktree" }),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      new URL("http://127.0.0.1:8787/api/local-console/sessions/session%2Fa/team"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ agentTeamOwnership: "user", agentTeamId: "marketing" }),
+      }),
+    );
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenLastCalledWith({ projectId: "project-a", sessionId: "session-a" });
+  });
+
   it("only lets the mutation token owner release the pending gate", () => {
     const coordinator = new ConsoleStateCoordinator();
     const owner = coordinator.beginSelectionMutation("create-session");

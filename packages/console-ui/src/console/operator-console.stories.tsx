@@ -19,6 +19,8 @@ const sessions: OperatorConsoleProps["project"]["sessions"] = [
   {
     sessionId: "waiting",
     projectId: "local",
+    workspaceMode: "worktree",
+    workspacePendingMode: null,
     title: "等待验收",
     status: "waiting",
     awaitsHumanReason: "acceptance",
@@ -34,6 +36,8 @@ const sessions: OperatorConsoleProps["project"]["sessions"] = [
   {
     sessionId: "running",
     projectId: "local",
+    workspaceMode: "worktree",
+    workspacePendingMode: null,
     title: "集成收尾",
     status: "running",
     awaitsHumanReason: null,
@@ -50,6 +54,8 @@ const sessions: OperatorConsoleProps["project"]["sessions"] = [
   {
     sessionId: "idle",
     projectId: "local",
+    workspaceMode: "worktree",
+    workspacePendingMode: null,
     parentSessionId: "running",
     title: "截图走查",
     status: "idle",

@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import type { LocalConsoleAgentFile } from "../../src/local-console/runtime.js";
-import type { LocalConsoleSessionSummary } from "../../src/local-console/types.js";
+import type {
+  LocalConsoleAgentTeamSnapshot,
+  LocalConsoleSessionSummary,
+} from "../../src/local-console/types.js";
 import { resolveRecordedTeamLocation } from "./team-record-store.js";
 import { readTeamSnapshot, resolveTeamLocation } from "./team-store.js";
 
@@ -31,6 +34,26 @@ export async function listSessionAgentFiles(input: {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+export async function loadAgentTeamSnapshot(input: {
+  dataRoot: string;
+  ownership: "system" | "user";
+  teamId: string;
+}): Promise<LocalConsoleAgentTeamSnapshot> {
+  const snapshot = await readBoundTeamSnapshot(input.dataRoot, {
+    agentTeamOwnership: input.ownership,
+    agentTeamId: input.teamId,
+  });
+  if (snapshot.status !== "usable") {
+    throw new AgentTeamRosterUnavailableError(input.teamId);
+  }
+  return {
+    members: snapshot.members.map((member) => ({
+      name: member.slug,
+      agentMarkdown: member.agentMarkdown,
+    })),
+  };
+}
+
 export async function resolveSessionAgentTeamHealth(input: {
   dataRoot: string;
   session: LocalConsoleSessionSummary;
@@ -47,7 +70,10 @@ export async function resolveSessionAgentTeamHealth(input: {
       };
 }
 
-async function readBoundTeamSnapshot(dataRoot: string, session: LocalConsoleSessionSummary) {
+async function readBoundTeamSnapshot(
+  dataRoot: string,
+  session: Pick<LocalConsoleSessionSummary, "agentTeamOwnership" | "agentTeamId">,
+) {
   const teamId = session.agentTeamId;
   const ownership = session.agentTeamOwnership;
   if (teamId == null || ownership == null) {

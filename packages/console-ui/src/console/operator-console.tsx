@@ -1,15 +1,11 @@
 import {
-  ChevronDown,
+  AlertTriangle,
   Diamond,
-  FolderOpen,
-  GitBranch,
-  Laptop,
   PanelLeft,
   PanelLeftClose,
   Plus,
   Search,
   Settings,
-  AlertTriangle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
@@ -26,6 +22,7 @@ import {
   type OperatorAgentTeamsState,
 } from "@/console/agent-teams-page";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
+import { ComposerContext } from "@/console/composer-context";
 import { NewConversationPage } from "@/console/new-conversation-page";
 import {
   ConversationSidebar,
@@ -37,12 +34,6 @@ import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/ui/dropdown-menu";
 
 export type OperatorMessageSpeaker = "user" | "agent" | "system";
 export type OperatorMessageStatus =
@@ -95,6 +86,12 @@ export interface OperatorSession {
   agentTeamId?: string | null;
   agentTeamHealth?: "usable" | "needs-repair" | null;
   agentTeamHealthReason?: string | null;
+  agentTeamPendingOwnership?: "system" | "user" | null;
+  agentTeamPendingId?: string | null;
+  workspaceMode: "direct" | "worktree";
+  workspacePendingMode: "direct" | "worktree" | null;
+  workspaceUnavailableReason?: string | null;
+  branchName?: string | null;
   title: string;
   status: OperatorSessionStatus;
   awaitsHumanReason: "answer" | "confirmation" | "acceptance" | "exception" | null;
@@ -120,6 +117,8 @@ export interface OperatorProject {
   worktreePath: string | null;
   worktreeUnavailableReason: string | null;
   workspaceUpdatedAt: string | null;
+  branchName?: string | null;
+  isGitRepository?: boolean;
   directoryAvailable?: boolean;
   directoryUnavailableReason?: string | null;
   newConversationDisabledReason?: string | null;
@@ -199,7 +198,8 @@ export interface OperatorConsoleProps {
   onSubmitNewConversation?: () => void;
   onAddNewConversationProject?: () => void;
   onReorderProjects?: (projectIds: string[]) => boolean | void | Promise<boolean | void>;
-  onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
+  onChangeSessionWorkspace?: (sessionId: string, workspaceMode: "direct" | "worktree") => void;
+  onChangeSessionTeam?: (sessionId: string, team: OperatorAgentTeam) => void;
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
   onChangeSessionProject?: (sessionId: string, projectId: string) => void;
   onShowProjectInFolder?: (folderPath: string) => void | Promise<void>;
@@ -275,7 +275,8 @@ export function OperatorConsole({
   onSubmitNewConversation,
   onAddNewConversationProject,
   onReorderProjects,
-  onToggleProjectWorktree,
+  onChangeSessionWorkspace,
+  onChangeSessionTeam,
   onSelectSession,
   onChangeSessionProject,
   onShowProjectInFolder,
@@ -354,6 +355,13 @@ export function OperatorConsole({
     && agentTeamsState.teams.some((team) => team.status === "needs-repair");
   const conversationAgentTeam = agentTeamsState.status === "ready"
     ? agentTeamsState.teams.find((team) => team.teamKey === conversationAgentTeamKey)
+    : undefined;
+  const pendingConversationAgentTeam = agentTeamsState.status === "ready"
+    && selectedSession?.agentTeamPendingOwnership != null
+    && selectedSession.agentTeamPendingId != null
+    ? agentTeamsState.teams.find(
+        (team) => team.teamKey === `${selectedSession.agentTeamPendingOwnership}:${selectedSession.agentTeamPendingId}`,
+      )
     : undefined;
   const runtimeConversationAgentTeam = conversationAgentTeam === undefined || selectedSession?.agentTeamHealth == null
     ? conversationAgentTeam
@@ -697,7 +705,7 @@ export function OperatorConsole({
               title: candidate.title,
               available: candidate.directoryAvailable !== false && candidate.newConversationDisabledReason == null,
               workspaceLabel: candidate.worktreeMode ? "独立工作空间" : "默认工作空间",
-              branchLabel: candidate.worktreeMode ? "会话分支" : "当前分支",
+              branchLabel: candidate.branchName ?? "—",
             }))}
             teams={agentTeamsState.status === "ready"
               ? agentTeamsState.teams
@@ -795,6 +803,8 @@ export function OperatorConsole({
                       projects={visibleProjects}
                       selectedSession={selectedSession}
                       agentTeam={runtimeConversationAgentTeam}
+                      pendingAgentTeam={pendingConversationAgentTeam}
+                      teams={agentTeamsState.status === "ready" ? agentTeamsState.teams : []}
                       canChangeProject={
                         selectedSession !== null &&
                         messages.length === 0 &&
@@ -804,7 +814,8 @@ export function OperatorConsole({
                       }
                       disabled={isSelectionMutationPending || activeProjectUnavailable}
                       onChangeSessionProject={onChangeSessionProject}
-                      onToggleProjectWorktree={onToggleProjectWorktree}
+                      onChangeSessionWorkspace={onChangeSessionWorkspace}
+                      onChangeSessionTeam={onChangeSessionTeam}
                     />
                   }
                   className="pointer-events-auto mx-auto max-w-[720px]"
@@ -1252,133 +1263,6 @@ export function resolveNewConversationAgentTeamKey(
     return recordedTeam.teamKey;
   }
   return teams.find((team) => team.ownership === "system" && team.canCreateConversation)?.teamKey ?? null;
-}
-
-function ComposerContext({
-  project,
-  projects,
-  selectedSession,
-  agentTeam,
-  canChangeProject,
-  disabled,
-  onChangeSessionProject,
-  onToggleProjectWorktree,
-}: {
-  project: OperatorProject;
-  projects: OperatorProject[];
-  selectedSession: OperatorSession | null;
-  agentTeam?: OperatorAgentTeam;
-  canChangeProject: boolean;
-  disabled: boolean;
-  onChangeSessionProject?: (sessionId: string, projectId: string) => void;
-  onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
-}): JSX.Element {
-  const workspaceLabel = project.worktreeMode ? "隔离工作区" : "本地";
-
-  return (
-    <div className="flex min-w-0 items-center gap-3 text-xs text-sub">
-      {canChangeProject && selectedSession && onChangeSessionProject ? (
-        disabled ? (
-          <button
-            type="button"
-            className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 opacity-50"
-            aria-label={`项目：${project.title}，点击切换`}
-            disabled
-          >
-            <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-            <span className="truncate">{project.title}</span>
-            <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-          </button>
-        ) : (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink"
-                aria-label={`项目：${project.title}，点击切换`}
-              >
-                <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-                <span className="truncate">{project.title}</span>
-                <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="min-w-48">
-              {projects.map((candidate) => (
-                <DropdownMenuCheckboxItem
-                  key={candidate.projectId}
-                  checked={candidate.projectId === project.projectId}
-                  onSelect={() => {
-                    if (candidate.projectId !== project.projectId) {
-                      onChangeSessionProject(selectedSession.sessionId, candidate.projectId);
-                    }
-                  }}
-                >
-                  {candidate.title}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )
-      ) : (
-        <span className="inline-flex min-w-0 items-center gap-1.5" aria-label={`项目：${project.title}，已锁定`}>
-          <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-          <span className="truncate">{project.title}</span>
-        </span>
-      )}
-      {agentTeam ? <SessionAgentTeamButton team={agentTeam} /> : null}
-      {onToggleProjectWorktree ? (
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink"
-          aria-label={`工作区：${workspaceLabel}，点击切换`}
-          aria-pressed={project.worktreeMode}
-          disabled={disabled}
-          title={disabled ? project.directoryUnavailableReason ?? "项目当前不可用" : undefined}
-          onClick={() => onToggleProjectWorktree(project.projectId, !project.worktreeMode)}
-        >
-          <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-          {workspaceLabel}
-        </button>
-      ) : (
-        <span className="inline-flex items-center gap-1.5">
-          <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-          {workspaceLabel}
-        </span>
-      )}
-      <span className="inline-flex items-center gap-1.5">
-        <GitBranch className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-        {project.worktreeMode ? "会话分支" : "当前分支"}
-      </span>
-    </div>
-  );
-}
-
-function SessionAgentTeamButton({ team }: { team: OperatorAgentTeam }): JSX.Element {
-  const teamLabel = team.name?.trim() || "未命名团队";
-  const needsRepair = team.status === "needs-repair";
-  const accessibleLabel = needsRepair
-    ? `Agent 团队：${teamLabel}，需要修复`
-    : `Agent 团队：${teamLabel}`;
-
-  return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1",
-        needsRepair ? "bg-danger/10 text-danger" : "text-sub",
-      )}
-      aria-label={accessibleLabel}
-      title={accessibleLabel}
-    >
-      {needsRepair ? (
-        <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      ) : (
-        <Diamond className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      )}
-      <span className="truncate">{teamLabel}</span>
-      {needsRepair ? <span className="whitespace-nowrap font-medium">需要修复</span> : null}
-    </button>
-  );
 }
 
 function TimelineEntry({
