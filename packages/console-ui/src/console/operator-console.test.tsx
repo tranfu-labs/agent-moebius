@@ -973,10 +973,12 @@ describe("OperatorConsole", () => {
 
   it("keeps terminal outcomes readable and routes machine details to diagnostics", () => {
     const onOpenDiagnostics = vi.fn();
+    const onEditAndResend = vi.fn();
     renderConsole({
       onOpenDiagnostics,
+      onEditAndResend,
       messages: [
-        message({ id: 1, status: "interrupted", systemEventKind: "user-stopped", body: "你让这一步停下了", error: "interrupted:user-interrupted" }),
+        message({ id: 1, speaker: "system", status: "interrupted", systemEventKind: "user-stopped", body: "你让这一步停下了", error: "interrupted:user-interrupted" }),
         message({ id: 2, speaker: "system", status: "failed", systemEventKind: "run-not-started", body: "这一步没跑起来", error: "exit:42" }),
         message({ id: 3, speaker: "system", status: "stuck", systemEventKind: "run-stuck", body: "这一步卡住了", error: "idle-timeout:10ms" }),
       ],
@@ -990,6 +992,13 @@ describe("OperatorConsole", () => {
 
     expect(screen.queryByRole("button", { name: "查看日志" })).not.toBeInTheDocument();
     expect(onOpenDiagnostics).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "改一改重发这轮消息" }));
+    expect(onEditAndResend).toHaveBeenCalledWith({
+      stoppedMessageId: 1,
+      sessionId: "session-a",
+      runId: null,
+    });
+    expect(screen.getAllByRole("button", { name: /改一改重发/u })).toHaveLength(1);
   });
 
   it("keeps derived sessions out of the sidebar and opens them from a timeline card", () => {

@@ -76,6 +76,33 @@ export async function listManagedDraftAttachments(
   return body.attachments;
 }
 
+export async function cloneManagedMessageAttachments(
+  input: AttachmentClientOptions & {
+    sessionId: string;
+    sourceMessageId: number;
+    targetDraftKey: string;
+  },
+): Promise<StructuredAttachment[]> {
+  const url = endpoint(input.apiBase, "/api/local-console/attachments/clone");
+  const response = await input.fetch(url, {
+    method: "POST",
+    headers: {
+      [ATTACHMENT_CAPABILITY_HEADER]: input.capability,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      sessionId: input.sessionId,
+      sourceMessageId: input.sourceMessageId,
+      targetDraftKey: input.targetDraftKey,
+    }),
+  });
+  const body = await readJson<{ attachments?: StructuredAttachment[]; error?: string }>(response);
+  if (!response.ok || body.attachments === undefined) {
+    throw new Error(body.error ?? "附件回填失败");
+  }
+  return body.attachments;
+}
+
 export async function removeManagedDraftAttachment(
   input: AttachmentClientOptions & { draftKey: string; attachmentId: string },
 ): Promise<void> {

@@ -11,6 +11,7 @@ import {
   type OperatorAgentTeam,
   type OperatorAgentTeamsState,
   type OperatorChildSessionSummary,
+  type OperatorEditAndResendTarget,
   type OperatorProject,
   type OperatorRunSnapshot,
   type OperatorRunnerStatus,
@@ -114,6 +115,7 @@ import {
   useMessagesWithAttachmentPreviews,
 } from "./use-managed-attachments.js";
 import { interruptLocalConsoleRun } from "./interrupt.js";
+import { refillStoppedRunDraft } from "./edit-resend.js";
 
 interface DesktopApi {
   getLocalConsoleUrl?: () => Promise<string | null>;
@@ -1136,6 +1138,28 @@ function App(): JSX.Element {
       : () => window.agentMoebius!.selectProjectFolder!(),
   }), [apiBase, commitSelection, composerValue, managedAttachments, refresh]);
 
+  const editAndResend = useCallback((target: OperatorEditAndResendTarget) => {
+    if (state === null) {
+      return;
+    }
+    const targetSessionId = target.sessionId;
+    setClientError(null);
+    void refillStoppedRunDraft({
+      messages: state.messages,
+      stoppedMessageId: target.stoppedMessageId,
+      stoppedRunId: target.runId,
+      sessionId: targetSessionId,
+      replaceAttachments: managedAttachments.replaceWithMessageAttachments,
+      persistBody: (body) => {
+        const draftKey = sessionDraftKey(targetSessionId);
+        conversationDraftStoreRef.current.write(draftKey, body);
+        if (selectionRef.current.sessionId === targetSessionId) {
+          setComposerValue(body);
+        }
+      },
+    }).catch((error: unknown) => setClientError(formatError(error)));
+  }, [managedAttachments.replaceWithMessageAttachments, state]);
+
   const preferredNewConversationTeamKey = useMemo(() => resolveNewConversationAgentTeamKey(
     agentTeamsState.status === "ready" ? agentTeamsState.teams : [],
     lastUsedAgentTeamKey,
@@ -1489,6 +1513,7 @@ function App(): JSX.Element {
       onRepairProjectFolder={repairProjectFolder}
       onArchiveSession={actions.archiveSession}
       onInterrupt={interrupt}
+      onEditAndResend={editAndResend}
       onOpenDiagnostics={openDiagnostics}
       onOpenExternalLink={window.agentMoebius?.openExternalLink === undefined
         ? undefined

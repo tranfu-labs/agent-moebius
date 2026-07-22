@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  cloneManagedMessageAttachments,
   listManagedDraftAttachments,
   managedAttachmentFetch,
 } from "../src/console-page/attachment-client.js";
@@ -31,5 +32,44 @@ describe("managed attachment client", () => {
       fetch: managedAttachmentFetch,
     })).resolves.toEqual([]);
     expect(receiverAwareFetch).toHaveBeenCalledOnce();
+  });
+
+  it("clones message attachments into the session draft through the capability endpoint", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      attachments: [{
+        attachmentId: "clone-1",
+        kind: "file",
+        displayName: "brief.txt",
+        mediaType: "text/plain",
+        byteSize: 5,
+      }],
+    }), {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    }));
+
+    await expect(cloneManagedMessageAttachments({
+      apiBase: "http://127.0.0.1:8788/",
+      capability: "test-capability",
+      fetch,
+      sessionId: "session-a",
+      sourceMessageId: 41,
+      targetDraftKey: "draft:session-a",
+    })).resolves.toMatchObject([{ attachmentId: "clone-1" }]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("http://127.0.0.1:8788/api/local-console/attachments/clone"),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "x-agent-moebius-attachment-capability": "test-capability",
+        }),
+        body: JSON.stringify({
+          sessionId: "session-a",
+          sourceMessageId: 41,
+          targetDraftKey: "draft:session-a",
+        }),
+      }),
+    );
   });
 });

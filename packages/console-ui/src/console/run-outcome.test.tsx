@@ -30,10 +30,25 @@ describe("RunOutcome", () => {
     expect(screen.queryByText("exit:42")).not.toBeInTheDocument();
   });
 
-  it("does not offer a diagnostic action for a user interruption", () => {
-    render(<RunOutcome status="user-stopped" onOpenDiagnostics={vi.fn()} />);
+  it("offers only the accessible edit-and-resend action for a user interruption", () => {
+    const onEditAndResend = vi.fn();
+    render(
+      <RunOutcome
+        status="user-stopped"
+        onOpenDiagnostics={vi.fn()}
+        onEditAndResend={onEditAndResend}
+      />,
+    );
 
     expect(screen.getByText("你让这一步停下了")).toBeVisible();
     expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "改一改重发这轮消息" }));
+    expect(onEditAndResend).toHaveBeenCalledOnce();
+  });
+
+  it("does not expose edit or resend on other outcomes", () => {
+    render(<RunOutcome status="run-stuck" onRetry={vi.fn()} onEditAndResend={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: /改一改重发/u })).not.toBeInTheDocument();
   });
 });

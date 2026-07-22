@@ -203,6 +203,12 @@ export interface OperatorNewConversationState {
   error: string | null;
 }
 
+export interface OperatorEditAndResendTarget {
+  stoppedMessageId: number;
+  sessionId: string;
+  runId: string | null;
+}
+
 export interface OperatorConsoleProps {
   project: OperatorProject;
   projects?: OperatorProject[];
@@ -252,6 +258,7 @@ export interface OperatorConsoleProps {
   onRepairProjectFolder?: (projectId: string, folderPath: string) => void | Promise<void>;
   onArchiveSession?: (sessionId: string, projectId: string) => void | Promise<void>;
   onInterrupt(sessionId: string, runId: string): void;
+  onEditAndResend?: (target: OperatorEditAndResendTarget) => void;
   onOpenDiagnostics?: () => void;
   onOpenExternalLink?: (url: string) => void;
   onRetryProjectList?: () => void;
@@ -339,6 +346,7 @@ export function OperatorConsole({
   onRepairProjectFolder,
   onArchiveSession,
   onInterrupt,
+  onEditAndResend,
   onOpenDiagnostics,
   onOpenExternalLink,
   onRetryProjectList,
@@ -875,6 +883,7 @@ export function OperatorConsole({
                           childSessions={childSessions}
                           openedSubSessionId={openedSubSession?.session.sessionId ?? null}
                           onOpenSubSession={openSubSession}
+                          onEditAndResend={onEditAndResend}
                           onOpenDiagnostics={onOpenDiagnostics}
                           onOpenExternalLink={onOpenExternalLink}
                         />
@@ -1477,6 +1486,7 @@ function TimelineEntry({
   childSessions = [],
   openedSubSessionId = null,
   onOpenSubSession,
+  onEditAndResend,
   onOpenDiagnostics,
   onOpenExternalLink,
 }: {
@@ -1484,6 +1494,7 @@ function TimelineEntry({
   childSessions?: readonly OperatorChildSessionSummary[];
   openedSubSessionId?: string | null;
   onOpenSubSession?: (sessionId: string) => void;
+  onEditAndResend?: (target: OperatorEditAndResendTarget) => void;
   onOpenDiagnostics?: () => void;
   onOpenExternalLink?: (url: string) => void;
 }): JSX.Element {
@@ -1506,6 +1517,13 @@ function TimelineEntry({
         role={message.role}
         rawReason={message.error ?? message.body}
         rawOutput={message.error ? message.body : null}
+        onEditAndResend={outcome === "user-stopped" && onEditAndResend !== undefined
+          ? () => onEditAndResend({
+              stoppedMessageId: message.id,
+              sessionId: message.sessionId,
+              runId: message.runId,
+            })
+          : undefined}
         onOpenDiagnostics={onOpenDiagnostics}
         className="py-4"
       />

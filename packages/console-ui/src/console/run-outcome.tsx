@@ -13,6 +13,7 @@ export interface RunOutcomeProps {
   defaultOpen?: boolean;
   onOpenDiagnostics?: () => void;
   onRetry?: () => void;
+  onEditAndResend?: () => void;
   className?: string;
 }
 
@@ -49,6 +50,7 @@ export function RunOutcome({
   defaultOpen: _defaultOpen,
   onOpenDiagnostics: _onOpenDiagnostics,
   onRetry,
+  onEditAndResend,
   className,
 }: RunOutcomeProps): JSX.Element {
   const roleLabel = role ? localizeRole(role) : null;
@@ -68,6 +70,16 @@ export function RunOutcome({
       {status === "run-not-started" || status === "run-stuck" ? (
         <Button type="button" variant="outline" size="sm" onClick={onRetry}>
           重试
+        </Button>
+      ) : status === "user-stopped" && onEditAndResend !== undefined ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label="改一改重发这轮消息"
+          onClick={onEditAndResend}
+        >
+          改一改重发
         </Button>
       ) : null}
     </div>

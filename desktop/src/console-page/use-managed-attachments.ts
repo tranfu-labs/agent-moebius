@@ -5,6 +5,7 @@ import type {
 } from "@agent-moebius/console-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  cloneManagedMessageAttachments,
   listManagedDraftAttachments,
   loadManagedAttachmentPreview,
   managedAttachmentFetch,
@@ -30,6 +31,7 @@ export function useManagedAttachmentDrafts(input: {
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
   const handlesRef = useRef(new Map<string, PendingHandle>());
+  const draftRevisionRef = useRef(new Map<string, number>());
   const uploadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const currentDraftKeyRef = useRef(input.currentDraftKey);
   currentDraftKeyRef.current = input.currentDraftKey;
@@ -185,6 +187,82 @@ export function useManagedAttachmentDrafts(input: {
     setDrafts((current) => ({ ...current, [draftKey]: [] }));
   }, [drafts]);
 
+  const replaceWithMessageAttachments = useCallback(async (source: {
+    sessionId: string;
+    sourceMessageId: number;
+  }): Promise<void> => {
+    if (input.apiBase === null || input.capability === null) {
+      throw new Error("本地附件服务尚未就绪");
+    }
+    const draftKey = input.currentDraftKey;
+    if (draftKey !== `draft:${source.sessionId}`) {
+      throw new Error("附件草稿与当前会话不一致");
+    }
+
+    const revision = (draftRevisionRef.current.get(draftKey) ?? 0) + 1;
+    draftRevisionRef.current.set(draftKey, revision);
+    const currentItems = draftsRef.current[draftKey] ?? [];
+    for (const item of currentItems) {
+      const handle = handlesRef.current.get(item.clientId);
+      handle?.controller?.abort("draft-replaced");
+      handlesRef.current.delete(item.clientId);
+    }
+    await Promise.all(currentItems.flatMap((item) => item.attachmentId === undefined ? [] : [
+      removeManagedDraftAttachment({
+        apiBase: input.apiBase!,
+        capability: input.capability!,
+        fetch: managedAttachmentFetch,
+        draftKey,
+        attachmentId: item.attachmentId,
+      }),
+    ]));
+
+    const cloned = await cloneManagedMessageAttachments({
+      apiBase: input.apiBase,
+      capability: input.capability,
+      fetch: managedAttachmentFetch,
+      sessionId: source.sessionId,
+      sourceMessageId: source.sourceMessageId,
+      targetDraftKey: draftKey,
+    });
+    const restored = await Promise.all(cloned.map(async (attachment): Promise<ComposerAttachment> => {
+      let previewUrl: string | undefined;
+      if (attachment.kind === "image") {
+        const preview = await loadManagedAttachmentPreview({
+          apiBase: input.apiBase!,
+          capability: input.capability!,
+          fetch: managedAttachmentFetch,
+          draftKey,
+          attachmentId: attachment.attachmentId,
+        });
+        previewUrl = URL.createObjectURL(preview);
+      }
+      return {
+        clientId: attachment.attachmentId,
+        ...attachment,
+        status: "ready",
+        ...(previewUrl === undefined ? {} : { previewUrl }),
+      };
+    }));
+    for (const item of currentItems) {
+      if (item.previewUrl !== undefined) URL.revokeObjectURL(item.previewUrl);
+    }
+    if (draftRevisionRef.current.get(draftKey) !== revision) {
+      for (const item of restored) {
+        if (item.previewUrl !== undefined) URL.revokeObjectURL(item.previewUrl);
+      }
+      return;
+    }
+    const visibleRestored = currentDraftKeyRef.current === draftKey
+      ? restored
+      : restored.map((item) => {
+          if (item.previewUrl !== undefined) URL.revokeObjectURL(item.previewUrl);
+          const { previewUrl: _previewUrl, ...withoutPreview } = item;
+          return withoutPreview;
+        });
+    setDrafts((current) => ({ ...current, [draftKey]: visibleRestored }));
+  }, [input.apiBase, input.capability, input.currentDraftKey]);
+
   const releaseDraftPreviewUrls = useCallback((draftKey: string) => {
     setDrafts((current) => {
       const released = new Set<string>();
@@ -218,6 +296,7 @@ export function useManagedAttachmentDrafts(input: {
   useEffect(() => {
     if (input.apiBase === null || input.capability === null) return;
     const controller = new AbortController();
+    const draftRevision = draftRevisionRef.current.get(input.currentDraftKey) ?? 0;
     void listManagedDraftAttachments({
       apiBase: input.apiBase,
       capability: input.capability,
@@ -245,7 +324,10 @@ export function useManagedAttachmentDrafts(input: {
           ...(previewUrl === undefined ? {} : { previewUrl }),
         };
       }));
-      if (controller.signal.aborted) {
+      if (
+        controller.signal.aborted
+        || (draftRevisionRef.current.get(input.currentDraftKey) ?? 0) !== draftRevision
+      ) {
         for (const item of restored) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
         return;
       }
@@ -290,6 +372,7 @@ export function useManagedAttachmentDrafts(input: {
     remove,
     retry,
     clearDraft,
+    replaceWithMessageAttachments,
   };
 }
 
