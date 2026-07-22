@@ -664,7 +664,7 @@ Source: docs/product/pages/main-conversation.md#操作与反馈
 ## Requirement: 验收 5 — 创建后标题与项目上下文稳定
 Source: docs/product/pages/main-conversation.md#会话内容区
 
-系统 MUST 在首发成功后于时间线滚动容器顶部显示由首条消息生成的、复用统一 46px 窗口 header 高度的不透明 sticky 单行会话标题，标题文字 MUST 在该 header 内自然垂直居中并与最大 760px 的时间线容器外边缘对齐，MUST NOT 继承消息行内部的 40px 文字缩进；长标题 MUST 截断且通过 title 属性暴露全文。窗口使用隐藏标题栏时 MUST NOT 为不存在的系统标题栏增加纵向留白。有消息的会话 MUST 保持创建时项目归属。系统 MUST NOT 提供标题编辑入口或有消息会话的项目切换控件。
+系统 MUST 在首发成功后于时间线滚动容器顶部显示由首条消息生成的、复用统一 46px 窗口 header 高度的不透明 sticky 单行会话标题，标题文字 MUST 在该 header 内自然垂直居中并与消息行文字使用同一条左边界；长标题 MUST 截断且通过 title 属性暴露全文。窗口使用隐藏标题栏时 MUST NOT 为不存在的系统标题栏增加纵向留白。有消息的会话 MUST 保持创建时项目归属。系统 MUST NOT 提供标题编辑入口或有消息会话的项目切换控件。
 
 ### Scenario: 已有会话显示稳定标题
 - GIVEN 首条消息已创建会话且生成标题

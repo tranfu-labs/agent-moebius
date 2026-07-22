@@ -826,7 +826,7 @@ export function OperatorConsole({
                   data-testid="conversation-title-header"
                 >
                   <h1
-                    className="mx-auto w-full max-w-[760px] truncate text-left text-base font-semibold text-ink"
+                    className="mx-auto w-full max-w-[760px] truncate pl-10 text-left text-base font-semibold text-ink"
                     title={selectedSession.title}
                   >
                     {selectedSession.title}
