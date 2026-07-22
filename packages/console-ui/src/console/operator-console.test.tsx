@@ -869,7 +869,8 @@ describe("OperatorConsole", () => {
       "px-8",
     );
     expect(titleHeader).not.toHaveClass("absolute", "pt-12", "window-drag-region");
-    expect(title).toHaveClass("w-full", "max-w-[760px]", "pl-10", "text-left");
+    expect(title).toHaveClass("w-full", "max-w-[760px]", "text-left");
+    expect(title).not.toHaveClass("pl-10");
   });
 
   it("keeps the selected conversation mounted when its project is collapsed", () => {
