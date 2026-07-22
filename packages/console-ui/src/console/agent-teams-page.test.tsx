@@ -5,6 +5,36 @@ import { describe, expect, it, vi } from "vitest";
 import { type AgentTeamDetailState } from "./agent-team-detail";
 import { AgentTeamsPage, type OperatorAgentTeam, type OperatorAgentTeamsState } from "./agent-teams-page";
 
+describe("AgentTeamsPage member identity avatars", () => {
+  it("shows the same neutral initial avatar in the team row, member selector, and current member heading", () => {
+    const { container } = render(
+      <AgentTeamsPage
+        state={{ status: "ready", teams: [userTeam] }}
+        detailState={detailStateFor(userTeam.teamKey)}
+        useStackedRows={false}
+        onOpenTeam={() => undefined}
+        onSelectMember={() => undefined}
+        onChangeMember={() => undefined}
+        onSaveMember={() => undefined}
+        onRetryMember={() => undefined}
+        onDiscardMember={() => undefined}
+        onDiscardAll={() => undefined}
+        onSaveAll={async () => ({ failures: [] })}
+        onBack={() => undefined}
+      />,
+    );
+
+    const row = screen.getByTestId("agent-team-row");
+    const rowAvatar = row.querySelector('[data-agent-initial-avatar="manager"]');
+    expect(rowAvatar).toHaveTextContent("开");
+
+    fireEvent.click(row);
+    const detailAvatars = container.querySelectorAll('[data-agent-initial-avatar="manager"]');
+    expect(detailAvatars).toHaveLength(2);
+    expect([...detailAvatars].every((avatar) => avatar.textContent === "开")).toBe(true);
+  });
+});
+
 describe("AgentTeamsPage built-in duplication", () => {
   it("opens the copied user team detail after the whole-team operation succeeds", async () => {
     const onDuplicate = vi.fn();

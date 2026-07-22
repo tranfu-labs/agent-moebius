@@ -1,6 +1,7 @@
 import { AlertTriangle, Copy, FolderOpen, LoaderCircle, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
+import { AgentInitialAvatar } from "@/console/agent-initial-avatar";
 import {
   AgentTeamDetail,
   type AgentTeamRepairIssueView,
@@ -940,10 +941,11 @@ function AgentTeamRow({
           return (
             <span
               key={member.slug}
-              className="inline-flex h-8 w-28 shrink-0 items-center rounded-md border border-line bg-canvas px-2.5 text-xs font-normal text-ink"
+              className="inline-flex h-8 w-28 shrink-0 items-center rounded-md border border-line bg-canvas px-2 text-xs font-normal text-ink"
               title={member.displayName}
             >
-              <span className="truncate">{member.displayName}</span>
+              <AgentInitialAvatar displayName={member.displayName} slug={member.slug} className="mr-1.5" />
+              <span className="min-w-0 flex-1 truncate">{member.displayName}</span>
               {isPrimary ? <span className="ml-1 whitespace-nowrap text-hint">· 主 Agent</span> : null}
             </span>
           );

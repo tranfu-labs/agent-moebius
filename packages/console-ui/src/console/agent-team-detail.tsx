@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { AgentInitialAvatar } from "@/console/agent-initial-avatar";
 import {
   AgentMarkdownMentionEditor,
   CopyableAgentSlug,
@@ -464,6 +465,7 @@ export function AgentTeamDetail({
                 )}
                 onClick={() => onSelectMember(member.slug)}
               >
+                <AgentInitialAvatar displayName={member.displayName} slug={member.slug} />
                 <span>{member.displayName || `@${member.slug}`}</span>
                 {primary ? <span className="text-xs text-hint">· 主 Agent</span> : null}
                 {member.available === false ? <span className="text-xs text-danger">· 不可用</span> : null}
@@ -540,16 +542,24 @@ export function AgentTeamDetail({
         ) : (
           <>
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h2 className="truncate text-lg font-semibold tracking-[-0.01em] text-ink">
-                    {selectedEditor.displayName || selectedMember.displayName || `@${selectedMember.slug}`}
-                  </h2>
-                  {selectedEditor.isDirty ? <span className="text-xs font-medium text-accent">未保存</span> : null}
+              <div className="flex min-w-0 items-start gap-3">
+                <AgentInitialAvatar
+                  displayName={selectedEditor.displayName || selectedMember.displayName}
+                  slug={selectedMember.slug}
+                  size="heading"
+                  className="mt-0.5"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="truncate text-lg font-semibold tracking-[-0.01em] text-ink">
+                      {selectedEditor.displayName || selectedMember.displayName || `@${selectedMember.slug}`}
+                    </h2>
+                    {selectedEditor.isDirty ? <span className="text-xs font-medium text-accent">未保存</span> : null}
+                  </div>
+                  <p className="mt-1 text-sm text-sub">
+                    {selectedEditor.description || selectedMember.description || `@${selectedMember.slug}`}
+                  </p>
                 </div>
-                <p className="mt-1 text-sm text-sub">
-                  {selectedEditor.description || selectedMember.description || `@${selectedMember.slug}`}
-                </p>
               </div>
               {memberActions}
             </div>
