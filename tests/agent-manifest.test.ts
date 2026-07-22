@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { parseAgentManifest, validatePreScriptPath } from "../src/agent-manifest.js";
 
 describe("agent manifest", () => {
-  it("parses trusted preScript frontmatter and keeps markdown body", () => {
+  it("parses canonical pre_script frontmatter and keeps markdown body", () => {
     expect(
       parseAgentManifest(`---
-preScript: src/agent-prescripts/dev-workspace.ts
+pre_script: src/agent-prescripts/dev-workspace.ts
 ---
 
 # Dev
@@ -27,10 +27,10 @@ body`),
     });
   });
 
-  it("parses workspace access frontmatter", () => {
+  it("parses canonical workspace access frontmatter", () => {
     expect(
       parseAgentManifest(`---
-workspaceAccess: read-run
+workspace_access: read-run
 ---
 
 # QA`),
@@ -41,23 +41,42 @@ workspaceAccess: read-run
     });
   });
 
+  it("keeps legacy camelCase aliases readable", () => {
+    expect(parseAgentManifest(`---
+preScript: src/agent-prescripts/dev-workspace.ts
+workspaceAccess: read-run
+---
+# Legacy`)).toMatchObject({
+      preScript: "src/agent-prescripts/dev-workspace.ts",
+      workspaceAccess: "read-run",
+    });
+  });
+
+  it("rejects conflicting canonical and legacy aliases", () => {
+    expect(() => parseAgentManifest(`---
+workspace_access: write
+workspaceAccess: read-run
+---
+# Conflict`)).toThrow(/Conflicting Agent frontmatter fields: workspace_access and workspaceAccess/);
+  });
+
   it("rejects invalid workspace access values", () => {
     expect(() =>
       parseAgentManifest(`---
-workspaceAccess: ../../evil.ts
+workspace_access: ../../evil.ts
 ---
 
 # Bad`),
-    ).toThrow(/Invalid agent workspaceAccess value/);
+    ).toThrow(/Invalid agent workspace_access value/);
   });
 
   it("rejects preScript paths outside the trusted directory", () => {
-    expect(() => validatePreScriptPath("../scripts/run.ts")).toThrow(/Invalid agent preScript path/);
-    expect(() => validatePreScriptPath("/tmp/run.ts")).toThrow(/Invalid agent preScript path/);
+    expect(() => validatePreScriptPath("../scripts/run.ts")).toThrow(/Invalid agent pre_script path/);
+    expect(() => validatePreScriptPath("/tmp/run.ts")).toThrow(/Invalid agent pre_script path/);
     expect(() => validatePreScriptPath("src/agent-prescripts/../../evil.ts")).toThrow(
-      /Invalid agent preScript path/,
+      /Invalid agent pre_script path/,
     );
-    expect(() => validatePreScriptPath("src/not-prescripts/run.ts")).toThrow(/Invalid agent preScript path/);
+    expect(() => validatePreScriptPath("src/not-prescripts/run.ts")).toThrow(/Invalid agent pre_script path/);
   });
 
   it("keeps issue workspace access limited to the first enabled roles", async () => {

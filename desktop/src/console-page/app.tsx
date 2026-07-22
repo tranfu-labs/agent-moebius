@@ -44,7 +44,7 @@ import type {
   AgentTeamExternalChangeRequest,
   AgentTeamExternalChangeResponse,
 } from "../team-external-change.js";
-import { parseAgentMarkdownIdentity } from "../team-model.js";
+import { tryParseAgentMarkdownIdentity } from "../team-model.js";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -437,7 +437,7 @@ function App(): JSX.Element {
     updateAgentTeamMemberSummary(teamKey, {
       slug: memberSlug,
       agentMarkdown: externalMarkdown,
-      ...parseAgentMarkdownIdentity(externalMarkdown),
+      ...tryParseAgentMarkdownIdentity(externalMarkdown),
     });
   }, [commitAgentTeamDraftState, updateAgentTeamMemberSummary]);
 
@@ -853,7 +853,10 @@ function App(): JSX.Element {
         continue;
       }
       const identity = editor.loadStatus === "ready"
-        ? parseAgentMarkdownIdentity(editor.draftMarkdown)
+        ? tryParseAgentMarkdownIdentity(editor.draftMarkdown, {
+            displayName: member.displayName,
+            description: member.description,
+          })
         : { displayName: member.displayName, description: member.description };
       memberEditors[member.slug] = {
         memberSlug: member.slug,

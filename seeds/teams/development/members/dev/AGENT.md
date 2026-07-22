@@ -1,5 +1,7 @@
 ---
-workspaceAccess: write
+display_name: 开发
+description: 负责方案落地、代码实现与验证。
+workspace_access: write
 ---
 
 # Dev 开发者

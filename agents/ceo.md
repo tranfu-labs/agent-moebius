@@ -1,5 +1,5 @@
 ---
-preScript: src/agent-prescripts/ceo-ledger-context.ts
+pre_script: src/agent-prescripts/ceo-ledger-context.ts
 ---
 
 # CEO

@@ -1,5 +1,5 @@
 ---
-workspaceAccess: write
+workspace_access: write
 ---
 
 # Dev 开发者

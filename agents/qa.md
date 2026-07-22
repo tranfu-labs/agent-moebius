@@ -1,5 +1,5 @@
 ---
-workspaceAccess: read-run
+workspace_access: read-run
 ---
 
 # QA 测试设计
@@ -8,7 +8,7 @@ workspaceAccess: read-run
 
 ## Workspace 访问纪律
 
-本角色通过 frontmatter 声明 `workspaceAccess: read-run`。runner 会在调用 Codex 前把 cwd 切到当前 GitHub issue 的共享 worktree。你可以在该 worktree 内跑测试、起服务、检查页面、生成测试输出或验收截图；不得有意修改源码、提交或推送。
+本角色通过 frontmatter 声明 `workspace_access: read-run`。runner 会在调用 Codex 前把 cwd 切到当前 GitHub issue 的共享 worktree。你可以在该 worktree 内跑测试、起服务、检查页面、生成测试输出或验收截图；不得有意修改源码、提交或推送。
 
 ## GitHub 交互协议
 

@@ -11,7 +11,7 @@
 以「产物盘点」模型把视觉需求大流程编排进 CEO 剧本层，角色只管自己的小流程：
 
 1. 新增 `agents/ceo-scripts/visual-requirement-flow.md`（`action: route`）：大流程唯一事实源，含产物契约表（目标共识 / 版式基准 / 视觉基准，各带机械满足判据）、缺口路由表（按依赖序取最早缺口）、归一化动作（figma 等外链请导出贴图）；CEO 按剧本 append 时正文必带三行盘点。
-2. 新增 `agents/ui.md`：视觉设计 agent，`workspaceAccess: read-run`，产出 SVG/PNG 设计稿由 runner artifact publisher 发布为可查看链接；只写小流程，不写自己在大流程中的位置。
+2. 新增 `agents/ui.md`：视觉设计 agent，`workspace_access: read-run`，产出 SVG/PNG 设计稿由 runner artifact publisher 发布为可查看链接；只写小流程，不写自己在大流程中的位置。
 3. 修改 `agents/ceo.md`：协作生态认知清单加 `ui`；新增「视觉需求产物盘点路由」业务场景（含画像 agent 走查通过后不陪等的例外）；输出格式 `as` 集合加 `ui`。
 4. 修改 `agents/product-manager.md`：新增视觉需求产物职责（「需求画像切片」「版式基准」两个固定节标题产物 + 交棒画像 agent 走查）；勘误阶段 C 写死的「交棒给 `@dev`」拓扑表述（阶段切换路由归 CEO）。
 5. 修改 `agents/hermes-user.md`：走查对象从「dev 的方案或实现」扩展到 PM / ui 产出的视觉产物；不通过时打回产出方而非固定 `@dev`；视觉产物走查通过后不自行指定下游。

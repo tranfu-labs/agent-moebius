@@ -233,7 +233,9 @@ AGENT.md
 ### Agent 身份与说明
 
 - 每个 Agent 在创建时取得一个团队内唯一的稳定 slug，用于团队内识别和协作引用；创建后不因修改显示名称而变化。
-- Agent 的显示名称和一句话描述属于 `AGENT.md` 内容，可以与正文一起在编辑器中修改。
+- Agent 的显示名称和一句话描述属于 `AGENT.md` 内容，可以与正文一起在编辑器中修改；新格式 MUST 写在文件开头的 YAML frontmatter，字段固定为 snake_case 的 `display_name` 与 `description`，正文标题与段落只表达 persona，不再兼任机器元数据。
+- 成员目录名是稳定 slug 的唯一事实源，frontmatter MUST NOT 再复制 `name` 或 slug 字段。
+- 为兼容既有用户团队，只有在 frontmatter 完全没有 `display_name` 与 `description` 时，产品才从正文首个一级标题与其后首段回退读取旧格式身份；一旦出现任一新身份字段，两项都必须是非空单行字符串，缺项或非法值必须显示为需要修复，不得静默混用新旧来源。
 - 团队首页、成员行和当前 Agent 标题都读取 `AGENT.md` 中的显示名称和一句话描述。
 - 本页不提供修改稳定 slug 的入口，也不把显示名称变化视为另一个 Agent。
 - 团队详情中的成员信息持续显示并允许复制 `@<slug>`；显示名称负责帮助人理解，slug 负责稳定引用。

@@ -1,3 +1,8 @@
+import {
+  parseAgentMarkdownFrontmatter,
+  serializeAgentMarkdownFrontmatter,
+} from "../../src/agent-frontmatter.js";
+
 export const TEAM_MANIFEST_FILE = "team.json";
 export const TEAM_MEMBERS_DIRECTORY = "members";
 export const TEAM_AGENT_FILE = "AGENT.md";
@@ -37,7 +42,8 @@ export type TeamRepairIssueCode =
   | "member-slug-duplicate"
   | "primary-agent-not-member"
   | "member-agent-missing"
-  | "member-agent-unreadable";
+  | "member-agent-unreadable"
+  | "member-agent-metadata-invalid";
 
 export interface TeamRepairIssue {
   code: TeamRepairIssueCode;
@@ -107,9 +113,45 @@ export function serializeTeamDefinition(definition: TeamDefinition): string {
 }
 
 export function parseAgentMarkdownIdentity(source: string): AgentMarkdownIdentity {
-  const lines = source.replace(/^\uFEFF/, "").split(/\r?\n/);
-  const contentStart = findMarkdownContentStart(lines);
-  const headingIndex = lines.findIndex((line, index) => index >= contentStart && /^#(?!#)\s+\S/.test(line));
+  let parsed: ReturnType<typeof parseAgentMarkdownFrontmatter>;
+  try {
+    parsed = parseAgentMarkdownFrontmatter(source);
+  } catch (error) {
+    throw new AgentMarkdownMetadataError(formatError(error));
+  }
+
+  const frontmatter = parsed.frontmatter;
+  const hasDisplayName = frontmatter !== null && Object.hasOwn(frontmatter, "display_name");
+  const hasDescription = frontmatter !== null && Object.hasOwn(frontmatter, "description");
+  if (hasDisplayName || hasDescription) {
+    if (!hasDisplayName || !hasDescription) {
+      throw new AgentMarkdownMetadataError(
+        "Agent frontmatter identity requires both display_name and description",
+      );
+    }
+    return {
+      displayName: parseIdentityField(frontmatter?.display_name, "display_name"),
+      description: parseIdentityField(frontmatter?.description, "description"),
+    };
+  }
+
+  return parseLegacyAgentMarkdownIdentity(parsed.body);
+}
+
+export function tryParseAgentMarkdownIdentity(
+  source: string,
+  fallback: AgentMarkdownIdentity = { displayName: "", description: "" },
+): AgentMarkdownIdentity {
+  try {
+    return parseAgentMarkdownIdentity(source);
+  } catch {
+    return fallback;
+  }
+}
+
+function parseLegacyAgentMarkdownIdentity(body: string): AgentMarkdownIdentity {
+  const lines = body.split(/\r?\n/u);
+  const headingIndex = lines.findIndex((line) => /^#(?!#)\s+\S/u.test(line));
 
   if (headingIndex < 0) {
     return { displayName: "", description: "" };
@@ -134,7 +176,10 @@ export function createInitialAgentMarkdown(identity: AgentMarkdownIdentity): str
   if (/\r|\n/u.test(displayName) || /\r|\n/u.test(description)) {
     throw new TeamDefinitionError("Agent display name and description must each fit on one line");
   }
-  return `# ${displayName}\n\n${description}\n`;
+  return serializeAgentMarkdownFrontmatter(
+    { display_name: displayName, description },
+    "# 角色\n\n请补充这个 Agent 的职责、边界和协作方式。\n",
+  );
 }
 
 export function createUniqueAgentSlug(displayName: string, existingSlugs: Iterable<string>): string {
@@ -223,15 +268,30 @@ export class TeamDefinitionError extends Error {
   }
 }
 
-function findMarkdownContentStart(lines: readonly string[]): number {
-  if (lines[0]?.trim() !== "---") {
-    return 0;
-  }
+export class AgentMarkdownMetadataError extends TeamDefinitionError {
+  readonly metadataCode = "AGENT_METADATA_INVALID";
 
-  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
-  return closingIndex < 0 ? 0 : closingIndex + 1;
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentMarkdownMetadataError";
+  }
+}
+
+function parseIdentityField(value: unknown, field: "display_name" | "description"): string {
+  if (typeof value !== "string") {
+    throw new AgentMarkdownMetadataError(`Agent frontmatter ${field} must be a string`);
+  }
+  const normalized = value.trim();
+  if (normalized.length === 0 || /\r|\n/u.test(normalized)) {
+    throw new AgentMarkdownMetadataError(`Agent frontmatter ${field} must be a non-empty single-line string`);
+  }
+  return normalized;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

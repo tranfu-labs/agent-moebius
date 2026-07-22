@@ -154,7 +154,15 @@ describe("Agent team IPC service", () => {
         slug: "agent",
         displayName: "新 Agent",
         description: "描述这个 Agent 负责什么。",
-        agentMarkdown: "# 新 Agent\n\n描述这个 Agent 负责什么。\n",
+        agentMarkdown: `---
+display_name: 新 Agent
+description: 描述这个 Agent 负责什么。
+---
+
+# 角色
+
+请补充这个 Agent 的职责、边界和协作方式。
+`,
       },
       team: {
         status: "usable",

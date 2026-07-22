@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { parseAgentMarkdownFrontmatter } from "./agent-frontmatter.js";
+
 export interface AgentManifest {
   body: string;
   preScript: string | null;
@@ -9,14 +11,7 @@ export interface AgentManifest {
 export type WorkspaceAccess = "write" | "read-run";
 
 export function parseAgentManifest(markdown: string): AgentManifest {
-  const parsed = splitFrontmatter(markdown);
-  if (parsed === null) {
-    return {
-      body: markdown,
-      preScript: null,
-      workspaceAccess: null,
-    };
-  }
+  const parsed = parseAgentMarkdownFrontmatter(markdown);
 
   return {
     body: parsed.body,
@@ -25,70 +20,50 @@ export function parseAgentManifest(markdown: string): AgentManifest {
   };
 }
 
-function splitFrontmatter(markdown: string): { frontmatter: string; body: string } | null {
-  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (match === null) {
+function parsePreScript(frontmatter: Record<string, unknown> | null): string | null {
+  if (frontmatter === null) {
     return null;
   }
-
-  const frontmatter = match[1];
-  const body = match[2];
-  if (frontmatter === undefined || body === undefined) {
+  const value = readAliasedField(frontmatter, "pre_script", "preScript");
+  if (value === undefined) {
     return null;
   }
-
-  return { frontmatter, body: body.replace(/^\r?\n/, "") };
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error("Agent pre_script frontmatter must be a non-empty path");
+  }
+  return validatePreScriptPath(value.trim());
 }
 
-function parsePreScript(frontmatter: string): string | null {
-  for (const line of frontmatter.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const match = trimmed.match(/^preScript:\s*(.+)$/);
-    if (match === null) {
-      continue;
-    }
-
-    const value = match[1]?.trim().replace(/^['"]|['"]$/g, "");
-    if (value === undefined || value === "") {
-      throw new Error("Agent preScript frontmatter must be a non-empty path");
-    }
-
-    return validatePreScriptPath(value);
+function parseWorkspaceAccess(frontmatter: Record<string, unknown> | null): WorkspaceAccess | null {
+  if (frontmatter === null) {
+    return null;
   }
-
-  return null;
+  const value = readAliasedField(frontmatter, "workspace_access", "workspaceAccess");
+  if (value === undefined) {
+    return null;
+  }
+  if (value === "write" || value === "read-run") {
+    return value;
+  }
+  throw new Error(`Invalid agent workspace_access value: ${String(value)}`);
 }
 
-function parseWorkspaceAccess(frontmatter: string): WorkspaceAccess | null {
-  for (const line of frontmatter.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const match = trimmed.match(/^workspaceAccess:\s*(.+)$/);
-    if (match === null) {
-      continue;
-    }
-
-    const value = match[1]?.trim().replace(/^['"]|['"]$/g, "");
-    if (value === "write" || value === "read-run") {
-      return value;
-    }
-
-    throw new Error(`Invalid agent workspaceAccess value: ${String(value)}`);
+function readAliasedField(
+  frontmatter: Record<string, unknown>,
+  canonicalKey: string,
+  legacyKey: string,
+): unknown {
+  const canonical = frontmatter[canonicalKey];
+  const legacy = frontmatter[legacyKey];
+  if (canonical !== undefined && legacy !== undefined && canonical !== legacy) {
+    throw new Error(`Conflicting Agent frontmatter fields: ${canonicalKey} and ${legacyKey}`);
   }
-
-  return null;
+  return canonical ?? legacy;
 }
 
 export function validatePreScriptPath(value: string): string {
   if (value.includes("\\")) {
-    throw new Error(`Invalid agent preScript path: ${value}`);
+    throw new Error(`Invalid agent pre_script path: ${value}`);
   }
 
   const normalized = path.posix.normalize(value);
@@ -100,7 +75,7 @@ export function validatePreScriptPath(value: string): string {
     !normalized.startsWith("src/agent-prescripts/") ||
     !normalized.endsWith(".ts")
   ) {
-    throw new Error(`Invalid agent preScript path: ${value}`);
+    throw new Error(`Invalid agent pre_script path: ${value}`);
   }
 
   return normalized;

@@ -88,6 +88,27 @@ describe("team disk store", () => {
     expect(JSON.parse(await fs.readFile(path.join(location.directory, "team.json"), "utf8"))).toEqual(usableDefinition);
   });
 
+  it("marks partial canonical member identity as needing repair", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "invalid-metadata", ownership: "user" });
+    await writeTeamDefinition(location, { ...usableDefinition, memberOrder: ["manager"] });
+    await writeMemberAgentMarkdown(location, "manager", `---
+display_name: 开发经理
+---
+
+# 角色
+
+默认接单
+`);
+
+    await expect(readTeamSnapshot(location)).resolves.toMatchObject({
+      status: "needs-repair",
+      canCreateConversation: false,
+      members: [],
+      issues: [{ code: "member-agent-metadata-invalid", slug: "manager" }],
+    });
+  });
+
   it("rejects direct data-layer writes to a built-in team before changing any file", async () => {
     const dataRoot = await makeDataRoot();
     const location = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });

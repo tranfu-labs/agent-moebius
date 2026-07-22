@@ -272,8 +272,12 @@ function explainRejectedCandidate(snapshot: TeamSnapshot): string {
   if (codes.has("team-manifest-missing") || codes.has("team-manifest-unreadable") || codes.has("team-manifest-invalid")) {
     return "所选位置缺少可读取的团队信息文件。";
   }
-  if (codes.has("member-agent-missing") || codes.has("member-agent-unreadable")) {
-    return "所选团队有成员的 AGENT.md 缺失或无法读取。";
+  if (
+    codes.has("member-agent-missing")
+    || codes.has("member-agent-unreadable")
+    || codes.has("member-agent-metadata-invalid")
+  ) {
+    return "所选团队有成员的 AGENT.md 缺失、无法读取或身份元数据无效。";
   }
   if (codes.has("member-slug-missing") || codes.has("member-slug-duplicate")) {
     return "所选团队的成员标识缺失或重复。";

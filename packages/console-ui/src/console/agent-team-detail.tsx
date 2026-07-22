@@ -35,7 +35,8 @@ export type AgentTeamRepairIssueCode =
   | "member-slug-duplicate"
   | "primary-agent-not-member"
   | "member-agent-missing"
-  | "member-agent-unreadable";
+  | "member-agent-unreadable"
+  | "member-agent-metadata-invalid";
 
 export interface AgentTeamRepairIssueView {
   code: AgentTeamRepairIssueCode;
@@ -766,6 +767,10 @@ function repairIssueMessages(issues: readonly AgentTeamRepairIssueView[]): strin
         return issue.slug === undefined
           ? "有成员的 AGENT.md 缺失或暂时无法读取。"
           : `@${issue.slug} 的 AGENT.md 缺失或暂时无法读取。`;
+      case "member-agent-metadata-invalid":
+        return issue.slug === undefined
+          ? "有成员的 AGENT.md 身份元数据不完整或格式错误。"
+          : `@${issue.slug} 的 AGENT.md 身份元数据不完整或格式错误。`;
     }
   });
   return [...new Set(messages.length > 0 ? messages : ["团队文件暂时无法完整读取。"])];

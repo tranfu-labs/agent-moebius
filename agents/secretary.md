@@ -1,5 +1,5 @@
 ---
-preScript: src/agent-prescripts/current-repo-workspace.ts
+pre_script: src/agent-prescripts/current-repo-workspace.ts
 ---
 
 # Secretary 秘书

@@ -121,7 +121,7 @@
 | GIR:L142-L147 | 已对等 | shared timeline/trigger/preScript registry baseline。 |
 | GIR:L148-L153 | 不在 T5 范围 | GitHub reaction only。 |
 | GIR:L154-L165 | 不在 T5 范围 | GitHub issue media only。 |
-| GIR:L166-L168 | 已对等 | frontmatter/workspaceAccess baseline。 |
+| GIR:L166-L168 | 已对等 | frontmatter/workspace_access baseline。 |
 | GIR:L169-L186 | 本任务补齐 | local branch / diff return / clean original。 |
 | GIR:L187-L189 | 已对等 | T4 local interruption。 |
 | GIR:L190-L203 | 本任务补齐 | local role threads and resume。 |

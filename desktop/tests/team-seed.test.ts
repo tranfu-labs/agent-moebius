@@ -109,7 +109,7 @@ describe("built-in team seed", () => {
     const result = await seedBuiltInTeams({ seedTeamsRoot: packagedSeedRoot, dataRoot });
 
     expect(result.status).toBe("seeded");
-    expect(await fs.readFile(missingAgent, "utf8")).toContain("# 软件测试");
+    expect(await fs.readFile(missingAgent, "utf8")).toContain("display_name: 软件测试");
     expect((await fs.readFile(markerPath, "utf8")).trim()).toBe(
       await computeTeamSeedFingerprint(packagedSeedRoot),
     );

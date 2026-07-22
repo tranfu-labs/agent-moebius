@@ -36,13 +36,44 @@ describe("team model", () => {
     ).toThrow(/unsupported field: members/);
   });
 
-  it("parses display name and one-line description from AGENT.md after optional frontmatter", () => {
+  it("prefers canonical frontmatter identity over persona prose", () => {
     expect(
-      parseAgentMarkdownIdentity(`---\nworkspaceAccess: write\n---\n\n# 开发经理\n\n默认接单并组织团队推进\n\n## 规则\n更多内容`),
+      parseAgentMarkdownIdentity(`---
+display_name: 开发经理
+description: 负责技术决策、架构选型与质量保证。
+workspace_access: write
+---
+
+# 角色
+
+长篇 persona`),
     ).toEqual({
+      displayName: "开发经理",
+      description: "负责技术决策、架构选型与质量保证。",
+    });
+  });
+
+  it("keeps the legacy heading and paragraph identity readable", () => {
+    expect(parseAgentMarkdownIdentity("# 开发经理\n\n默认接单并组织团队推进\n")).toEqual({
       displayName: "开发经理",
       description: "默认接单并组织团队推进",
     });
+  });
+
+  it("rejects partial or invalid canonical identity instead of mixing sources", () => {
+    expect(() => parseAgentMarkdownIdentity(`---
+display_name: 开发经理
+---
+# 角色
+
+默认接单`)).toThrow(/requires both display_name and description/);
+    expect(() => parseAgentMarkdownIdentity(`---
+display_name: 开发经理
+description: |
+  第一行
+  第二行
+---
+# 角色`)).toThrow(/description must be a non-empty single-line string/);
   });
 
   it("creates a team-unique slug without coupling it to later display-name edits", () => {
@@ -50,7 +81,15 @@ describe("team model", () => {
     expect(createUniqueAgentSlug("QA Lead", ["qa-lead", "qa-lead-2"])).toBe("qa-lead-3");
     expect(createUniqueAgentSlug("新 Agent", ["agent"])).toBe("agent-2");
     expect(createInitialAgentMarkdown({ displayName: "新 Agent", description: "描述职责" })).toBe(
-      "# 新 Agent\n\n描述职责\n",
+      `---
+display_name: 新 Agent
+description: 描述职责
+---
+
+# 角色
+
+请补充这个 Agent 的职责、边界和协作方式。
+`,
     );
   });
 

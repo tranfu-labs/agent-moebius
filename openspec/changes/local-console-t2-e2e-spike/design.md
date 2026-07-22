@@ -167,7 +167,7 @@ QA 增补验收设计（待 product-manager 或真人用户确认后才并入正
 ## 风险
 
 - `node:sqlite` 在当前 Node 版本可用但仍有实验警告，且同步调用不能天然被 Promise timeout 中断；若实现无法证明 store timeout / busy 故障注入，必须切换到 worker 隔离或明确异步 SQLite 依赖。
-- dev persona 的 workspaceAccess 在本地无 GitHub issue source 时不可直接复用；T2 会绕过该 capability，可能导致 Codex cwd 与未来本地会话真实工作区不同。该差异必须写入 spike 结论。
+- dev persona 的 `workspace_access` 在本地无 GitHub issue source 时不可直接复用；T2 会绕过该 capability，可能导致 Codex cwd 与未来本地会话真实工作区不同。该差异必须写入 spike 结论。
 - 真实 Codex 验收依赖本机 `codex` 可用与模型服务稳定；自动化测试应使用 fake Codex 保持确定性，但最终验收证据必须包含一次真实 Codex run。
 - 同进程启动 local console 可能让已配置 GitHub repositories 的开发者同时拥有 GitHub heartbeat 与本地 demo 页。T2 不裁决互斥模式，T6 负责收口。
 - 回滚方式：删除 `src/local-console/` 装配、SQLite state 文件和本 change 的 spec-delta；现有 GitHub runner 路径不应受影响。

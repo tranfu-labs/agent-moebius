@@ -760,7 +760,7 @@ describe("processIssueSource Codex execution reaction", () => {
     const secretary = await makeAgentFile(
       "secretary",
       `---
-preScript: src/agent-prescripts/current-repo-workspace.ts
+pre_script: src/agent-prescripts/current-repo-workspace.ts
 ---
 Secretary persona`,
     );
@@ -792,7 +792,7 @@ Secretary persona`,
     const dev = await makeAgentFile(
       "dev",
       `---
-workspaceAccess: write
+workspace_access: write
 ---
 Dev persona`,
     );
@@ -830,7 +830,7 @@ Dev persona`,
     const dev = await makeAgentFile(
       "dev",
       `---
-workspaceAccess: write
+workspace_access: write
 ---
 Dev persona`,
     );
@@ -1191,7 +1191,7 @@ Dev persona`,
     const agent = await makeAgentFile(
       "dev",
       `---
-preScript: src/agent-prescripts/dev-workspace.ts
+pre_script: src/agent-prescripts/dev-workspace.ts
 ---
 Dev persona`,
     );
@@ -1278,7 +1278,7 @@ Dev persona`,
     const devWithPreScript = await makeAgentFile(
       "dev",
       `---
-preScript: src/agent-prescripts/dev-workspace.ts
+pre_script: src/agent-prescripts/dev-workspace.ts
 ---
 Dev persona`,
     );
@@ -1326,7 +1326,7 @@ Dev persona`,
     const ceo = await makeAgentFile(
       "ceo",
       `---
-preScript: src/agent-prescripts/ceo-ledger-context.ts
+pre_script: src/agent-prescripts/ceo-ledger-context.ts
 ---
 CEO persona`,
     );

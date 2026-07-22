@@ -7,6 +7,7 @@ import {
   TEAM_AGENT_FILE,
   TEAM_MANIFEST_FILE,
   TEAM_MEMBERS_DIRECTORY,
+  AgentMarkdownMetadataError,
   TeamDefinitionError,
   createInitialAgentMarkdown,
   createUniqueAgentSlug,
@@ -195,13 +196,24 @@ export async function readTeamSnapshot(location: TeamLocation): Promise<TeamSnap
       continue;
     }
 
-    members.push({
-      slug,
-      directory: memberDirectory,
-      agentFile,
-      agentMarkdown: agentRead.content,
-      ...parseAgentMarkdownIdentity(agentRead.content),
-    });
+    try {
+      members.push({
+        slug,
+        directory: memberDirectory,
+        agentFile,
+        agentMarkdown: agentRead.content,
+        ...parseAgentMarkdownIdentity(agentRead.content),
+      });
+    } catch (error) {
+      if (!(error instanceof AgentMarkdownMetadataError)) {
+        throw error;
+      }
+      issues.push({
+        code: "member-agent-metadata-invalid",
+        slug,
+        message: error.message,
+      });
+    }
   }
 
   return makeSnapshot(location, definition, members, issues);

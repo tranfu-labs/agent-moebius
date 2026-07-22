@@ -332,6 +332,22 @@ describe("AgentTeamDetail", () => {
     expect(screen.getByTestId("agent-team-repair-panel")).toBeVisible();
   });
 
+  it("explains invalid member frontmatter as a repairable metadata problem", () => {
+    const base = detailProps();
+    renderDetail({
+      team: {
+        ...base.team,
+        status: "needs-repair",
+        canCreateConversation: false,
+        issues: [{ code: "member-agent-metadata-invalid", slug: "manager" }],
+      },
+    });
+
+    expect(screen.getByTestId("agent-team-repair-panel")).toHaveTextContent(
+      "@manager 的 AGENT.md 身份元数据不完整或格式错误",
+    );
+  });
+
   it("states that removing a record never touches disk files before confirmation", async () => {
     const onRemoveRecord = vi.fn().mockResolvedValue(undefined);
     const base = detailProps();

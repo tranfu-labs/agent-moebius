@@ -150,8 +150,8 @@
 - MUST NOT 在 Codex agent post 后进入 self-reflect loop；若 CEO append 评论中包含有效 Codex agent mention，后续 MUST 由下一轮 active poll 按普通 mention trigger 处理。
 - MUST 保留每分钟 active poll 与 5 次无变化降级 idle 的现有节奏；CEO append 或外部 actor 写入 mention 时，下一轮 active poll 负责兜底处理。
 - 启动日志 MUST NOT 包含 `maxSelfReflect` 字段。
-- MUST 支持 agent Markdown frontmatter 声明受信任 `preScript`，用于 runner 在 Codex 执行前准备上下文；Markdown 正文仍作为 persona 文本输入 Codex。
-- MUST 将 `preScript` 路径限制在仓库内 `src/agent-prescripts/` 的静态 registry 中；issue body/comment 内容不得成为可执行脚本路径。
+- MUST 支持 agent Markdown frontmatter 声明受信任 `pre_script`，用于 runner 在 Codex 执行前准备上下文；Markdown 正文仍作为 persona 文本输入 Codex。
+- MUST 将 `pre_script` 路径限制在仓库内 `src/agent-prescripts/` 的静态 registry 中；issue body/comment 内容不得成为可执行脚本路径。
 - MUST 提供 `src/agent-prescripts/current-repo-workspace.ts` 并将其加入 agent preScript 静态 registry；该 preScript MUST 只返回 agent-moebius 当前仓库根目录作为 `codexCwd`，MUST NOT 创建 worktree、MUST NOT 读写 `.state/*`、MUST NOT 执行来自 issue body/comment 的内容。
 - MUST 把共享时间线中的每条消息归一化为 `index`、`speaker`、`body`、`source`。
 - MUST 把 issue body 归类为 `user` speaker。
@@ -182,8 +182,10 @@
 - MUST 在 issue media 下载或校验失败时发布可见错误评论，MUST NOT 在媒体缺失时静默运行 Codex。
 - MUST 在 Codex 启动前的 issue media preparation 失败时保持 role thread 状态不变。
 - MUST 将确定性的 media-preparation 错误评论视为已处理本次触发 mention，避免同一个坏链接在 active poll 中重复刷错误评论。
-- MUST support agent Markdown frontmatter field `workspaceAccess` with exactly two valid values: `write` and `read-run`; this field selects the built-in issue worktree capability and MUST NOT be interpreted as a script path.
-- MUST preserve the existing trusted `preScript` registry for non-workspace deterministic setup such as current-repo workspace and CEO ledger context.
+- MUST use `workspace_access` and `pre_script` as the canonical Agent Markdown frontmatter capability fields; `workspace_access` MUST accept exactly `write` and `read-run`, select the built-in issue worktree capability, and MUST NOT be interpreted as a script path.
+- MUST preserve the existing trusted pre script registry for non-workspace deterministic setup such as current-repo workspace and CEO ledger context.
+- MUST preserve read compatibility for legacy `workspaceAccess` and `preScript` aliases; equal canonical and legacy values MAY coexist, while conflicting values MUST fail visibly before Codex rather than selecting either value silently.
+- MUST remove all frontmatter from the persona body passed to Codex, and repository-owned or newly generated Agent files MUST write only canonical snake_case capability fields.
 - MUST grant issue workspace access to `dev` with `write`, and to `qa`, `product-manager`, and `hermes-user` with `read-run`; `dev-manager`, `ceo`, and `secretary` MUST NOT receive issue workspace access in T5.
 - MUST let all roles with workspace access in the same GitHub issue share the same issue worktree and Codex cwd.
 - MUST create new issue worktrees with role-free path and branch names derived only from owner, repo, and issue number.
@@ -203,6 +205,28 @@
 - MUST model `read-run` as a collaboration and prompt constraint rather than an OS-level read-only sandbox: read-run roles MUST NOT intentionally modify source, commit, or push, but MAY run tests, start services, create build caches, create test output, and create acceptance screenshots.
 - MUST keep issue workspace state under ignored `.state/agent-contexts.json` and MUST NOT write runtime workspace state under `agents/`.
 - MUST keep issue worktree provisioning out of `goal-ledger`, `conversation`, `github-response-intake`, trigger, driver-pool, observer, and pure business modules.
+
+#### Scenario: Legacy workspace capability remains compatible
+
+- **GIVEN** an existing Agent file declares `workspaceAccess: read-run`
+- **WHEN** the runner loads its manifest after the upgrade
+- **THEN** the workspace capability is `read-run`
+- **AND** the remaining Markdown persona body is unchanged.
+
+#### Scenario: Canonical capability drives the existing worktree path
+
+- **GIVEN** `agents/dev.md` declares `workspace_access: write`
+- **WHEN** a valid `@dev` trigger reaches workspace preparation
+- **THEN** the runner selects the existing built-in issue worktree capability with write access
+- **AND** it does not interpret the field value as a script path.
+
+#### Scenario: Conflicting aliases fail closed before Codex
+
+- **GIVEN** an Agent frontmatter declares `workspace_access: write` and `workspaceAccess: read-run`
+- **WHEN** the runner parses the Agent manifest
+- **THEN** parsing fails with an explicit field conflict
+- **AND** Codex is not invoked with an ambiguous capability.
+
 - MUST support interrupting an in-flight `dev` Codex run when the source conversation receives a new message before Codex completes.
 - MUST model agent-run interruption through a driver-agnostic conversation snapshot abstraction, so drivers provide current conversation state instead of embedding GitHub-specific logic in the local script executor.
 - MUST use GitHub issue body + comments count as the GitHub conversation snapshot message count for new-comment interruption.
@@ -264,7 +288,7 @@
 - MUST 让 `agents/dev-manager.md` 保持通用、自包含：只描述自身职责与方法论，MUST NOT 硬编码指向某个具体协作 agent；协作对象一律按承载 `agents/<name>.md` 的通用对象表述。
 - MUST 让 `agents/dev-manager.md` 每条响应末尾以 `<!-- agent-moebius:stage=in-progress -->` 结尾，阶段语义用正文表达，MUST NOT 为其新增注册 stage。
 - MUST 提供 `agents/secretary.md` 作为普通 Codex driver agent persona，与 `dev`、`dev-manager`、`product-manager`、`hermes-user` 同级、同样以 `agents/*.md` 文件名自动发现加载；其核心职责为采访并沉淀 CEO guardrail 漏判反馈，维护 `agents/ceo.md` 及相关 specs/tests/docs。
-- MUST 让 `agents/secretary.md` 通过 frontmatter 声明受信任 preScript `src/agent-prescripts/current-repo-workspace.ts`，使 secretary Codex cwd 固定为 agent-moebius 当前仓库根目录。
+- MUST 让 `agents/secretary.md` 通过 frontmatter 声明受信任 `pre_script: src/agent-prescripts/current-repo-workspace.ts`，使 secretary Codex cwd 固定为 agent-moebius 当前仓库根目录。
 - MUST 让 secretary 在处理 CEO 漏判反馈时先采访；采访至少覆盖触发输入模式、应输出模式、适用 / 不适用边界、是否需要补救当前 issue。信息不足时 MUST 停下问，信息足够时按 OpenSpec 流程维护 CEO 规则。
 - MUST 让 `agents/secretary.md` 每条响应末尾以 `<!-- agent-moebius:stage=in-progress -->` 结尾；secretary MUST NOT 使用 dev 专属的 `plan-written` / `code-verified` 阶段语义。
 - MUST 让 secretary 遵守活仓库 git 纪律：MUST NOT 创建、切换或 reset 分支，MUST NOT 开 PR；所有改动直接在当前分支完成。开工前 MUST 检查工作树，发现与本次无关的未提交改动时 MUST 停下向用户报告，MUST NOT 擅自 stash / checkout / 提交他人改动。commit 时 MUST 只 add 自己改动的具体路径，MUST NOT `git add -A`。
@@ -650,7 +674,7 @@ And 不更新本地状态
 
 ### 场景 15：Workspace capability — 首次触发创建 issue 级共享 worktree
 Given 最新消息包含 `@dev`
-And `agents/dev.md` frontmatter 声明 `workspaceAccess: write`
+And `agents/dev.md` frontmatter 声明 `workspace_access: write`
 And `.state/agent-contexts.json` 中没有当前 issue workspace context
 When 一次轮询取回该 issue
 Then 系统基于当前 issue source 计算 clone URL 与 issue 级 worktree 路径
@@ -663,7 +687,7 @@ And 保存 `.state/agent-contexts.json`
 ### 场景 15.0：Workspace capability — qa 共享 dev issue worktree
 Given 当前 issue 已有 issue workspace context
 And 最新消息包含 `@qa`
-And `agents/qa.md` frontmatter 声明 `workspaceAccess: read-run`
+And `agents/qa.md` frontmatter 声明 `workspace_access: read-run`
 When 一次轮询取回该 issue
 Then qa 获得与 dev 同一个 `codexCwd`
 And prompt context 声明 `workspaceAccess = read-run`
@@ -671,7 +695,7 @@ And 系统不创建 role-specific qa worktree
 
 ### 场景 15.1：Secretary agent — 触发后固定当前仓库工作目录
 Given 最新消息包含 `@secretary`
-And `agents/secretary.md` frontmatter 声明 `preScript: src/agent-prescripts/current-repo-workspace.ts`
+And `agents/secretary.md` frontmatter 声明 `pre_script: src/agent-prescripts/current-repo-workspace.ts`
 When 一次轮询取回该 issue
 Then mention trigger 选择 `secretary`
 And runner 执行 current repo preScript
@@ -1640,7 +1664,7 @@ Then 输出中不包含 `src/` 运行时代码路径
 - MUST let manual `@ceo` in the latest non-code message trigger the CEO agent through the normal mention trigger.
 - MUST preserve CEO guardrail as stateless and fail-open: guardrail failures MUST NOT block the original agent comment.
 - MUST give CEO agent runs an independent issue + role thread using the existing role-thread state store.
-- MUST let `agents/ceo.md` use frontmatter `preScript: src/agent-prescripts/ceo-ledger-context.ts` for the normal agent path only; guardrail calls MUST parse and use the persona body without executing that preScript.
+- MUST let `agents/ceo.md` use frontmatter `pre_script: src/agent-prescripts/ceo-ledger-context.ts` for the normal agent path only; guardrail calls MUST parse and use the persona body without executing that preScript.
 - MUST keep CEO agent visible responses at `in-progress`; CEO agent MUST NOT use `plan-written` or `code-verified`.
 - MUST store CEO scripts as independent data files outside top-level `agents/*.md`; the required script set MUST include `plan-review`, `post-implementation-retro`, `milestone-spawn-child-issues`, `integration-acceptance-request`, `integration-repair-child`, `roundtable-plan-review`, and `goal-intake`.
 - MUST validate CEO workflow id and template existence at runtime before performing orchestration side effects.

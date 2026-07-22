@@ -73,9 +73,9 @@
 
 ### - [x] T5 · issue 级 worktree 资源化
 
-worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capability：任意角色可在 frontmatter 声明访问模式（写 / 读 + 运行），分支命名去 role 化，context 状态随迁。**重建策略修订并入本任务**：修复"复用 worktree 时 main 已前进则强制重建"对并行任务与验收中场景的破坏（进行中工作不得因其他任务合入 main 而被摧毁），这是任务级并行（T3 编排产出并行子 issue）的硬前提。解锁场景：qa 在 worktree 内跑测试、验收角色在 worktree 内起服务亲自执行验收语句。
+worktree 供给从 `agents/dev.md` 专属 `pre_script` 升级为 issue 级 capability：任意角色可在 frontmatter 声明访问模式（写 / 读 + 运行），分支命名去 role 化，context 状态随迁。**重建策略修订并入本任务**：修复"复用 worktree 时 main 已前进则强制重建"对并行任务与验收中场景的破坏（进行中工作不得因其他任务合入 main 而被摧毁），这是任务级并行（T3 编排产出并行子 issue）的硬前提。解锁场景：qa 在 worktree 内跑测试、验收角色在 worktree 内起服务亲自执行验收语句。
 
-**前置探针（【人工】spike，建议作为本任务第一步，风险优先）**：直接动因 tranfu-agents-app issue 96（评论 id 4882229942）——用户问 qa「/skills 页面有哪些问题」，预期发现真实问题，qa 因无 workspace、无运行能力、无走查剧本，只能输出 9 条假设清单。spike 回答本任务最大不确定点："非 dev 角色能否在 worktree 内起目标 app、实地走查并产出真实发现"。链路：`agents/qa.md` 声明 `workspaceAccess: read-run`，由 issue-worktree capability 切入同 issue 共享 worktree → worktree 内起 tranfu-agents-app dev server → 按目标画像走查页面（可复用 `scripts/spike-preview-oracle/` 的 Playwright 手法）→ 产出锚定具体页面元素 / 路由的发现清单 + 截图 → 经 publisher 发布回 issue。
+**前置探针（【人工】spike，建议作为本任务第一步，风险优先）**：直接动因 tranfu-agents-app issue 96（评论 id 4882229942）——用户问 qa「/skills 页面有哪些问题」，预期发现真实问题，qa 因无 workspace、无运行能力、无走查剧本，只能输出 9 条假设清单。spike 回答本任务最大不确定点："非 dev 角色能否在 worktree 内起目标 app、实地走查并产出真实发现"。链路：`agents/qa.md` 声明 `workspace_access: read-run`，由 issue-worktree capability 切入同 issue 共享 worktree → worktree 内起 tranfu-agents-app dev server → 按目标画像走查页面（可复用 `scripts/spike-preview-oracle/` 的 Playwright 手法）→ 产出锚定具体页面元素 / 路由的发现清单 + 截图 → 经 publisher 发布回 issue。
 
 **验收场景（细化时保留）**：重演 issue 96——在 tranfu-agents-app 的 QA 走查 issue 上 mention qa → qa 评论应含 ≥3 条真实发现，每条锚定具体页面元素或路由、附截图链接、且可由人按"打开 X → 做 Y → 应看到 Z"复现，而非假设清单。链路断点（prescript 不适配非 dev 角色 / 目标 app 起不来 / 截图发布失败）记录为本任务方案输入。
 
@@ -83,7 +83,7 @@ worktree 供给从 `agents/dev.md` 专属 preScript 升级为 issue 级 capabili
 - 方案与归档：`openspec/changes/archive/2026-07-04-issue-worktree-capability-t5/`
 - 行为事实源：`openspec/specs/github-issue-runner/spec.md`
 - 架构事实源：`docs/architecture/module-map.md`、`docs/architecture/runner-issue-processing.svg`
-- Persona：`agents/dev.md` 声明 `workspaceAccess: write`；`agents/qa.md`、`agents/product-manager.md`、`agents/hermes-user.md` 声明 `workspaceAccess: read-run`；`dev-manager`、`ceo`、`secretary` 未声明 issue workspace access。
+- Persona：`agents/dev.md` 声明 `workspace_access: write`；`agents/qa.md`、`agents/product-manager.md`、`agents/hermes-user.md` 声明 `workspace_access: read-run`；`dev-manager`、`ceo`、`secretary` 未声明 issue workspace access。
 - 实现：`src/agent-manifest.ts`、`src/agent-context-state.ts`、`src/agent-prescripts/issue-worktree.ts`、`src/runner.ts`、`src/config.ts`
 - 测试：`tests/agent-manifest.test.ts`、`tests/agent-context-state.test.ts`、`tests/issue-worktree.test.ts`、`tests/runner.test.ts`
 - 验证命令：`pnpm test`（29 个 test files / 307 tests，退出码 0）、`pnpm typecheck`（退出码 0）、`git diff --check`（退出码 0）。
