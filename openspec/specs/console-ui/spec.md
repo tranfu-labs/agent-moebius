@@ -297,7 +297,9 @@ The operator console MUST keep root-session selection stable after refresh. Miss
 ### Requirement: Sidebar collapse, restore, and layout memory
 
 - MUST provide a `关闭侧边栏` control fixed in the sidebar header that hides the sidebar when activated.
+- MUST reserve the macOS traffic-light safety area in a dedicated 40px top row, render only the sidebar close control in that row, and render the product logo and brand in a separate row below it.
 - MUST provide a `打开侧边栏` control fixed in the main content when the sidebar is hidden, functional and not a decorative placeholder.
+- MUST position the `打开侧边栏` control to the right of the macOS traffic-light safety area when the sidebar is hidden.
 - MUST expand the main content region to reclaim the space when the sidebar is hidden.
 - MUST persist the last explicit user choice of collapsed/expanded across app restarts.
 - MUST keep the sidebar visible during the first-run onboarding regardless of the persisted choice.
@@ -662,7 +664,7 @@ Source: docs/product/pages/main-conversation.md#操作与反馈
 ## Requirement: 验收 5 — 创建后标题与项目上下文稳定
 Source: docs/product/pages/main-conversation.md#会话内容区
 
-系统 MUST 在首发成功后于主内容区顶部显示由首条消息生成的单行会话标题，长标题 MUST 截断且通过 title 属性暴露全文；有消息的会话 MUST 保持创建时项目归属。系统 MUST NOT 提供标题编辑入口或有消息会话的项目切换控件。
+系统 MUST 在首发成功后于时间线滚动容器顶部显示由首条消息生成的 40px 高不透明 sticky 单行会话标题，标题文字 MUST 与最大 760px 的时间线内容列左边缘对齐，长标题 MUST 截断且通过 title 属性暴露全文；窗口使用隐藏标题栏时 MUST NOT 为不存在的系统标题栏增加纵向留白。有消息的会话 MUST 保持创建时项目归属。系统 MUST NOT 提供标题编辑入口或有消息会话的项目切换控件。
 
 ### Scenario: 已有会话显示稳定标题
 - GIVEN 首条消息已创建会话且生成标题

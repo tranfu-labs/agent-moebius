@@ -26,6 +26,7 @@ describe("OperatorConsole", () => {
     renderConsole({ onOpenDiagnostics: vi.fn() });
 
     const sidebar = screen.getByTestId("operator-sidebar");
+    const windowControls = screen.getByTestId("sidebar-window-controls");
     const brandRegion = screen.getByTestId("sidebar-brand-region");
     const appActions = screen.getByTestId("sidebar-app-actions");
     const projectList = screen.getByRole("navigation", { name: "项目列表" });
@@ -34,7 +35,10 @@ describe("OperatorConsole", () => {
 
     expect(screen.getByRole("img", { name: "Moebius Logo" })).toBeVisible();
     expect(screen.getByText("Moebius")).toBeVisible();
-    expect(brandRegion).toHaveClass("window-drag-region", "pl-[76px]");
+    expect(windowControls).toHaveClass("window-drag-region", "h-10", "pl-[76px]");
+    expect(brandRegion).toHaveClass("window-drag-region", "h-10", "px-3");
+    expect(brandRegion).not.toHaveClass("pl-[76px]");
+    expect(windowControls).not.toContainElement(screen.getByRole("img", { name: "Moebius Logo" }));
     expect(screen.getByRole("button", { name: "关闭侧边栏" })).toHaveClass("window-no-drag");
     expect(screen.getByRole("button", { name: "关闭侧边栏" })).toHaveAttribute("title", "关闭侧边栏");
 
@@ -747,7 +751,9 @@ describe("OperatorConsole", () => {
     expect(sidebar).not.toBeVisible();
     expect(sidebar).toHaveClass("hidden");
     expect(main).toHaveAttribute("data-sidebar-open", "false");
-    expect(screen.getByRole("button", { name: "打开侧边栏" })).toHaveAttribute("title", "打开侧边栏");
+    const openSidebarButton = screen.getByRole("button", { name: "打开侧边栏" });
+    expect(openSidebarButton).toHaveAttribute("title", "打开侧边栏");
+    expect(openSidebarButton).toHaveClass("left-[76px]", "top-1.5");
     expect(selectedSessionRow).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
     expect(screen.getByTestId("active-run-block")).toBe(activeRunBlock);
@@ -830,6 +836,20 @@ describe("OperatorConsole", () => {
     expect(sessionRow.querySelector(".truncate")).toHaveTextContent(longSessionName);
     expect(conversationHeading).toHaveClass("truncate");
     expect(conversationHeading).toHaveAttribute("title", longSessionName);
+  });
+
+  it("keeps the conversation title sticky, opaque, and aligned with the timeline content", () => {
+    renderConsole();
+
+    const timeline = screen.getByRole("region", { name: "会话时间线" });
+    const titleHeader = screen.getByTestId("conversation-title-header");
+    const title = screen.getByRole("heading", { name: "默认会话" });
+
+    expect(timeline).toContainElement(titleHeader);
+    expect(timeline).not.toHaveClass("pt-20", "px-8");
+    expect(titleHeader).toHaveClass("sticky", "top-0", "h-10", "bg-canvas", "px-8");
+    expect(titleHeader).not.toHaveClass("absolute", "pt-12");
+    expect(title).toHaveClass("w-full", "max-w-[760px]", "text-left");
   });
 
   it("keeps the selected conversation mounted when its project is collapsed", () => {

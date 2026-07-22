@@ -546,13 +546,9 @@ export function OperatorConsole({
         style={{ width: `${sidebarWidth}px` }}
       >
         <header
-          className="window-drag-region flex h-10 shrink-0 items-center gap-2 pl-[76px] pr-2"
-          data-testid="sidebar-brand-region"
+          className="window-drag-region flex h-10 shrink-0 items-center justify-end pl-[76px] pr-2"
+          data-testid="sidebar-window-controls"
         >
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <MoebiusLogo />
-            <span className="truncate text-sm font-semibold tracking-[-0.01em]">Moebius</span>
-          </div>
           <button
             type="button"
             className="window-no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-40"
@@ -564,6 +560,14 @@ export function OperatorConsole({
             <PanelLeftClose className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
           </button>
         </header>
+
+        <div
+          className="window-drag-region flex h-10 shrink-0 items-center gap-2 px-3"
+          data-testid="sidebar-brand-region"
+        >
+          <MoebiusLogo />
+          <span className="truncate text-sm font-semibold tracking-[-0.01em]">Moebius</span>
+        </div>
 
         <nav className="shrink-0 px-2 pb-2 pt-1" aria-label="应用导航" data-testid="sidebar-app-actions">
           <SidebarAction
@@ -715,7 +719,7 @@ export function OperatorConsole({
         {!effectiveSidebarOpen ? (
           <button
             type="button"
-            className="window-no-drag absolute left-4 top-3 z-20 flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
+            className="window-no-drag absolute left-[76px] top-1.5 z-20 flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
             aria-label="打开侧边栏"
             title="打开侧边栏"
             onClick={() => setSidebarOpen(true)}
@@ -801,18 +805,8 @@ export function OperatorConsole({
               )}
               data-testid="parent-conversation-pane"
             >
-            {selectedSession ? (
-              <header className="window-drag-region absolute inset-x-0 top-0 z-10 px-8 pb-3 pt-12">
-                <h1
-                  className="mx-auto max-w-[760px] truncate text-base font-semibold text-ink"
-                  title={selectedSession.title}
-                >
-                  {selectedSession.title}
-                </h1>
-              </header>
-            ) : null}
             <section
-              className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-44 pt-20"
+              className="scroll-thin min-h-0 flex-1 overflow-auto pb-44"
               aria-label="会话时间线"
               ref={timelineScrollRef}
               onScroll={(event) => {
@@ -822,45 +816,63 @@ export function OperatorConsole({
                 setShowJumpToBottom(!atBottom);
               }}
             >
+              {selectedSession ? (
+                <header
+                  className="window-drag-region sticky top-0 z-10 flex h-10 items-center bg-canvas px-8"
+                  data-testid="conversation-title-header"
+                >
+                  <h1
+                    className="mx-auto w-full max-w-[760px] truncate text-left text-base font-semibold text-ink"
+                    title={selectedSession.title}
+                  >
+                    {selectedSession.title}
+                  </h1>
+                </header>
+              ) : null}
               {emptyConversation ? (
-                <ConversationEmptyState projectName={activeProject.title} />
+                <ConversationEmptyState
+                  className={selectedSession ? "min-h-[calc(100%_-_2.5rem)] px-8" : "px-8"}
+                  projectName={activeProject.title}
+                />
               ) : (
-                <div className="mx-auto max-w-[760px]">
-                  <div className="divide-y divide-line">
-                    {messages.map((message) => (
-                      <TimelineEntry
-                        key={message.id}
-                        message={message}
-                        childSessions={childSessions}
-                        openedSubSessionId={openedSubSession?.session.sessionId ?? null}
-                        onOpenSubSession={openSubSession}
-                        onOpenDiagnostics={onOpenDiagnostics}
-                      />
-                    ))}
+                <div className="px-8">
+                  <div className="mx-auto max-w-[760px]">
+                    <div className="divide-y divide-line">
+                      {messages.map((message) => (
+                        <TimelineEntry
+                          key={message.id}
+                          message={message}
+                          childSessions={childSessions}
+                          openedSubSessionId={openedSubSession?.session.sessionId ?? null}
+                          onOpenSubSession={openSubSession}
+                          onOpenDiagnostics={onOpenDiagnostics}
+                        />
+                      ))}
+                    </div>
+
+                    {activeRun ? (
+                      <div data-testid="active-run-block">
+                        <RunBlock
+                          role={activeRun.role ?? "dev"}
+                          summary={safeRunSummary(activeRun.lastOutputSummary)}
+                          rawOutput={runRawOutput(activeRun)}
+                          onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
+                          className="mt-3"
+                        />
+                      </div>
+                    ) : null}
+
+                    {lastError ? (
+                      <div className="mt-4 flex items-center justify-between gap-3 border-t border-line py-3 text-sm text-danger">
+                        <span>操作台遇到问题，请打开开发者诊断查看日志。</span>
+                        {onOpenDiagnostics ? (
+                          <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
+                            查看日志
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
-
-                  {activeRun ? (
-                    <div data-testid="active-run-block">
-                      <RunBlock
-                        role={activeRun.role ?? "dev"}
-                        summary={safeRunSummary(activeRun.lastOutputSummary)}
-                        rawOutput={runRawOutput(activeRun)}
-                        onInterrupt={() => onInterrupt(activeRun.sessionId, activeRun.runId)}
-                        className="mt-3"
-                      />
-                    </div>
-                  ) : null}
-
-                  {lastError ? (
-                    <div className="mt-4 flex items-center justify-between gap-3 border-t border-line py-3 text-sm text-danger">
-                      <span>操作台遇到问题，请打开开发者诊断查看日志。</span>
-                      {onOpenDiagnostics ? (
-                        <Button type="button" variant="outline" size="sm" onClick={onOpenDiagnostics}>
-                          查看日志
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
               )}
             </section>
