@@ -2,7 +2,10 @@ import { build } from "esbuild";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertStaticNodeBundle } from "./node-bundle-contract.mjs";
+import {
+  assertSandboxedPreloadBundle,
+  assertStaticNodeBundle,
+} from "./node-bundle-contract.mjs";
 import { assertCompiledRendererStyles } from "./renderer-style-contract.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -66,7 +69,13 @@ await build({
   entryPoints: [path.join(root, "src/preload.ts")],
   outfile: path.join(dist, "preload.cjs"),
   external: ["electron"],
+  alias: {
+    yaml: yamlBrowserEntry,
+  },
 });
+
+const preloadBundle = await fs.readFile(path.join(dist, "preload.cjs"), "utf8");
+assertSandboxedPreloadBundle(preloadBundle, "preload.cjs");
 
 await build({
   bundle: true,

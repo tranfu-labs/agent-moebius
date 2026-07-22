@@ -119,7 +119,7 @@
     - 端口冲突（被 Chrome debugger 或其他 CDP 工具占用）会导致 Electron 启动失败，可用 `lsof -iTCP:9222 -sTCP:LISTEN` 定位占用方。
 - 构建桌面主进程 / 操作台 / 状态页：`pnpm --filter @agent-moebius/desktop build`
   - desktop build 会先构建 `@agent-moebius/console-ui`，renderer 只消费组件库已由 Vite/PostCSS/Tailwind 编译的 `globals.css` package export；构建产物若残留 `@tailwind` / `@apply` 或缺少关键 utility 会直接失败。
-  - desktop 主进程与 runner child 产物为 Node ESM bundle；构建会拒绝 esbuild 的动态 `require` shim。`yaml` 在这两份 bundle 中固定解析到官方纯 ESM browser export 并内联，避免 Electron 启动时因 CommonJS `require("process")` 崩溃。
+  - desktop 主进程与 runner child 产物为 Node ESM bundle，preload 为 Electron sandboxed CJS bundle；构建会拒绝 Node ESM 中的动态 `require` shim，也会拒绝 preload 中 sandbox 不支持的 `require("process")`。`yaml` 在三份 bundle 中固定解析到官方纯 ESM browser export 并内联，避免主进程或 preload 加载失败。
 - 打包桌面应用：`pnpm --filter @agent-moebius/desktop dist`
   - 三平台产物通过 electron-builder 生成：macOS dmg/zip、Windows nsis、Linux AppImage。
   - `desktop-v*` tag 会触发 `.github/workflows/release-desktop.yml` 构建并上传 GitHub Releases；Windows/Linux 更新走 electron-updater，macOS 无签名证书期间检查更新只跳转下载页。
