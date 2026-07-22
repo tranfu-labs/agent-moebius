@@ -21,22 +21,35 @@ describe("RunOutcome", () => {
     }
   });
 
-  it("routes failed-run diagnostics through the explicit log action", () => {
-    const onOpenDiagnostics = vi.fn();
-    render(<RunOutcome status="run-not-started" rawReason="exit:42" onRetry={onOpenDiagnostics} />);
+  it("keeps retry separate from the complete-output action", () => {
+    const onRetry = vi.fn();
+    const onOpenOutput = vi.fn();
+    render(
+      <RunOutcome
+        status="run-not-started"
+        rawReason="exit:42"
+        rawOutput="complete failure output"
+        onRetry={onRetry}
+        onOpenOutput={onOpenOutput}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(onOpenDiagnostics).toHaveBeenCalledTimes(1);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+    expect(onOpenOutput).toHaveBeenCalledWith("complete failure output");
     expect(screen.queryByText("exit:42")).not.toBeInTheDocument();
   });
 
-  it("offers only the accessible edit-and-resend action for a user interruption", () => {
+  it("keeps the accessible edit-and-resend and complete-output actions for a user interruption", () => {
     const onEditAndResend = vi.fn();
+    const onOpenOutput = vi.fn();
     render(
       <RunOutcome
         status="user-stopped"
         onOpenDiagnostics={vi.fn()}
         onEditAndResend={onEditAndResend}
+        onOpenOutput={onOpenOutput}
       />,
     );
 
@@ -44,6 +57,8 @@ describe("RunOutcome", () => {
     expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "改一改重发这轮消息" }));
     expect(onEditAndResend).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+    expect(onOpenOutput).toHaveBeenCalledWith(null);
   });
 
   it("does not expose edit or resend on other outcomes", () => {

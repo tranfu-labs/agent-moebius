@@ -31,10 +31,11 @@ describe("local console conversation workspace diff through HTTP", () => {
       const repository = path.join(root, "repository");
       await initializeRepository(repository);
       const started = await startHarness(root, async (options) => {
-        await fs.writeFile(path.join(options.cwd, "committed.txt"), "committed during conversation\n", "utf8");
-        await git(options.cwd, "add", "committed.txt");
-        await git(options.cwd, "commit", "-m", "conversation commit");
-        await fs.writeFile(path.join(options.cwd, "draft.txt"), "uncommitted during conversation\n", "utf8");
+        const cwd = requireCwd(options);
+        await fs.writeFile(path.join(cwd, "committed.txt"), "committed during conversation\n", "utf8");
+        await git(cwd, "add", "committed.txt");
+        await git(cwd, "commit", "-m", "conversation commit");
+        await fs.writeFile(path.join(cwd, "draft.txt"), "uncommitted during conversation\n", "utf8");
         return successfulRun(options, "workspace diff complete");
       });
       const project = await createProject(started.url, repository);
@@ -196,6 +197,11 @@ function successfulRun(options: CodexRunOptions, finalText: string): Extract<Cod
     stdoutPath: path.join(options.runDir, "stdout.jsonl"),
     stderrPath: path.join(options.runDir, "stderr.log"),
   };
+}
+
+function requireCwd(options: CodexRunOptions): string {
+  if (options.cwd === undefined) throw new Error("test run requires cwd");
+  return options.cwd;
 }
 
 async function createProject(url: string, folderPath: string): Promise<{ projectId: string }> {

@@ -9,12 +9,16 @@ export function SubSessionPanel({
   onClose,
   children,
   className,
+  ariaLabel,
+  closeLabel,
 }: {
   title: string;
   narrow: boolean;
   onClose: () => void;
   children: ReactNode;
   className?: string;
+  ariaLabel?: string;
+  closeLabel?: string;
 }): JSX.Element {
   return (
     <aside
@@ -23,7 +27,7 @@ export function SubSessionPanel({
         narrow ? "left-0 w-full border-l-0" : "w-1/2 min-w-[360px]",
         className,
       )}
-      aria-label={`子会话：${title}`}
+      aria-label={ariaLabel ?? `子会话：${title}`}
       data-layout={narrow ? "overlay" : "split"}
       data-testid="sub-session-panel"
     >
@@ -32,7 +36,7 @@ export function SubSessionPanel({
         <button
           type="button"
           className="window-no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
-          aria-label="关闭子会话"
+          aria-label={closeLabel ?? "关闭子会话"}
           onClick={onClose}
         >
           <X className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />

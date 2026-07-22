@@ -12,6 +12,8 @@ import {
   type OperatorAgentTeamsState,
   type OperatorChildSessionSummary,
   type OperatorEditAndResendTarget,
+  type OperatorEvidenceOpenIntent,
+  type OperatorEvidenceView,
   type OperatorProject,
   type OperatorRunSnapshot,
   type OperatorRunnerStatus,
@@ -19,6 +21,7 @@ import {
   type OperatorSubSessionView,
   hasBlockingComposerAttachment,
   readyComposerAttachmentIds,
+  type OperatorWorkspaceDiffSummary,
 } from "@agent-moebius/console-ui";
 import type {
   AgentTeamDuplicateBuiltInRequest,
@@ -55,6 +58,7 @@ import {
   ConsoleStateActions,
   ConsoleStateCoordinator,
   refreshConsoleState,
+  loadEvidenceView,
   type ConsoleSelection,
   type SelectionMutationKind,
   type SelectionMutationToken,
@@ -175,6 +179,7 @@ interface LocalConsoleState {
   messages: OperatorMessage[];
   childSessions: OperatorChildSessionSummary[];
   activeRun: OperatorRunSnapshot | null;
+  workspaceDiff: OperatorWorkspaceDiffSummary;
   sqlitePath: string;
   lastError: string | null;
 }
@@ -208,6 +213,7 @@ function App(): JSX.Element {
   const coordinatorRef = useRef(new ConsoleStateCoordinator());
   const [state, setState] = useState<LocalConsoleState | null>(null);
   const [openedSubSession, setOpenedSubSession] = useState<OperatorSubSessionView | null>(null);
+  const [openedEvidence, setOpenedEvidence] = useState<OperatorEvidenceView | null>(null);
   const conversationDraftStoreRef = useRef(createConversationDraftStore(window.localStorage));
   const [composerValue, setComposerValue] = useState(() =>
     conversationDraftStoreRef.current.read(sessionDraftKey(selection.sessionId)),
@@ -1033,6 +1039,7 @@ function App(): JSX.Element {
 
   useEffect(() => {
     setOpenedSubSession(null);
+    setOpenedEvidence(null);
   }, [selection.sessionId]);
 
   const refresh = useCallback(async (
@@ -1398,8 +1405,28 @@ function App(): JSX.Element {
           throw new Error(body.error ?? "sub-session view request failed");
         }
         if (selectionRef.current.sessionId !== parentSessionId) return;
+        setOpenedEvidence(null);
         setOpenedSubSession(body);
         setClientError(null);
+      })
+      .catch((error: unknown) => setClientError(formatError(error)));
+  }, [apiBase]);
+
+  const openEvidence = useCallback((intent: OperatorEvidenceOpenIntent) => {
+    if (apiBase === null) return;
+    setOpenedSubSession(null);
+    if (intent.kind === "workspace-diff") {
+      void loadEvidenceView({ apiBase, intent, fetch })
+        .then((view) => {
+          if (selectionRef.current.sessionId === intent.sessionId) setOpenedEvidence(view);
+        })
+        .catch((error: unknown) => setClientError(formatError(error)));
+      return;
+    }
+    setOpenedEvidence({ kind: "run-output", title: "完整输出", content: "正在读取完整输出…" });
+    void loadEvidenceView({ apiBase, intent, fetch })
+      .then((view) => {
+        if (selectionRef.current.sessionId === intent.sessionId) setOpenedEvidence(view);
       })
       .catch((error: unknown) => setClientError(formatError(error)));
   }, [apiBase]);
@@ -1432,7 +1459,9 @@ function App(): JSX.Element {
       messages={messagesWithPreviews}
       childSessions={state?.childSessions ?? []}
       openedSubSession={openedSubSession}
+      openedEvidence={openedEvidence}
       activeRun={activeRun}
+      workspaceDiff={state?.workspaceDiff ?? { available: false, fileCount: null, reason: "unavailable" }}
       composerValue={composerValue}
       composerAttachments={managedAttachments.attachments}
       runnerStatus={runnerStatus}
@@ -1507,6 +1536,8 @@ function App(): JSX.Element {
       }}
       onOpenSubSession={openSubSession}
       onCloseSubSession={() => setOpenedSubSession(null)}
+      onOpenEvidence={openEvidence}
+      onCloseEvidence={() => setOpenedEvidence(null)}
       onChangeSessionProject={actions.rebindSessionProject}
       onShowProjectInFolder={showProjectInFolder}
       onRenameProject={renameProject}
