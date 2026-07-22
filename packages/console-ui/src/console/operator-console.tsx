@@ -27,6 +27,7 @@ import { NewConversationPage } from "@/console/new-conversation-page";
 import {
   ConversationSidebar,
   type ConversationSidebarProject,
+  type CopySessionLogPathResult,
 } from "@/console/conversation-sidebar";
 import { RoleComposer, type RoleCompletion } from "@/console/role-composer";
 import {
@@ -257,6 +258,7 @@ export interface OperatorConsoleProps {
   onSelectFolderForRepair?: (projectId: string) => Promise<string | null>;
   onRepairProjectFolder?: (projectId: string, folderPath: string) => void | Promise<void>;
   onArchiveSession?: (sessionId: string, projectId: string) => void | Promise<void>;
+  onCopySessionLogPath?: (sessionId: string, projectId: string) => Promise<CopySessionLogPathResult>;
   onInterrupt(sessionId: string, runId: string): void;
   onEditAndResend?: (target: OperatorEditAndResendTarget) => void;
   onOpenDiagnostics?: () => void;
@@ -345,6 +347,7 @@ export function OperatorConsole({
   onSelectFolderForRepair,
   onRepairProjectFolder,
   onArchiveSession,
+  onCopySessionLogPath,
   onInterrupt,
   onEditAndResend,
   onOpenDiagnostics,
@@ -680,6 +683,7 @@ export function OperatorConsole({
               archive();
             }
           }}
+          onCopySessionLogPath={onCopySessionLogPath}
           onReorderProjects={isSelectionMutationPending || isProjectMutationPending ? undefined : onReorderProjects}
           onRepairProject={onSelectFolderForRepair === undefined ? undefined : (sidebarProject) => {
             const target = visibleProjects.find((candidate) => candidate.projectId === sidebarProject.id);

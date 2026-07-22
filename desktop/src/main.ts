@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   shell,
@@ -69,6 +70,7 @@ import {
   OPEN_EXTERNAL_LINK_IPC_CHANNEL,
   openValidatedExternalLink,
 } from "./external-link.js";
+import { registerSessionLogClipboardIpc } from "./session-log-clipboard.js";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(dirname, "..", "..");
@@ -336,6 +338,13 @@ ipcMain.handle("action:open-status-page", async () => {
 
 ipcMain.handle("local-console:get-url", async () => status.localConsole.url ?? null);
 ipcMain.handle("local-console:get-attachment-capability", async () => localConsoleAttachmentCapability);
+
+registerSessionLogClipboardIpc({
+  ipcMain,
+  getPathSource: () => localConsoleServer?.runtime ?? null,
+  clipboard,
+  access: (targetPath) => fs.promises.access(targetPath, fs.constants.R_OK),
+});
 
 ipcMain.handle(OPEN_EXTERNAL_LINK_IPC_CHANNEL, async (_event, url: unknown) =>
   openValidatedExternalLink(url, shell));

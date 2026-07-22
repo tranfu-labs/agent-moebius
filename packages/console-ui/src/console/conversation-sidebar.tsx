@@ -37,6 +37,17 @@ export interface ConversationSidebarProject {
   sessions: ConversationSidebarSession[];
 }
 
+export type CopySessionLogPathFailureReason =
+  | "invalid-session"
+  | "service-unavailable"
+  | "record-unavailable"
+  | "clipboard-unavailable"
+  | "unknown";
+
+export type CopySessionLogPathResult =
+  | { ok: true }
+  | { ok: false; reason: Exclude<CopySessionLogPathFailureReason, "unknown"> };
+
 export interface ConversationSidebarProps {
   projects: ConversationSidebarProject[];
   dataState?: ConversationSidebarDataState;
@@ -47,6 +58,7 @@ export interface ConversationSidebarProps {
   onRenameProject?: (project: ConversationSidebarProject) => void;
   onRemoveProject?: (project: ConversationSidebarProject) => void;
   onArchiveSession?: (sessionId: string, projectId: string) => void;
+  onCopySessionLogPath?: (sessionId: string, projectId: string) => Promise<CopySessionLogPathResult>;
   onReorderProjects?: (projectIds: string[]) => boolean | void | Promise<boolean | void>;
   onRepairProject?: (project: ConversationSidebarProject) => void;
   onRetry?: () => void;
@@ -142,6 +154,7 @@ export function ConversationSidebar({
   onRenameProject,
   onRemoveProject,
   onArchiveSession,
+  onCopySessionLogPath,
   onReorderProjects,
   onRepairProject,
   onRetry,
@@ -477,6 +490,7 @@ export function ConversationSidebar({
                       selected={session.id === selectedSessionId}
                       onSelectSession={onSelectSession}
                       onArchiveSession={onArchiveSession}
+                      onCopySessionLogPath={onCopySessionLogPath}
                       disabled={disabled}
                     />
                   ))}
@@ -531,6 +545,7 @@ function SessionRow({
   selected,
   onSelectSession,
   onArchiveSession,
+  onCopySessionLogPath,
   disabled
 }: {
   projectId: string;
@@ -538,9 +553,19 @@ function SessionRow({
   selected: boolean;
   onSelectSession?: (sessionId: string, projectId: string) => void;
   onArchiveSession?: (sessionId: string, projectId: string) => void;
+  onCopySessionLogPath?: (sessionId: string, projectId: string) => Promise<CopySessionLogPathResult>;
   disabled: boolean;
 }): JSX.Element {
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [copyFeedback, setCopyFeedback] = React.useState<"success" | CopySessionLogPathFailureReason | null>(null);
+  const [copyPending, setCopyPending] = React.useState(false);
+  React.useEffect(() => {
+    if (copyFeedback === null) {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopyFeedback(null), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [copyFeedback]);
   const status = deriveStatusDot(session);
   const accessibleName = [session.title, status === "none" ? null : statusLabel[status]]
     .filter((part): part is string => part !== null)
@@ -567,7 +592,7 @@ function SessionRow({
           }
         }}
         onContextMenu={(event) => {
-          if (!disabled && onArchiveSession !== undefined) {
+          if (!disabled && (onArchiveSession !== undefined || onCopySessionLogPath !== undefined)) {
             event.preventDefault();
             setMenuOpen(true);
           }
@@ -578,7 +603,7 @@ function SessionRow({
         </span>
         <StatusIcon status={status} />
       </button>
-      {onArchiveSession ? (
+      {onArchiveSession !== undefined || onCopySessionLogPath !== undefined ? (
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -595,19 +620,63 @@ function SessionRow({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" aria-label={`${session.title} 对话操作`} className="min-w-32">
-            <DropdownMenuItem
-              disabled={archiveDisabledReason !== null}
-              aria-description={archiveDisabledReason ?? undefined}
-              title={archiveDisabledReason ?? "归档"}
-              onSelect={() => onArchiveSession(session.id, projectId)}
-            >
-              归档
-            </DropdownMenuItem>
+            {onArchiveSession !== undefined ? (
+              <DropdownMenuItem
+                disabled={archiveDisabledReason !== null}
+                aria-description={archiveDisabledReason ?? undefined}
+                title={archiveDisabledReason ?? "归档"}
+                onSelect={() => onArchiveSession(session.id, projectId)}
+              >
+                归档
+              </DropdownMenuItem>
+            ) : null}
+            {onCopySessionLogPath !== undefined ? (
+              <DropdownMenuItem
+                disabled={copyPending}
+                title="复制对话记录路径"
+                onSelect={() => {
+                  setCopyPending(true);
+                  setCopyFeedback(null);
+                  void onCopySessionLogPath(session.id, projectId)
+                    .then((result) => setCopyFeedback(result.ok ? "success" : result.reason))
+                    .catch(() => setCopyFeedback("unknown"))
+                    .finally(() => setCopyPending(false));
+                }}
+              >
+                复制对话记录路径
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       ) : null}
+      {copyFeedback !== null ? (
+        <span
+          className={cn(
+            "pointer-events-none absolute right-8 z-20 whitespace-nowrap rounded-md border bg-card px-2 py-1 text-xs shadow-overlay",
+            copyFeedback === "success" ? "border-line text-ink" : "border-danger/40 text-danger",
+          )}
+          role={copyFeedback === "success" ? "status" : "alert"}
+        >
+          {copyFeedback === "success" ? "路径已复制" : copySessionLogFailureMessage(copyFeedback)}
+        </span>
+      ) : null}
     </div>
   );
+}
+
+function copySessionLogFailureMessage(reason: CopySessionLogPathFailureReason): string {
+  switch (reason) {
+    case "invalid-session":
+      return "无法复制对话记录路径：对话无效";
+    case "service-unavailable":
+      return "无法复制对话记录路径：记录服务尚未就绪";
+    case "record-unavailable":
+      return "无法复制对话记录路径：记录文件不可用";
+    case "clipboard-unavailable":
+      return "无法复制对话记录路径：系统剪贴板不可用";
+    case "unknown":
+      return "无法复制对话记录路径，请稍后重试";
+  }
 }
 
 function StatusIcon({ status }: { status: ConversationSessionStatus }): JSX.Element {

@@ -116,10 +116,12 @@ import {
 } from "./use-managed-attachments.js";
 import { interruptLocalConsoleRun } from "./interrupt.js";
 import { refillStoppedRunDraft } from "./edit-resend.js";
+import type { CopySessionLogPathResult } from "../session-log-clipboard.js";
 
 interface DesktopApi {
   getLocalConsoleUrl?: () => Promise<string | null>;
   getLocalConsoleAttachmentCapability?: () => Promise<string | null>;
+  copySessionLogPath?: (sessionId: string) => Promise<CopySessionLogPathResult>;
   onStatus?: (listener: (snapshot: DesktopStatusSnapshot) => void) => () => void;
   openStatusPage?: () => Promise<void>;
   selectProjectFolder?: () => Promise<string | null>;
@@ -1512,6 +1514,13 @@ function App(): JSX.Element {
       onSelectFolderForRepair={selectFolderForRepair}
       onRepairProjectFolder={repairProjectFolder}
       onArchiveSession={actions.archiveSession}
+      onCopySessionLogPath={async (sessionId) => {
+        const copySessionLogPath = window.agentMoebius?.copySessionLogPath;
+        if (copySessionLogPath === undefined) {
+          return { ok: false, reason: "service-unavailable" };
+        }
+        return copySessionLogPath(sessionId);
+      }}
       onInterrupt={interrupt}
       onEditAndResend={editAndResend}
       onOpenDiagnostics={openDiagnostics}

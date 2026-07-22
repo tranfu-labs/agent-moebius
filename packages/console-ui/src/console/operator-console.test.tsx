@@ -370,6 +370,18 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("region", { name: "会话时间线" })).toBeVisible();
   });
 
+  it("passes a sidebar copy-path action through the operator console without exposing a path", async () => {
+    const onCopySessionLogPath = vi.fn(async () => ({ ok: true as const }));
+    renderConsole({ onCopySessionLogPath });
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "验收会话，需要你处理" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "复制对话记录路径" }));
+
+    expect(onCopySessionLogPath).toHaveBeenCalledWith("session-b", "local");
+    expect(await screen.findByRole("status")).toHaveTextContent("路径已复制");
+    expect(document.body.textContent).not.toContain(".jsonl");
+  });
+
   it("returns to the conversation view before removing the active project from the teams page", async () => {
     const onRemoveProject = vi.fn().mockResolvedValue(undefined);
     renderConsole({ project: { ...project, runningCount: 0 }, onRemoveProject });

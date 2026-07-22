@@ -39,11 +39,16 @@ import {
   type SuccessfulConversationAgentTeamRequest,
 } from "./team-conversation-preference.js";
 import { OPEN_EXTERNAL_LINK_IPC_CHANNEL } from "./external-link.js";
+import {
+  COPY_SESSION_LOG_PATH_IPC_CHANNEL,
+  type CopySessionLogPathResult,
+} from "./session-log-clipboard.js";
 
 export interface AgentMoebiusDesktopApi {
   onStatus(listener: (snapshot: DesktopStatusSnapshot) => void): () => void;
   getLocalConsoleUrl(): Promise<string | null>;
   getLocalConsoleAttachmentCapability(): Promise<string | null>;
+  copySessionLogPath(sessionId: string): Promise<CopySessionLogPathResult>;
   openObserver(): Promise<void>;
   openStatusPage(): Promise<void>;
   openDataRoot(): Promise<void>;
@@ -93,6 +98,9 @@ const api: AgentMoebiusDesktopApi = {
   },
   getLocalConsoleAttachmentCapability() {
     return ipcRenderer.invoke("local-console:get-attachment-capability") as Promise<string | null>;
+  },
+  copySessionLogPath(sessionId) {
+    return ipcRenderer.invoke(COPY_SESSION_LOG_PATH_IPC_CHANNEL, sessionId) as Promise<CopySessionLogPathResult>;
   },
   openObserver() {
     return ipcRenderer.invoke("action:open-observer") as Promise<void>;

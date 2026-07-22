@@ -210,9 +210,16 @@ describe("ConversationSidebar", () => {
     expect(screen.getByRole("button", { name: "agent-moebius 项目，已展开" })).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("offers the single archive action from a focusable hover menu and the row context menu", async () => {
+  it("offers only archive and copy-path actions from a focusable hover menu and reports copy success", async () => {
     const onArchiveSession = vi.fn();
-    render(<ConversationSidebar projects={[project]} onArchiveSession={onArchiveSession} />);
+    const onCopySessionLogPath = vi.fn(async () => ({ ok: true as const }));
+    render(
+      <ConversationSidebar
+        projects={[project]}
+        onArchiveSession={onArchiveSession}
+        onCopySessionLogPath={onCopySessionLogPath}
+      />,
+    );
 
     const menuTrigger = screen.getByRole("button", { name: "导出功能重构 对话菜单" });
     fireEvent.focus(menuTrigger);
@@ -220,20 +227,68 @@ describe("ConversationSidebar", () => {
 
     fireEvent.contextMenu(screen.getByRole("button", { name: "导出功能重构" }));
     const archiveItem = await screen.findByRole("menuitem", { name: "归档" });
-    expect(screen.getAllByRole("menuitem")).toHaveLength(1);
-    fireEvent.click(archiveItem);
+    const copyItem = screen.getByRole("menuitem", { name: "复制对话记录路径" });
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2);
+    fireEvent.click(copyItem);
+
+    expect(onCopySessionLogPath).toHaveBeenCalledWith("idle-refactor", "agent-moebius");
+    expect(await screen.findByRole("status")).toHaveTextContent("路径已复制");
+    expect(document.body.textContent).not.toContain("/sessions/");
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "导出功能重构" }));
+    const reopenedArchiveItem = await screen.findByRole("menuitem", { name: "归档" });
+    fireEvent.click(reopenedArchiveItem);
 
     expect(onArchiveSession).toHaveBeenCalledWith("idle-refactor", "agent-moebius");
   });
 
+  it("reports a copy failure without rendering an error detail or path", async () => {
+    const onCopySessionLogPath = vi.fn(async () => {
+      throw new Error("sensitive path: /Users/example/sessions/private.jsonl");
+    });
+    render(<ConversationSidebar projects={[project]} onCopySessionLogPath={onCopySessionLogPath} />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "导出功能重构" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "复制对话记录路径" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("无法复制对话记录路径，请稍后重试");
+    expect(document.body.textContent).not.toContain("/Users/example/sessions/private.jsonl");
+  });
+
+  it("reports the safe failure reason returned by the host", async () => {
+    const onCopySessionLogPath = vi.fn(async () => ({
+      ok: false as const,
+      reason: "record-unavailable" as const,
+    }));
+    render(<ConversationSidebar projects={[project]} onCopySessionLogPath={onCopySessionLogPath} />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "导出功能重构" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "复制对话记录路径" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("无法复制对话记录路径：记录文件不可用");
+  });
+
   it("keeps archive visible but disabled while the session is running", async () => {
     const onArchiveSession = vi.fn();
-    render(<ConversationSidebar projects={[project]} onArchiveSession={onArchiveSession} />);
+    const onCopySessionLogPath = vi.fn(async () => ({ ok: true as const }));
+    render(
+      <ConversationSidebar
+        projects={[project]}
+        onArchiveSession={onArchiveSession}
+        onCopySessionLogPath={onCopySessionLogPath}
+      />,
+    );
 
     fireEvent.contextMenu(screen.getByRole("button", { name: "进度提示，正在运行" }));
     const archiveItem = await screen.findByRole("menuitem", { name: "归档" });
     expect(archiveItem).toHaveAttribute("aria-disabled", "true");
     expect(archiveItem).toHaveAttribute("title", "当前对话正在运行，请先中止或等待运行结束");
+    const copyItem = screen.getByRole("menuitem", { name: "复制对话记录路径" });
+    expect(copyItem).not.toHaveAttribute("aria-disabled", "true");
+    await act(async () => {
+      fireEvent.click(copyItem);
+    });
+    expect(onCopySessionLogPath).toHaveBeenCalledWith("running-progress", "agent-moebius");
     fireEvent.click(archiveItem);
     expect(onArchiveSession).not.toHaveBeenCalled();
   });
