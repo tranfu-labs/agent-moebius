@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { startLocalConsoleServer } from "../src/local-console/server.js";
@@ -23,7 +24,7 @@ afterEach(async () => {
 });
 
 describe("pending session context switches", () => {
-  it("drives workspace and team switches through the loopback server without interrupting or replaying the active step", async () => {
+  it("rejects a workspace switch after the first message while preserving the running team switch", async () => {
     const root = await makeGitRoot();
     const agentPath = path.join(root, "dev.md");
     await fs.writeFile(agentPath, "# dev\n", "utf8");
@@ -56,9 +57,17 @@ describe("pending session context switches", () => {
       const sessionId = (created.session as { sessionId: string }).sessionId;
       await waitFor(async () => runCodex.mock.calls.length === 1);
 
-      await requestJson(started.url, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/workspace`, {
+      const workspaceResponse = await fetch(new URL(
+        `/api/local-console/sessions/${encodeURIComponent(sessionId)}/workspace`,
+        started.url,
+      ), {
         method: "PATCH",
-        body: { workspaceMode: "worktree" },
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ workspaceMode: "worktree" }),
+      });
+      expect(workspaceResponse.status).toBe(409);
+      await expect(workspaceResponse.json()).resolves.toEqual({
+        error: "这段对话已经开始，工作空间已锁定",
       });
       await requestJson(started.url, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/team`, {
         method: "PATCH",
@@ -68,7 +77,7 @@ describe("pending session context switches", () => {
       const pending = await readState(started.url, sessionId);
       expect(pending.selectedSession).toMatchObject({
         workspaceMode: "direct",
-        workspacePendingMode: "worktree",
+        workspacePendingMode: null,
         branchName: "main",
         agentTeamOwnership: "system",
         agentTeamId: "development",
@@ -93,7 +102,7 @@ describe("pending session context switches", () => {
 
       const settled = await readState(started.url, sessionId);
       expect(settled.selectedSession).toMatchObject({
-        workspaceMode: "worktree",
+        workspaceMode: "direct",
         workspacePendingMode: null,
         agentTeamOwnership: "user",
         agentTeamId: "marketing",
@@ -110,27 +119,68 @@ describe("pending session context switches", () => {
     }
   }, 15_000);
 
-  it("persists a pending workspace choice across store restart", async () => {
+  it("ignores a stored legacy pending workspace choice across restart and run settlement", async () => {
     const root = await makeGitRoot();
     const sqlitePath = path.join(root, "restart.sqlite");
     const store = await createSqliteLocalConsoleStore({ sqlitePath });
     await store.init();
     await store.createSession({ sessionId: "restart-session", projectId: "local", title: "restart", now: "2026-07-22T00:00:00.000Z" });
-    const message = await store.appendUserMessage({ sessionId: "restart-session", body: "@dev run", now: "2026-07-22T00:00:01.000Z" });
-    await store.claimNextPendingMessage({ sessionId: "restart-session", runId: "run", now: "2026-07-22T00:00:02.000Z" });
-    await store.switchSessionWorkspace({ sessionId: "restart-session", workspaceMode: "worktree", now: "2026-07-22T00:00:03.000Z" });
-    expect(message.status).toBe("pending");
     await store.close();
 
-    const restarted = await createSqliteLocalConsoleStore({ sqlitePath });
-    await restarted.init();
+    const database = new DatabaseSync(sqlitePath);
     try {
-      expect((await restarted.listSessions()).find((session) => session.sessionId === "restart-session"))
-        .toMatchObject({ workspaceMode: "direct", workspacePendingMode: "worktree" });
+      database.prepare(
+        "UPDATE sessions SET workspace_pending_mode = 'worktree' WHERE session_id = 'restart-session'",
+      ).run();
     } finally {
-      await restarted.close();
+      database.close();
     }
-  });
+
+    const agentPath = path.join(root, "dev.md");
+    await fs.writeFile(agentPath, "# dev\n", "utf8");
+    const started = await startLocalConsoleServer({
+      host: "127.0.0.1",
+      port: 0,
+      projectRoot: root,
+      workdirRoot: path.join(root, "workdir"),
+      sqlitePath,
+      listAgentFiles: async () => [{ name: "dev", path: agentPath }],
+      runCodex: async () => successfulRun(root, "legacy-pending"),
+      makeRunDir: () => path.join(root, "run-legacy-pending"),
+    });
+    try {
+      const restarted = await readState(started.url, "restart-session");
+      expect(restarted.selectedSession).toMatchObject({
+        workspaceMode: "direct",
+        workspacePendingMode: null,
+      });
+
+      await requestJson(started.url, "/api/local-console/sessions/restart-session/messages", {
+        method: "POST",
+        body: { body: "@dev run" },
+      });
+      await waitFor(async () => {
+        const state = await readState(started.url, "restart-session");
+        return state.messages.some((message) => message.speaker === "agent");
+      });
+
+      const settled = await readState(started.url, "restart-session");
+      expect(settled.selectedSession).toMatchObject({
+        workspaceMode: "direct",
+        workspacePendingMode: null,
+      });
+      const settledDatabase = new DatabaseSync(sqlitePath);
+      try {
+        expect(settledDatabase.prepare(
+          "SELECT workspace_mode, workspace_pending_mode FROM sessions WHERE session_id = 'restart-session'",
+        ).get()).toEqual({ workspace_mode: "direct", workspace_pending_mode: "worktree" });
+      } finally {
+        settledDatabase.close();
+      }
+    } finally {
+      await started.close();
+    }
+  }, 15_000);
 
   it("freezes the selected team content through the server boundary and promotes its pending snapshot", async () => {
     const root = await makeGitRoot();
@@ -210,6 +260,9 @@ describe("pending session context switches", () => {
   it("runs two sessions in the same project with independent workspace modes from the server entry", async () => {
     const root = await makeGitRoot();
     const agentPath = path.join(root, "dev.md");
+    const sqlitePath = path.join(root, "two-sessions.sqlite");
+    let directId = "";
+    let isolatedId = "";
     await fs.writeFile(agentPath, "# dev\n", "utf8");
     const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => ({
       ok: true,
@@ -225,7 +278,7 @@ describe("pending session context switches", () => {
       port: 0,
       projectRoot: root,
       workdirRoot: path.join(root, "workdir"),
-      sqlitePath: path.join(root, "two-sessions.sqlite"),
+      sqlitePath,
       listAgentFiles: async () => [{ name: "dev", path: agentPath }],
       runCodex,
       makeRunDir: () => path.join(root, "run"),
@@ -234,29 +287,22 @@ describe("pending session context switches", () => {
     try {
       const direct = await requestJson(started.url, "/api/local-console/sessions", {
         method: "POST",
-        body: { projectId: "local", title: "direct" },
+        body: {
+          projectId: "local",
+          initialMessage: "@dev direct-session",
+          workspaceMode: "direct",
+        },
       });
       const isolated = await requestJson(started.url, "/api/local-console/sessions", {
         method: "POST",
-        body: { projectId: "local", title: "isolated" },
+        body: {
+          projectId: "local",
+          initialMessage: "@dev isolated-session",
+          workspaceMode: "worktree",
+        },
       });
-      const directId = (direct.session as { sessionId: string }).sessionId;
-      const isolatedId = (isolated.session as { sessionId: string }).sessionId;
-      await requestJson(started.url, `/api/local-console/sessions/${encodeURIComponent(isolatedId)}/workspace`, {
-        method: "PATCH",
-        body: { workspaceMode: "worktree" },
-      });
-
-      await Promise.all([
-        requestJson(started.url, `/api/local-console/sessions/${encodeURIComponent(directId)}/messages`, {
-          method: "POST",
-          body: { body: "@dev direct-session" },
-        }),
-        requestJson(started.url, `/api/local-console/sessions/${encodeURIComponent(isolatedId)}/messages`, {
-          method: "POST",
-          body: { body: "@dev isolated-session" },
-        }),
-      ]);
+      directId = (direct.session as { sessionId: string }).sessionId;
+      isolatedId = (isolated.session as { sessionId: string }).sessionId;
       await waitFor(() => runCodex.mock.calls.length === 2);
       await waitFor(async () => {
         const [directState, isolatedState] = await Promise.all([
@@ -287,6 +333,23 @@ describe("pending session context switches", () => {
       });
     } finally {
       await started.close();
+    }
+
+    const restarted = await startLocalConsoleServer({
+      host: "127.0.0.1",
+      port: 0,
+      projectRoot: root,
+      workdirRoot: path.join(root, "workdir"),
+      sqlitePath,
+      listAgentFiles: async () => [{ name: "dev", path: agentPath }],
+      runCodex,
+      makeRunDir: () => path.join(root, "run-restarted"),
+    });
+    try {
+      expect((await readState(restarted.url, directId)).selectedSession).toMatchObject({ workspaceMode: "direct" });
+      expect((await readState(restarted.url, isolatedId)).selectedSession).toMatchObject({ workspaceMode: "worktree" });
+    } finally {
+      await restarted.close();
     }
   }, 15_000);
 

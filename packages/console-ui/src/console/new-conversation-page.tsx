@@ -1,7 +1,9 @@
 import { ChevronDown, Diamond, FolderOpen, GitBranch, Laptop, Plus } from "lucide-react";
+import { useState } from "react";
 
 import { RoleComposer } from "@/console/role-composer";
 import { cn } from "@/lib/utils";
+import { Button } from "@/ui/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -15,7 +17,7 @@ export interface NewConversationProjectOption {
   projectId: string;
   title: string;
   available: boolean;
-  workspaceLabel: string;
+  independentWorkspaceAvailable: boolean;
   branchLabel: string;
 }
 
@@ -34,12 +36,14 @@ export interface NewConversationPageProps {
   projects: NewConversationProjectOption[];
   teams: NewConversationTeamOption[];
   selectedProjectId: string | null;
+  selectedWorkspaceMode: "direct" | "worktree";
   selectedTeamKey: string | null;
   draft: string;
   isSubmitting?: boolean;
   isProjectMutationPending?: boolean;
   error?: string | null;
   onSelectProject(projectId: string): void;
+  onSelectWorkspace(workspaceMode: "direct" | "worktree"): void;
   onAddProject(): void;
   onSelectTeam(teamKey: string): void;
   onDraftChange(value: string): void;
@@ -51,18 +55,21 @@ export function NewConversationPage({
   projects,
   teams,
   selectedProjectId,
+  selectedWorkspaceMode,
   selectedTeamKey,
   draft,
   isSubmitting = false,
   isProjectMutationPending = false,
   error,
   onSelectProject,
+  onSelectWorkspace,
   onAddProject,
   onSelectTeam,
   onDraftChange,
   onSubmit,
   className,
 }: NewConversationPageProps): JSX.Element {
+  const [confirmIndependentWorkspace, setConfirmIndependentWorkspace] = useState(false);
   const selectedProject = projects.find((project) => project.projectId === selectedProjectId && project.available);
   const selectedTeam = teams.find((team) => team.teamKey === selectedTeamKey);
   const hasAvailableProjects = projects.some((project) => project.available);
@@ -113,10 +120,13 @@ export function NewConversationPage({
                 />
                 {selectedProject ? (
                   <>
-                    <span className="inline-flex items-center gap-1.5 px-1.5 py-1">
-                      <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-                      {selectedProject.workspaceLabel}
-                    </span>
+                    <WorkspaceMenu
+                      mode={selectedWorkspaceMode}
+                      independentAvailable={selectedProject.independentWorkspaceAvailable}
+                      disabled={isSubmitting || isProjectMutationPending}
+                      onSelectDirect={() => onSelectWorkspace("direct")}
+                      onSelectIndependent={() => setConfirmIndependentWorkspace(true)}
+                    />
                     <span className="inline-flex items-center gap-1.5 px-1.5 py-1">
                       <GitBranch className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
                       {selectedProject.branchLabel}
@@ -143,7 +153,90 @@ export function NewConversationPage({
           {error ? <p className="mt-3 text-sm text-danger" role="alert">{error}</p> : null}
         </div>
       </div>
+      {confirmIndependentWorkspace ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/20 p-6">
+          <section
+            className="w-full max-w-md rounded-xl border border-line bg-canvas p-5 text-ink shadow-lg"
+            role="dialog"
+            aria-modal="true"
+            aria-label="换成独立工作空间"
+          >
+            <h2 className="text-base font-semibold">换成独立工作空间</h2>
+            <p className="mt-2 text-sm leading-6 text-sub">
+              副本基于项目当前所在的提交，不包含你还没提交的改动。
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setConfirmIndependentWorkspace(false)}>
+                取消
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  onSelectWorkspace("worktree");
+                  setConfirmIndependentWorkspace(false);
+                }}
+              >
+                换过去
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function WorkspaceMenu({
+  mode,
+  independentAvailable,
+  disabled,
+  onSelectDirect,
+  onSelectIndependent,
+}: {
+  mode: "direct" | "worktree";
+  independentAvailable: boolean;
+  disabled: boolean;
+  onSelectDirect(): void;
+  onSelectIndependent(): void;
+}): JSX.Element {
+  const label = mode === "worktree" ? "独立工作空间" : "默认工作空间";
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink disabled:opacity-50"
+          aria-label={`工作空间：${label}，点击切换`}
+          disabled={disabled}
+        >
+          <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+          {label}
+          <ChevronDown className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="top" className="w-72">
+        <DropdownMenuCheckboxItem checked={mode === "direct"} onSelect={() => mode !== "direct" && onSelectDirect()}>
+          <span className="grid gap-0.5">
+            <span>默认工作空间</span>
+            <span className="text-xs font-normal text-sub">直接改项目文件夹里的文件</span>
+          </span>
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={mode === "worktree"}
+          disabled={!independentAvailable}
+          onSelect={() => mode !== "worktree" && onSelectIndependent()}
+        >
+          <span className="grid gap-0.5">
+            <span>独立工作空间</span>
+            <span className="text-xs font-normal text-sub">
+              {independentAvailable
+                ? "把改动隔离在一份副本里"
+                : "这个项目文件夹不是 git 仓库，无法隔离改动"}
+            </span>
+          </span>
+        </DropdownMenuCheckboxItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

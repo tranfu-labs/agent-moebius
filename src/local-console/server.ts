@@ -22,6 +22,7 @@ import {
   LocalConsoleProjectRunningError,
   LocalConsoleSessionProjectError,
   LocalConsoleSessionRunningError,
+  LocalConsoleSessionWorkspaceLockedError,
   type LocalConsoleStore,
 } from "./types.js";
 import {
@@ -237,6 +238,7 @@ async function handleRequest(
         isRecord(payload) ? readOptionalString(payload.projectId) : undefined,
         isRecord(payload) ? readOptionalAgentTeam(payload) : undefined,
         isRecord(payload) ? readOptionalString(payload.initialMessage) : undefined,
+        isRecord(payload) ? readOptionalWorkspaceMode(payload.workspaceMode) : undefined,
       );
       sendJson(response, 201, { session });
       return;
@@ -339,6 +341,10 @@ async function handleRequest(
         });
         sendJson(response, 200, { session });
       } catch (error) {
+        if (error instanceof LocalConsoleSessionWorkspaceLockedError) {
+          sendJson(response, 409, { error: error.message });
+          return;
+        }
         if (formatLocalError(error) === "not-git-repository") {
           sendJson(response, 409, { error: "这个项目文件夹不是 git 仓库，无法隔离改动", code: "NOT_GIT_REPOSITORY" });
           return;
@@ -711,6 +717,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function readOptionalWorkspaceMode(value: unknown): "direct" | "worktree" | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "direct" || value === "worktree") {
+    return value;
+  }
+  throw new Error("Expected workspaceMode to be direct or worktree");
 }
 
 function readOptionalBoolean(value: unknown): boolean | undefined {

@@ -190,6 +190,7 @@ describe("OperatorConsole", () => {
       agentTeamsState: { status: "ready", teams: [agentTeam, userTeam] },
       newConversation: {
         selectedProjectId: null,
+        selectedWorkspaceMode: "direct",
         selectedTeamKey: userTeam.teamKey,
         draft: "描述目标",
         isSubmitting: false,
@@ -254,6 +255,7 @@ describe("OperatorConsole", () => {
       projects: [],
       newConversation: {
         selectedProjectId: null,
+        selectedWorkspaceMode: "direct",
         selectedTeamKey: agentTeam.teamKey,
         draft: "目标",
         isSubmitting: false,
@@ -1060,18 +1062,15 @@ describe("OperatorConsole", () => {
     expect(screen.queryByText("查看详情")).not.toBeInTheDocument();
   });
 
-  it("routes a confirmed workspace change through the selected session", () => {
+  it("locks the workspace but keeps the team selectable after the first message", () => {
     const onChangeSessionWorkspace = vi.fn();
     renderConsole({ onChangeSessionWorkspace });
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "工作空间：独立工作空间，点击切换" }), {
-      key: "ArrowDown",
-    });
-    fireEvent.click(screen.getByText("默认工作空间"));
-    const dialog = screen.getByRole("dialog", { name: "换回默认工作空间" });
-    expect(dialog).toHaveTextContent("之后的改动会直接落在项目文件夹里");
-    fireEvent.click(within(dialog).getByRole("button", { name: "换回去" }));
-    expect(onChangeSessionWorkspace).toHaveBeenCalledWith("session-a", "direct");
+    expect(screen.getByLabelText("工作空间：独立工作空间，已锁定")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /工作空间/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /工作空间/u })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Agent 团队/u })).toBeEnabled();
+    expect(onChangeSessionWorkspace).not.toHaveBeenCalled();
   });
 
   it("keeps every record with a parent out of the root session rail, including corrupt lineage", () => {
@@ -1244,7 +1243,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
     expect(screen.getByRole("textbox")).toBeDisabled();
     expect(screen.getByText("历史对话只读；修复文件夹后可继续")).toBeVisible();
-    expect(screen.getByRole("button", { name: "工作空间：独立工作空间，点击切换" })).toBeDisabled();
+    expect(screen.getByLabelText("工作空间：独立工作空间，已锁定")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "默认会话，需要你处理" }));
     expect(onSelectSession).toHaveBeenCalledWith({ sessionId: "session-a", projectId: "local" });
@@ -1267,6 +1266,7 @@ describe("OperatorConsole", () => {
     renderConsole({
       newConversation: {
         selectedProjectId: null,
+        selectedWorkspaceMode: "direct",
         selectedTeamKey: agentTeam.teamKey,
         draft: "",
         isSubmitting: false,

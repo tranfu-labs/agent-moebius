@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import type { OperatorAgentTeam } from "@/console/agent-teams-page";
 import type { OperatorProject, OperatorSession } from "@/console/operator-console";
 import { SessionTeamMenu } from "@/console/session-team-menu";
-import { Button } from "@/ui/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -43,22 +42,15 @@ export function ComposerContext({
   onChangeSessionWorkspace?: (sessionId: string, workspaceMode: WorkspaceMode) => void;
   onChangeSessionTeam?: (sessionId: string, team: OperatorAgentTeam) => void;
 }): JSX.Element {
-  const [workspaceConfirmation, setWorkspaceConfirmation] = useState<WorkspaceMode | null>(null);
   const [viewportWidth, setViewportWidth] = useState(() => typeof window === "undefined" ? 1440 : window.innerWidth);
   const visible = visibleComposerContextEntries(viewportWidth);
   const effectiveMode = selectedSession?.workspaceMode ?? "direct";
-  const displayedMode = selectedSession?.workspacePendingMode ?? effectiveMode;
-  const workspaceLabel = workspaceModeLabel(displayedMode);
+  const workspaceLabel = workspaceModeLabel(effectiveMode);
   const branchName = selectedSession?.branchName ?? project.branchName ?? "—";
   const independentUnavailable = selectedSession?.workspaceUnavailableReason === "not-git-repository";
-  const pendingDescriptions = [
-    selectedSession?.workspacePendingMode === null || selectedSession?.workspacePendingMode === undefined
-      ? null
-      : `当前这一步跑完后换成${workspaceModeLabel(selectedSession.workspacePendingMode)}`,
-    pendingAgentTeam === undefined
-      ? null
-      : `当前这一步跑完后换成${pendingAgentTeam.name?.trim() || "未命名团队"}`,
-  ].filter((entry): entry is string => entry !== null);
+  const pendingDescription = pendingAgentTeam === undefined
+    ? null
+    : `当前这一步跑完后换成${pendingAgentTeam.name?.trim() || "未命名团队"}`;
 
   useEffect(() => {
     const updateWidth = () => setViewportWidth(window.innerWidth);
@@ -134,8 +126,8 @@ export function ComposerContext({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="top" className="w-72">
               <DropdownMenuCheckboxItem
-                checked={displayedMode === "direct"}
-                onSelect={() => displayedMode !== "direct" && setWorkspaceConfirmation("direct")}
+                checked={effectiveMode === "direct"}
+                onSelect={() => effectiveMode !== "direct" && onChangeSessionWorkspace(selectedSession.sessionId, "direct")}
               >
                 <span className="grid gap-0.5">
                   <span>默认工作空间</span>
@@ -143,9 +135,9 @@ export function ComposerContext({
                 </span>
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
-                checked={displayedMode === "worktree"}
+                checked={effectiveMode === "worktree"}
                 disabled={independentUnavailable}
-                onSelect={() => displayedMode !== "worktree" && setWorkspaceConfirmation("worktree")}
+                onSelect={() => effectiveMode !== "worktree" && onChangeSessionWorkspace(selectedSession.sessionId, "worktree")}
               >
                 <span className="grid gap-0.5">
                   <span>独立工作空间</span>
@@ -159,7 +151,7 @@ export function ComposerContext({
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5" aria-label={`工作空间：${workspaceLabel}，已锁定`}>
             <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
             {workspaceLabel}
           </span>
@@ -183,44 +175,10 @@ export function ComposerContext({
         /></span> : null}
       </div>
 
-      {pendingDescriptions.length > 0 ? (
+      {pendingDescription !== null ? (
         <p className="mt-1 pl-1 text-[11px] leading-4 text-sub" role="status">
-          {pendingDescriptions.join("；")}
+          {pendingDescription}
         </p>
-      ) : null}
-
-      {workspaceConfirmation !== null && selectedSession ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/20 p-6">
-          <section
-            className="w-full max-w-md rounded-xl border border-line bg-canvas p-5 text-ink shadow-lg"
-            role="dialog"
-            aria-modal="true"
-            aria-label={workspaceConfirmation === "worktree" ? "换成独立工作空间" : "换回默认工作空间"}
-          >
-            <h2 className="text-base font-semibold">
-              {workspaceConfirmation === "worktree" ? "换成独立工作空间" : "换回默认工作空间"}
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-sub">
-              {workspaceConfirmation === "worktree"
-                ? "副本基于项目当前所在的提交，不包含你还没提交的改动；此前已经在项目文件夹里产生的改动也不会被搬过去。"
-                : "之后的改动会直接落在项目文件夹里。"}
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setWorkspaceConfirmation(null)}>
-                取消
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  onChangeSessionWorkspace?.(selectedSession.sessionId, workspaceConfirmation);
-                  setWorkspaceConfirmation(null);
-                }}
-              >
-                {workspaceConfirmation === "worktree" ? "换过去" : "换回去"}
-              </Button>
-            </div>
-          </section>
-        </div>
       ) : null}
     </div>
   );

@@ -8,8 +8,8 @@ const meta = {
   parameters: { layout: "fullscreen" },
   args: {
     projects: [
-      { projectId: "a", title: "agent-moebius", available: true, workspaceLabel: "默认工作空间", branchLabel: "main" },
-      { projectId: "b", title: "marketing-site", available: true, workspaceLabel: "独立工作空间", branchLabel: "agent/demo" },
+      { projectId: "a", title: "agent-moebius", available: true, independentWorkspaceAvailable: true, branchLabel: "main" },
+      { projectId: "b", title: "marketing-site", available: true, independentWorkspaceAvailable: false, branchLabel: "main" },
     ],
     teams: [{
       teamKey: "system:development",
@@ -17,9 +17,11 @@ const meta = {
       members: [{ slug: "dev", displayName: "开发", description: "实现功能" }],
     }],
     selectedProjectId: null,
+    selectedWorkspaceMode: "direct",
     selectedTeamKey: "system:development",
     draft: "",
     onSelectProject: () => undefined,
+    onSelectWorkspace: () => undefined,
     onAddProject: () => undefined,
     onSelectTeam: () => undefined,
     onDraftChange: () => undefined,

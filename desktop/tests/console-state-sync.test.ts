@@ -137,11 +137,16 @@ describe("ConsoleStateActions", () => {
     expect(coordinator.isSelectionMutationPending).toBe(false);
   });
 
-  it("sends the selected Agent team in the same create-session request", async () => {
+  it("sends the selected workspace and Agent team in the same create-session request", async () => {
     const fetch = vi.fn(async () => jsonResponse({ session: { sessionId: "session-b" } }));
     const harness = actionHarness({ coordinator: new ConsoleStateCoordinator(), fetch });
 
-    await harness.actions.createSessionWithFirstMessage("project-b", "  first message  ", { ownership: "user", id: "my-team" });
+    await harness.actions.createSessionWithFirstMessage(
+      "project-b",
+      "  first message  ",
+      { ownership: "user", id: "my-team" },
+      "worktree",
+    );
 
     expect(fetch).toHaveBeenCalledWith(
       new URL("http://127.0.0.1:8787/api/local-console/sessions"),
@@ -152,6 +157,7 @@ describe("ConsoleStateActions", () => {
           initialMessage: "first message",
           agentTeamOwnership: "user",
           agentTeamId: "my-team",
+          workspaceMode: "worktree",
         }),
       }),
     );

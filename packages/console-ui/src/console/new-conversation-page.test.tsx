@@ -47,11 +47,37 @@ describe("NewConversationPage", () => {
     expect(within(completionList).getByRole("option", { name: /产品/u })).toBeInTheDocument();
     expect(within(completionList).queryByRole("option", { name: /开发/u })).not.toBeInTheDocument();
   });
+
+  it("selects an independent workspace only after explaining its pre-message boundary", () => {
+    const onSelectWorkspace = vi.fn();
+    renderPage({ onSelectWorkspace });
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "工作空间：默认工作空间，点击切换" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(screen.getByText("独立工作空间"));
+    const dialog = screen.getByRole("dialog", { name: "换成独立工作空间" });
+    expect(dialog).toHaveTextContent("副本基于项目当前所在的提交");
+    expect(dialog).toHaveTextContent("不包含你还没提交的改动");
+    expect(dialog).not.toHaveTextContent("已经在项目文件夹里产生的改动");
+    fireEvent.click(within(dialog).getByRole("button", { name: "换过去" }));
+    expect(onSelectWorkspace).toHaveBeenCalledWith("worktree");
+  });
+
+  it("disables independent workspace selection for a non-git project with the reason in the menu", () => {
+    renderPage({ selectedProjectId: "b" });
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "工作空间：默认工作空间，点击切换" }), {
+      key: "ArrowDown",
+    });
+    expect(screen.getByText("独立工作空间").closest('[role="menuitemcheckbox"]')).toHaveAttribute("data-disabled");
+    expect(screen.getByText("这个项目文件夹不是 git 仓库，无法隔离改动")).toBeVisible();
+  });
 });
 
 const projects = [
-  { projectId: "a", title: "agent-moebius", available: true, workspaceLabel: "默认工作空间", branchLabel: "main" },
-  { projectId: "b", title: "marketing-site", available: true, workspaceLabel: "独立工作空间", branchLabel: "agent/demo" },
+  { projectId: "a", title: "agent-moebius", available: true, independentWorkspaceAvailable: true, branchLabel: "main" },
+  { projectId: "b", title: "marketing-site", available: true, independentWorkspaceAvailable: false, branchLabel: "main" },
 ];
 
 function renderPage(overrides: Partial<NewConversationPageProps> = {}) {
@@ -70,9 +96,11 @@ function renderPage(overrides: Partial<NewConversationPageProps> = {}) {
       },
     ]}
     selectedProjectId="a"
+    selectedWorkspaceMode="direct"
     selectedTeamKey="system:development"
     draft="目标"
     onSelectProject={vi.fn()}
+    onSelectWorkspace={vi.fn()}
     onAddProject={vi.fn()}
     onSelectTeam={vi.fn()}
     onDraftChange={vi.fn()}

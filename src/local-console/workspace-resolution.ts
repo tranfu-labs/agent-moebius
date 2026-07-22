@@ -22,7 +22,7 @@ export function resolveSessionWorkspaceContext(
 ): ResolvedSessionWorkspaceContext {
   return {
     workspaceMode: session.workspaceMode,
-    workspacePendingMode: session.workspacePendingMode,
+    workspacePendingMode: null,
     independentWorkspaceAvailable: project.isGitRepository,
     independentWorkspaceUnavailableReason: project.isGitRepository ? null : "not-git-repository",
   };

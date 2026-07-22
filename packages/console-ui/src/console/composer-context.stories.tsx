@@ -71,8 +71,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {};
+export const LockedWorkspace: Story = {};
 
-export const PendingWorkspace: Story = {
-  args: { selectedSession: { ...session, workspacePendingMode: "worktree" } },
+export const BeforeFirstMessage: Story = {
+  args: { onChangeSessionWorkspace: () => undefined },
 };

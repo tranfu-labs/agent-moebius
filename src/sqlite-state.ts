@@ -57,6 +57,7 @@ export type SqliteStateCommand =
       agentTeamOwnership?: "system" | "user";
       agentTeamId?: string;
       agentTeamSnapshot?: { members: Array<{ name: string; agentMarkdown: string }> };
+      workspaceMode?: "direct" | "worktree";
       initialMessage?: string;
       now: string;
     }

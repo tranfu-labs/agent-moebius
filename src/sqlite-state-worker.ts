@@ -1232,7 +1232,7 @@ function reorderLocalProjects(database: SqliteDatabase, projectIds: string[]): u
 function getLocalSessionWorkspace(database: SqliteDatabase, sessionId: string): unknown {
   const row = database
     .prepare(
-      `SELECT p.project_id, p.title, p.folder_path, s.workspace_mode, s.workspace_pending_mode
+      `SELECT p.project_id, p.title, p.folder_path, s.workspace_mode
        FROM sessions s
        JOIN projects p ON p.project_id = s.project_id
        WHERE s.session_id = ? AND s.source_type = 'local'`,
@@ -1246,7 +1246,7 @@ function getLocalSessionWorkspace(database: SqliteDatabase, sessionId: string): 
     title: readString(row.title, "title"),
     folderPath: readString(row.folder_path, "folder_path"),
     workspaceMode: readLocalWorkspaceMode(row.workspace_mode, "workspace_mode"),
-    workspacePendingMode: readNullableLocalWorkspaceMode(row.workspace_pending_mode, "workspace_pending_mode"),
+    workspacePendingMode: null,
   };
 }
 
@@ -1256,15 +1256,12 @@ function switchLocalSessionWorkspace(
 ): unknown {
   return transaction(database, () => {
     requireLocalSession(database, input.sessionId);
-    if (hasRunningMessage(database, input.sessionId)) {
-      database.prepare(
-        "UPDATE sessions SET workspace_pending_mode = ?, updated_at = ? WHERE session_id = ? AND source_type = 'local'",
-      ).run(input.workspaceMode, input.now, input.sessionId);
-    } else {
-      database.prepare(
-        "UPDATE sessions SET workspace_mode = ?, workspace_pending_mode = NULL, updated_at = ? WHERE session_id = ? AND source_type = 'local'",
-      ).run(input.workspaceMode, input.now, input.sessionId);
+    if (hasSessionMessage(database, input.sessionId)) {
+      throw new Error("SESSION_WORKSPACE_LOCKED");
     }
+    database.prepare(
+      "UPDATE sessions SET workspace_mode = ?, updated_at = ? WHERE session_id = ? AND source_type = 'local'",
+    ).run(input.workspaceMode, input.now, input.sessionId);
     return requireLocalSession(database, input.sessionId);
   });
 }
@@ -1306,14 +1303,12 @@ function applyPendingLocalSessionContext(
       .get(input.sessionId) !== undefined;
     database.prepare(
       `UPDATE sessions
-       SET workspace_mode = COALESCE(workspace_pending_mode, workspace_mode),
-           workspace_pending_mode = NULL,
-           agent_team_ownership = COALESCE(agent_team_pending_ownership, agent_team_ownership),
+       SET agent_team_ownership = COALESCE(agent_team_pending_ownership, agent_team_ownership),
            agent_team_id = COALESCE(agent_team_pending_id, agent_team_id),
            agent_team_pending_ownership = NULL,
            agent_team_pending_id = NULL,
            updated_at = CASE
-             WHEN workspace_pending_mode IS NOT NULL OR agent_team_pending_id IS NOT NULL THEN ?
+             WHEN agent_team_pending_id IS NOT NULL THEN ?
              ELSE updated_at
            END
        WHERE session_id = ? AND source_type = 'local'`,
@@ -1418,6 +1413,11 @@ function createLocalSession(
       ownership: input.agentTeamOwnership,
       id: input.agentTeamId,
     });
+    if (input.workspaceMode !== undefined) {
+      database.prepare(
+        "UPDATE sessions SET workspace_mode = ? WHERE session_id = ? AND source_type = 'local'",
+      ).run(input.workspaceMode, input.sessionId);
+    }
     replaceLocalSessionAgentTeamSnapshot(
       database,
       input.sessionId,
@@ -1771,6 +1771,12 @@ function hasRunningMessage(database: SqliteDatabase, sessionId: string): boolean
       .prepare("SELECT id FROM session_messages WHERE session_id = ? AND status = 'running' ORDER BY id ASC LIMIT 1")
       .get(sessionId) !== undefined
   );
+}
+
+function hasSessionMessage(database: SqliteDatabase, sessionId: string): boolean {
+  return database
+    .prepare("SELECT 1 AS found FROM session_messages WHERE session_id = ? LIMIT 1")
+    .get(sessionId) !== undefined;
 }
 
 function claimNextPendingMessage(
@@ -2732,7 +2738,7 @@ function readLocalSessionRow(database: SqliteDatabase, row: unknown): unknown {
     agentTeamPendingOwnership: readNullableAgentTeamOwnership(row.agent_team_pending_ownership),
     agentTeamPendingId: readNullableString(row.agent_team_pending_id, "agent_team_pending_id"),
     workspaceMode: readLocalWorkspaceMode(row.workspace_mode, "workspace_mode"),
-    workspacePendingMode: readNullableLocalWorkspaceMode(row.workspace_pending_mode, "workspace_pending_mode"),
+    workspacePendingMode: null,
     title: readNullableString(row.title, "title") ?? fallbackSessionTitle(sessionId),
     status: sessionStatusFromCounts(counts),
     awaitsHumanReason,
@@ -2940,14 +2946,6 @@ function readNullableAgentTeamOwnership(value: unknown): "system" | "user" | nul
 function readLocalWorkspaceMode(value: unknown, field: string): "direct" | "worktree" {
   const mode = readString(value, field);
   if (mode === "direct" || mode === "worktree") {
-    return mode;
-  }
-  throw new Error(`Invalid ${field}`);
-}
-
-function readNullableLocalWorkspaceMode(value: unknown, field: string): "direct" | "worktree" | null {
-  const mode = readNullableString(value, field);
-  if (mode === null || mode === "direct" || mode === "worktree") {
     return mode;
   }
   throw new Error(`Invalid ${field}`);

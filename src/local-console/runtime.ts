@@ -57,6 +57,7 @@ import {
   LocalConsoleProjectRunningError,
   type LocalConsoleSessionArchiveResult,
   LocalConsoleSessionRunningError,
+  LocalConsoleSessionWorkspaceLockedError,
   type LocalConsoleRunSnapshot,
   type LocalConsoleSessionSummary,
   type LocalConsoleWorkspaceMode,
@@ -299,6 +300,7 @@ export class LocalConsoleRuntime {
     projectId?: string,
     agentTeam?: { ownership: "system" | "user"; id: string },
     initialMessage?: string,
+    workspaceMode?: LocalConsoleWorkspaceMode,
   ): Promise<LocalConsoleSessionSummary> {
     const sessionId = `local:${this.now().toISOString()}-${Math.random().toString(36).slice(2, 8)}`;
     const resolvedProjectId = projectId ?? (await this.defaultProjectId());
@@ -307,6 +309,20 @@ export class LocalConsoleRuntime {
       throw new Error("Message body must not be empty");
     }
     await this.assertProjectDirectoryAvailable(resolvedProjectId);
+    if (workspaceMode === "worktree") {
+      const project = (await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects()))
+        .find((candidate) => candidate.projectId === resolvedProjectId);
+      if (project === undefined) {
+        throw new Error(`local console project not found: ${resolvedProjectId}`);
+      }
+      const facts = await readCachedLocalWorkspaceFacts({
+        folderPath: project.folderPath,
+        gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+      });
+      if (!facts.isGitRepository) {
+        throw new Error("not-git-repository");
+      }
+    }
     const agentTeamSnapshot = agentTeam === undefined || this.options.loadAgentTeamSnapshot === undefined
       ? undefined
       : await this.options.loadAgentTeamSnapshot(agentTeam);
@@ -318,6 +334,7 @@ export class LocalConsoleRuntime {
         agentTeamOwnership: agentTeam?.ownership,
         agentTeamId: agentTeam?.id,
         agentTeamSnapshot,
+        workspaceMode,
         initialMessage: normalizedInitialMessage,
         now: this.nowIso(),
       }),
@@ -344,6 +361,12 @@ export class LocalConsoleRuntime {
     sessionId: string;
     workspaceMode: LocalConsoleWorkspaceMode;
   }): Promise<LocalConsoleSessionSummary> {
+    const messages = await this.storeCall("local-console-store-list-session-messages", () =>
+      this.options.store.listMessages(input.sessionId),
+    );
+    if (messages.length > 0) {
+      throw new LocalConsoleSessionWorkspaceLockedError();
+    }
     const source = await this.storeCall("local-console-store-session-workspace", () =>
       this.options.store.getSessionWorkspace(input.sessionId),
     );
@@ -356,13 +379,21 @@ export class LocalConsoleRuntime {
         throw new Error("not-git-repository");
       }
     }
-    const session = await this.storeCall("local-console-store-switch-session-workspace", () =>
-      this.options.store.switchSessionWorkspace({
-        sessionId: input.sessionId,
-        workspaceMode: input.workspaceMode,
-        now: this.nowIso(),
-      }),
-    );
+    let session: LocalConsoleSessionSummary;
+    try {
+      session = await this.storeCall("local-console-store-switch-session-workspace", () =>
+        this.options.store.switchSessionWorkspace({
+          sessionId: input.sessionId,
+          workspaceMode: input.workspaceMode,
+          now: this.nowIso(),
+        }),
+      );
+    } catch (error) {
+      if (formatLocalError(error) === "SESSION_WORKSPACE_LOCKED") {
+        throw new LocalConsoleSessionWorkspaceLockedError();
+      }
+      throw error;
+    }
     invalidateLocalWorkspaceFacts();
     return session;
   }

@@ -79,7 +79,7 @@ change：`openspec/changes/main-conversation-subsession-cards/`
 
 覆盖验收 #15 #21。
 
-### - [ ] E · `main-conversation-workspace-lock` — 工作空间与项目一同锁定（`成品级`）
+### - [x] E · `main-conversation-workspace-lock` — 工作空间与项目一同锁定（`成品级`）→ packages/console-ui/src/console/new-conversation-page.tsx:107
 
 change：`openspec/changes/main-conversation-workspace-lock/`
 

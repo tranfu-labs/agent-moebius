@@ -131,6 +131,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     agentTeamOwnership?: "system" | "user";
     agentTeamId?: string;
     agentTeamSnapshot?: LocalConsoleAgentTeamSnapshot;
+    workspaceMode?: LocalConsoleWorkspaceMode;
     initialMessage?: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary> {

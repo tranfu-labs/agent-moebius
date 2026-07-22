@@ -160,6 +160,13 @@ export class LocalConsoleSessionProjectError extends Error {
   }
 }
 
+export class LocalConsoleSessionWorkspaceLockedError extends Error {
+  constructor() {
+    super("这段对话已经开始，工作空间已锁定");
+    this.name = "LocalConsoleSessionWorkspaceLockedError";
+  }
+}
+
 export type MoveEmptySessionResult =
   | { ok: true; session: LocalConsoleSessionSummary }
   | { ok: false; code: LocalConsoleSessionProjectErrorCode };
@@ -323,6 +330,7 @@ export interface LocalConsoleStore {
     agentTeamOwnership?: LocalConsoleAgentTeamOwnership;
     agentTeamId?: string;
     agentTeamSnapshot?: LocalConsoleAgentTeamSnapshot;
+    workspaceMode?: LocalConsoleWorkspaceMode;
     initialMessage?: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary>;

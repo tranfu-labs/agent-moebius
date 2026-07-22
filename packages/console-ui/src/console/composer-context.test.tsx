@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { OperatorAgentTeam } from "./agent-teams-page";
@@ -15,11 +15,14 @@ describe("ComposerContext", () => {
     expect(screen.getByLabelText("分支：feat/context")).toBeVisible();
     expect(screen.queryByText("当前分支")).not.toBeInTheDocument();
     expect(screen.queryByText("会话分支")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("工作空间：独立工作空间，已锁定")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /工作空间/u })).not.toBeInTheDocument();
   });
 
   it("explains a disabled independent workspace inside the menu", () => {
     renderContext({
       session: { ...session, workspaceMode: "direct", workspaceUnavailableReason: "not-git-repository" },
+      onChangeSessionWorkspace: vi.fn(),
     });
     fireEvent.keyDown(screen.getByRole("button", { name: "工作空间：默认工作空间，点击切换" }), {
       key: "ArrowDown",
@@ -27,21 +30,6 @@ describe("ComposerContext", () => {
     const item = screen.getByText("独立工作空间").closest('[role="menuitemcheckbox"]');
     expect(item).toHaveAttribute("data-disabled");
     expect(screen.getByText("这个项目文件夹不是 git 仓库，无法隔离改动")).toBeVisible();
-  });
-
-  it("requires confirmation with the full boundary before switching workspace", () => {
-    const onChangeSessionWorkspace = vi.fn();
-    renderContext({ session: { ...session, workspaceMode: "direct" }, onChangeSessionWorkspace });
-    fireEvent.keyDown(screen.getByRole("button", { name: "工作空间：默认工作空间，点击切换" }), {
-      key: "ArrowDown",
-    });
-    fireEvent.click(screen.getByText("独立工作空间"));
-    const dialog = screen.getByRole("dialog", { name: "换成独立工作空间" });
-    expect(dialog).toHaveTextContent("基于项目当前所在的提交");
-    expect(dialog).toHaveTextContent("不包含你还没提交的改动");
-    expect(dialog).toHaveTextContent("已经在项目文件夹里产生的改动也不会被搬过去");
-    fireEvent.click(within(dialog).getByRole("button", { name: "换过去" }));
-    expect(onChangeSessionWorkspace).toHaveBeenCalledWith("session-a", "worktree");
   });
 
   it("makes the team selectable and discloses the creation-time snapshot", () => {
@@ -56,7 +44,7 @@ describe("ComposerContext", () => {
     expect(onChangeSessionTeam).toHaveBeenCalledWith("session-a", marketingTeam);
   });
 
-  it("shows pending targets until the current step finishes", () => {
+  it("shows only the pending team target until the current step finishes", () => {
     renderContext({
       session: {
         ...session,
@@ -67,10 +55,10 @@ describe("ComposerContext", () => {
       },
       pendingAgentTeam: marketingTeam,
     });
-    expect(screen.getByRole("button", { name: "工作空间：独立工作空间，点击切换" })).toBeVisible();
+    expect(screen.getByLabelText("工作空间：默认工作空间，已锁定")).toBeVisible();
     expect(screen.getByRole("button", { name: "Agent 团队：营销团队，点击切换" })).toBeVisible();
-    expect(screen.getByRole("status")).toHaveTextContent("当前这一步跑完后换成独立工作空间");
     expect(screen.getByRole("status")).toHaveTextContent("当前这一步跑完后换成营销团队");
+    expect(screen.getByRole("status")).not.toHaveTextContent("工作空间");
   });
 
   it("collapses branch, workspace, team, and project progressively in that order", () => {
@@ -111,7 +99,7 @@ function renderContext(input: {
       teams={[developmentTeam, marketingTeam]}
       canChangeProject={false}
       disabled={false}
-      onChangeSessionWorkspace={input.onChangeSessionWorkspace ?? vi.fn()}
+      onChangeSessionWorkspace={input.onChangeSessionWorkspace}
       onChangeSessionTeam={input.onChangeSessionTeam ?? vi.fn()}
     />,
   );

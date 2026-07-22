@@ -1116,17 +1116,17 @@ function App(): JSX.Element {
   }, [agentTeamsState, newConversation, preferredNewConversationTeamKey]);
 
   const startNewConversation = useCallback((projectId?: string) => {
-    const selectedProjectId = projectId !== undefined
-      && projects.some((candidate) => candidate.projectId === projectId
+    const selectedProject = projectId === undefined
+      ? undefined
+      : projects.find((candidate) => candidate.projectId === projectId
         && candidate.directoryAvailable !== false
-        && candidate.newConversationDisabledReason == null)
-      ? projectId
-      : undefined;
+        && candidate.newConversationDisabledReason == null);
     setClientError(null);
     dispatchNewConversation({
       type: "open",
       draft: createNewConversationDraft({
-        projectId: selectedProjectId,
+        projectId: selectedProject?.projectId,
+        workspaceMode: selectedProject?.worktreeMode === true ? "worktree" : "direct",
         teamKey: preferredNewConversationTeamKey,
         draft: conversationDraftStoreRef.current.read(NEW_CONVERSATION_DRAFT_KEY),
       }),
@@ -1136,6 +1136,7 @@ function App(): JSX.Element {
   const createConversation = useCallback(async (): Promise<void> => {
     if (newConversation === null || !canSubmitNewConversation({
       projectId: newConversation.projectId,
+      workspaceMode: newConversation.workspaceMode,
       teamKey: newConversation.teamKey,
       draft: newConversation.draft,
       isSubmitting: newConversation.isSubmitting,
@@ -1158,13 +1159,14 @@ function App(): JSX.Element {
     const recordSuccessfulTeam = window.agentMoebius?.recordSuccessfulConversationAgentTeam;
     const result = await submitNewConversation({
       projectId,
+      workspaceMode: newConversation.workspaceMode,
       initialMessage: newConversation.draft,
       team: { teamId: team.id, ownership: team.ownership },
-      createSessionWithFirstMessage: (targetProjectId, initialMessage, selectedTeam) =>
+      createSessionWithFirstMessage: (targetProjectId, initialMessage, selectedTeam, workspaceMode) =>
         actions.createSessionWithFirstMessage(targetProjectId, initialMessage, {
           ownership: selectedTeam.ownership,
           id: selectedTeam.teamId,
-        }),
+        }, workspaceMode),
       recordSuccessfulTeam: recordSuccessfulTeam === undefined
         ? async () => undefined
         : (request) => recordSuccessfulTeam(request),
@@ -1381,6 +1383,7 @@ function App(): JSX.Element {
       agentTeamDetailState={agentTeamDetailState}
       newConversation={newConversation === null ? null : {
         selectedProjectId: newConversation.projectId,
+        selectedWorkspaceMode: newConversation.workspaceMode,
         selectedTeamKey: newConversation.teamKey,
         draft: newConversation.draft,
         isSubmitting: newConversation.isSubmitting,
@@ -1395,6 +1398,14 @@ function App(): JSX.Element {
       onNewConversationProjectChange={(projectId) => {
         setClientError(null);
         dispatchNewConversation({ type: "select-project", projectId });
+        const selectedProject = projects.find((candidate) => candidate.projectId === projectId);
+        dispatchNewConversation({
+          type: "select-workspace",
+          workspaceMode: selectedProject?.worktreeMode === true ? "worktree" : "direct",
+        });
+      }}
+      onNewConversationWorkspaceChange={(workspaceMode) => {
+        dispatchNewConversation({ type: "select-workspace", workspaceMode });
       }}
       onNewConversationTeamChange={(teamKey) => {
         dispatchNewConversation({ type: "select-team", teamKey });
@@ -1409,6 +1420,7 @@ function App(): JSX.Element {
           if (added !== null) {
             setClientError(null);
             dispatchNewConversation({ type: "select-project", projectId: added.projectId });
+            dispatchNewConversation({ type: "select-workspace", workspaceMode: "direct" });
           }
         });
       }}

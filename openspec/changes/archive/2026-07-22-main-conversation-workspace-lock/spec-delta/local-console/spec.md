@@ -1,6 +1,6 @@
 # local-console delta：main-conversation-workspace-lock
 
-本 delta 修改 `main-conversation-session-context` 交付的两条 Requirement（验收 #6、验收 #7），把工作空间从「运行中可切换」收敛为「首条消息后锁定」。合并时以本文替换 `openspec/specs/local-console/spec.md` 中的同名 Requirement，NEVER 与旧版并存。
+本 delta 修改 `main-conversation-session-context` 交付的三条 Requirement（验收 #5、验收 #6、验收 #7），把工作空间从「运行中可切换」收敛为「首条消息后锁定」。合并时以本文替换 `openspec/specs/local-console/spec.md` 中的同名 Requirement，NEVER 与旧版并存。
 
 ## Requirement: 验收 #6 运行中的团队切换在当前步骤结束后落定
 Source: docs/product/pages/main-conversation.md#选择工作空间与团队

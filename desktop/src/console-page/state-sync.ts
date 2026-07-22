@@ -214,6 +214,7 @@ export class ConsoleStateActions {
     projectId: string,
     initialMessage: string,
     agentTeam?: { ownership: "system" | "user"; id: string },
+    workspaceMode?: "direct" | "worktree",
   ): Promise<CreatedSession | null> => {
     if (this.options.apiBase === null) {
       this.options.setError("local console server unavailable");
@@ -239,6 +240,7 @@ export class ConsoleStateActions {
           ...(agentTeam === undefined
             ? {}
             : { agentTeamOwnership: agentTeam.ownership, agentTeamId: agentTeam.id }),
+          ...(workspaceMode === undefined ? {} : { workspaceMode }),
         }),
       });
       const body = await response.json() as SessionResponse;

@@ -26,10 +26,10 @@ describe("session workspace resolution", () => {
     });
   });
 
-  it("keeps the effective and pending values distinct", () => {
+  it("ignores a legacy pending value and keeps the effective workspace", () => {
     expect(resolveSessionWorkspaceContext(
       { workspaceMode: "direct", workspacePendingMode: "worktree" },
       { isGitRepository: true },
-    )).toMatchObject({ workspaceMode: "direct", workspacePendingMode: "worktree" });
+    )).toMatchObject({ workspaceMode: "direct", workspacePendingMode: null });
   });
 });

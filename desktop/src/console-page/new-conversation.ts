@@ -8,6 +8,7 @@ export interface ConversationAgentTeamIdentity {
 
 export interface NewConversationDraftState {
   projectId: string | null;
+  workspaceMode: "direct" | "worktree";
   teamKey: string | null;
   draft: string;
   isSubmitting: boolean;
@@ -18,6 +19,7 @@ export type NewConversationDraftEvent =
   | { type: "open"; draft: NewConversationDraftState }
   | { type: "close" }
   | { type: "select-project"; projectId: string | null }
+  | { type: "select-workspace"; workspaceMode: "direct" | "worktree" }
   | { type: "select-team"; teamKey: string | null }
   | { type: "edit-draft"; draft: string }
   | { type: "submit-started" }
@@ -30,11 +32,13 @@ export type SubmitNewConversationResult =
 
 export function createNewConversationDraft(input: {
   projectId?: string;
+  workspaceMode?: "direct" | "worktree";
   teamKey: string | null;
   draft: string;
 }): NewConversationDraftState {
   return {
     projectId: input.projectId ?? null,
+    workspaceMode: input.workspaceMode ?? "direct",
     teamKey: input.teamKey,
     draft: input.draft,
     isSubmitting: false,
@@ -66,6 +70,8 @@ export function reduceNewConversationDraft(
   switch (event.type) {
     case "select-project":
       return { ...state, projectId: event.projectId, error: null };
+    case "select-workspace":
+      return { ...state, workspaceMode: event.workspaceMode, error: null };
     case "select-team":
       return { ...state, teamKey: event.teamKey, error: null };
     case "edit-draft":
@@ -79,16 +85,23 @@ export function reduceNewConversationDraft(
 
 export async function submitNewConversation(input: {
   projectId: string;
+  workspaceMode: "direct" | "worktree";
   initialMessage: string;
   team: ConversationAgentTeamIdentity;
   createSessionWithFirstMessage(
     projectId: string,
     initialMessage: string,
     team: ConversationAgentTeamIdentity,
+    workspaceMode: "direct" | "worktree",
   ): Promise<CreatedSession | null>;
   recordSuccessfulTeam(request: ConversationAgentTeamIdentity & { sessionId: string }): Promise<unknown>;
 }): Promise<SubmitNewConversationResult> {
-  const session = await input.createSessionWithFirstMessage(input.projectId, input.initialMessage, input.team);
+  const session = await input.createSessionWithFirstMessage(
+    input.projectId,
+    input.initialMessage,
+    input.team,
+    input.workspaceMode,
+  );
   if (session === null) {
     return { created: false };
   }

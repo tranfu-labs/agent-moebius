@@ -11,6 +11,7 @@ describe("new conversation draft state machine", () => {
     const draft = createNewConversationDraft({ teamKey: "system:development", draft: "目标" });
     expect(draft).toEqual({
       projectId: null,
+      workspaceMode: "direct",
       teamKey: "system:development",
       draft: "目标",
       isSubmitting: false,
@@ -21,19 +22,21 @@ describe("new conversation draft state machine", () => {
     expect(canSubmitNewConversation({ ...draft, projectId: "project-a", isSubmitting: true })).toBe(false);
   });
 
-  it("owns project, team, text, and submission transitions outside the app shell", () => {
+  it("owns project, workspace, team, text, and submission transitions outside the app shell", () => {
     const opened = reduceNewConversationDraft(null, {
       type: "open",
       draft: createNewConversationDraft({ teamKey: "system:development", draft: "" }),
     });
     const withProject = reduceNewConversationDraft(opened, { type: "select-project", projectId: "project-a" });
-    const withTeam = reduceNewConversationDraft(withProject, { type: "select-team", teamKey: "user:custom" });
+    const withWorkspace = reduceNewConversationDraft(withProject, { type: "select-workspace", workspaceMode: "worktree" });
+    const withTeam = reduceNewConversationDraft(withWorkspace, { type: "select-team", teamKey: "user:custom" });
     const withText = reduceNewConversationDraft(withTeam, { type: "edit-draft", draft: "保留的目标" });
     const submitting = reduceNewConversationDraft(withText, { type: "submit-started" });
     const failed = reduceNewConversationDraft(submitting, { type: "submit-failed", error: "请重试" });
 
     expect(failed).toEqual({
       projectId: "project-a",
+      workspaceMode: "worktree",
       teamKey: "user:custom",
       draft: "保留的目标",
       isSubmitting: false,
@@ -48,6 +51,7 @@ describe("new conversation draft state machine", () => {
 
     await expect(submitNewConversation({
       projectId: "project-a",
+      workspaceMode: "direct",
       initialMessage: "first message",
       team: { teamId: "development", ownership: "system" },
       createSessionWithFirstMessage: vi.fn().mockResolvedValue(null),
@@ -63,6 +67,7 @@ describe("new conversation draft state machine", () => {
 
     await expect(submitNewConversation({
       projectId: "project-a",
+      workspaceMode: "worktree",
       initialMessage: "first message",
       team: { teamId: "my-team", ownership: "user" },
       createSessionWithFirstMessage,
@@ -79,6 +84,7 @@ describe("new conversation draft state machine", () => {
       "project-a",
       "first message",
       { teamId: "my-team", ownership: "user" },
+      "worktree",
     );
   });
 
@@ -87,6 +93,7 @@ describe("new conversation draft state machine", () => {
 
     await expect(submitNewConversation({
       projectId: "project-a",
+      workspaceMode: "direct",
       initialMessage: "first message",
       team: { teamId: "development", ownership: "system" },
       createSessionWithFirstMessage: vi.fn().mockResolvedValue({ sessionId: "local:created" }),

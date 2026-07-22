@@ -185,6 +185,7 @@ export interface OperatorRunSnapshot {
 
 export interface OperatorNewConversationState {
   selectedProjectId: string | null;
+  selectedWorkspaceMode: "direct" | "worktree";
   selectedTeamKey: string | null;
   draft: string;
   isSubmitting: boolean;
@@ -217,6 +218,7 @@ export interface OperatorConsoleProps {
   onSend(): void;
   onStartNewConversation?: (projectId?: string) => void;
   onNewConversationProjectChange?: (projectId: string) => void;
+  onNewConversationWorkspaceChange?: (workspaceMode: "direct" | "worktree") => void;
   onNewConversationTeamChange?: (teamKey: string) => void;
   onNewConversationDraftChange?: (value: string) => void;
   onSubmitNewConversation?: () => void;
@@ -298,6 +300,7 @@ export function OperatorConsole({
   onSend,
   onStartNewConversation,
   onNewConversationProjectChange,
+  onNewConversationWorkspaceChange,
   onNewConversationTeamChange,
   onNewConversationDraftChange,
   onSubmitNewConversation,
@@ -763,7 +766,7 @@ export function OperatorConsole({
               projectId: candidate.projectId,
               title: candidate.title,
               available: candidate.directoryAvailable !== false && candidate.newConversationDisabledReason == null,
-              workspaceLabel: candidate.worktreeMode ? "独立工作空间" : "默认工作空间",
+              independentWorkspaceAvailable: candidate.isGitRepository === true,
               branchLabel: candidate.branchName ?? "—",
             }))}
             teams={agentTeamsState.status === "ready"
@@ -776,12 +779,14 @@ export function OperatorConsole({
                 }))
               : []}
             selectedProjectId={newConversation.selectedProjectId}
+            selectedWorkspaceMode={newConversation.selectedWorkspaceMode}
             selectedTeamKey={newConversation.selectedTeamKey}
             draft={newConversation.draft}
             isSubmitting={newConversation.isSubmitting}
             isProjectMutationPending={isSelectionMutationPending}
             error={newConversation.error}
             onSelectProject={(projectId) => onNewConversationProjectChange?.(projectId)}
+            onSelectWorkspace={(workspaceMode) => onNewConversationWorkspaceChange?.(workspaceMode)}
             onAddProject={() => onAddNewConversationProject?.()}
             onSelectTeam={(teamKey) => onNewConversationTeamChange?.(teamKey)}
             onDraftChange={(value) => onNewConversationDraftChange?.(value)}
@@ -926,7 +931,7 @@ export function OperatorConsole({
                       }
                       disabled={isSelectionMutationPending || activeProjectUnavailable}
                       onChangeSessionProject={onChangeSessionProject}
-                      onChangeSessionWorkspace={onChangeSessionWorkspace}
+                      onChangeSessionWorkspace={messages.length === 0 ? onChangeSessionWorkspace : undefined}
                       onChangeSessionTeam={onChangeSessionTeam}
                     />
                   }
