@@ -40,4 +40,4 @@ PRD 对完整产品的定义——PRD 可以要求当前实现里根本没有的
 
 ## 来源
 
-这段提示词由 codex 会话 `019f5617-bfd3-7581-89ad-5efc907166a6`（首份页面级 PRD `docs/product/pages/main-sidebar.md` 的采访过程）逆向提炼得到。
+这段提示词由 codex 会话 `019f5617-bfd3-7581-89ad-5efc907166a6`（首份页面级 PRD `docs/product/pages/main-left-sidebar.md` 的采访过程）逆向提炼得到。

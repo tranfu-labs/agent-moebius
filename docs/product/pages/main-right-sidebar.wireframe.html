@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>主页面右侧栏 · 线框参考</title>
+<style>
+:root{--bg:#fff;--surface:#fafaf9;--line:#e5e4e1;--line2:#d0cfcb;--fg:#1c1c1a;--fg2:#63625d;--fg3:#94938d;
+--accent-bg:#eef0fb;--accent-fg:#3c3489;--add-bg:#eaf3de;--add-fg:#3b6d11;--del-bg:#fcebeb;--del-fg:#a32d2d;
+--warn-bg:#faeeda;--warn-fg:#854f0b;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media(prefers-color-scheme:dark){:root{--bg:#141413;--surface:#1c1c1a;--line:#2f2f2c;--line2:#3f3f3b;--fg:#f5f4f0;--fg2:#a3a29c;--fg3:#75746f;
+--accent-bg:#26215c;--accent-fg:#cecbf6;--add-bg:#173404;--add-fg:#c0dd97;--del-bg:#501313;--del-fg:#f7c1c1;--warn-bg:#412402;--warn-fg:#fac775}}
+body{margin:0;padding:2rem 1.5rem 4rem;background:var(--bg);color:var(--fg);
+font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+main{max-width:900px;margin:0 auto}
+h1{font-size:22px;font-weight:500;margin:0 0 4px}
+h2{font-size:15px;font-weight:500;margin:2.5rem 0 2px}
+.note{color:var(--fg2);font-size:13px;margin:0 0 12px}
+.warn{background:var(--warn-bg);color:var(--warn-fg);padding:10px 14px;border-radius:8px;font-size:13px;margin:0 0 2rem}
+.win{display:flex;border:.5px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg);font-size:11.5px}
+.col{padding:10px;border-right:.5px solid var(--line);min-width:0}
+.side{width:110px;background:var(--surface);flex:none}
+.chat{width:250px;flex:none}
+.right{flex:1;padding:0;min-width:0}
+.narrow{max-width:360px}
+.tabs{display:flex;border-bottom:.5px solid var(--line);font-size:11px}
+.tab{padding:7px 10px;color:var(--fg2);border-left:.5px solid var(--line);white-space:nowrap}
+.tab:first-child{border-left:0}
+.tab.on{color:var(--fg);border-bottom:2px solid var(--fg)}
+.tab .x{color:var(--fg3);margin-left:4px}
+.pad{padding:8px 10px}
+.hd{color:var(--fg2);border-bottom:.5px solid var(--line);padding:7px 10px;display:flex;justify-content:space-between;gap:8px}
+.mono{font-family:var(--mono)}
+.row{display:flex;justify-content:space-between;padding:1px 0}
+.sel{background:var(--accent-bg);color:var(--accent-fg);border-radius:4px;padding:1px 4px}
+.add{color:var(--add-fg)}.del{color:var(--del-fg)}
+.line{display:flex;padding:1px 10px;font-family:var(--mono)}
+.line span:first-child{width:26px;color:var(--fg3);flex:none}
+.line.a{background:var(--add-bg);color:var(--add-fg)}
+.line.d{background:var(--del-bg);color:var(--del-fg)}
+.bar{background:var(--warn-bg);color:var(--warn-fg);padding:6px 10px;display:flex;justify-content:space-between;gap:8px}
+.btn{border:.5px solid var(--line2);border-radius:4px;padding:0 7px;white-space:nowrap}
+.card{border:.5px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);display:flex;justify-content:space-between;gap:8px;margin-top:10px}
+.pick{border:.5px solid var(--line2);border-radius:8px;padding:8px 12px;margin:0 auto;max-width:210px;text-align:left}
+.pick+.pick{margin-top:8px}
+.sub{color:var(--fg3);font-size:11px}
+.mid{text-align:center;padding:26px 14px}
+.dim{color:var(--fg3)}
+</style>
+</head>
+<body>
+<main>
+
+<h1>主页面右侧栏 · 线框参考</h1>
+<p class="note">配套文档：<a href="./main-right-sidebar.md">main-right-sidebar.md</a></p>
+<p class="warn">本文件用于<b style="font-weight:500">实现完成后的人工验收对照</b>——把界面做出来之后，打开它对一眼区域关系、信息密度和状态表现。它不是写需求时的依据。产品事实源是 PRD 正文，任何需求改动先落 md；本文件可能落后于 md，冲突时以 md 为准，也不要在这里新增 md 里没有的事实。</p>
+
+<h2>1 · 默认关闭</h2>
+<p class="note">界面为两栏。右上角按钮与结果卡片的「查看」是两个入口。</p>
+<div class="win">
+  <div class="col side"><div class="dim">项目</div><div>▾ 项目 A</div><div class="sel" style="margin-left:8px">对话 1</div></div>
+  <div class="col" style="flex:1;border-right:0">
+    <div style="display:flex;justify-content:space-between;border-bottom:.5px solid var(--line);padding-bottom:6px"><b style="font-weight:500">官网落地页验收</b><span class="btn">▥</span></div>
+    <div class="dim" style="margin-top:8px">（开）开发</div>
+    <div>已补上空状态验收语句。</div>
+    <div class="card"><span>✓ 已结束 · 2 个文件有改动</span><span class="btn">查看</span></div>
+  </div>
+</div>
+
+<h2>2 · 打开 · 改动标签 · 团队正在跑</h2>
+<p class="note">会话区只轮播成员当前最新的一句；全量输出在「开发」标签里。黄条说明列表截至上一轮结束。</p>
+<div class="win">
+  <div class="col side"><div class="dim">项目</div><div>▾ 项目 A</div><div class="sel" style="margin-left:8px">对话 1</div></div>
+  <div class="col chat">
+    <div style="border-bottom:.5px solid var(--line);padding-bottom:6px;font-weight:500">官网落地页验收</div>
+    <div class="dim" style="margin-top:8px">（经）开发经理</div>
+    <div>这个改动只碰落地页，@开发 来做。</div>
+    <div class="dim" style="margin-top:8px">（开）开发</div>
+    <div class="mono" style="background:var(--surface);border-radius:4px;padding:3px 6px">运行 pnpm test -- landing</div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px"><span class="btn">完整输出 →</span><span class="btn">停下</span></div>
+  </div>
+  <div class="right">
+    <div class="tabs"><div class="tab on">改动 <span class="x">×</span></div><div class="tab">开发 <span class="x">×</span></div><div class="tab">＋</div></div>
+    <div class="bar"><span>团队正在工作，列表截至上一轮结束</span><span class="btn">刷新</span></div>
+    <div class="pad" style="border-bottom:.5px solid var(--line)">
+      <div class="dim" style="margin-bottom:6px">这段对话期间，项目文件夹里发生了这些改动</div>
+      <div class="mono">
+        <div>▾ sites/marketeam</div>
+        <div class="row" style="padding-left:14px"><span>index.html</span><span><span class="add">+12</span> <span class="del">-3</span></span></div>
+        <div>▾ tests</div>
+        <div class="row sel" style="padding-left:14px"><span>landing.test.ts</span><span class="add">+40</span></div>
+      </div>
+    </div>
+    <div style="padding:8px 0">
+      <div class="line"><span>37</span><span>  })</span></div>
+      <div class="line d"><span>38</span><span>- 空状态没有断言</span></div>
+      <div class="line a"><span>39</span><span>+ 空状态断言已补齐</span></div>
+      <div class="line"><span>40</span><span>  })</span></div>
+    </div>
+  </div>
+</div>
+
+<h2>3 · 过程标签</h2>
+<p class="note">标题只用成员名，同一成员多个标签加序号。重试的每次执行在同一标签内依次追加。</p>
+<div class="win narrow">
+  <div class="right">
+    <div class="tabs"><div class="tab">改动 <span class="x">×</span></div><div class="tab on">开发 <span class="x">×</span></div><div class="tab">＋</div></div>
+    <div class="hd">开发 · 这一步的完整输出</div>
+    <div class="pad mono dim">
+      <div>读取 sites/marketeam/index.html</div>
+      <div>运行 pnpm test -- landing</div>
+      <div class="del" style="margin-top:4px">FAIL  tests/landing.test.ts</div>
+      <div class="del" style="padding-left:10px">● 空状态 › 应给出验收语句</div>
+      <div style="padding-left:10px">expect(received).toContain(expected)</div>
+      <div style="border-top:.5px solid var(--line);margin-top:8px;padding-top:6px;color:var(--fg2)">第 2 次执行</div>
+      <div>运行 pnpm test -- landing</div>
+      <div class="add">PASS  tests/landing.test.ts</div>
+    </div>
+  </div>
+</div>
+
+<h2>4 · 子任务标签</h2>
+<p class="note">唯一提供推进操作的标签：输入、提及成员、重试、停下都和主对话区一致。子会话卡片只给状态，不在这里给就没地方给。</p>
+<div class="win narrow">
+  <div class="right">
+    <div class="tabs"><div class="tab">改动 <span class="x">×</span></div><div class="tab on">空状态验收 <span class="x">×</span></div><div class="tab">＋</div></div>
+    <div class="hd">空状态验收 · 测试 · 没跑起来</div>
+    <div class="pad">
+      <div class="dim">（测）测试</div>
+      <div>正在核对空状态的验收语句…</div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px" class="del"><span>⚠ 这一步没跑起来（退出码 1）</span><span class="btn">重试</span></div>
+    </div>
+    <div style="border-top:.5px solid var(--line);padding:8px 10px">
+      <div style="border:.5px solid var(--line2);border-radius:8px;padding:6px 9px;display:flex;justify-content:space-between;gap:8px;color:var(--fg3)"><span>说点什么，或 @ 一个成员…</span><span>↑</span></div>
+    </div>
+  </div>
+</div>
+
+<h2>5 · 空白标签与类型选择</h2>
+<p class="note">加号新开。只有两种类型，都不需要绑定具体对象；过程与子任务从主对话区点开。</p>
+<div class="win narrow">
+  <div class="right">
+    <div class="tabs"><div class="tab">改动 <span class="x">×</span></div><div class="tab">开发 <span class="x">×</span></div><div class="tab on">新标签 <span class="x">×</span></div><div class="tab">＋</div></div>
+    <div class="mid">
+      <div class="dim" style="margin-bottom:12px">这个标签要看什么</div>
+      <div class="pick"><div>改动</div><div class="sub">这段对话期间变了什么</div></div>
+      <div class="pick"><div>项目文件</div><div class="sub">浏览完整项目树</div></div>
+      <div class="sub" style="margin-top:14px">成员的完整输出和子任务<br>从左边的对话里点开</div>
+    </div>
+  </div>
+</div>
+
+<h2>6 · 类型选择 · 项目不是 git 仓库</h2>
+<p class="note">改动那一项消失并说明原因，不静默少一项。</p>
+<div class="win narrow">
+  <div class="right">
+    <div class="tabs"><div class="tab on">新标签 <span class="x">×</span></div><div class="tab">＋</div></div>
+    <div class="mid">
+      <div class="dim" style="margin-bottom:12px">这个标签要看什么</div>
+      <div class="pick"><div>项目文件</div><div class="sub">浏览完整项目树</div></div>
+      <div class="sub" style="margin-top:14px">这个项目文件夹不是 git 仓库，<br>没法可靠地判断这段对话改了什么</div>
+    </div>
+  </div>
+</div>
+
+<h2>7 · 改动标签 · 独立工作空间</h2>
+<p class="note">不给路径，但要回答「我切到编辑器为什么看不到」。</p>
+<div class="win narrow">
+  <div class="right">
+    <div class="tabs"><div class="tab on">改动 <span class="x">×</span></div><div class="tab">＋</div></div>
+    <div class="pad" style="border-bottom:.5px solid var(--line)">
+      <div class="dim">这段对话期间，独立工作空间里发生了这些改动</div>
+      <div class="sub" style="margin-top:2px">这些改动在一份隔离副本里，你的项目文件夹没有被动过</div>
+      <div class="mono" style="margin-top:8px">
+        <div>▾ sites/marketeam</div>
+        <div class="row" style="padding-left:14px"><span>index.html</span><span><span class="add">+12</span> <span class="del">-3</span></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>8 · 标签全部关闭</h2>
+<p class="note">右侧栏不因为关掉最后一个标签而收起，留一个空白标签。</p>
+<div class="win narrow">
+  <div class="right">
+    <div class="tabs"><div class="tab on">新标签 <span class="x">×</span></div><div class="tab">＋</div></div>
+    <div class="mid"><div class="dim">这个标签要看什么</div><div style="color:var(--fg2)">改动 · 项目文件</div></div>
+  </div>
+</div>
+
+<h2>9 · 窄窗口</h2>
+<p class="note">三栏放不下时覆盖会话区，出现独立关闭按钮。</p>
+<div class="win narrow">
+  <div class="right">
+    <div class="tabs"><div class="tab on">改动 <span class="x">×</span></div><div class="tab">开发 <span class="x">×</span></div><div class="tab">＋</div><div class="tab" style="margin-left:auto">×</div></div>
+    <div class="pad mono">
+      <div>▾ sites/marketeam</div>
+      <div class="row" style="padding-left:14px"><span>index.html</span><span><span class="add">+12</span> <span class="del">-3</span></span></div>
+    </div>
+  </div>
+</div>
+
+</main>
+</body>
+</html>
