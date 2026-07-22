@@ -715,18 +715,22 @@ export function OperatorConsole({
         data-sidebar-open={effectiveSidebarOpen ? "true" : "false"}
         data-sidebar-auto-collapsed={sidebarAutoCollapsed ? "true" : "false"}
       >
-        <div className="window-drag-region absolute inset-x-0 top-0 z-10 h-9" aria-hidden="true" />
-        {!effectiveSidebarOpen ? (
-          <button
-            type="button"
-            className="window-no-drag absolute left-[76px] top-1.5 z-20 flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
-            aria-label="打开侧边栏"
-            title="打开侧边栏"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <PanelLeft className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-          </button>
-        ) : null}
+        <div
+          className="window-drag-region absolute inset-x-0 top-0 z-30 h-9"
+          data-testid="main-window-drag-region"
+        >
+          {!effectiveSidebarOpen ? (
+            <button
+              type="button"
+              className="window-no-drag absolute left-[96px] top-1.5 z-20 flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
+              aria-label="打开侧边栏"
+              title="打开侧边栏"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <PanelLeft className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
 
         {applicationView === "agent-teams" ? (
           <AgentTeamsPage
@@ -818,11 +822,11 @@ export function OperatorConsole({
             >
               {selectedSession ? (
                 <header
-                  className="window-drag-region sticky top-0 z-10 flex h-10 items-center bg-canvas px-8"
+                  className="sticky top-0 z-10 flex h-10 items-center bg-canvas px-8"
                   data-testid="conversation-title-header"
                 >
                   <h1
-                    className="mx-auto w-full max-w-[760px] truncate text-left text-base font-semibold text-ink"
+                    className="mx-auto w-full max-w-[760px] truncate pl-10 text-left text-base font-semibold text-ink"
                     title={selectedSession.title}
                   >
                     {selectedSession.title}

@@ -751,9 +751,12 @@ describe("OperatorConsole", () => {
     expect(sidebar).not.toBeVisible();
     expect(sidebar).toHaveClass("hidden");
     expect(main).toHaveAttribute("data-sidebar-open", "false");
+    const mainWindowDragRegion = screen.getByTestId("main-window-drag-region");
     const openSidebarButton = screen.getByRole("button", { name: "打开侧边栏" });
     expect(openSidebarButton).toHaveAttribute("title", "打开侧边栏");
-    expect(openSidebarButton).toHaveClass("left-[76px]", "top-1.5");
+    expect(openSidebarButton).toHaveClass("window-no-drag", "left-[96px]", "top-1.5");
+    expect(mainWindowDragRegion).toHaveClass("z-30");
+    expect(mainWindowDragRegion).toContainElement(openSidebarButton);
     expect(selectedSessionRow).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
     expect(screen.getByTestId("active-run-block")).toBe(activeRunBlock);
@@ -848,8 +851,8 @@ describe("OperatorConsole", () => {
     expect(timeline).toContainElement(titleHeader);
     expect(timeline).not.toHaveClass("pt-20", "px-8");
     expect(titleHeader).toHaveClass("sticky", "top-0", "h-10", "bg-canvas", "px-8");
-    expect(titleHeader).not.toHaveClass("absolute", "pt-12");
-    expect(title).toHaveClass("w-full", "max-w-[760px]", "text-left");
+    expect(titleHeader).not.toHaveClass("absolute", "pt-12", "window-drag-region");
+    expect(title).toHaveClass("w-full", "max-w-[760px]", "pl-10", "text-left");
   });
 
   it("keeps the selected conversation mounted when its project is collapsed", () => {
