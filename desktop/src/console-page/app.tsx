@@ -2,6 +2,7 @@ import "@agent-moebius/console-ui/globals.css";
 
 import {
   OperatorConsole,
+  resolveNewConversationAgentTeamKey,
   type AgentTeamInformationInput,
   type AgentTeamDetailState,
   type AgentTeamMemberEditorState,
@@ -42,7 +43,7 @@ import type {
   AgentTeamExternalChangeResponse,
 } from "../team-external-change.js";
 import { parseAgentMarkdownIdentity } from "../team-model.js";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   acknowledgeDisplayedResult,
@@ -59,7 +60,17 @@ import {
   writeSidebarVisibilityPreference,
   type SidebarVisibilityPreference,
 } from "./sidebar-preference.js";
-import { createConversationAndRecordTeam } from "./new-conversation.js";
+import {
+  canSubmitNewConversation,
+  createNewConversationDraft,
+  reduceNewConversationDraft,
+  submitNewConversation,
+} from "./new-conversation.js";
+import {
+  createConversationDraftStore,
+  NEW_CONVERSATION_DRAFT_KEY,
+  sessionDraftKey,
+} from "./draft-store.js";
 import {
   applyAgentTeamMemberExternalChange,
   clearAgentTeamMemberExternalChange,
@@ -164,13 +175,16 @@ function App(): JSX.Element {
   const selectionRef = useRef(selection);
   const coordinatorRef = useRef(new ConsoleStateCoordinator());
   const [state, setState] = useState<LocalConsoleState | null>(null);
-  const [composerValue, setComposerValue] = useState("");
+  const conversationDraftStoreRef = useRef(createConversationDraftStore(window.localStorage));
+  const [composerValue, setComposerValue] = useState(() =>
+    conversationDraftStoreRef.current.read(sessionDraftKey("default")),
+  );
   const [runnerStatus, setRunnerStatus] = useState<OperatorRunnerStatus>("stopped");
   const [isSending, setIsSending] = useState(false);
   const [selectionMutationKind, setSelectionMutationKind] = useState<SelectionMutationKind | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
   const [isProjectMutationPending, setIsProjectMutationPending] = useState(false);
-  const [isNewConversationWithoutProject, setIsNewConversationWithoutProject] = useState(false);
+  const [newConversation, dispatchNewConversation] = useReducer(reduceNewConversationDraft, null);
   const [agentTeamsState, setAgentTeamsState] = useState<OperatorAgentTeamsState>({ status: "loading" });
   const [lastUsedAgentTeamKey, setLastUsedAgentTeamKey] = useState<string | null>(null);
   const [agentTeamSelection, setAgentTeamSelection] = useState<AgentTeamSelection | null>(null);
@@ -947,6 +961,12 @@ function App(): JSX.Element {
   }, [refresh]);
 
   useEffect(() => {
+    if (newConversation === null) {
+      setComposerValue(conversationDraftStoreRef.current.read(sessionDraftKey(selection.sessionId)));
+    }
+  }, [newConversation, selection.sessionId]);
+
+  useEffect(() => {
     if (apiBase === null || state === null || state.selectedSession === null || state.selectedSession.unreadSince === null) {
       return;
     }
@@ -989,7 +1009,10 @@ function App(): JSX.Element {
     commitSelection,
     refresh,
     composerValue,
-    clearComposer: () => setComposerValue(""),
+    clearComposer: () => {
+      conversationDraftStoreRef.current.clear(sessionDraftKey(selectionRef.current.sessionId));
+      setComposerValue("");
+    },
     setMutationKind: setSelectionMutationKind,
     setSending: setIsSending,
     setError: setClientError,
@@ -998,36 +1021,95 @@ function App(): JSX.Element {
       : () => window.agentMoebius!.selectProjectFolder!(),
   }), [apiBase, commitSelection, composerValue, refresh]);
 
-  const createConversation = useCallback(async (projectId: string, teamKey: string): Promise<boolean> => {
+  const preferredNewConversationTeamKey = useMemo(() => resolveNewConversationAgentTeamKey(
+    agentTeamsState.status === "ready" ? agentTeamsState.teams : [],
+    lastUsedAgentTeamKey,
+  ), [agentTeamsState, lastUsedAgentTeamKey]);
+
+  useEffect(() => {
+    if (newConversation === null || agentTeamsState.status !== "ready") {
+      return;
+    }
+    const selectionIsUsable = agentTeamsState.teams.some(
+      (team) => team.teamKey === newConversation.teamKey && team.canCreateConversation,
+    );
+    if (!selectionIsUsable && newConversation.teamKey !== preferredNewConversationTeamKey) {
+      dispatchNewConversation({ type: "select-team", teamKey: preferredNewConversationTeamKey });
+    }
+  }, [agentTeamsState, newConversation, preferredNewConversationTeamKey]);
+
+  const startNewConversation = useCallback((projectId?: string) => {
+    const selectedProjectId = projectId !== undefined
+      && projects.some((candidate) => candidate.projectId === projectId
+        && candidate.directoryAvailable !== false
+        && candidate.newConversationDisabledReason == null)
+      ? projectId
+      : undefined;
+    setClientError(null);
+    dispatchNewConversation({
+      type: "open",
+      draft: createNewConversationDraft({
+        projectId: selectedProjectId,
+        teamKey: preferredNewConversationTeamKey,
+        draft: conversationDraftStoreRef.current.read(NEW_CONVERSATION_DRAFT_KEY),
+      }),
+    });
+  }, [preferredNewConversationTeamKey, projects]);
+
+  const createConversation = useCallback(async (): Promise<void> => {
+    if (newConversation === null || !canSubmitNewConversation({
+      projectId: newConversation.projectId,
+      teamKey: newConversation.teamKey,
+      draft: newConversation.draft,
+      isSubmitting: newConversation.isSubmitting,
+      error: newConversation.error,
+    })) {
+      return;
+    }
+    const projectId = newConversation.projectId!;
+    const teamKey = newConversation.teamKey!;
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
     if (team === undefined || !team.canCreateConversation) {
-      setClientError("所选 Agent 团队当前不能用于新建对话。");
-      return false;
+      dispatchNewConversation({
+        type: "submit-failed",
+        error: "所选 Agent 团队当前不能用于新建对话。",
+      });
+      return;
     }
 
+    dispatchNewConversation({ type: "submit-started" });
     const recordSuccessfulTeam = window.agentMoebius?.recordSuccessfulConversationAgentTeam;
-    const result = await createConversationAndRecordTeam({
+    const result = await submitNewConversation({
       projectId,
+      initialMessage: newConversation.draft,
       team: { teamId: team.id, ownership: team.ownership },
-      createSession: (targetProjectId, selectedTeam) => actions.createSession(targetProjectId, {
-        ownership: selectedTeam.ownership,
-        id: selectedTeam.teamId,
-      }),
+      createSessionWithFirstMessage: (targetProjectId, initialMessage, selectedTeam) =>
+        actions.createSessionWithFirstMessage(targetProjectId, initialMessage, {
+          ownership: selectedTeam.ownership,
+          id: selectedTeam.teamId,
+        }),
       recordSuccessfulTeam: recordSuccessfulTeam === undefined
         ? async () => undefined
         : (request) => recordSuccessfulTeam(request),
     });
     if (!result.created) {
-      return false;
+      dispatchNewConversation({
+        type: "submit-failed",
+        error: "创建失败，请检查当前项目和 Agent 团队后重试。",
+      });
+      return;
     }
+
+    conversationDraftStoreRef.current.clear(NEW_CONVERSATION_DRAFT_KEY);
+    setComposerValue(conversationDraftStoreRef.current.read(sessionDraftKey(result.sessionId)));
+    dispatchNewConversation({ type: "close" });
     if (result.preferenceRecorded) {
       setLastUsedAgentTeamKey(team.teamKey);
+      setClientError(null);
     } else {
       setClientError(`会话已创建，但无法记住本次使用的 Agent 团队：${formatError(result.preferenceError)}`);
     }
-    setIsNewConversationWithoutProject(false);
-    return true;
-  }, [actions, agentTeamsState]);
+  }, [actions, agentTeamsState, newConversation]);
 
   const toggleProjectWorktree = useCallback(async (projectId: string, worktreeMode: boolean) => {
     if (apiBase === null) {
@@ -1105,7 +1187,7 @@ function App(): JSX.Element {
       }
       await refresh(selectionRef.current);
       if (wasCurrentProject) {
-        setIsNewConversationWithoutProject(true);
+        startNewConversation();
       }
       setClientError(null);
     } catch (error) {
@@ -1114,7 +1196,7 @@ function App(): JSX.Element {
     } finally {
       setIsProjectMutationPending(false);
     }
-  }, [apiBase, refresh]);
+  }, [apiBase, refresh, startNewConversation]);
 
   const selectFolderForRepair = useCallback(async (projectId: string): Promise<string | null> => {
     if (window.agentMoebius?.selectFolderForRepair === undefined) {
@@ -1205,14 +1287,44 @@ function App(): JSX.Element {
       selectedAgentTeamKey={agentTeamSelection?.teamKey}
       selectedAgentTeamMemberSlug={agentTeamSelection?.memberSlug}
       agentTeamDetailState={agentTeamDetailState}
-      onComposerChange={setComposerValue}
+      newConversation={newConversation === null ? null : {
+        selectedProjectId: newConversation.projectId,
+        selectedTeamKey: newConversation.teamKey,
+        draft: newConversation.draft,
+        isSubmitting: newConversation.isSubmitting,
+        error: newConversation.error ?? clientError,
+      }}
+      onComposerChange={(value) => {
+        conversationDraftStoreRef.current.write(sessionDraftKey(selectionRef.current.sessionId), value);
+        setComposerValue(value);
+      }}
       onSend={actions.sendMessage}
-      onOpenProject={actions.openProject}
-      onCreateConversation={createConversation}
+      onStartNewConversation={startNewConversation}
+      onNewConversationProjectChange={(projectId) => {
+        setClientError(null);
+        dispatchNewConversation({ type: "select-project", projectId });
+      }}
+      onNewConversationTeamChange={(teamKey) => {
+        dispatchNewConversation({ type: "select-team", teamKey });
+      }}
+      onNewConversationDraftChange={(value) => {
+        conversationDraftStoreRef.current.write(NEW_CONVERSATION_DRAFT_KEY, value);
+        dispatchNewConversation({ type: "edit-draft", draft: value });
+      }}
+      onSubmitNewConversation={() => void createConversation()}
+      onAddNewConversationProject={() => {
+        void actions.addProject(projects.map((candidate) => candidate.projectId)).then((added) => {
+          if (added !== null) {
+            setClientError(null);
+            dispatchNewConversation({ type: "select-project", projectId: added.projectId });
+          }
+        });
+      }}
       onReorderProjects={actions.reorderProjects}
       onToggleProjectWorktree={toggleProjectWorktree}
       onSelectSession={(nextSelection) => {
-        setIsNewConversationWithoutProject(false);
+        dispatchNewConversation({ type: "close" });
+        setComposerValue(conversationDraftStoreRef.current.read(sessionDraftKey(nextSelection.sessionId)));
         actions.selectSession(nextSelection);
       }}
       onChangeSessionProject={actions.rebindSessionProject}
@@ -1281,7 +1393,6 @@ function App(): JSX.Element {
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}
       isProjectMutationPending={isProjectMutationPending}
-      isNewConversationWithoutProject={isNewConversationWithoutProject}
       sidebarOpen={sidebarVisibilityPreference === "open"}
       isFirstRunOnboarding={isFirstRunOnboarding(state?.projects ?? null)}
       onSidebarOpenChange={setSidebarOpen}

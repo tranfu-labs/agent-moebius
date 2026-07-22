@@ -4,6 +4,7 @@ export * from "./console/agent-team-detail";
 export * from "./console/agent-teams-page";
 export * from "./console/conversation-empty-state";
 export * from "./console/conversation-sidebar";
+export * from "./console/new-conversation-page";
 export * from "./console/operator-console";
 export * from "./console/role-composer";
 export * from "./console/run-block";

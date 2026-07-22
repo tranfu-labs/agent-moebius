@@ -1213,6 +1213,15 @@ function createLocalSession(
       id: input.agentTeamId,
     });
     ensureLocalCursor(database, input.sessionId, input.now);
+    if (input.initialMessage !== undefined) {
+      database
+        .prepare(
+          `INSERT INTO session_messages
+            (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
+          VALUES (?, 'user', NULL, ?, 'pending', NULL, NULL, NULL, 'local-message', NULL, ?, ?)`,
+        )
+        .run(input.sessionId, input.initialMessage, input.now, input.now);
+    }
     return requireLocalSession(database, input.sessionId);
   });
 }

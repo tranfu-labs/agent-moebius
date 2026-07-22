@@ -1,5 +1,8 @@
 # Console Page Wireframe
 
+> 本文是历史线框参考；新对话入口、页面态、首发创建和草稿行为已由
+> `docs/product/pages/main-conversation.md` 接管。与该页面 PRD 冲突时，以页面 PRD 为准。
+
 The console page is the Electron desktop shell's default main window. It is a local operator console backed by the local console server and SQLite. Status and observer pages remain auxiliary diagnostics, and their current presentation facts are documented in this file rather than a separate observer page fact source.
 
 ## Running

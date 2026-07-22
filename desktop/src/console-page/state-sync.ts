@@ -210,26 +210,32 @@ export interface ConsoleStateActionsOptions {
 export class ConsoleStateActions {
   constructor(private readonly options: ConsoleStateActionsOptions) {}
 
-  readonly createSession = async (
+  readonly createSessionWithFirstMessage = async (
     projectId: string,
+    initialMessage: string,
     agentTeam?: { ownership: "system" | "user"; id: string },
   ): Promise<CreatedSession | null> => {
     if (this.options.apiBase === null) {
       this.options.setError("local console server unavailable");
       return null;
     }
+    const normalizedMessage = initialMessage.trim();
+    if (normalizedMessage === "") {
+      return null;
+    }
     const token = this.beginMutation("create-session");
     if (token === null) {
       return null;
     }
+    this.options.setSending(true);
     try {
       const fetch = this.options.fetch;
       const response = await fetch(endpoint(this.options.apiBase, "/api/local-console/sessions"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          title: "新会话",
           projectId,
+          initialMessage: normalizedMessage,
           ...(agentTeam === undefined
             ? {}
             : { agentTeamOwnership: agentTeam.ownership, agentTeamId: agentTeam.id }),
@@ -241,9 +247,51 @@ export class ConsoleStateActions {
       }
       const nextSelection = { projectId, sessionId: body.session.sessionId };
       this.options.commitSelection(nextSelection);
-      this.options.clearComposer();
       await this.options.refresh(nextSelection, token);
       return body.session;
+    } catch (error) {
+      this.options.setError(formatError(error));
+      return null;
+    } finally {
+      this.options.setSending(false);
+      this.finishMutation(token);
+    }
+  };
+
+  readonly addProject = async (existingProjectIds: readonly string[]): Promise<{ projectId: string } | null> => {
+    if (this.options.apiBase === null) {
+      this.options.setError("local console server unavailable");
+      return null;
+    }
+    if (this.options.selectProjectFolder === undefined) {
+      this.options.setError("desktop folder picker unavailable");
+      return null;
+    }
+    const token = this.beginMutation("open-project");
+    if (token === null) {
+      return null;
+    }
+    try {
+      const folderPath = await this.options.selectProjectFolder();
+      if (folderPath === null) {
+        return null;
+      }
+      const fetch = this.options.fetch;
+      const response = await fetch(endpoint(this.options.apiBase, "/api/local-console/projects"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ folderPath, worktreeMode: false }),
+      });
+      const body = await response.json() as ProjectResponse;
+      if (!response.ok || body.project === undefined) {
+        throw new Error(body.error ?? "open project failed");
+      }
+      if (existingProjectIds.includes(body.project.projectId)) {
+        this.options.setError("该文件夹已被使用，请直接选择已有项目。");
+        return null;
+      }
+      await this.options.refresh(this.options.getSelection(), token);
+      return { projectId: body.project.projectId };
     } catch (error) {
       this.options.setError(formatError(error));
       return null;

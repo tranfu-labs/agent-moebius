@@ -45,6 +45,7 @@ export type SqliteStateCommand =
       title: string;
       agentTeamOwnership?: "system" | "user";
       agentTeamId?: string;
+      initialMessage?: string;
       now: string;
     }
   | { kind: "local-move-empty-session"; sessionId: string; projectId: string; now: string }

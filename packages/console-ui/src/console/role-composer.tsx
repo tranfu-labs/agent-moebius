@@ -24,6 +24,7 @@ export interface RoleComposerProps {
   statusText?: string;
   submitLabel?: string;
   disabled?: boolean;
+  submitDisabled?: boolean;
   context?: React.ReactNode;
   className?: string;
 }
@@ -141,6 +142,7 @@ export function RoleComposer({
   statusText,
   submitLabel = "发送消息",
   disabled = false,
+  submitDisabled = false,
   context,
   className,
 }: RoleComposerProps): JSX.Element {
@@ -221,7 +223,7 @@ export function RoleComposer({
       return;
     }
 
-    if (event.key === "Enter" && !event.shiftKey && onSubmit && value.trim() !== "") {
+    if (event.key === "Enter" && !event.shiftKey && onSubmit && !disabled && !submitDisabled && value.trim() !== "") {
       event.preventDefault();
       onSubmit(value);
     }
@@ -296,7 +298,7 @@ export function RoleComposer({
             type="button"
             size="icon"
             className="absolute bottom-3 right-3 h-8 w-8 rounded-full p-0"
-            disabled={disabled || value.trim() === ""}
+            disabled={disabled || submitDisabled || value.trim() === ""}
             aria-label={submitLabel}
             onClick={() => onSubmit?.(value)}
           >

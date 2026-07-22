@@ -26,6 +26,7 @@ import {
   type OperatorAgentTeamsState,
 } from "@/console/agent-teams-page";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
+import { NewConversationPage } from "@/console/new-conversation-page";
 import {
   ConversationSidebar,
   type ConversationSidebarProject,
@@ -62,12 +63,7 @@ export type OperatorSessionStatus =
 export type OperatorRunnerStatus = "starting" | "running" | "stopped" | "crashed" | "error";
 export type OperatorApplicationView = "conversation" | "agent-teams";
 export type OperatorProjectListState = "ready" | "loading" | "error";
-export interface NewConversationOptions {
-  projectId?: string;
-}
-export type OperatorApplicationOverlay =
-  | { kind: "new-conversation"; options: NewConversationOptions }
-  | { kind: "search" };
+export type OperatorApplicationOverlay = { kind: "search" };
 
 export const DEFAULT_SIDEBAR_WIDTH_PX = 248;
 export const MIN_SIDEBAR_WIDTH_PX = 220;
@@ -166,6 +162,14 @@ export interface OperatorRunSnapshot {
   interruptible: boolean;
 }
 
+export interface OperatorNewConversationState {
+  selectedProjectId: string | null;
+  selectedTeamKey: string | null;
+  draft: string;
+  isSubmitting: boolean;
+  error: string | null;
+}
+
 export interface OperatorConsoleProps {
   project: OperatorProject;
   projects?: OperatorProject[];
@@ -185,10 +189,15 @@ export interface OperatorConsoleProps {
   selectedAgentTeamKey?: string | null;
   selectedAgentTeamMemberSlug?: string | null;
   agentTeamDetailState?: AgentTeamDetailState | null;
+  newConversation?: OperatorNewConversationState | null;
   onComposerChange(value: string): void;
   onSend(): void;
-  onOpenProject?: () => void;
-  onCreateConversation?: (projectId: string, teamKey: string) => boolean | void | Promise<boolean | void>;
+  onStartNewConversation?: (projectId?: string) => void;
+  onNewConversationProjectChange?: (projectId: string) => void;
+  onNewConversationTeamChange?: (teamKey: string) => void;
+  onNewConversationDraftChange?: (value: string) => void;
+  onSubmitNewConversation?: () => void;
+  onAddNewConversationProject?: () => void;
   onReorderProjects?: (projectIds: string[]) => boolean | void | Promise<boolean | void>;
   onToggleProjectWorktree?: (projectId: string, worktreeMode: boolean) => void;
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
@@ -233,7 +242,6 @@ export interface OperatorConsoleProps {
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
   isProjectMutationPending?: boolean;
-  isNewConversationWithoutProject?: boolean;
   sidebarOpen?: boolean;
   isFirstRunOnboarding?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
@@ -257,10 +265,15 @@ export function OperatorConsole({
   selectedAgentTeamKey,
   selectedAgentTeamMemberSlug,
   agentTeamDetailState,
+  newConversation = null,
   onComposerChange,
   onSend,
-  onOpenProject,
-  onCreateConversation,
+  onStartNewConversation,
+  onNewConversationProjectChange,
+  onNewConversationTeamChange,
+  onNewConversationDraftChange,
+  onSubmitNewConversation,
+  onAddNewConversationProject,
   onReorderProjects,
   onToggleProjectWorktree,
   onSelectSession,
@@ -305,7 +318,6 @@ export function OperatorConsole({
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
   isProjectMutationPending = false,
-  isNewConversationWithoutProject = false,
   sidebarOpen,
   isFirstRunOnboarding = false,
   onSidebarOpenChange,
@@ -389,8 +401,8 @@ export function OperatorConsole({
     }
   };
 
-  const openNewConversation = (options: NewConversationOptions = {}) => {
-    setApplicationOverlay({ kind: "new-conversation", options });
+  const openNewConversation = (projectId?: string) => {
+    routeToConversation(() => onStartNewConversation?.(projectId));
   };
 
   const finishConversationRoute = () => {
@@ -487,9 +499,9 @@ export function OperatorConsole({
           <SidebarAction
             icon={Plus}
             label="新建对话"
-            disabled={activeProjectUnavailable || projectListUnavailable || isSelectionMutationPending || projectConfigurationPending}
-            disabledReason={activeProject.directoryUnavailableReason
-              ?? (projectListUnavailable ? "项目数据尚不可用" : undefined)
+            selected={newConversation !== null && applicationView === "conversation"}
+            disabled={projectListUnavailable || isSelectionMutationPending || projectConfigurationPending}
+            disabledReason={(projectListUnavailable ? "项目数据尚不可用" : undefined)
               ?? (isSelectionMutationPending || projectConfigurationPending ? "项目正在变更，请稍后再试" : undefined)}
             onClick={() => openNewConversation()}
           />
@@ -518,7 +530,7 @@ export function OperatorConsole({
         <ConversationSidebar
           projects={sidebarProjects}
           dataState={projectListState}
-          selectedSessionId={isNewConversationWithoutProject ? undefined : selectedSessionId}
+          selectedSessionId={newConversation === null ? selectedSessionId : undefined}
           showProjectPath={false}
           onSelectSession={(sessionId, projectId) => {
             if (!isSelectionMutationPending) {
@@ -527,7 +539,7 @@ export function OperatorConsole({
           }}
           onNewConversation={(projectId) => {
             if (!isSelectionMutationPending) {
-              openNewConversation({ projectId });
+              openNewConversation(projectId);
             }
           }}
           onShowProjectInFolder={onShowProjectInFolder === undefined ? undefined : (sidebarProject) => {
@@ -678,18 +690,49 @@ export function OperatorConsole({
             onTrashUserTeam={onTrashUserAgentTeam}
             onBack={() => routeToConversation()}
           />
+        ) : newConversation !== null ? (
+          <NewConversationPage
+            projects={visibleProjects.map((candidate) => ({
+              projectId: candidate.projectId,
+              title: candidate.title,
+              available: candidate.directoryAvailable !== false && candidate.newConversationDisabledReason == null,
+              workspaceLabel: candidate.worktreeMode ? "独立工作空间" : "默认工作空间",
+              branchLabel: candidate.worktreeMode ? "会话分支" : "当前分支",
+            }))}
+            teams={agentTeamsState.status === "ready"
+              ? agentTeamsState.teams
+                .filter((team) => team.canCreateConversation)
+                .map((team) => ({ teamKey: team.teamKey, label: team.name?.trim() || "未命名团队" }))
+              : []}
+            selectedProjectId={newConversation.selectedProjectId}
+            selectedTeamKey={newConversation.selectedTeamKey}
+            draft={newConversation.draft}
+            isSubmitting={newConversation.isSubmitting}
+            isProjectMutationPending={isSelectionMutationPending}
+            error={newConversation.error}
+            onSelectProject={(projectId) => onNewConversationProjectChange?.(projectId)}
+            onAddProject={() => onAddNewConversationProject?.()}
+            onSelectTeam={(teamKey) => onNewConversationTeamChange?.(teamKey)}
+            onDraftChange={(value) => onNewConversationDraftChange?.(value)}
+            onSubmit={() => onSubmitNewConversation?.()}
+          />
         ) : (
           <>
+            {selectedSession ? (
+              <header className="window-drag-region absolute inset-x-0 top-0 z-10 px-8 pb-3 pt-12">
+                <h1
+                  className="mx-auto max-w-[760px] truncate text-base font-semibold text-ink"
+                  title={selectedSession.title}
+                >
+                  {selectedSession.title}
+                </h1>
+              </header>
+            ) : null}
             <section
-              className={cn(
-                "scroll-thin min-h-0 flex-1 overflow-auto px-8 pt-16",
-                isNewConversationWithoutProject ? "pb-8" : "pb-44",
-              )}
-              aria-label={isNewConversationWithoutProject ? "新建对话" : "会话时间线"}
+              className="scroll-thin min-h-0 flex-1 overflow-auto px-8 pb-44 pt-20"
+              aria-label="会话时间线"
             >
-              {isNewConversationWithoutProject ? (
-                <NewConversationWithoutProject />
-              ) : emptyConversation ? (
+              {emptyConversation ? (
                 <ConversationEmptyState projectName={activeProject.title} />
               ) : (
                 <div className="mx-auto max-w-[760px]">
@@ -726,8 +769,7 @@ export function OperatorConsole({
               )}
             </section>
 
-            {!isNewConversationWithoutProject ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
                 <RoleComposer
                   value={composerValue}
                   onValueChange={onComposerChange}
@@ -767,32 +809,13 @@ export function OperatorConsole({
                   }
                   className="pointer-events-auto mx-auto max-w-[720px]"
                 />
-              </div>
-            ) : null}
+            </div>
           </>
         )}
       </main>
 
       {applicationOverlay ? (
-        <ApplicationPlaceholder
-          overlay={applicationOverlay}
-          projects={visibleProjects}
-          agentTeamsState={agentTeamsState}
-          lastUsedAgentTeamKey={lastUsedAgentTeamKey}
-          onAddProject={onOpenProject}
-          onCreateConversation={onCreateConversation === undefined ? undefined : async (projectId, teamKey) => {
-            let result: boolean | void = false;
-            await new Promise<void>((resolve) => {
-              routeToConversation(() => Promise.resolve(onCreateConversation(projectId, teamKey)).then((created) => {
-                  result = created;
-                  resolve();
-                  return created;
-                }), resolve);
-            });
-            return result;
-          }}
-          onClose={() => setApplicationOverlay(null)}
-        />
+        <ApplicationPlaceholder overlay={applicationOverlay} onClose={() => setApplicationOverlay(null)} />
       ) : null}
 
       {renameTarget ? (
@@ -1002,26 +1025,6 @@ function clampSidebarWidth(width: number): number {
   return Math.min(MAX_SIDEBAR_WIDTH_PX, Math.max(MIN_SIDEBAR_WIDTH_PX, width));
 }
 
-function NewConversationWithoutProject(): JSX.Element {
-  return (
-    <div className="mx-auto mt-16 max-w-md rounded-xl border border-line bg-card p-6 shadow-card">
-      <h1 className="text-lg font-semibold text-ink">新建对话</h1>
-      <p className="mt-1 text-sm text-sub">当前项目已移除。选择一个项目后再开始新的对话。</p>
-      <div className="mt-5 grid gap-1.5">
-        <span className="text-xs font-medium text-sub">项目</span>
-        <button
-          type="button"
-          className="flex h-9 w-full items-center justify-between rounded-lg border border-line bg-input px-3 text-sm text-hint"
-          aria-label="项目：未选择"
-        >
-          未选择项目
-          <ChevronDown className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function ProjectActionDialog({
   title,
   description,
@@ -1209,35 +1212,11 @@ function SidebarAction({
 
 function ApplicationPlaceholder({
   overlay,
-  projects,
-  agentTeamsState,
-  lastUsedAgentTeamKey,
-  onAddProject,
-  onCreateConversation,
   onClose,
 }: {
   overlay: OperatorApplicationOverlay;
-  projects: OperatorProject[];
-  agentTeamsState: OperatorAgentTeamsState;
-  lastUsedAgentTeamKey: string | null;
-  onAddProject?: () => void;
-  onCreateConversation?: (projectId: string, teamKey: string) => boolean | void | Promise<boolean | void>;
   onClose: () => void;
 }): JSX.Element {
-  if (overlay.kind === "new-conversation") {
-    return (
-      <NewConversationDialog
-        options={overlay.options}
-        projects={projects}
-        agentTeamsState={agentTeamsState}
-        lastUsedAgentTeamKey={lastUsedAgentTeamKey}
-        onAddProject={onAddProject}
-        onCreateConversation={onCreateConversation}
-        onClose={onClose}
-      />
-    );
-  }
-
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink/20 p-6" data-testid="application-overlay">
       <section
@@ -1255,166 +1234,6 @@ function ApplicationPlaceholder({
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
             关闭
-          </Button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function NewConversationDialog({
-  options,
-  projects,
-  agentTeamsState,
-  lastUsedAgentTeamKey,
-  onAddProject,
-  onCreateConversation,
-  onClose,
-}: {
-  options: NewConversationOptions;
-  projects: OperatorProject[];
-  agentTeamsState: OperatorAgentTeamsState;
-  lastUsedAgentTeamKey: string | null;
-  onAddProject?: () => void;
-  onCreateConversation?: (projectId: string, teamKey: string) => boolean | void | Promise<boolean | void>;
-  onClose: () => void;
-}): JSX.Element {
-  const availableProjects = projects.filter((project) =>
-    project.directoryAvailable !== false && project.newConversationDisabledReason == null,
-  );
-  const availableTeams = agentTeamsState.status === "ready"
-    ? agentTeamsState.teams.filter((team) => team.canCreateConversation)
-    : [];
-  const preferredProjectId = availableProjects.some((project) => project.projectId === options.projectId)
-    ? options.projectId ?? null
-    : availableProjects[0]?.projectId ?? null;
-  const preferredTeamKey = resolveNewConversationAgentTeamKey(
-    agentTeamsState.status === "ready" ? agentTeamsState.teams : [],
-    lastUsedAgentTeamKey,
-  );
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(preferredProjectId);
-  const [selectedTeamKey, setSelectedTeamKey] = useState<string | null>(preferredTeamKey);
-  const [isCreating, setIsCreating] = useState(false);
-  const [creationError, setCreationError] = useState<string | null>(null);
-  const projectSelectionChangedRef = useRef(false);
-  const teamSelectionChangedRef = useRef(false);
-
-  useEffect(() => {
-    const selectionStillAvailable = availableProjects.some((project) => project.projectId === selectedProjectId);
-    if (!projectSelectionChangedRef.current || !selectionStillAvailable) {
-      setSelectedProjectId(preferredProjectId);
-    }
-  }, [availableProjects, preferredProjectId, selectedProjectId]);
-
-  useEffect(() => {
-    const selectionStillAvailable = availableTeams.some((team) => team.teamKey === selectedTeamKey);
-    if (!teamSelectionChangedRef.current || !selectionStillAvailable) {
-      setSelectedTeamKey(preferredTeamKey);
-    }
-  }, [availableTeams, preferredTeamKey, selectedTeamKey]);
-
-  const selectedTeam = availableTeams.find((team) => team.teamKey === selectedTeamKey);
-  const selectedPrimaryAgent = selectedTeam?.members.find((member) => member.slug === selectedTeam.primaryAgentSlug);
-  const canCreate = selectedProjectId !== null
-    && selectedTeamKey !== null
-    && onCreateConversation !== undefined
-    && !isCreating;
-
-  const submit = async (): Promise<void> => {
-    if (!canCreate || onCreateConversation === undefined || selectedProjectId === null || selectedTeamKey === null) {
-      return;
-    }
-    setIsCreating(true);
-    setCreationError(null);
-    try {
-      const created = await onCreateConversation(selectedProjectId, selectedTeamKey);
-      if (created === false) {
-        setCreationError("创建失败，请检查当前项目和 Agent 团队后重试。");
-        return;
-      }
-      onClose();
-    } catch (error) {
-      setCreationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink/20 p-6" data-testid="application-overlay">
-      <section
-        className="w-full max-w-md rounded-xl border border-line bg-canvas p-5 shadow-lg"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-conversation-title"
-      >
-        <h1 id="new-conversation-title" className="text-lg font-semibold tracking-[-0.01em] text-ink">
-          新建对话
-        </h1>
-        <p className="mt-2 text-sm leading-6 text-sub">选择项目和负责这段对话的 Agent 团队。</p>
-
-        {availableProjects.length > 0 ? (
-          <label className="mt-5 grid gap-1.5 text-xs font-medium text-sub">
-            项目
-            <select
-              className="h-9 w-full rounded-md border border-line bg-input px-3 text-sm font-normal text-ink outline-none focus:border-accent"
-              aria-label="项目"
-              value={selectedProjectId ?? ""}
-              disabled={isCreating}
-              onChange={(event) => {
-                projectSelectionChangedRef.current = true;
-                setSelectedProjectId(event.currentTarget.value);
-              }}
-            >
-              {availableProjects.map((project) => (
-                <option key={project.projectId} value={project.projectId}>{project.title}</option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <div className="mt-5 rounded-lg border border-line bg-rail p-3">
-            <p className="text-sm font-medium text-ink">还没有可用项目</p>
-            <p className="mt-1 text-xs leading-5 text-sub">请先添加项目；添加完成前不能创建对话。</p>
-            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onAddProject}>
-              添加项目
-            </Button>
-          </div>
-        )}
-
-        <label className="mt-4 grid gap-1.5 text-xs font-medium text-sub">
-          Agent 团队
-          <select
-            className="h-9 w-full rounded-md border border-line bg-input px-3 text-sm font-normal text-ink outline-none focus:border-accent disabled:text-hint"
-            aria-label="Agent 团队"
-            value={selectedTeamKey ?? ""}
-            disabled={isCreating || availableTeams.length === 0}
-            onChange={(event) => {
-              teamSelectionChangedRef.current = true;
-              setSelectedTeamKey(event.currentTarget.value);
-            }}
-          >
-            {availableTeams.length === 0 ? (
-              <option value="">
-                {agentTeamsState.status === "loading" ? "正在载入团队…" : "没有可用团队"}
-              </option>
-            ) : availableTeams.map((team) => (
-              <option key={team.teamKey} value={team.teamKey}>{team.name ?? team.id}</option>
-            ))}
-          </select>
-        </label>
-        {selectedTeam ? (
-          <p className="mt-1.5 text-xs text-hint" data-testid="selected-team-summary">
-            {selectedPrimaryAgent?.displayName ?? selectedTeam.primaryAgentSlug ?? "主 Agent"} 默认接收新对话
-          </p>
-        ) : null}
-
-        {creationError ? <p className="mt-4 text-sm text-danger" role="alert">{creationError}</p> : null}
-        <div className="mt-6 flex justify-end gap-2">
-          <Button type="button" variant="outline" disabled={isCreating} onClick={onClose}>
-            取消
-          </Button>
-          <Button type="button" disabled={!canCreate} onClick={() => void submit()}>
-            {isCreating ? "正在创建…" : "创建对话"}
           </Button>
         </div>
       </section>

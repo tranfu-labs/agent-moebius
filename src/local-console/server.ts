@@ -234,6 +234,7 @@ async function handleRequest(
         isRecord(payload) ? readOptionalString(payload.title) : undefined,
         isRecord(payload) ? readOptionalString(payload.projectId) : undefined,
         isRecord(payload) ? readOptionalAgentTeam(payload) : undefined,
+        isRecord(payload) ? readOptionalString(payload.initialMessage) : undefined,
       );
       sendJson(response, 201, { session });
       return;

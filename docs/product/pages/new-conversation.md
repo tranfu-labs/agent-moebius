@@ -1,3 +1,5 @@
+> 本页已被 [`main-conversation.md`](./main-conversation.md) 取代；以下历史内容仅保留作追溯，不再作为当前需求事实源。
+
 # 新建对话窗口
 
 > 状态：讨论中草案

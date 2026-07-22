@@ -236,6 +236,7 @@ export interface LocalConsoleStore {
     title: string;
     agentTeamOwnership?: LocalConsoleAgentTeamOwnership;
     agentTeamId?: string;
+    initialMessage?: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary>;
   moveEmptySessionToProject(input: {

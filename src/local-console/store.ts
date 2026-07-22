@@ -100,6 +100,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     title: string;
     agentTeamOwnership?: "system" | "user";
     agentTeamId?: string;
+    initialMessage?: string;
     now: string;
   }): Promise<LocalConsoleSessionSummary> {
     return this.run({ kind: "local-create-session", ...input, projectId: input.projectId ?? LOCAL_CONSOLE_PROJECT_ID });

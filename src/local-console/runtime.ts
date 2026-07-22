@@ -40,6 +40,7 @@ import {
   recordLocalWorkspaceDiff,
 } from "./t5-store.js";
 import { buildLocalConsoleTimeline } from "./timeline.js";
+import { deriveSessionTitle } from "./title.js";
 import {
   LOCAL_CONSOLE_DEFAULT_SESSION_ID,
   LocalConsoleBusyError,
@@ -279,20 +280,30 @@ export class LocalConsoleRuntime {
     title?: string,
     projectId?: string,
     agentTeam?: { ownership: "system" | "user"; id: string },
+    initialMessage?: string,
   ): Promise<LocalConsoleSessionSummary> {
     const sessionId = `local:${this.now().toISOString()}-${Math.random().toString(36).slice(2, 8)}`;
     const resolvedProjectId = projectId ?? (await this.defaultProjectId());
+    const normalizedInitialMessage = initialMessage?.trim();
+    if (initialMessage !== undefined && normalizedInitialMessage === "") {
+      throw new Error("Message body must not be empty");
+    }
     await this.assertProjectDirectoryAvailable(resolvedProjectId);
-    return await this.storeCall("local-console-store-create-session", () =>
+    const session = await this.storeCall("local-console-store-create-session", () =>
       this.options.store.createSession({
         sessionId,
         projectId: resolvedProjectId,
-        title: normalizeTitle(title),
+        title: normalizedInitialMessage === undefined ? normalizeTitle(title) : deriveSessionTitle(normalizedInitialMessage),
         agentTeamOwnership: agentTeam?.ownership,
         agentTeamId: agentTeam?.id,
+        initialMessage: normalizedInitialMessage,
         now: this.nowIso(),
       }),
     );
+    if (normalizedInitialMessage !== undefined) {
+      void this.processPending(sessionId);
+    }
+    return session;
   }
 
   async moveEmptySessionToProject(input: {

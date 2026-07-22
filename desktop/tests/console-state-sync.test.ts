@@ -102,11 +102,11 @@ describe("ConsoleStateActions", () => {
     const selectProjectFolder = vi.fn(async () => "/tmp/project-c");
     const harness = actionHarness({ coordinator, fetch, refresh, selectProjectFolder });
 
-    const create = harness.actions.createSession("project-b");
+    const create = harness.actions.createSessionWithFirstMessage("project-b", "first message");
     expect(coordinator.mutationKind).toBe("create-session");
 
     harness.actions.selectSession({ projectId: "project-c", sessionId: "session-c" });
-    await harness.actions.createSession("project-c");
+    await harness.actions.createSessionWithFirstMessage("project-c", "duplicate");
     await harness.actions.openProject();
     await harness.actions.rebindSessionProject("session-a", "project-c");
 
@@ -130,7 +130,7 @@ describe("ConsoleStateActions", () => {
     const fetch = vi.fn(async () => jsonResponse({ error: "create rejected" }, 500));
     const harness = actionHarness({ coordinator, fetch });
 
-    await expect(harness.actions.createSession("project-b")).resolves.toBeNull();
+    await expect(harness.actions.createSessionWithFirstMessage("project-b", "first message")).resolves.toBeNull();
 
     expect(harness.selection()).toEqual({ projectId: "project-a", sessionId: "session-a" });
     expect(harness.errors).toEqual(["create rejected"]);
@@ -141,15 +141,15 @@ describe("ConsoleStateActions", () => {
     const fetch = vi.fn(async () => jsonResponse({ session: { sessionId: "session-b" } }));
     const harness = actionHarness({ coordinator: new ConsoleStateCoordinator(), fetch });
 
-    await harness.actions.createSession("project-b", { ownership: "user", id: "my-team" });
+    await harness.actions.createSessionWithFirstMessage("project-b", "  first message  ", { ownership: "user", id: "my-team" });
 
     expect(fetch).toHaveBeenCalledWith(
       new URL("http://127.0.0.1:8787/api/local-console/sessions"),
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          title: "新会话",
           projectId: "project-b",
+          initialMessage: "first message",
           agentTeamOwnership: "user",
           agentTeamId: "my-team",
         }),
@@ -169,7 +169,7 @@ describe("ConsoleStateActions", () => {
     expect(coordinator.mutationKind).toBe("open-project");
 
     harness.actions.selectSession({ projectId: "project-c", sessionId: "session-c" });
-    await harness.actions.createSession("project-c");
+    await harness.actions.createSessionWithFirstMessage("project-c", "duplicate");
     await harness.actions.openProject();
     await harness.actions.rebindSessionProject("session-a", "project-c");
 
@@ -188,6 +188,52 @@ describe("ConsoleStateActions", () => {
     expect(coordinator.isSelectionMutationPending).toBe(false);
   });
 
+  it("adds a new project for the new-conversation page without changing the existing selection", async () => {
+    const fetch = vi.fn(async () => jsonResponse({
+      project: { projectId: "project-c", sessions: [] },
+    }));
+    const refresh = vi.fn(async () => true);
+    const harness = actionHarness({
+      coordinator: new ConsoleStateCoordinator(),
+      fetch,
+      refresh,
+      selectProjectFolder: vi.fn(async () => "/tmp/project-c"),
+    });
+
+    await expect(harness.actions.addProject(["project-a", "project-b"])).resolves.toEqual({ projectId: "project-c" });
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("http://127.0.0.1:8787/api/local-console/projects"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ folderPath: "/tmp/project-c", worktreeMode: false }),
+      }),
+    );
+    expect(refresh).toHaveBeenCalledWith(
+      { projectId: "project-a", sessionId: "session-a" },
+      expect.objectContaining({ kind: "open-project" }),
+    );
+    expect(harness.selection()).toEqual({ projectId: "project-a", sessionId: "session-a" });
+  });
+
+  it("rejects a folder already represented by a project and keeps the new-conversation selection stable", async () => {
+    const refresh = vi.fn(async () => true);
+    const harness = actionHarness({
+      coordinator: new ConsoleStateCoordinator(),
+      fetch: vi.fn(async () => jsonResponse({
+        project: { projectId: "project-a", sessions: [{ sessionId: "session-a" }] },
+      })),
+      refresh,
+      selectProjectFolder: vi.fn(async () => "/tmp/project-a"),
+    });
+
+    await expect(harness.actions.addProject(["project-a", "project-b"])).resolves.toBeNull();
+
+    expect(harness.errors).toEqual(["该文件夹已被使用，请直接选择已有项目。"]);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(harness.selection()).toEqual({ projectId: "project-a", sessionId: "session-a" });
+  });
+
   it("blocks every selection handler and duplicate mutation while rebind is pending", async () => {
     const coordinator = new ConsoleStateCoordinator();
     const rebindResponse = deferred<Response>();
@@ -199,7 +245,7 @@ describe("ConsoleStateActions", () => {
     expect(coordinator.mutationKind).toBe("rebind-session");
 
     harness.actions.selectSession({ projectId: "project-c", sessionId: "session-c" });
-    await harness.actions.createSession("project-c");
+    await harness.actions.createSessionWithFirstMessage("project-c", "duplicate");
     await harness.actions.openProject();
     await harness.actions.rebindSessionProject("session-a", "project-c");
 

@@ -39,7 +39,7 @@
 
 > 每片是一条能被用户端到端验收的垂直切片，对应一个 openspec change。`覆盖验收 #N` 指 `docs/product/pages/main-conversation.md`「验收标准」的编号。
 
-### - [ ] A · `main-conversation-new-page` — 新对话是页面，不是弹窗（`成品级`）
+### - [x] A · `main-conversation-new-page` — 新对话是页面，不是弹窗（`成品级`）→ packages/console-ui/src/console/new-conversation-page.tsx:44
 
 change：`openspec/changes/main-conversation-new-page/`
 
