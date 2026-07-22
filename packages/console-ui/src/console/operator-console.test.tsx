@@ -571,10 +571,11 @@ describe("OperatorConsole", () => {
 
     const memberStrip = within(rows[0]).getByTestId("agent-team-members");
     expect(within(memberStrip).getByTitle("开发经理")).toHaveAccessibleName("开发经理");
-    expect(within(memberStrip).getByText("· 主 Agent")).toBeVisible();
+    expect(memberStrip.querySelectorAll("[data-agent-initial-avatar]")).toHaveLength(3);
     for (const memberName of ["开发经理", "开发", "测试"]) {
       expect(within(memberStrip).getByTitle(memberName)).toHaveClass("w-28");
     }
+    expect(within(memberStrip).getByText("· 主 Agent")).toBeVisible();
     expect(within(memberStrip).getByLabelText("还有 2 名成员")).toHaveTextContent("＋2");
     expect(screen.queryByText("修改信息")).not.toBeInTheDocument();
     expect(screen.queryByText("复制并编辑")).not.toBeInTheDocument();
