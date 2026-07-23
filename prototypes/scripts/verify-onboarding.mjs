@@ -86,15 +86,44 @@ try {
   await expectStableStep(desktopPage, 2);
   checks.push("back-navigation-preserves-journey");
 
+  await desktopPage.getByTestId("open-team-builder").click();
+  await desktopPage.getByTestId("team-builder").waitFor();
+  if (!(await desktopPage.getByTestId("primary-action").isDisabled())) {
+    throw new Error("Main onboarding continue must pause during AI team design.");
+  }
+  await desktopPage.getByTestId("builder-goal").fill(
+    "希望每次产品发布时，有人统筹内容、渠道和排期。"
+  );
+  await desktopPage.getByLabel("发送目标").click();
+  await desktopPage.getByTestId("builder-clarify").click();
+  await desktopPage.getByTestId("team-proposal").waitFor();
+  await desktopPage.waitForTimeout(350);
+  checks.push("ai-team-builder-proposal");
+  await desktopPage.screenshot({
+    path: resolve(artifactDir, "team-builder-proposal-dark-wide.png"),
+    fullPage: true
+  });
+
+  await desktopPage
+    .getByLabel("调整团队提案")
+    .fill("让负责人最后给我一份可复核的发布清单");
+  await desktopPage.getByLabel("发送调整").click();
+  await desktopPage.getByText(
+    "已调整：让负责人最后给我一份可复核的发布清单"
+  ).waitFor();
+  await desktopPage.getByTestId("confirm-created-team").click();
+  await desktopPage.getByTestId("created-team-card").waitFor();
+  checks.push("ai-team-create-and-select");
+
   await desktopPage.getByTestId("primary-action").click();
   await expectStableStep(desktopPage, 3);
   await desktopPage
     .getByTestId("relay-stage")
-    .getByText("复核通过：边界用例都盖住了")
+    .getByText("素材、渠道、入口和发布时间已经一致")
     .waitFor();
   await desktopPage
     .getByTestId("relay-stage")
-    .getByText("这个目标完成")
+    .getByText("这次发布准备完成")
     .waitFor();
   const completedRelayItems = await desktopPage
     .locator(".relay-history li.is-complete")
@@ -108,12 +137,12 @@ try {
     .getByTestId("relay-beat")
     .evaluateAll((beats) => beats.map((beat) => beat.getAttribute("data-member")));
   const expectedGraphMembers = [
-    "开发经理",
-    "开发",
-    "测试",
-    "开发",
-    "测试",
-    "开发经理"
+    "发布负责人",
+    "内容策划",
+    "渠道运营",
+    "发布负责人",
+    "渠道运营",
+    "发布负责人"
   ];
   if (JSON.stringify(graphMembers) !== JSON.stringify(expectedGraphMembers)) {
     throw new Error(
@@ -129,6 +158,7 @@ try {
     );
   }
   checks.push("relay-graph-aligns-nodes-with-messages");
+  await desktopPage.waitForTimeout(700);
   await desktopPage.screenshot({
     path: resolve(artifactDir, "relay-dark-wide.png"),
     fullPage: true
@@ -137,7 +167,7 @@ try {
   await desktopPage.getByTestId("replay-relay").click();
   await desktopPage
     .getByTestId("relay-stage")
-    .getByText("这单我接了")
+    .getByText("这次发布我来统筹")
     .waitFor();
   checks.push("relay-replay");
 
@@ -163,7 +193,7 @@ try {
   const selectedTeam = await desktopPage
     .getByTestId("selected-team")
     .textContent();
-  if (!selectedTeam?.includes("开发团队")) {
+  if (!selectedTeam?.includes("产品发布团队")) {
     throw new Error("Selected team was not carried into the new conversation.");
   }
   checks.push("complete-journey-with-team");
@@ -212,6 +242,16 @@ try {
   watchExternalRequests(reducedPage);
   await reducedPage.goto(prototypeUrl);
   await reducedPage.getByTestId("primary-action").click();
+  await reducedPage.getByTestId("open-team-builder").click();
+  await reducedPage.getByLabel("发送目标").click();
+  await reducedPage.getByTestId("builder-clarify").click();
+  await reducedPage.getByTestId("team-proposal").waitFor();
+  await reducedPage.waitForTimeout(250);
+  await reducedPage.screenshot({
+    path: resolve(artifactDir, "team-builder-proposal-reduced-narrow.png"),
+    fullPage: true
+  });
+  await reducedPage.getByTestId("confirm-created-team").click();
   await reducedPage.getByTestId("primary-action").click();
   await reducedPage.getByTestId("step-3").waitFor();
 
@@ -223,7 +263,7 @@ try {
   }
   await reducedPage
     .getByTestId("relay-stage")
-    .getByText("这个目标完成")
+    .getByText("这次发布准备完成")
     .waitFor();
   const historyCount = await reducedPage.locator(".relay-history li").count();
   if (historyCount !== 6) {
@@ -232,6 +272,7 @@ try {
     );
   }
   checks.push("reduced-motion-equivalent-relay");
+  await reducedPage.waitForTimeout(200);
   await reducedPage.screenshot({
     path: resolve(artifactDir, "relay-reduced-narrow.png"),
     fullPage: true
@@ -255,10 +296,12 @@ const evidence = {
   checks,
   externalRequests: [],
   screenshots: [
+    "team-builder-proposal-dark-wide.png",
     "relay-dark-wide.png",
     "conversation-dark-wide.png",
     "environment-missing-light.png",
     "team-light-wide.png",
+    "team-builder-proposal-reduced-narrow.png",
     "relay-reduced-narrow.png"
   ]
 };
