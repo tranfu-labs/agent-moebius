@@ -179,7 +179,7 @@ export function RoleComposer({
   placeholder = "描述你的目标，@ 一个角色开始…",
   statusText,
   submitLabel = "发送消息",
-  interruptLabel = "停下当前这一步",
+  interruptLabel = "停下主理人",
   disabled = false,
   submitDisabled = false,
   runActive = false,
@@ -203,8 +203,6 @@ export function RoleComposer({
   const [dragActive, setDragActive] = React.useState(false);
   const readyAttachmentIds = readyComposerAttachmentIds(attachments);
   const attachmentBlocked = hasBlockingComposerAttachment(attachments);
-  const hasAttachmentDraft = attachments.length > 0;
-  const interruptMode = runActive && value.trim() === "" && !hasAttachmentDraft;
   const canSubmit = !disabled
     && !submitDisabled
     && !attachmentBlocked
@@ -368,7 +366,10 @@ export function RoleComposer({
             aria-autocomplete="list"
             aria-expanded={panelOpen}
             aria-controls={panelOpen ? listboxId : undefined}
-            className="block min-h-[76px] w-full resize-none bg-transparent px-4 py-3.5 pr-24 text-sm leading-6 text-ink outline-none placeholder:text-hint disabled:cursor-not-allowed"
+            className={cn(
+              "block min-h-[76px] w-full resize-none bg-transparent px-4 py-3.5 text-sm leading-6 text-ink outline-none placeholder:text-hint disabled:cursor-not-allowed",
+              runActive ? "pr-32" : "pr-24",
+            )}
             onChange={(event) => {
               setClosedTriggerKey(null);
               onValueChange(event.currentTarget.value);
@@ -412,7 +413,10 @@ export function RoleComposer({
             type="button"
             variant="ghost"
             size="icon"
-            className="absolute bottom-3 right-12 h-8 w-8 rounded-full p-0"
+            className={cn(
+              "absolute bottom-3 h-8 w-8 rounded-full p-0",
+              runActive ? "right-[84px]" : "right-12",
+            )}
             disabled={disabled}
             aria-label="添加附件"
             title="添加附件"
@@ -420,16 +424,29 @@ export function RoleComposer({
           >
             <Plus className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
           </Button>
+          {runActive ? (
+            <Button
+              type="button"
+              size="icon"
+              className="absolute bottom-3 right-12 h-8 w-8 rounded-full p-0"
+              disabled={!canSubmit}
+              aria-label={submitLabel}
+              title={submitLabel}
+              onClick={() => onSubmit?.(value, readyAttachmentIds)}
+            >
+              <ArrowUp className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+            </Button>
+          ) : null}
           <Button
             type="button"
             size="icon"
             className="absolute bottom-3 right-3 h-8 w-8 rounded-full p-0"
-            disabled={interruptMode ? disabled || onInterrupt === undefined : !canSubmit}
-            aria-label={interruptMode ? interruptLabel : submitLabel}
-            title={interruptMode ? interruptLabel : submitLabel}
-            onClick={interruptMode ? onInterrupt : () => onSubmit?.(value, readyAttachmentIds)}
+            disabled={runActive ? disabled || onInterrupt === undefined : !canSubmit}
+            aria-label={runActive ? interruptLabel : submitLabel}
+            title={runActive ? interruptLabel : submitLabel}
+            onClick={runActive ? onInterrupt : () => onSubmit?.(value, readyAttachmentIds)}
           >
-            {interruptMode ? (
+            {runActive ? (
               <Square className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
             ) : (
               <ArrowUp className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />

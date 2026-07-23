@@ -92,6 +92,13 @@ interface CachedRolloutResolution {
 
 const rolloutResolutionCache = new Map<string, CachedRolloutResolution>();
 
+interface CachedRolloutRootIndex {
+  filePaths: string[];
+  scannedAt: number;
+}
+
+const rolloutRootIndexCache = new Map<string, CachedRolloutRootIndex>();
+
 export function resolveCodexSessionsRoot(options: ResolveCodexRolloutOptions = {}): string {
   if (options.sessionsRoot !== undefined) {
     return path.resolve(options.sessionsRoot);
@@ -134,33 +141,25 @@ export async function resolveCodexRollout(
     rolloutResolutionCache.delete(cacheKey);
   }
 
-  const candidates: string[] = [];
-  const pending = [sessionsRoot];
-  while (pending.length > 0) {
-    const current = pending.pop();
-    if (current === undefined) {
-      break;
-    }
-    let entries: Dirent[];
+  let rootIndex = rolloutRootIndexCache.get(sessionsRoot);
+  const now = Date.now();
+  let reusedRootIndex = rootIndex !== undefined
+    && now - rootIndex.scannedAt < RESOLUTION_CACHE_TTL_MS;
+  if (rootIndex === undefined || now - rootIndex.scannedAt >= RESOLUTION_CACHE_TTL_MS) {
     try {
-      entries = await fs.readdir(current, { withFileTypes: true });
+      rootIndex = await scanRolloutRoot(sessionsRoot);
+      reusedRootIndex = false;
     } catch {
       return { status: "unavailable", reason: "unreadable" };
     }
-    for (const entry of entries) {
-      if (entry.isSymbolicLink()) {
-        continue;
-      }
-      const entryPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        pending.push(entryPath);
-      } else if (
-        entry.isFile()
-        && entry.name.startsWith("rollout-")
-        && entry.name.endsWith(`-${threadId}.jsonl`)
-      ) {
-        candidates.push(entryPath);
-      }
+  }
+  let candidates = rolloutCandidates(rootIndex, threadId);
+  if (candidates.length === 0 && reusedRootIndex) {
+    try {
+      rootIndex = await scanRolloutRoot(sessionsRoot);
+      candidates = rolloutCandidates(rootIndex, threadId);
+    } catch {
+      return { status: "unavailable", reason: "unreadable" };
     }
   }
 
@@ -177,12 +176,43 @@ export async function resolveCodexRollout(
   if (resolution.status === "available") {
     rolloutResolutionCache.set(cacheKey, {
       resolution,
-      lastFullScanAt: Date.now(),
+      lastFullScanAt: rootIndex.scannedAt,
     });
   } else {
     rolloutResolutionCache.delete(cacheKey);
   }
   return resolution;
+}
+
+async function scanRolloutRoot(sessionsRoot: string): Promise<CachedRolloutRootIndex> {
+  const filePaths: string[] = [];
+  const pending = [sessionsRoot];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) {
+      break;
+    }
+    let entries: Dirent[];
+    entries = await fs.readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(entryPath);
+      } else if (entry.isFile() && entry.name.startsWith("rollout-") && entry.name.endsWith(".jsonl")) {
+        filePaths.push(entryPath);
+      }
+    }
+  }
+  const index = { filePaths, scannedAt: Date.now() };
+  rolloutRootIndexCache.set(sessionsRoot, index);
+  return index;
+}
+
+function rolloutCandidates(index: CachedRolloutRootIndex, threadId: string): string[] {
+  return index.filePaths.filter((filePath) => filePath.endsWith(`-${threadId}.jsonl`));
 }
 
 export function sameCodexRolloutFile(
@@ -492,13 +522,52 @@ function selectEventPrefix(groups: ProjectedLine[], maxEvents: number): Projecte
 
 function dedupeEvents(events: LocalConsoleProcessEvent[]): LocalConsoleProcessEvent[] {
   const seen = new Set<string>();
-  return events.filter((event) => {
+  const retained: LocalConsoleProcessEvent[] = [];
+  for (const event of events) {
     if (seen.has(event.key)) {
-      return false;
+      continue;
     }
     seen.add(event.key);
-    return true;
-  });
+    const previous = retained.at(-1);
+    if (previous !== undefined && isMirroredAgentMessage(previous, event)) {
+      continue;
+    }
+    retained.push(event);
+  }
+  return retained;
+}
+
+function isMirroredAgentMessage(
+  left: LocalConsoleProcessEvent,
+  right: LocalConsoleProcessEvent,
+): boolean {
+  if (
+    left.kind !== "agent-markdown"
+    || right.kind !== "agent-markdown"
+    || left.markdown !== right.markdown
+  ) {
+    return false;
+  }
+  const leftOrigin = agentMessageOrigin(left.key);
+  const rightOrigin = agentMessageOrigin(right.key);
+  if (leftOrigin === null || rightOrigin === null || leftOrigin === rightOrigin) {
+    return false;
+  }
+  if (left.timestamp === null || right.timestamp === null) {
+    return false;
+  }
+  const leftTime = Date.parse(left.timestamp);
+  const rightTime = Date.parse(right.timestamp);
+  return Number.isFinite(leftTime)
+    && Number.isFinite(rightTime)
+    && Math.abs(leftTime - rightTime) <= 1_000;
+}
+
+function agentMessageOrigin(key: string): "event" | "response" | null {
+  if (key.includes(":agent:event:")) {
+    return "event";
+  }
+  return key.includes(":agent:response:") ? "response" : null;
 }
 
 function positiveInteger(value: number, field: string): number {

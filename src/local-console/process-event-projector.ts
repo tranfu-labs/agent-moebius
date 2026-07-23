@@ -43,7 +43,6 @@ export type LocalConsoleProcessEvent =
       key: string;
       kind: "unsupported";
       timestamp: string | null;
-      eventType: string;
     };
 
 export interface ProjectCodexRolloutContext {
@@ -77,7 +76,7 @@ export function projectCodexRolloutRecord(
 ): LocalConsoleProcessEvent[] {
   const keyPrefix = `${context.runId}:rollout:${String(context.lineOffset)}`;
   if (!isRecord(value)) {
-    return [unsupported(keyPrefix, null, "invalid-record")];
+    return [unsupported(keyPrefix, null)];
   }
   const timestamp = typeof value.timestamp === "string" ? value.timestamp : null;
   const topLevelType = typeof value.type === "string" ? value.type : "unknown";
@@ -96,7 +95,7 @@ export function projectCodexRolloutRecord(
   if (topLevelType === "response_item" && payload !== null) {
     return projectResponseItem(payload, keyPrefix, timestamp);
   }
-  return [unsupported(keyPrefix, timestamp, payloadType === null ? topLevelType : `${topLevelType}.${payloadType}`)];
+  return [unsupported(keyPrefix, timestamp)];
 }
 
 export function malformedCodexRolloutEvent(
@@ -123,7 +122,12 @@ function projectEventMessage(
     const markdown = readText(payload.message);
     return markdown === null
       ? []
-      : [{ key: agentMessageKey(keyPrefix, timestamp, markdown), kind: "agent-markdown", timestamp, markdown }];
+      : [{
+          key: agentMessageKey(keyPrefix, "event", markdown),
+          kind: "agent-markdown",
+          timestamp,
+          markdown,
+        }];
   }
   if (type === "mcp_tool_call_end") {
     const invocation = isRecord(payload.invocation) ? payload.invocation : {};
@@ -158,7 +162,7 @@ function projectEventMessage(
         kind: "error",
         timestamp,
         message: "文件修改失败",
-        detail: readText(payload.stderr) ?? readText(payload.stdout),
+        detail: displayText(payload.stderr) ?? displayText(payload.stdout),
       }];
     }
     return [{
@@ -167,7 +171,7 @@ function projectEventMessage(
       timestamp,
       action: "应用文件修改",
       path: null,
-      detail: readText(payload.stdout),
+      detail: displayText(payload.stdout),
     }];
   }
   if (type === "web_search_end") {
@@ -207,11 +211,11 @@ function projectEventMessage(
       key: `${keyPrefix}:error`,
       kind: "error",
       timestamp,
-      message: readText(payload.message) ?? readText(payload.error) ?? "Codex 执行异常",
-      detail: readText(payload.details),
+      message: displayText(payload.message) ?? displayText(payload.error) ?? "Codex 执行异常",
+      detail: displayText(payload.details),
     }];
   }
-  return [unsupported(`${keyPrefix}:event`, timestamp, `event_msg.${type}`)];
+  return [unsupported(`${keyPrefix}:event`, timestamp)];
 }
 
 function projectResponseItem(
@@ -230,7 +234,12 @@ function projectResponseItem(
     const markdown = readContentText(payload.content);
     return markdown === null
       ? []
-      : [{ key: agentMessageKey(keyPrefix, timestamp, markdown), kind: "agent-markdown", timestamp, markdown }];
+      : [{
+          key: agentMessageKey(keyPrefix, "response", markdown),
+          kind: "agent-markdown",
+          timestamp,
+          markdown,
+        }];
   }
   if (type === "function_call") {
     return [toolEvent(payload, `${keyPrefix}:function`, timestamp, "started")];
@@ -250,7 +259,7 @@ function projectResponseItem(
         kind: "command",
         timestamp,
         phase: "started",
-        command: readText(payload.input) ?? readText(payload.arguments) ?? name,
+        command: displayInput(payload.input) ?? displayInput(payload.arguments) ?? name,
         output: null,
         exitCode: null,
       }];
@@ -261,7 +270,7 @@ function projectResponseItem(
       timestamp,
       phase: "started",
       name,
-      input: readText(payload.input) ?? displayValue(payload.arguments),
+      input: displayInput(payload.input) ?? displayValue(payload.arguments),
       output: null,
       status: typeof payload.status === "string" ? payload.status : null,
     }];
@@ -285,12 +294,12 @@ function projectResponseItem(
       kind: "command",
       timestamp,
       phase,
-      command: readText(payload.command) ?? readText(payload.text) ?? "运行命令",
-      output: readText(payload.output),
+      command: displayText(payload.command) ?? displayText(payload.text) ?? "运行命令",
+      output: displayText(payload.output),
       exitCode: typeof payload.exit_code === "number" ? payload.exit_code : null,
     }];
   }
-  return [unsupported(`${keyPrefix}:response`, timestamp, `response_item.${type}`)];
+  return [unsupported(`${keyPrefix}:response`, timestamp)];
 }
 
 function toolEvent(
@@ -305,7 +314,7 @@ function toolEvent(
     timestamp,
     phase,
     name: typeof payload.name === "string" ? payload.name : "函数调用",
-    input: phase === "started" ? readText(payload.arguments) : null,
+    input: phase === "started" ? displayInput(payload.arguments) : null,
     output: phase === "completed" ? displayValue(payload.output) : null,
     status: typeof payload.status === "string" ? payload.status : null,
   };
@@ -314,9 +323,8 @@ function toolEvent(
 function unsupported(
   key: string,
   timestamp: string | null,
-  eventType: string,
 ): LocalConsoleProcessEvent {
-  return { key, kind: "unsupported", timestamp, eventType };
+  return { key, kind: "unsupported", timestamp };
 }
 
 function readContentText(value: unknown): string | null {
@@ -346,18 +354,33 @@ function displayValue(value: unknown): string | null {
     return null;
   }
   if (typeof value === "string") {
-    return value;
+    return friendlyProcessText(value);
   }
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
+  if (Array.isArray(value)) {
+    const items = value.flatMap((item): string[] => {
+      const displayed = displayValue(item);
+      return displayed === null ? [] : [indentMultiline(`• ${displayed}`, "  ")];
+    });
+    return items.length === 0 ? null : items.join("\n");
   }
+  if (isRecord(value)) {
+    const entries = Object.entries(value).flatMap(([key, item]): string[] => {
+      if (isMachineOnlyField(key)) {
+        return [];
+      }
+      const displayed = displayValue(item);
+      return displayed === null
+        ? []
+        : [`${friendlyFieldLabel(key)}: ${indentMultiline(displayed, "  ")}`];
+    });
+    return entries.length === 0 ? null : entries.join("\n");
+  }
+  return friendlyProcessText(String(value));
 }
 
 function displayToolOutput(value: unknown): string | null {
   if (typeof value === "string") {
-    return value;
+    return friendlyProcessText(value);
   }
   if (Array.isArray(value)) {
     const parts = value.flatMap((part): string[] => {
@@ -366,7 +389,7 @@ function displayToolOutput(value: unknown): string | null {
       }
       const text = readText(part.text);
       if (text !== null) {
-        return [text];
+        return [friendlyProcessText(text)];
       }
       return typeof part.image_url === "string" ? ["[图片结果]"] : [];
     });
@@ -383,7 +406,7 @@ function displayToolOutput(value: unknown): string | null {
       return displayToolOutput(value.content);
     }
     if (typeof value.message === "string") {
-      return value.message;
+      return friendlyProcessText(value.message);
     }
   }
   return null;
@@ -447,7 +470,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function agentMessageKey(
   keyPrefix: string,
-  timestamp: string | null,
+  origin: "event" | "response",
   markdown: string,
 ): string {
   let hash = 2_166_136_261;
@@ -455,9 +478,81 @@ function agentMessageKey(
     hash ^= markdown.charCodeAt(index);
     hash = Math.imul(hash, 16_777_619);
   }
-  const timestampMs = timestamp === null ? Number.NaN : Date.parse(timestamp);
-  const timeBucket = Number.isFinite(timestampMs)
-    ? String(Math.floor(timestampMs / 1_000))
-    : keyPrefix;
-  return `agent:${timeBucket}:${(hash >>> 0).toString(16)}`;
+  return `${keyPrefix}:agent:${origin}:${(hash >>> 0).toString(16)}`;
+}
+
+function displayInput(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return displayValue(value);
+  }
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}"))
+    || (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    try {
+      return displayValue(JSON.parse(trimmed));
+    } catch {
+      // Treat non-JSON tool input as ordinary user-visible text.
+    }
+  }
+  return friendlyProcessText(value);
+}
+
+function displayText(value: unknown): string | null {
+  return typeof value === "string" && value !== ""
+    ? friendlyProcessText(value)
+    : null;
+}
+
+function friendlyProcessText(value: string): string {
+  return value
+    .replace(
+      /(?:\/Users|\/home|\/private\/tmp|\/tmp|\/var\/folders)\/[^\s"'`<>]+/gu,
+      (match) => `…/${displayPathBasename(match)}`,
+    )
+    .replace(
+      /\b(?:sessionId|runId|threadId|messageId|sourceMessageId)\s*[:=]\s*[^\s,;]+/giu,
+      "内部标识已隐藏",
+    );
+}
+
+function displayPathBasename(value: string): string {
+  const normalized = value.replaceAll("\\", "/").replace(/[),.;:]+$/u, "");
+  return normalized.split("/").filter(Boolean).at(-1) ?? "本地文件";
+}
+
+function isMachineOnlyField(key: string): boolean {
+  const normalized = key
+    .replace(/([a-z0-9])([A-Z])/gu, "$1_$2")
+    .replaceAll("-", "_")
+    .toLowerCase();
+  return normalized === "id"
+    || normalized === "cwd"
+    || normalized === "workdir"
+    || normalized === "run_dir"
+    || normalized === "session_id"
+    || normalized === "run_id"
+    || normalized === "thread_id"
+    || normalized === "turn_id"
+    || normalized === "message_id"
+    || normalized === "source_message_id"
+    || normalized === "call_id";
+}
+
+function friendlyFieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    cmd: "命令",
+    command: "命令",
+    query: "查询",
+    prompt: "输入",
+    path: "文件",
+    file: "文件",
+    status: "状态",
+  };
+  return labels[key.toLowerCase()] ?? key.replaceAll("_", " ");
+}
+
+function indentMultiline(value: string, indent: string): string {
+  return value.replaceAll("\n", `\n${indent}`);
 }

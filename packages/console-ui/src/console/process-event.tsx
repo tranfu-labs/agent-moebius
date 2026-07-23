@@ -84,7 +84,6 @@ export type OperatorProcessTimelineEvent =
       key: string;
       kind: "unsupported";
       timestamp: string | null;
-      eventType: string;
     };
 
 export interface ProcessEventProps {
@@ -191,7 +190,7 @@ export function ProcessEvent({
     case "unsupported":
       return (
         <div className="my-2 rounded-lg border border-line bg-card px-3 py-2 text-xs text-sub" role="note">
-          暂不支持的过程事件 · <span className="font-mono">{event.eventType}</span>
+          其他执行活动
         </div>
       );
   }
@@ -224,9 +223,7 @@ function ProcessAction({
         <span>{label}</span>
       </header>
       {detail !== null ? (
-        <pre className="scroll-thin overflow-x-auto whitespace-pre px-3 py-2 font-mono text-xs leading-5 text-ink">
-          {stripTerminalControls(detail)}
-        </pre>
+        <ReadonlyBlock label="详情" value={detail} />
       ) : null}
       {input !== undefined && input !== null ? (
         <ReadonlyBlock label="输入" value={input} />
@@ -237,12 +234,27 @@ function ProcessAction({
 }
 
 function ReadonlyBlock({ label, value }: { label: string; value: string }): JSX.Element {
+  const displayValue = sanitizeProcessMachineText(stripTerminalControls(value));
+  const collapsible = displayValue.length > 1_200 || displayValue.split("\n").length > 20;
   return (
     <div className="border-t border-line px-3 py-2">
-      <p className="mb-1 text-[11px] font-medium text-sub">{label}</p>
-      <pre className="scroll-thin max-h-80 overflow-auto whitespace-pre font-mono text-xs leading-5 text-ink">
-        {stripTerminalControls(value)}
-      </pre>
+      {collapsible ? (
+        <details>
+          <summary className="cursor-pointer text-[11px] font-medium text-sub">
+            展开完整{label}
+          </summary>
+          <pre className="scroll-thin mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-ink">
+            {displayValue}
+          </pre>
+        </details>
+      ) : (
+        <>
+          <p className="mb-1 text-[11px] font-medium text-sub">{label}</p>
+          <pre className="scroll-thin max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-ink">
+            {displayValue}
+          </pre>
+        </>
+      )}
     </div>
   );
 }
@@ -264,4 +276,21 @@ function stripTerminalControls(value: string): string {
   return value
     .replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, "")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, "");
+}
+
+function sanitizeProcessMachineText(value: string): string {
+  return value
+    .replace(
+      /(?:\/Users|\/home|\/private\/tmp|\/tmp|\/var\/folders)\/[^\s"'`<>]+/gu,
+      (match) => `…/${displayPathBasename(match)}`,
+    )
+    .replace(
+      /\b(?:sessionId|runId|threadId|messageId|sourceMessageId)\s*[:=]\s*[^\s,;]+/giu,
+      "内部标识已隐藏",
+    );
+}
+
+function displayPathBasename(value: string): string {
+  const normalized = value.replaceAll("\\", "/").replace(/[),.;:]+$/u, "");
+  return normalized.split("/").filter(Boolean).at(-1) ?? "本地文件";
 }

@@ -61,13 +61,12 @@ import {
   ConsoleStateCoordinator,
   loadProcessOutput,
   loadProcessOutputAppend,
-  loadProcessOutputThroughAnchor,
   loadProjectFile,
   loadProjectFiles,
   loadSubSessionView,
   loadWorkspaceDiff,
   ProcessOutputRequestError,
-  processOutputRunId,
+  processOutputLocator,
   refreshConsoleState,
   subSessionIdFromSourceKey,
   submitSessionMessage,
@@ -198,8 +197,10 @@ interface LocalConsoleState {
   selectedSessionId: string;
   selectedSession: OperatorSession | null;
   messages: OperatorMessage[];
+  pendingPrimaryMessages: OperatorMessage[];
   childSessions: OperatorChildSessionSummary[];
   activeRun: OperatorRunSnapshot | null;
+  activeRuns: OperatorRunSnapshot[];
   workspaceDiff: OperatorWorkspaceDiffSummary;
   sqlitePath: string;
   lastError: string | null;
@@ -1108,15 +1109,13 @@ export function App(): JSX.Element {
     if (apiBase === null || activeProcessSourceKey === null) {
       return;
     }
-    const runId = processOutputRunId(activeProcessSourceKey, selection.sessionId);
-    if (runId === null) {
+    const locator = processOutputLocator(activeProcessSourceKey, selection.sessionId);
+    if (locator === null) {
       return;
     }
+    const { sessionId: processSessionId, runId } = locator;
 
     const controller = new AbortController();
-    const restoreAnchorEventKey = activeRightSidebarTab?.processScroll?.followLatest === false
-      ? activeRightSidebarTab.processScroll.anchorEventKey
-      : null;
     let inFlight = false;
     let timer: number | null = null;
     commitProcessOutputs((current) => ({
@@ -1140,7 +1139,7 @@ export function App(): JSX.Element {
           try {
             const append = await loadProcessOutputAppend({
               apiBase,
-              sessionId: selection.sessionId,
+              sessionId: processSessionId,
               runId,
               appendCursor: current.output.appendCursor,
               fetch,
@@ -1176,22 +1175,13 @@ export function App(): JSX.Element {
             }
           }
         }
-        const output = current?.status === "ready"
-          ? await loadProcessOutput({
-              apiBase,
-              sessionId: selection.sessionId,
-              runId,
-              fetch,
-              signal: controller.signal,
-            })
-          : await loadProcessOutputThroughAnchor({
-              apiBase,
-              sessionId: selection.sessionId,
-              runId,
-              anchorEventKey: restoreAnchorEventKey,
-              fetch,
-              signal: controller.signal,
-            });
+        const output = await loadProcessOutput({
+          apiBase,
+          sessionId: processSessionId,
+          runId,
+          fetch,
+          signal: controller.signal,
+        });
         if (!controller.signal.aborted) {
           commitProcessOutputs((latest) => {
             const ready = latest[activeProcessSourceKey];
@@ -1400,6 +1390,7 @@ export function App(): JSX.Element {
     ? ""
     : subSessionComposerValues[activeSubSessionId]
       ?? conversationDraftStoreRef.current.read(sessionDraftKey(activeSubSessionId));
+  const activeRuns = state?.activeRuns ?? (activeRun === null ? [] : [activeRun]);
   const sqlitePath = state?.sqlitePath;
   const projectListState = state !== null ? "ready" : clientError === null ? "loading" : "error";
 
@@ -1818,12 +1809,13 @@ export function App(): JSX.Element {
     if (apiBase === null) {
       return;
     }
-    const sessionId = selectionRef.current.sessionId;
-    const runId = processOutputRunId(sourceKey, sessionId);
+    const selectedSessionId = selectionRef.current.sessionId;
+    const locator = processOutputLocator(sourceKey, selectedSessionId);
     const ready = processOutputsRef.current[sourceKey];
-    if (runId === null || ready?.status !== "ready" || ready.loadingPrevious === true) {
+    if (locator === null || ready?.status !== "ready" || ready.loadingPrevious === true) {
       return;
     }
+    const { sessionId, runId } = locator;
     commitProcessOutputs((current) => ({
       ...current,
       [sourceKey]: current[sourceKey]?.status === "ready"
@@ -1837,7 +1829,7 @@ export function App(): JSX.Element {
       cursor,
       fetch,
     }).then((page) => {
-      if (selectionRef.current.sessionId !== sessionId) {
+      if (selectionRef.current.sessionId !== selectedSessionId) {
         return;
       }
       commitProcessOutputs((current) => {
@@ -1860,7 +1852,7 @@ export function App(): JSX.Element {
         };
       });
     }).catch((error: unknown) => {
-      if (selectionRef.current.sessionId !== sessionId) {
+      if (selectionRef.current.sessionId !== selectedSessionId) {
         return;
       }
       commitProcessOutputs((current) => {
@@ -1884,11 +1876,13 @@ export function App(): JSX.Element {
       selectedSessionId={selection.sessionId}
       selectedSession={selectedSession}
       messages={messagesWithPreviews}
+      pendingPrimaryMessages={state?.pendingPrimaryMessages ?? []}
       childSessions={state?.childSessions ?? []}
       subSessionViews={subSessionViewsWithPreviews}
       subSessionComposerValue={activeSubSessionComposerValue}
       subSessionComposerAttachments={managedSubSessionAttachments.attachments}
       activeRun={activeRun}
+      activeRuns={activeRuns}
       workspaceDiff={state?.workspaceDiff ?? { available: false, fileCount: null, reason: "unavailable" }}
       composerValue={composerValue}
       composerAttachments={managedAttachments.attachments}

@@ -1,4 +1,4 @@
-import { FileText } from "lucide-react";
+import { FileText, Square } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
@@ -24,6 +24,8 @@ export interface RunBlockProps {
   liveMarkdown?: string | null;
   onOpenExternalLink?: (url: string) => void;
   onOpenOutput?: (rawOutput: string | null) => void;
+  onInterrupt?: () => void;
+  interruptLabel?: string;
   className?: string;
 }
 
@@ -47,6 +49,8 @@ export function RunBlock({
   liveMarkdown,
   onOpenExternalLink,
   onOpenOutput,
+  onInterrupt,
+  interruptLabel,
   className,
 }: RunBlockProps): JSX.Element {
   const roleLabel = localizeRole(role);
@@ -68,6 +72,20 @@ export function RunBlock({
           >
             <FileText className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
             完整输出
+          </Button>
+        ) : null}
+        {onInterrupt ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={onOpenOutput ? undefined : "ml-auto"}
+            onClick={onInterrupt}
+            aria-label={interruptLabel ?? `停下${roleLabel}`}
+            title={interruptLabel ?? `停下${roleLabel}`}
+          >
+            <Square className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            停下
           </Button>
         ) : null}
       </div>

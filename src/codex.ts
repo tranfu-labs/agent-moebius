@@ -240,6 +240,7 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   let observedThreadId: string | null = null;
   let threadStartedCallback: Promise<void> = Promise.resolve();
   let threadStartedCallbackError: string | null = null;
+  let threadIdentityError: string | null = null;
   const terminationDelayMs = options.interruptTerminationDelayMs ?? INTERRUPT_TERMINATION_DELAY_MS;
   const killDelayMs = options.interruptKillDelayMs ?? INTERRUPT_KILL_DELAY_MS;
 
@@ -309,15 +310,13 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
           try {
             threadStartedCallback = Promise.resolve(options.onThreadStarted(threadId)).catch((error: unknown) => {
               threadStartedCallbackError = formatUnknownError(error);
-              beginTermination();
             });
           } catch (error) {
             threadStartedCallbackError = formatUnknownError(error);
-            beginTermination();
           }
         }
       } else if (observedThreadId !== threadId) {
-        threadStartedCallbackError = `conflicting-thread-id:${observedThreadId}:${threadId}`;
+        threadIdentityError = `conflicting-thread-id:${observedThreadId}:${threadId}`;
         beginTermination();
       }
     }
@@ -365,14 +364,21 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
 
   await Promise.all([finishWritable(stdoutFile), finishWritable(stderrFile)]);
 
-  if (threadStartedCallbackError !== null) {
+  if (threadIdentityError !== null) {
     return {
       ok: false,
-      reason: `thread-link-callback-failed:${threadStartedCallbackError}`,
+      reason: threadIdentityError,
       runDir,
       stdoutPath,
       stderrPath,
     };
+  }
+  if (threadStartedCallbackError !== null) {
+    await fs.appendFile(
+      stderrPath,
+      `[agent-moebius] codex-thread-link-unavailable:${threadStartedCallbackError}\n`,
+      "utf8",
+    );
   }
 
   if (abortReason !== null) {

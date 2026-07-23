@@ -115,7 +115,7 @@ describe("RoleComposer", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("uses one native button for stop while an empty run is active and send after text is entered", () => {
+  it("keeps primary stop independent from sending while the primary run is active", () => {
     const onInterrupt = vi.fn();
     const onSubmit = vi.fn();
     const { rerender } = render(
@@ -128,7 +128,7 @@ describe("RoleComposer", () => {
       />,
     );
 
-    const stopButton = screen.getByRole("button", { name: "停下当前这一步" });
+    const stopButton = screen.getByRole("button", { name: "停下主理人" });
     expect(stopButton).toBeEnabled();
     expect(stopButton.tagName).toBe("BUTTON");
     fireEvent.click(stopButton);
@@ -146,7 +146,8 @@ describe("RoleComposer", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
     expect(onSubmit).toHaveBeenCalledWith("补一句话", []);
-    expect(screen.queryByRole("button", { name: "停下当前这一步" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停下主理人" })).toBeVisible();
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
   });
 
   it("uses only the supplied team's members for completion", () => {

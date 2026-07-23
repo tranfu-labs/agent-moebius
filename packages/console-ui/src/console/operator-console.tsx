@@ -61,6 +61,7 @@ import {
   clampRightSidebarWidth,
 } from "@/console/right-sidebar";
 import {
+  createRunOutputSourceKey,
   EMPTY_RIGHT_SIDEBAR_TABS,
   ensureRightSidebarTabsForOpen,
   openRightSidebarSourceTab,
@@ -262,6 +263,7 @@ export interface OperatorConsoleProps {
   selectedSessionId: string;
   selectedSession: OperatorSession | null;
   messages: OperatorMessage[];
+  pendingPrimaryMessages?: OperatorMessage[];
   childSessions?: OperatorChildSessionSummary[];
   openedSubSession?: OperatorSubSessionView | null;
   subSessionViews?: Readonly<Record<string, OperatorSubSessionViewState>>;
@@ -269,6 +271,7 @@ export interface OperatorConsoleProps {
   subSessionComposerAttachments?: readonly ComposerAttachment[];
   openedEvidence?: OperatorEvidenceView | null;
   activeRun: OperatorRunSnapshot | null;
+  activeRuns?: OperatorRunSnapshot[];
   workspaceDiff?: OperatorWorkspaceDiffSummary;
   composerValue: string;
   composerAttachments?: readonly ComposerAttachment[];
@@ -380,11 +383,13 @@ export function OperatorConsole({
   selectedSessionId,
   selectedSession,
   messages,
+  pendingPrimaryMessages = [],
   childSessions = [],
   subSessionViews = {},
   subSessionComposerValue = "",
   subSessionComposerAttachments = [],
   activeRun,
+  activeRuns,
   workspaceDiff = { available: false, fileCount: null, reason: "unavailable" },
   composerValue,
   composerAttachments = [],
@@ -486,6 +491,7 @@ export function OperatorConsole({
   onLoadProcessOutputPrevious,
   className,
 }: OperatorConsoleProps): JSX.Element {
+  const displayedActiveRuns = activeRuns ?? (activeRun === null ? [] : [activeRun]);
   const [uncontrolledSidebarOpen, setUncontrolledSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH_PX);
   const [uncontrolledRightSidebarOpen, setUncontrolledRightSidebarOpen] = useState(false);
@@ -556,10 +562,10 @@ export function OperatorConsole({
     && !activeProjectUnavailable
     && !selectedAgentTeamUnavailable
     && !continuationBlocked;
-  const emptyConversation = messages.length === 0 && activeRun === null;
+  const emptyConversation = messages.length === 0 && displayedActiveRuns.length === 0;
   const resultCardVisible = shouldShowResultCard({
     diffAvailable: workspaceDiff.available,
-    isRunning: activeRun !== null || selectedSession?.status === "running" || (selectedSession?.runningCount ?? 0) > 0,
+    isRunning: displayedActiveRuns.length > 0 || selectedSession?.status === "running" || (selectedSession?.runningCount ?? 0) > 0,
     lastMessageMentionsAgent: selectedSession?.lastMessageMentionsAgent === true,
     hasCompletedStep: messages.some((message) => message.speaker === "agent" || terminalOutcome(message) !== null),
     hasPendingWork: messages.some((message) => message.status === "pending" || message.status === "running"),
@@ -620,7 +626,11 @@ export function OperatorConsole({
     if (timeline !== null && followTimelineRef.current) {
       timeline.scrollTop = timeline.scrollHeight;
     }
-  }, [messages.length, activeRun?.lastOutputSummary, activeRun?.liveMarkdown, selectedSessionId]);
+  }, [
+    messages.length,
+    displayedActiveRuns.map((run) => `${run.runId}:${run.lastOutputSummary}:${run.liveMarkdown ?? ""}`).join("|"),
+    selectedSessionId,
+  ]);
 
   const openSubSession = (sessionId: string) => {
     parentScrollTopRef.current = timelineScrollRef.current?.scrollTop ?? 0;
@@ -649,7 +659,7 @@ export function OperatorConsole({
           id: createRightSidebarTabId(nextRightSidebarTabIdRef),
           type: "run-output",
           title: nextProcessTabTitle(effectiveRightSidebarTabs, intent.role),
-          sourceKey: `run-output:${intent.sessionId}:${intent.runId}`,
+          sourceKey: createRunOutputSourceKey(intent.sessionId, intent.runId),
         }));
     onOpenEvidence?.(intent);
   };
@@ -1061,7 +1071,10 @@ export function OperatorConsole({
               data-testid="parent-conversation-pane"
             >
             <section
-              className="scroll-thin min-h-0 flex-1 overflow-auto pb-44"
+              className={cn(
+                "scroll-thin min-h-0 flex-1 overflow-auto",
+                pendingPrimaryMessages.length > 0 ? "pb-72" : "pb-44",
+              )}
               aria-label="会话时间线"
               ref={timelineScrollRef}
               onScroll={(event) => {
@@ -1109,25 +1122,33 @@ export function OperatorConsole({
                       ))}
                     </div>
 
-                    {activeRun ? (
-                      <div className="pl-10" data-testid="active-run-block">
-                        <RunBlock
-                          role={activeRun.role ?? "dev"}
-                          summary={safeRunSummary(activeRun.lastOutputSummary)}
-                          liveMarkdown={activeRun.liveMarkdown}
-                          rawOutput={runRawOutput(activeRun)}
-                          onOpenExternalLink={onOpenExternalLink}
-                          onOpenOutput={(fallbackOutput) => openEvidence({
-                            kind: "run-output",
-                            sessionId: activeRun.sessionId,
-                            runId: activeRun.runId,
-                            role: activeRun.role,
-                            fallbackOutput,
-                          })}
-                          className="mt-3 max-w-none"
-                        />
-                      </div>
-                    ) : null}
+                    {displayedActiveRuns.map((run) => {
+                      const isPrimaryRun = activeRun?.runId === run.runId;
+                      const roleLabel = localizeTimelineRole(run.role);
+                      return (
+                        <div className="pl-10" data-testid="active-run-block" data-run-id={run.runId} key={run.runId}>
+                          <RunBlock
+                            role={run.role ?? "dev"}
+                            summary={safeRunSummary(run.lastOutputSummary)}
+                            liveMarkdown={run.liveMarkdown}
+                            rawOutput={runRawOutput(run)}
+                            onOpenExternalLink={onOpenExternalLink}
+                            onOpenOutput={(fallbackOutput) => openEvidence({
+                              kind: "run-output",
+                              sessionId: run.sessionId,
+                              runId: run.runId,
+                              role: run.role,
+                              fallbackOutput,
+                            })}
+                            onInterrupt={!isPrimaryRun && run.interruptible
+                              ? () => onInterrupt(run.sessionId, run.runId)
+                              : undefined}
+                            interruptLabel={!isPrimaryRun ? `停下${roleLabel}` : undefined}
+                            className="mt-3 max-w-none"
+                          />
+                        </div>
+                      );
+                    })}
 
                     {resultCardVisible && workspaceDiff.available && selectedSession ? (
                       <ResultCard
@@ -1158,7 +1179,10 @@ export function OperatorConsole({
             {showJumpToBottom ? (
               <button
                 type="button"
-                className="absolute bottom-36 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-xs text-sub shadow-overlay hover:text-ink"
+                className={cn(
+                  "absolute left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-xs text-sub shadow-overlay hover:text-ink",
+                  pendingPrimaryMessages.length > 0 ? "bottom-64" : "bottom-36",
+                )}
                 onClick={() => {
                   const timeline = timelineScrollRef.current;
                   if (timeline !== null) {
@@ -1174,6 +1198,25 @@ export function OperatorConsole({
             ) : null}
 
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
+                {pendingPrimaryMessages.length > 0 ? (
+                  <section
+                    className="pointer-events-auto mx-auto mb-2 max-w-[720px] rounded-[14px] border border-accent/35 bg-accent/10 px-3.5 py-2.5"
+                    aria-label="待发射给主理人"
+                    data-testid="primary-pending-zone"
+                  >
+                    <p className="text-xs font-medium text-accent">待发射给主理人</p>
+                    <ol className="scroll-thin mt-1.5 max-h-24 space-y-1 overflow-y-auto pr-1 text-sm text-ink">
+                      {pendingPrimaryMessages.map((message, index) => (
+                        <li key={message.id} className="flex min-w-0 gap-2">
+                          <span className="shrink-0 text-sub">{index + 1}</span>
+                          <span className="truncate">
+                            {message.body.trim() || message.attachments?.map((attachment) => attachment.displayName).join("、") || "附件消息"}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                ) : null}
                 <RoleComposer
                   value={composerValue}
                   attachments={composerAttachments}
@@ -1197,8 +1240,8 @@ export function OperatorConsole({
                         : continuationBlocked
                           ? selectedSession?.continuation?.reason ?? "当前对话暂时不能继续"
                       : activeRun
-                        ? "说点什么，或 @ 一个成员…"
-                        : "描述你的目标，@ 一个角色开始…"}
+                        ? "继续告诉主理人…"
+                        : "告诉主理人你的目标…"}
                   statusText={activeProjectUnavailable
                     ? "历史对话只读；修复文件夹后可继续"
                     : selectedSession?.agentTeamHealth === "deleted"
@@ -1221,7 +1264,7 @@ export function OperatorConsole({
                       canChangeProject={
                         selectedSession !== null &&
                         messages.length === 0 &&
-                        activeRun === null &&
+                        displayedActiveRuns.length === 0 &&
                         !selectedSession.parentSessionId &&
                         (selectedSession.childCount ?? 0) === 0
                       }
@@ -1268,6 +1311,10 @@ export function OperatorConsole({
                 onSend={() => onSubSessionSend?.(sessionId)}
                 onRetry={(runId) => onSubSessionRetry?.(sessionId, runId)}
                 onInterrupt={onSubSessionInterrupt ?? onInterrupt}
+                onOpenOutput={(input) => openEvidence({
+                  kind: "run-output",
+                  ...input,
+                })}
                 onOpenExternalLink={onOpenExternalLink}
               />
             );

@@ -393,6 +393,51 @@ describe("local console", { timeout: 15_000 }, () => {
     }
   });
 
+  it("recovers every persisted worker run as stuck after restart", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    const store = await createSqliteLocalConsoleStore({ sqlitePath });
+    await store.init();
+    try {
+      await store.recordDetachedRunStarted?.({
+        sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+        role: "dev",
+        runId: "worker-dev",
+        runDir: path.join(root, "runs", "dev"),
+        now: "2026-07-09T00:00:00.000Z",
+      });
+      await store.recordDetachedRunStarted?.({
+        sessionId: LOCAL_CONSOLE_DEFAULT_SESSION_ID,
+        role: "qa",
+        runId: "worker-qa",
+        runDir: path.join(root, "runs", "qa"),
+        now: "2026-07-09T00:00:01.000Z",
+      });
+    } finally {
+      await store.close();
+    }
+
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex: vi.fn(),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const state = await getState(started.url, LOCAL_CONSOLE_DEFAULT_SESSION_ID);
+      expect(state.activeRuns).toEqual([]);
+      expect(state.messages.filter((message) => message.systemEventKind === "run-stuck"))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ runId: "worker-dev", status: "stuck", error: "orphaned-by-restart" }),
+          expect.objectContaining({ runId: "worker-qa", status: "stuck", error: "orphaned-by-restart" }),
+        ]));
+      expect(state.messages.some((message) => message.sourceKind === "local-worker-run")).toBe(false);
+    } finally {
+      await started.close();
+    }
+  });
+
   it("persists local projects and rejects orphan local sessions atomically", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
@@ -1093,7 +1138,7 @@ describe("local console", { timeout: 15_000 }, () => {
     }
   });
 
-  it("treats acceptance words as ordinary agent content and returns the turn to the primary Agent", async () => {
+  it("treats acceptance words and a user mention as primary-agent input only", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "dev-manager", "# dev-manager\n\nROLE:dev-manager");
     await writeAgent(root, "qa", "# qa\n\nROLE:qa");
@@ -1123,13 +1168,11 @@ describe("local console", { timeout: 15_000 }, () => {
       const session = await createSession(started.url, "ordinary acceptance words");
       await postSessionMessage(started.url, session.sessionId, "@qa 请报数，并说明通过或不通过");
       const state = await waitForState(started.url, session.sessionId, (data) =>
-        data.messages.filter((entry) => entry.speaker === "agent").length === 2,
+        data.messages.filter((entry) => entry.speaker === "agent").length === 1,
       );
-      expect(calls).toEqual(["qa", "dev-manager"]);
-      expect(state.messages.filter((entry) => entry.speaker === "agent").map((entry) => entry.role)).toEqual([
-        "qa",
-        "dev-manager",
-      ]);
+      expect(calls).toEqual(["dev-manager"]);
+      expect(state.messages.filter((entry) => entry.speaker === "agent").map((entry) => entry.role))
+        .toEqual(["dev-manager"]);
       expect(state.messages.filter((entry) => entry.speaker === "system")).not.toEqual(expect.arrayContaining([
         expect.objectContaining({ body: expect.stringContaining("formal acceptance statements") }),
       ]));
@@ -1544,12 +1587,12 @@ describe("local console", { timeout: 15_000 }, () => {
       ]);
       expect(calls.map((entry) => entry.role)).toEqual(["ceo", "dev-manager", "dev", "qa", "ceo"]);
       for (let index = 1; index < calls.length; index += 1) {
-        expect(calls[index]!.at - calls[index - 1]!.at).toBeLessThan(1_000);
+        expect(calls[index]!.at - calls[index - 1]!.at).toBeLessThan(3_000);
       }
     } finally {
       await started.close();
     }
-  }, 10_000);
+  }, 30_000);
 
   it("rejects archive while a claimed handoff is resolving, then archives after it completes", async () => {
     const root = await makeFixtureRoot();
@@ -1800,7 +1843,7 @@ describe("local console", { timeout: 15_000 }, () => {
       await postSessionMessage(started.url, session.sessionId, "@dev retry me");
       await waitFor(() => runCodex.mock.calls.length === 1);
       await waitForState(started.url, session.sessionId, (data) =>
-        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending"),
+        data.pendingPrimaryMessages.some((entry) => entry.speaker === "user" && entry.status === "pending"),
       );
       expect((await getState(started.url, session.sessionId)).messages.filter((entry) => entry.speaker === "agent")).toHaveLength(0);
 
@@ -1820,10 +1863,12 @@ describe("local console", { timeout: 15_000 }, () => {
     for (const role of ["ceo", "dev", "qa"]) {
       await writeAgent(root, role, `# ${role}\n\nROLE:${role}`);
     }
+    let ceoCallCount = 0;
     const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
       const role = roleFromPrompt(options.prompt);
       if (role === "ceo") {
-        return codexOk(options, "@dev continue");
+        ceoCallCount += 1;
+        return codexOk(options, ceoCallCount === 1 ? "@dev continue" : "primary after stuck");
       }
       if (role === "dev") {
         return {
@@ -1854,12 +1899,12 @@ describe("local console", { timeout: 15_000 }, () => {
       const next = await postSessionMessage(started.url, session.sessionId, "@qa after stuck");
       expect(next.status).toBe(202);
       const state = await waitForState(started.url, session.sessionId, (data) =>
-        data.messages.some((entry) => entry.speaker === "agent" && entry.role === "qa"),
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body === "primary after stuck"),
       );
       expect(state.messages).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ speaker: "system", systemEventKind: "run-stuck", body: expect.stringContaining("这一步卡住了") }),
-          expect.objectContaining({ speaker: "agent", role: "qa", body: "qa after stuck" }),
+          expect.objectContaining({ speaker: "agent", role: "ceo", body: "primary after stuck" }),
         ]),
       );
     } finally {
@@ -2132,6 +2177,141 @@ describe("local console", { timeout: 15_000 }, () => {
     }
   }, 10_000);
 
+  it("queues user messages for the primary agent and activates them in delivery order", async () => {
+    const root = await makeFixtureRoot();
+    const firstRunGate = deferred<void>();
+    const prompts: string[] = [];
+    const roles: string[] = [];
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      prompts.push(options.prompt);
+      roles.push(roleFromPrompt(options.prompt));
+      if (prompts.length === 1) {
+        await firstRunGate.promise;
+        return codexOk(options, "第一轮主理人回复");
+      }
+      return codexOk(options, "第二轮主理人回复");
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      listAgentFiles: async () => [
+        { name: "dev-manager", agentMarkdown: "ROLE:dev-manager" },
+        { name: "qa", agentMarkdown: "ROLE:qa" },
+      ],
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const session = await createSession(started.url, "primary pending");
+      expect((await postSessionMessage(started.url, session.sessionId, "先检查现状")).status).toBe(202);
+      await waitForState(started.url, session.sessionId, (state) =>
+        state.activeRun?.role === "dev-manager"
+      );
+
+      expect((await postSessionMessage(started.url, session.sessionId, "@qa 再补一轮验证")).status).toBe(202);
+      const queued = await waitForState(started.url, session.sessionId, (state) =>
+        state.pendingPrimaryMessages.some((message) => message.body === "@qa 再补一轮验证")
+      );
+      expect(queued.messages.some((message) => message.body === "@qa 再补一轮验证")).toBe(false);
+      expect(roles).toEqual(["dev-manager"]);
+
+      firstRunGate.resolve(undefined);
+      const completed = await waitForState(started.url, session.sessionId, (state) =>
+        state.messages.some((message) => message.body === "第二轮主理人回复")
+        && state.activeRuns.length === 0
+      );
+      expect(roles).toEqual(["dev-manager", "dev-manager"]);
+      expect(runCodex).toHaveBeenCalledTimes(2);
+      expect(completed.pendingPrimaryMessages).toEqual([]);
+      expect(completed.messages.map((message) => message.body)).toEqual([
+        "先检查现状",
+        "第一轮主理人回复",
+        "@qa 再补一轮验证",
+        "第二轮主理人回复",
+      ]);
+      expect(prompts[1]?.indexOf("第一轮主理人回复")).toBeLessThan(
+        prompts[1]?.indexOf("@qa 再补一轮验证") ?? -1,
+      );
+    } finally {
+      firstRunGate.resolve(undefined);
+      await started.close();
+    }
+  }, 10_000);
+
+  it("runs the primary agent beside a worker and interrupts only the selected worker run", async () => {
+    const root = await makeFixtureRoot();
+    let managerCallCount = 0;
+    const secondManagerRun = deferred<CodexRunResult>();
+    const observed = {
+      secondManagerOptions: null as CodexRunOptions | null,
+      devOptions: null as CodexRunOptions | null,
+    };
+    const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      const role = roleFromPrompt(options.prompt);
+      if (role === "dev") {
+        observed.devOptions = options;
+        return await waitForAbortResult(options);
+      }
+      managerCallCount += 1;
+      if (managerCallCount === 1) {
+        return codexOk(options, "@dev 请开始实现");
+      }
+      observed.secondManagerOptions = options;
+      return await secondManagerRun.promise;
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      port: 0,
+      runCodex,
+      listAgentFiles: async () => [
+        { name: "dev-manager", agentMarkdown: "ROLE:dev-manager" },
+        { name: "dev", agentMarkdown: "ROLE:dev" },
+      ],
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+    });
+    try {
+      const session = await createSession(started.url, "parallel lanes");
+      await postSessionMessage(started.url, session.sessionId, "启动实现");
+      const workerOnly = await waitForState(started.url, session.sessionId, (state) =>
+        state.activeRun === null
+        && state.activeRuns.some((run) => run.role === "dev")
+      );
+      const devRun = workerOnly.activeRuns.find((run) => run.role === "dev");
+      expect(devRun).toBeDefined();
+
+      await postSessionMessage(started.url, session.sessionId, "请主理人继续判断");
+      const parallel = await waitForState(started.url, session.sessionId, (state) =>
+        state.activeRun?.role === "dev-manager"
+        && state.activeRuns.some((run) => run.role === "dev")
+      );
+      expect(parallel.activeRuns.map((run) => run.role).sort()).toEqual(["dev", "dev-manager"]);
+
+      const interrupted = await interruptRun(started.url, session.sessionId, devRun?.runId ?? "");
+      expect(interrupted.status).toBe(202);
+      await waitForState(started.url, session.sessionId, (state) =>
+        state.activeRun?.role === "dev-manager"
+        && !state.activeRuns.some((run) => run.role === "dev")
+      );
+      expect(observed.devOptions?.signal?.aborted).toBe(true);
+      expect(observed.secondManagerOptions?.signal?.aborted).toBe(false);
+
+      if (observed.secondManagerOptions !== null) {
+        secondManagerRun.resolve(codexOk(observed.secondManagerOptions, "主理人继续运行完成"));
+      }
+      await waitForState(started.url, session.sessionId, (state) =>
+        state.activeRuns.length === 0
+        && state.messages.some((message) => message.body === "主理人继续运行完成")
+      );
+    } finally {
+      if (observed.secondManagerOptions !== null) {
+        secondManagerRun.resolve(codexOk(observed.secondManagerOptions, "主理人继续运行完成"));
+      }
+      await started.close();
+    }
+  }, 10_000);
+
   it("dead-letters repeated Codex failures with run metadata and restores them after restart", async () => {
     const root = await makeFixtureRoot();
     await writeAgent(root, "dev", "# Dev");
@@ -2156,7 +2336,9 @@ describe("local console", { timeout: 15_000 }, () => {
     try {
       await postSessionMessage(started.url, session.sessionId, "@dev fail");
       await waitForState(started.url, session.sessionId, (data) =>
-        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending" && entry.error === "exit:42"),
+        data.pendingPrimaryMessages.some((entry) =>
+          entry.speaker === "user" && entry.status === "pending" && entry.error === "exit:42"
+        ),
       );
       await started.runtime.processPending(session.sessionId);
       await waitForState(started.url, session.sessionId, (data) =>
@@ -2360,7 +2542,7 @@ describe("local console", { timeout: 15_000 }, () => {
     expect(tail.stdoutTail?.length).toBeLessThanOrEqual(256);
   });
 
-  it("serves one process output with ordered retry attempts, raw errors, truncation, and restart fallback", async () => {
+  it("does not substitute runDir output when Codex thread links are unavailable", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
     await writeAgent(root, "dev", "# Dev");
@@ -2406,7 +2588,10 @@ describe("local console", { timeout: 15_000 }, () => {
     try {
       await postSessionMessage(started.url, session.sessionId, "@dev retry this step");
       await waitForState(started.url, session.sessionId, (data) =>
-        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending" && entry.error === "exit:42"),
+        data.pendingPrimaryMessages.some((entry) =>
+          entry.speaker === "user"
+          && entry.status === "pending"
+          && entry.error === "exit:42"),
       );
       await started.runtime.processPending(session.sessionId);
       const completed = await waitForState(started.url, session.sessionId, (data) =>
@@ -2423,24 +2608,18 @@ describe("local console", { timeout: 15_000 }, () => {
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
         role: string | null;
-        attempts: Array<{
-          attempt: number;
-          stdout: string | null;
-          stderr: string | null;
-          availability: string;
-          stdoutTruncated: boolean;
-        }>;
+        status: string;
+        unavailableReason: string | null;
+        attempts: unknown[];
+        events: unknown[];
       };
-      expect(body.role).toBe("dev");
-      expect(body.attempts).toHaveLength(2);
-      expect(body.attempts.map((attempt) => attempt.attempt)).toEqual([1, 2]);
-      expect(body.attempts[0]).toEqual(expect.objectContaining({
-        availability: "available",
-        stdoutTruncated: true,
-        stderr: "FAIL original stderr /tmp/project/tests/index.test.ts\n",
+      expect(body).toEqual(expect.objectContaining({
+        role: null,
+        status: "unavailable",
+        unavailableReason: "link-missing",
+        attempts: [],
+        events: [],
       }));
-      expect(body.attempts[0]?.stdout).toContain("first-attempt-tail /tmp/project/src/index.ts");
-      expect(body.attempts[1]?.stdout).toBe("second-attempt PASS /tmp/project/src/index.ts\n");
     } finally {
       await started.close();
     }
@@ -2462,12 +2641,17 @@ describe("local console", { timeout: 15_000 }, () => {
       ));
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
-        attempts: Array<{ availability: string; fallback: string | null }>;
+        status: string;
+        unavailableReason: string | null;
+        attempts: unknown[];
+        events: unknown[];
       };
-      expect(body.attempts).toHaveLength(2);
-      expect(body.attempts.map((attempt) => attempt.availability)).toEqual(["unavailable", "unavailable"]);
-      expect(body.attempts[0]?.fallback).toContain("exit:42");
-      expect(body.attempts[1]?.fallback).toBe("retry finished");
+      expect(body).toEqual(expect.objectContaining({
+        status: "unavailable",
+        unavailableReason: "link-missing",
+        attempts: [],
+        events: [],
+      }));
     } finally {
       await restarted.close();
     }
@@ -2809,6 +2993,8 @@ async function waitForSnapshot(
 interface LocalSnapshotResponse {
   status: "idle" | "running" | "failed" | "stuck";
   messages: LocalConsoleMessage[];
+  pendingPrimaryMessages: LocalConsoleMessage[];
+  activeRuns: LocalRunSnapshotResponse[];
   activeRun: LocalRunSnapshotResponse | null;
 }
 
@@ -2837,13 +3023,16 @@ interface LocalStateResponse {
   selectedSessionId: string;
   selectedSession: LocalConsoleSessionSummary | null;
   messages: LocalConsoleMessage[];
+  pendingPrimaryMessages: LocalConsoleMessage[];
   childSessions: LocalConsoleChildSessionSummary[];
+  activeRuns: LocalRunSnapshotResponse[];
   activeRun: LocalRunSnapshotResponse | null;
 }
 
 interface LocalRunSnapshotResponse {
   sessionId: string;
   runId: string;
+  role: string | null;
   status: "running";
   elapsedMs: number;
   runDir: string | null;

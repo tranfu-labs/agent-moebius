@@ -65,6 +65,8 @@ export interface LocalConsoleMessage {
   sourceKind?: string | null;
   sourceId?: string | null;
   attachments?: LocalAttachment[];
+  /** When a queued user message actually entered the primary-agent timeline. */
+  activatedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -385,8 +387,11 @@ export interface LocalConsoleSnapshot {
   sessionId: string;
   status: "idle" | "running" | "failed" | "stuck";
   messages: LocalConsoleMessage[];
+  pendingPrimaryMessages: LocalConsoleMessage[];
   sqlitePath: string;
   lastError: string | null;
+  activeRuns: LocalConsoleRunSnapshot[];
+  /** @deprecated Transitional primary-agent projection. New consumers use activeRuns. */
   activeRun: LocalConsoleRunSnapshot | null;
 }
 
@@ -397,7 +402,10 @@ export interface LocalConsoleStateSnapshot {
   selectedSessionId: string;
   selectedSession: LocalConsoleSessionSummary | null;
   messages: LocalConsoleMessage[];
+  pendingPrimaryMessages: LocalConsoleMessage[];
   childSessions: LocalConsoleChildSessionSummary[];
+  activeRuns: LocalConsoleRunSnapshot[];
+  /** @deprecated Transitional primary-agent projection. New consumers use activeRuns. */
   activeRun: LocalConsoleRunSnapshot | null;
   workspaceDiff: LocalConsoleWorkspaceDiffSummary;
   sqlitePath: string;
@@ -407,6 +415,9 @@ export interface LocalConsoleStateSnapshot {
 export interface LocalConsoleSessionView {
   session: LocalConsoleSessionSummary;
   messages: LocalConsoleMessage[];
+  pendingPrimaryMessages: LocalConsoleMessage[];
+  activeRuns: LocalConsoleRunSnapshot[];
+  /** @deprecated Transitional primary-agent projection. New consumers use activeRuns. */
   activeRun: LocalConsoleRunSnapshot | null;
   workspaceDiff: LocalConsoleWorkspaceDiffSummary;
 }
@@ -524,6 +535,31 @@ export interface LocalConsoleStore {
     runDir: string;
     now: string;
   }): Promise<void>;
+  recordDetachedAgentResponse?(input: {
+    sessionId: string;
+    role: string;
+    body: string;
+    runId: string;
+    runDir: string;
+    now: string;
+  }): Promise<void>;
+  recordDetachedRunStarted?(input: {
+    sessionId: string;
+    role: string;
+    runId: string;
+    runDir: string;
+    now: string;
+  }): Promise<void>;
+  recordDetachedRunTerminal?(input: {
+    sessionId: string;
+    body: string;
+    systemEventKind: LocalConsoleSystemEventKind;
+    runId: string;
+    runDir: string | null;
+    error: string;
+    status: "failed" | "interrupted" | "stuck";
+    now: string;
+  }): Promise<void>;
   recordCodexThreadLink?(input: {
     sessionId: string;
     runId: string;
@@ -548,7 +584,7 @@ export interface LocalConsoleStore {
     runId: string | null;
     runDir: string | null;
     error: string | null;
-    status?: "displayed" | "failed" | "stuck";
+    status?: "displayed" | "failed" | "interrupted" | "stuck";
     systemEventKind?: LocalConsoleSystemEventKind;
     now: string;
   }): Promise<void>;

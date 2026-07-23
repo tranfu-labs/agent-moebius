@@ -33,7 +33,6 @@ export interface RightSidebarProcessScrollSnapshot {
 export interface RightSidebarTabsState {
   tabs: RightSidebarTab[];
   activeTabId: string | null;
-  processScrollBySourceKey?: Record<string, RightSidebarProcessScrollSnapshot>;
 }
 
 export interface RightSidebarSourceTab {
@@ -47,6 +46,43 @@ export const EMPTY_RIGHT_SIDEBAR_TABS: RightSidebarTabsState = {
   tabs: [],
   activeTabId: null,
 };
+
+const RUN_OUTPUT_SOURCE_KEY_PREFIX = "run-output-v2:";
+
+export function createRunOutputSourceKey(sessionId: string, runId: string): string {
+  return `${RUN_OUTPUT_SOURCE_KEY_PREFIX}${encodeURIComponent(sessionId)}:${encodeURIComponent(runId)}`;
+}
+
+export function parseRunOutputSourceKey(
+  sourceKey: string | null,
+  legacySessionId?: string,
+): { sessionId: string; runId: string } | null {
+  if (sourceKey === null) {
+    return null;
+  }
+  if (sourceKey.startsWith(RUN_OUTPUT_SOURCE_KEY_PREFIX)) {
+    const encoded = sourceKey.slice(RUN_OUTPUT_SOURCE_KEY_PREFIX.length);
+    const separator = encoded.indexOf(":");
+    if (separator <= 0 || separator >= encoded.length - 1) {
+      return null;
+    }
+    try {
+      const sessionId = decodeURIComponent(encoded.slice(0, separator));
+      const runId = decodeURIComponent(encoded.slice(separator + 1));
+      return sessionId === "" || runId === "" ? null : { sessionId, runId };
+    } catch {
+      return null;
+    }
+  }
+  if (legacySessionId === undefined) {
+    return null;
+  }
+  const legacyPrefix = `run-output:${legacySessionId}:`;
+  const runId = sourceKey.startsWith(legacyPrefix)
+    ? sourceKey.slice(legacyPrefix.length)
+    : "";
+  return runId === "" ? null : { sessionId: legacySessionId, runId };
+}
 
 export function createBlankRightSidebarTab(id: string): RightSidebarTab {
   return {
@@ -110,9 +146,6 @@ export function openRightSidebarSourceTab(
     ...source,
     id: uniqueRightSidebarTabId(state, source.id),
     closable: true,
-    ...(state.processScrollBySourceKey?.[source.sourceKey] === undefined
-      ? {}
-      : { processScroll: state.processScrollBySourceKey[source.sourceKey] }),
   };
   return {
     tabs: [...state.tabs, tab],
@@ -135,21 +168,12 @@ export function updateRightSidebarProcessScroll(
   snapshot: RightSidebarProcessScrollSnapshot,
 ): RightSidebarTabsState {
   const normalized = normalizeProcessScrollSnapshot(snapshot);
-  const sourceKey = state.tabs.find((tab) => tab.id === tabId && tab.type === "run-output")?.sourceKey;
   return {
     ...state,
     tabs: state.tabs.map((tab) =>
       tab.id === tabId && tab.type === "run-output"
         ? { ...tab, processScroll: normalized }
         : tab),
-    ...(sourceKey === null || sourceKey === undefined
-      ? {}
-      : {
-          processScrollBySourceKey: {
-            ...state.processScrollBySourceKey,
-            [sourceKey]: normalized,
-          },
-        }),
   };
 }
 
@@ -207,16 +231,12 @@ export function parseRightSidebarTabsState(value: unknown): RightSidebarTabsStat
     ) {
       return [];
     }
-    const processScroll = entry.type === "run-output"
-      ? parseProcessScrollSnapshot(entry.processScroll)
-      : undefined;
     return [{
       id: entry.id,
       type: entry.type,
       title: entry.title,
       sourceKey: entry.sourceKey,
       closable: true,
-      ...(processScroll === undefined ? {} : { processScroll }),
     }];
   });
   const uniqueTabs = tabs.filter(
@@ -226,16 +246,9 @@ export function parseRightSidebarTabsState(value: unknown): RightSidebarTabsStat
     && uniqueTabs.some((tab) => tab.id === value.activeTabId)
     ? value.activeTabId
     : uniqueTabs[0]?.id ?? null;
-  const processScrollBySourceKey = parseProcessScrollBySourceKey(value.processScrollBySourceKey);
-  for (const tab of uniqueTabs) {
-    if (tab.type === "run-output" && tab.sourceKey !== null && tab.processScroll !== undefined) {
-      processScrollBySourceKey[tab.sourceKey] = tab.processScroll;
-    }
-  }
   return {
     tabs: uniqueTabs,
     activeTabId,
-    ...(Object.keys(processScrollBySourceKey).length === 0 ? {} : { processScrollBySourceKey }),
   };
 }
 
@@ -262,23 +275,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function parseProcessScrollSnapshot(value: unknown): RightSidebarProcessScrollSnapshot | undefined {
-  if (
-    !isRecord(value)
-    || !(typeof value.anchorEventKey === "string" || value.anchorEventKey === null)
-    || typeof value.offsetPx !== "number"
-    || !Number.isFinite(value.offsetPx)
-    || typeof value.followLatest !== "boolean"
-  ) {
-    return undefined;
-  }
-  return normalizeProcessScrollSnapshot({
-    anchorEventKey: value.anchorEventKey,
-    offsetPx: value.offsetPx,
-    followLatest: value.followLatest,
-  });
-}
-
 function normalizeProcessScrollSnapshot(
   value: RightSidebarProcessScrollSnapshot,
 ): RightSidebarProcessScrollSnapshot {
@@ -287,16 +283,4 @@ function normalizeProcessScrollSnapshot(
     offsetPx: Math.max(0, value.offsetPx),
     followLatest: value.followLatest,
   };
-}
-
-function parseProcessScrollBySourceKey(
-  value: unknown,
-): Record<string, RightSidebarProcessScrollSnapshot> {
-  if (!isRecord(value)) {
-    return {};
-  }
-  return Object.fromEntries(Object.entries(value).flatMap(([sourceKey, snapshot]) => {
-    const parsed = sourceKey.trim() === "" ? undefined : parseProcessScrollSnapshot(snapshot);
-    return parsed === undefined ? [] : [[sourceKey, parsed]];
-  }));
 }

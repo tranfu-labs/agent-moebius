@@ -35,7 +35,9 @@ describe("POST /api/local-console/sessions with initialMessage", () => {
     ));
     await expect(state.json()).resolves.toMatchObject({
       selectedSession: { sessionId: body.session.sessionId, title: "帮我 完成登录页" },
-      messages: [expect.objectContaining({ speaker: "user", body: "帮我   完成登录页\n这一行不进标题" })],
+      pendingPrimaryMessages: [
+        expect.objectContaining({ speaker: "user", body: "帮我   完成登录页\n这一行不进标题" }),
+      ],
     });
   });
 
@@ -96,7 +98,7 @@ describe("POST /api/local-console/sessions with initialMessage", () => {
     ));
     await expect(stateResponse.json()).resolves.toMatchObject({
       selectedSession: { parentSessionId: parent.session.sessionId, title: "child" },
-      messages: [expect.objectContaining({ body: "@dev 接手子任务" })],
+      pendingPrimaryMessages: [expect.objectContaining({ body: "@dev 接手子任务" })],
     });
   });
 });

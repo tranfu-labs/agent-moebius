@@ -6,9 +6,9 @@ import {
   loadEvidenceView,
   loadProcessOutput,
   loadProcessOutputAppend,
-  loadProcessOutputThroughAnchor,
   loadSubSessionView,
   ProcessOutputRequestError,
+  processOutputLocator,
   processOutputRunId,
   loadProjectFile,
   loadProjectFiles,
@@ -362,58 +362,20 @@ describe("process output reads", () => {
     } satisfies Partial<ProcessOutputRequestError>);
   });
 
-  it("loads older pages until a persisted reading anchor is present", async () => {
-    const latest = {
-      ...processOutputFixture(),
-      events: [{
-        key: "latest",
-        kind: "agent-markdown" as const,
-        timestamp: null,
-        markdown: "最新",
-      }],
-      previousCursor: "page-2",
-    };
-    const older = {
-      ...latest,
-      events: [{
-        key: "saved-anchor",
-        kind: "command" as const,
-        timestamp: null,
-        phase: "completed" as const,
-        command: "pnpm test",
-        output: "PASS",
-        exitCode: 0,
-      }],
-      previousCursor: "page-1",
-      appendCursor: null,
-      atLatest: false,
-    };
-    const fetch = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(latest))
-      .mockResolvedValueOnce(jsonResponse(older));
-
-    await expect(loadProcessOutputThroughAnchor({
-      apiBase: "http://127.0.0.1:8787/",
-      sessionId: "session/a",
-      runId: "run/1",
-      anchorEventKey: "saved-anchor",
-      fetch,
-    })).resolves.toMatchObject({
-      events: [
-        expect.objectContaining({ key: "saved-anchor" }),
-        expect.objectContaining({ key: "latest" }),
-      ],
-      previousCursor: "page-1",
-      appendCursor: "append-current",
-      atLatest: true,
-    });
-    expect(String(fetch.mock.calls[1]?.[0])).toContain("cursor=page-2");
-  });
-
   it("extracts only a run locator belonging to the selected session", () => {
     expect(processOutputRunId("run-output:session-a:run-1", "session-a")).toBe("run-1");
     expect(processOutputRunId("run-output:session-b:run-1", "session-a")).toBeNull();
     expect(processOutputRunId(null, "session-a")).toBeNull();
+  });
+
+  it("extracts a child-session process locator independently from the selected parent", () => {
+    expect(processOutputLocator(
+      "run-output-v2:child%3Asession%2F1:run%3A2026-07-23T02%3A03%3A04Z",
+      "parent-session",
+    )).toEqual({
+      sessionId: "child:session/1",
+      runId: "run:2026-07-23T02:03:04Z",
+    });
   });
 });
 

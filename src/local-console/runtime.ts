@@ -10,7 +10,6 @@ import {
   type CeoChildIssueDescriptor,
   type CeoOrchestrationGroup,
 } from "../ceo-orchestration.js";
-import { parseAgentMentions } from "../conversation.js";
 import {
   type CodexRunOptions,
   type CodexRunResult,
@@ -35,6 +34,7 @@ import {
   type LocalConsoleFileContent,
   type LocalConsoleMessage,
   type LocalConsoleProjectFiles,
+  type LocalConsoleSystemEventKind,
   type LocalConsoleProjectSummary,
   type LocalConsoleProjectRemovalResult,
   LocalConsoleProjectRunningError,
@@ -179,6 +179,7 @@ interface ActiveLocalRun {
   runId: string;
   userMessageId: number;
   role: string | null;
+  lane: "primary" | "worker";
   runDir: string | null;
   cwd: string | null;
   workspaceMode: "direct" | "worktree" | null;
@@ -204,6 +205,7 @@ export class LocalConsoleRuntime {
   private readonly now: () => Date;
   private readonly processingSessions = new Set<string>();
   private readonly pendingProcessSessions = new Set<string>();
+  private readonly workerLaneTails = new Map<string, Promise<void>>();
   private readonly activeRuns = new Map<string, ActiveLocalRun>();
   private readonly inactiveSessions = new Set<string>();
   private readonly conversationBaselineCommits = new Map<string, string | null>();
@@ -249,7 +251,9 @@ export class LocalConsoleRuntime {
     const messages = await this.storeCall("local-console-store-list-messages", () =>
       this.options.store.listMessages(sessionId),
     );
-    const activeSessionIds = new Set(this.activeRuns.keys());
+    const activeSessionIds = new Set(
+      [...this.activeRuns.values()].map((active) => active.sessionId),
+    );
     const orphans = identifyOrphanRuns({ sessionId, messages, activeSessionIds });
     const recoveryStore = this.codexRecoveryFactStore();
     const recoveryFacts = recoveryStore === null
@@ -259,13 +263,20 @@ export class LocalConsoleRuntime {
       try {
         const gracefulIntent = recoveryFacts.intents.find((intent) =>
           intent.targetRunId === orphan.runId
-          && intent.sourceMessageId === orphan.userMessageId
           && intent.reason === "graceful-shutdown"
           && !recoveryFacts.consumedIntentIds.has(intent.intentId));
         if (gracefulIntent !== undefined) {
+          if (orphan.userMessageId !== gracefulIntent.sourceMessageId) {
+            await this.storeCall("local-console-store-release-graceful-worker-placeholder", () =>
+              this.options.store.releaseMessageForRetry({
+                userMessageId: orphan.userMessageId,
+                sessionId,
+                now: this.nowIso(),
+              }));
+          }
           await this.storeCall("local-console-store-release-graceful-resume", () =>
             this.options.store.releaseMessageForRetry({
-              userMessageId: orphan.userMessageId,
+              userMessageId: gracefulIntent.sourceMessageId,
               sessionId,
               now: this.nowIso(),
             }));
@@ -336,7 +347,10 @@ export class LocalConsoleRuntime {
       active.controller.abort("runtime-closing");
     }
     const processingDeadline = Date.now() + this.storeTimeoutMs;
-    while (this.processingSessions.size > 0 && Date.now() < processingDeadline) {
+    while (
+      (this.processingSessions.size > 0 || this.workerLaneTails.size > 0)
+      && Date.now() < processingDeadline
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     await this.options.store.close();
@@ -431,7 +445,9 @@ export class LocalConsoleRuntime {
     for (const sessionId of sessionIds) {
       this.inactiveSessions.add(sessionId);
       if (input.force) {
-        this.activeRuns.get(sessionId)?.controller.abort("project-removed");
+        for (const active of this.activeRunsForSession(sessionId)) {
+          active.controller.abort("project-removed");
+        }
       }
     }
     try {
@@ -614,7 +630,7 @@ export class LocalConsoleRuntime {
     if (this.options.store.archiveSession === undefined) {
       throw new Error("local console session archive unavailable");
     }
-    if (this.activeRuns.has(sessionId)) {
+    if (this.hasActiveRunForSession(sessionId)) {
       throw new LocalConsoleSessionRunningError();
     }
     this.inactiveSessions.add(sessionId);
@@ -692,12 +708,10 @@ export class LocalConsoleRuntime {
     }
     await this.assertSessionCanContinue(sessionId);
 
-    const activeRun = this.activeRuns.get(sessionId);
-    if (activeRun !== undefined && activeRun.role !== null && parseAgentMentions(trimmed).some((mention) => mention.name === activeRun.role)) {
-      activeRun.controller.abort("user-redirected-active-agent");
-    } else if (
-      activeRun === undefined &&
-      (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId)))
+    const primaryRun = this.activeRunForLane(sessionId, "primary");
+    if (
+      primaryRun === undefined &&
+      (await this.hasPersistedPrimaryRun(sessionId))
     ) {
       throw new LocalConsoleBusyError();
     }
@@ -736,16 +750,12 @@ export class LocalConsoleRuntime {
 
   async retryRun(input: { sessionId: string; runId: string }): Promise<boolean> {
     await this.assertSessionCanContinue(input.sessionId);
-    if (this.activeRuns.has(input.sessionId)) {
-      throw new LocalConsoleBusyError();
-    }
     const messages = await this.storeCall("local-console-store-list-retry-source", () =>
       this.options.store.listMessages(input.sessionId));
-    const source = messages.find((message) =>
+    const terminal = messages.find((message) =>
       message.runId === input.runId
-      && message.speaker !== "system"
       && (message.status === "stuck" || message.status === "failed" || message.status === "interrupted"));
-    if (source === undefined) {
+    if (terminal === undefined) {
       return false;
     }
     const recoveryStore = this.codexRecoveryFactStore();
@@ -753,6 +763,24 @@ export class LocalConsoleRuntime {
       ? []
       : await readCodexThreadLinks(recoveryStore.getSessionFactLogPath(input.sessionId), input.sessionId);
     const link = links.find((candidate) => candidate.runId === input.runId);
+    const source = link === undefined
+      ? messages.find((message) =>
+          message.runId === input.runId
+          && message.speaker !== "system"
+          && (message.status === "stuck" || message.status === "failed" || message.status === "interrupted"))
+      : messages.find((message) =>
+          message.id === link.sourceMessageId
+          && message.speaker !== "system");
+    if (source === undefined) {
+      return false;
+    }
+    const role = link?.role ?? source.role;
+    if (
+      role !== null
+      && this.activeRunForRole(input.sessionId, role) !== undefined
+    ) {
+      throw new LocalConsoleBusyError();
+    }
     if (link !== undefined) {
       await this.storeCall("local-console-store-record-retry-resume", () =>
         recoveryStore!.recordCodexResumeIntent({
@@ -776,8 +804,8 @@ export class LocalConsoleRuntime {
   }
 
   async interruptRun(input: { sessionId: string; runId: string }): Promise<boolean> {
-    const active = this.activeRuns.get(input.sessionId);
-    if (active === undefined || active.runId !== input.runId) {
+    const active = this.activeRuns.get(input.runId);
+    if (active === undefined || active.sessionId !== input.sessionId) {
       return false;
     }
     active.controller.abort("user-interrupted");
@@ -796,19 +824,23 @@ export class LocalConsoleRuntime {
 
   async snapshot(sessionId = this.sessionId): Promise<LocalConsoleSnapshot> {
     const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
+    const primaryRunId = this.activeRunForLane(sessionId, "primary")?.runId ?? null;
+    const activeRuns = await this.activeRunSnapshots(sessionId);
     return {
       sessionId,
-      status: messages.some((message) => message.status === "running")
+      status: activeRuns.length > 0 || messages.some((message) => message.status === "running")
         ? "running"
         : messages.some((message) => message.status === "stuck")
           ? "stuck"
           : messages.some((message) => message.status === "failed")
             ? "failed"
             : "idle",
-      messages,
+      messages: messages.filter(isVisibleTimelineMessage),
       sqlitePath: this.options.store.sqlitePath,
       lastError: this.lastError,
-      activeRun: await this.activeRunSnapshot(sessionId),
+      pendingPrimaryMessages: messages.filter(isPendingPrimaryMessage),
+      activeRuns,
+      activeRun: activeRuns.find((run) => run.runId === primaryRunId) ?? null,
     };
   }
 
@@ -817,7 +849,10 @@ export class LocalConsoleRuntime {
     const requestedProjectId = typeof selected === "string" ? undefined : selected.projectId;
     const storedProjects = await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects());
     const availableProjects = await Promise.all(storedProjects.map((project) => this.withDirectoryAvailability(project)));
-    const projects = await Promise.all(availableProjects.map((project) => this.withSessionWorkspaceContext(project)));
+    const projectsWithWorkspace = await Promise.all(
+      availableProjects.map((project) => this.withSessionWorkspaceContext(project)),
+    );
+    const projects = projectsWithWorkspace.map((project) => this.withRuntimeActivity(project));
     await this.synchronizeNonContinuableRecords(projects);
     await this.stopUnsafeRunsWithUnavailableContext(projects);
     const sessions = projects.flatMap((project) => project.sessions);
@@ -847,7 +882,9 @@ export class LocalConsoleRuntime {
             sqlitePath: this.options.store.sqlitePath,
             timeoutMs: this.storeTimeoutMs,
           }, selectedSession.sessionId));
-    const activeRun = await this.activeRunSnapshot(sessionId);
+    const primaryRunId = this.activeRunForLane(sessionId, "primary")?.runId ?? null;
+    const activeRuns = await this.activeRunSnapshots(sessionId);
+    const activeRun = activeRuns.find((run) => run.runId === primaryRunId) ?? null;
     const workspaceDiff = selectedSession === null
       ? noSessionWorkspaceDiff()
       : await this.readConversationWorkspaceDiff(selectedSession.sessionId);
@@ -857,8 +894,10 @@ export class LocalConsoleRuntime {
       selectedProjectId: selectedProject.projectId,
       selectedSessionId: sessionId,
       selectedSession,
-      messages,
+      messages: messages.filter(isVisibleTimelineMessage),
+      pendingPrimaryMessages: messages.filter(isPendingPrimaryMessage),
       childSessions,
+      activeRuns,
       activeRun,
       workspaceDiff,
       sqlitePath: this.options.store.sqlitePath,
@@ -873,10 +912,14 @@ export class LocalConsoleRuntime {
       throw new Error(`local console session not found: ${sessionId}`);
     }
     const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
-    const activeRun = await this.activeRunSnapshot(sessionId);
+    const primaryRunId = this.activeRunForLane(sessionId, "primary")?.runId ?? null;
+    const activeRuns = await this.activeRunSnapshots(sessionId);
+    const activeRun = activeRuns.find((run) => run.runId === primaryRunId) ?? null;
     return {
       session,
-      messages,
+      messages: messages.filter(isVisibleTimelineMessage),
+      pendingPrimaryMessages: messages.filter(isPendingPrimaryMessage),
+      activeRuns,
       activeRun,
       workspaceDiff: await this.readConversationWorkspaceDiff(sessionId),
     };
@@ -887,9 +930,10 @@ export class LocalConsoleRuntime {
       this.options.store.listMessages(sessionId),
     );
     const matching = messages.filter((message) => message.runId === runId);
-    const active = this.activeRuns.get(sessionId);
+    const active = this.activeRuns.get(runId);
+    const matchingActive = active?.sessionId === sessionId ? active : undefined;
     const historicalWithRunDir = [...matching].reverse().find((message) => message.runDir !== null);
-    const runDir = active?.runId === runId ? active.runDir : historicalWithRunDir?.runDir ?? null;
+    const runDir = matchingActive?.runDir ?? historicalWithRunDir?.runDir ?? null;
     const [stdout, stderr] = runDir === null
       ? [null, null]
       : await Promise.all([
@@ -900,53 +944,19 @@ export class LocalConsoleRuntime {
       .map((message) => message.error ?? message.body)
       .filter((value) => value.trim() !== "")
       .join("\n\n") || null;
-    if (matching.length === 0 && active?.runId !== runId) {
+    if (matching.length === 0 && matchingActive === undefined) {
       throw new Error(`local console run not found: ${sessionId}/${runId}`);
     }
     return {
       sessionId,
       runId,
-      role: active?.runId === runId
-        ? active.role
+      role: matchingActive !== undefined
+        ? matchingActive.role
         : [...matching].reverse().find((message) => message.role !== null)?.role ?? null,
       stdout,
       stderr,
       fallback,
     };
-  }
-
-  async processOutput(
-    sessionId: string,
-    runId: string,
-    cursor?: string,
-  ): Promise<LocalConsoleProcessHistoryPage> {
-    const messages = await this.storeCall("local-console-store-list-process-history", () =>
-      this.options.store.listMessages(sessionId),
-    );
-    const active = this.activeRuns.get(sessionId);
-    return await loadLocalProcessHistoryPage({
-      sessionId,
-      requestedRunId: runId,
-      sessionFactLogPath: this.sessionFactStore().getSessionFactLogPath(sessionId),
-      messages,
-      activeRunIds: new Set(active === undefined ? [] : [active.runId]),
-      ...(cursor === undefined ? {} : { cursor }),
-    });
-  }
-
-  async processOutputAppend(
-    sessionId: string,
-    runId: string,
-    appendCursor: string,
-  ): Promise<LocalConsoleProcessAppendPage> {
-    const active = this.activeRuns.get(sessionId);
-    return await loadLocalProcessAppendPage({
-      sessionId,
-      requestedRunId: runId,
-      sessionFactLogPath: this.sessionFactStore().getSessionFactLogPath(sessionId),
-      activeRunIds: new Set(active === undefined ? [] : [active.runId]),
-      appendCursor,
-    });
   }
 
   async workspaceDiffDetail(sessionId: string): Promise<LocalConsoleWorkspaceDiffDetail> {
@@ -1038,6 +1048,38 @@ export class LocalConsoleRuntime {
     }
   }
 
+  async processOutput(
+    sessionId: string,
+    runId: string,
+    cursor?: string,
+  ): Promise<LocalConsoleProcessHistoryPage> {
+    const messages = await this.storeCall("local-console-store-list-process-history", () =>
+      this.options.store.listMessages(sessionId),
+    );
+    return await loadLocalProcessHistoryPage({
+      sessionId,
+      requestedRunId: runId,
+      sessionFactLogPath: this.sessionFactStore().getSessionFactLogPath(sessionId),
+      messages,
+      activeRunIds: new Set(this.activeRunsForSession(sessionId).map((run) => run.runId)),
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+  }
+
+  async processOutputAppend(
+    sessionId: string,
+    runId: string,
+    appendCursor: string,
+  ): Promise<LocalConsoleProcessAppendPage> {
+    return await loadLocalProcessAppendPage({
+      sessionId,
+      requestedRunId: runId,
+      sessionFactLogPath: this.sessionFactStore().getSessionFactLogPath(sessionId),
+      activeRunIds: new Set(this.activeRunsForSession(sessionId).map((run) => run.runId)),
+      appendCursor,
+    });
+  }
+
   async childSessionSummaries(parentSessionId: string) {
     return await this.storeCall("local-console-store-list-child-sessions", () =>
       listLocalChildSessionSummaries({
@@ -1067,7 +1109,7 @@ export class LocalConsoleRuntime {
         if (workspaceSource === null) {
           return;
         }
-        if (await this.storeCall("local-console-store-has-running", () => this.options.store.hasRunningMessage(sessionId))) {
+        if (await this.hasPersistedPrimaryRun(sessionId)) {
           return;
         }
 
@@ -1107,7 +1149,9 @@ export class LocalConsoleRuntime {
             return;
           }
           const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
-          const timelineMessages = messages.filter((message) => message.id <= claimedMessage.id);
+          const timelineMessages = messages.filter(
+            (message) => message.status !== "pending" && !isWorkerRunPlaceholder(message),
+          );
           const timeline = buildLocalConsoleTimeline(
             timelineMessages,
             agentFiles.map((agent) => agent.name),
@@ -1117,11 +1161,13 @@ export class LocalConsoleRuntime {
             availableAgentNames: agentFiles.map((agent) => agent.name),
           });
           const primaryAgent = agentFiles[0]?.name ?? null;
-          const trigger = explicitTrigger.kind === "skip" && primaryAgent !== null
-            ? claimedMessage.speaker === "user" || (claimedMessage.speaker === "agent" && claimedMessage.role !== primaryAgent)
-              ? { kind: "run-agent" as const, role: primaryAgent, reason: "mention" as const }
-              : explicitTrigger
-            : explicitTrigger;
+          const trigger = claimedMessage.speaker === "user" && primaryAgent !== null
+            ? { kind: "run-agent" as const, role: primaryAgent, reason: "mention" as const }
+            : explicitTrigger.kind === "skip" && primaryAgent !== null
+              ? claimedMessage.speaker === "agent" && claimedMessage.role !== primaryAgent
+                ? { kind: "run-agent" as const, role: primaryAgent, reason: "mention" as const }
+                : explicitTrigger
+              : explicitTrigger;
 
           if (trigger.kind !== "run-agent") {
             if (claimedMessage.speaker === "agent") {
@@ -1177,6 +1223,34 @@ export class LocalConsoleRuntime {
           if (selectedAgent === undefined) {
             await this.recordFailureOrDeadLetterBestEffort(claimedMessage, sessionId, nextRunId, null, `Agent not found: ${trigger.role}`);
             return;
+          }
+
+          if (
+            claimedMessage.speaker === "agent"
+            && primaryAgent !== null
+            && trigger.role !== primaryAgent
+          ) {
+            await this.storeCall("local-console-store-detached-worker-source-processed", () =>
+              this.options.store.recordMessageProcessed({
+                userMessageId: claimedMessage.id,
+                sessionId,
+                runId: nextRunId,
+                runDir: null,
+                now: this.nowIso(),
+              }),
+            );
+            activeMessage = null;
+            this.scheduleWorkerRun({
+              sessionId,
+              sourceMessage: claimedMessage,
+              role: trigger.role,
+              selectedAgent,
+              agentFiles,
+              timeline,
+              timelineMessages,
+              workspaceSource,
+            });
+            continue;
           }
 
           const agentMarkdown = selectedAgent.agentMarkdown
@@ -1277,11 +1351,12 @@ export class LocalConsoleRuntime {
                 consumedAt: this.nowIso(),
               }));
           }
-          this.activeRuns.set(sessionId, {
+          this.activeRuns.set(nextRunId, {
             sessionId,
             runId: nextRunId,
             userMessageId: claimedMessage.id,
             role: trigger.role,
+            lane: "primary",
             runDir: resolvedRunDir,
             cwd: workspace.cwd,
             workspaceMode: workspace.mode,
@@ -1311,8 +1386,8 @@ export class LocalConsoleRuntime {
                 ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
                 ...(preparedAttachments.imagePaths.length === 0 ? {} : { imagePaths: preparedAttachments.imagePaths }),
                 onVisibleAgentMarkdown: (text) => {
-                  const active = this.activeRuns.get(sessionId);
-                  if (active?.runId === nextRunId) {
+                  const active = this.activeRuns.get(nextRunId);
+                  if (active?.sessionId === sessionId) {
                     active.liveMarkdown = text;
                     const recordedAt = this.nowIso();
                     progressFactTail = progressFactTail.then(() =>
@@ -1327,7 +1402,7 @@ export class LocalConsoleRuntime {
                   }
                 },
                 onThreadStarted: async (threadId) => {
-                  const active = this.activeRuns.get(sessionId);
+                  const active = this.activeRuns.get(nextRunId);
                   if (active?.runId === nextRunId) {
                     active.threadId = threadId;
                   }
@@ -1398,7 +1473,6 @@ export class LocalConsoleRuntime {
               formatLocalError(error),
             );
             activeMessage = null;
-            activeRunId = null;
             activeRunDir = null;
             throw error;
           }
@@ -1444,11 +1518,13 @@ export class LocalConsoleRuntime {
           log({ event: "local-console-processing-failed", error: this.lastError });
           return;
         } finally {
-          const completedWorkspace = this.activeRuns.get(sessionId)?.cwd ?? null;
-          this.activeRuns.delete(sessionId);
-          await this.storeCall("local-console-store-apply-pending-session-context", () =>
-            this.options.store.applyPendingSessionContext({ sessionId, now: this.nowIso() }),
-          );
+          const completedWorkspace = activeRunId === null
+            ? null
+            : this.activeRuns.get(activeRunId)?.cwd ?? null;
+          if (activeRunId !== null) {
+            this.activeRuns.delete(activeRunId);
+          }
+          await this.applyPendingSessionContextWhenIdle(sessionId);
           if (completedWorkspace !== null) {
             invalidateLocalWorkspaceFacts(completedWorkspace);
           }
@@ -1482,6 +1558,363 @@ export class LocalConsoleRuntime {
     if (!this.closing) {
       await this.processPending(sessionId);
     }
+  }
+
+  private scheduleWorkerRun(input: {
+    sessionId: string;
+    sourceMessage: LocalConsoleMessage;
+    role: string;
+    selectedAgent: LocalConsoleAgentFile;
+    agentFiles: LocalConsoleAgentFile[];
+    timeline: ReturnType<typeof buildLocalConsoleTimeline>;
+    timelineMessages: LocalConsoleMessage[];
+    workspaceSource: LocalConsoleSessionWorkspaceSource;
+  }): void {
+    const laneKey = workerLaneKey(input.sessionId, input.role);
+    const active = this.activeRunForRole(input.sessionId, input.role);
+    if (active?.lane === "worker") {
+      active.controller.abort("primary-redirected-active-agent");
+    }
+
+    const previous = this.workerLaneTails.get(laneKey) ?? Promise.resolve();
+    const task = previous
+      .catch(() => undefined)
+      .then(() => this.runWorker(input))
+      .catch((error: unknown) => {
+        this.lastError = formatLocalError(error);
+        log({
+          event: "local-console-worker-run-failed",
+          sessionId: input.sessionId,
+          role: input.role,
+          error: this.lastError,
+        });
+      })
+      .finally(() => {
+        if (this.workerLaneTails.get(laneKey) === task) {
+          this.workerLaneTails.delete(laneKey);
+        }
+        void this.applyPendingSessionContextWhenIdle(input.sessionId);
+        void this.processPending(input.sessionId);
+      });
+    this.workerLaneTails.set(laneKey, task);
+  }
+
+  private async runWorker(input: {
+    sessionId: string;
+    sourceMessage: LocalConsoleMessage;
+    role: string;
+    selectedAgent: LocalConsoleAgentFile;
+    agentFiles: LocalConsoleAgentFile[];
+    timeline: ReturnType<typeof buildLocalConsoleTimeline>;
+    timelineMessages: LocalConsoleMessage[];
+    workspaceSource: LocalConsoleSessionWorkspaceSource;
+  }): Promise<void> {
+    if (this.closing || this.inactiveSessions.has(input.sessionId)) {
+      return;
+    }
+
+    const runId = `local-${this.now().toISOString()}-${Math.random().toString(36).slice(2, 10)}`;
+    const agentMarkdown = input.selectedAgent.agentMarkdown
+      ?? await fs.readFile(requireAgentFilePath(input.selectedAgent), "utf8");
+    const agentManifest = parseAgentManifest(agentMarkdown);
+    const fullPrompt = buildLocalAgentPrompt({
+      role: input.role,
+      agentMarkdown: agentManifest.body,
+      timeline: input.timeline,
+      primaryAgent: input.agentFiles[0]?.name ?? input.role,
+      availableAgentNames: input.agentFiles.map((agent) => agent.name),
+    });
+
+    const runDir = path.resolve(this.options.makeRunDir(input.timelineMessages.length, this.now()));
+    const controller = new AbortController();
+    const workspace = await this.resolveWorkspace(input.sessionId, input.workspaceSource, controller.signal);
+    if (this.closing || this.inactiveSessions.has(input.sessionId)) {
+      return;
+    }
+    const agentContents = await Promise.all(input.agentFiles.map(async (agent) => ({
+      name: agent.name,
+      agentMarkdown: agent.name === input.selectedAgent.name
+        ? agentMarkdown
+        : agent.agentMarkdown ?? await fs.readFile(requireAgentFilePath(agent), "utf8"),
+    })));
+    const contextFingerprint = localCodexContextFingerprint({
+      role: input.role,
+      agentMarkdown,
+      agentContents,
+      cwd: workspace.cwd,
+      workspaceMode: workspace.mode,
+    });
+    const recoveryStore = this.codexRecoveryFactStore();
+    const [recoveryFacts, threadLinks] = recoveryStore === null
+      ? [
+          { intents: [], consumedIntentIds: new Set<string>() },
+          [],
+        ]
+      : await Promise.all([
+          readLocalCodexRecoveryFacts(
+            recoveryStore.getSessionFactLogPath(input.sessionId),
+            input.sessionId,
+          ),
+          readCodexThreadLinks(
+            recoveryStore.getSessionFactLogPath(input.sessionId),
+            input.sessionId,
+          ),
+        ]);
+    let recoveryPlan = planLocalCodexRecovery({
+      sourceMessageId: input.sourceMessage.id,
+      role: input.role,
+      contextFingerprint,
+      intents: recoveryFacts.intents,
+      consumedIntentIds: recoveryFacts.consumedIntentIds,
+      threadLinks,
+    });
+    if (recoveryPlan.kind === "resume") {
+      const available = await (this.options.isCodexThreadAvailable
+        ?? defaultCodexThreadAvailability)(recoveryPlan.threadId);
+      if (!available) {
+        recoveryPlan = {
+          kind: "full-fallback",
+          intent: recoveryPlan.intent,
+          reason: "rollout-unavailable",
+        };
+      }
+    }
+    const preparedAttachments = this.options.attachmentManager === undefined
+      ? { promptSuffix: "", imagePaths: [] as string[] }
+      : await this.options.attachmentManager.prepareRunAttachments({
+          messages: input.timelineMessages,
+          runDir,
+        });
+    let prompt = recoveryPlan.kind === "resume"
+      ? buildLocalResumePrompt({ reason: recoveryPlan.intent.reason })
+      : fullPrompt;
+    prompt += preparedAttachments.promptSuffix;
+    if (recoveryPlan.intent !== null) {
+      const requiredRecoveryStore = this.requireCodexRecoveryFactStore();
+      await this.storeCall("local-console-store-consume-worker-resume", () =>
+        requiredRecoveryStore.recordCodexResumeConsumed({
+          sessionId: input.sessionId,
+          intentId: recoveryPlan.intent!.intentId,
+          resumedByRunId: runId,
+          mode: recoveryPlan.kind === "resume" ? "resume" : "full-fallback",
+          reason: recoveryPlan.reason,
+          consumedAt: this.nowIso(),
+        }));
+    }
+    const recordDetachedRunStarted = this.options.store.recordDetachedRunStarted;
+    if (recordDetachedRunStarted === undefined) {
+      throw new Error("local console detached run persistence capability unavailable");
+    }
+    await this.storeCall("local-console-store-record-worker-started", () =>
+      recordDetachedRunStarted.call(this.options.store, {
+        sessionId: input.sessionId,
+        role: input.role,
+        runId,
+        runDir,
+        now: this.nowIso(),
+      }),
+    );
+    this.activeRuns.set(runId, {
+      sessionId: input.sessionId,
+      runId,
+      userMessageId: input.sourceMessage.id,
+      role: input.role,
+      lane: "worker",
+      runDir,
+      cwd: workspace.cwd,
+      workspaceMode: workspace.mode,
+      worktreeUnavailableReason: workspace.worktreeUnavailableReason,
+      branchName: workspace.branchName,
+      baseRef: workspace.baseRef,
+      originalRepoRoot: workspace.originalRepoRoot,
+      liveMarkdown: null,
+      startedAt: this.nowIso(),
+      controller,
+      threadId: null,
+      gracefulResumePrepared: false,
+    });
+
+    let progressFactTail = Promise.resolve();
+    try {
+      const result = await (async () => {
+        try {
+          return await this.options.runCodex({
+            prompt,
+            runDir,
+            cwd: workspace.cwd,
+            mode: recoveryPlan.kind === "resume"
+              ? { kind: "resume", threadId: recoveryPlan.threadId }
+              : { kind: "full" },
+            signal: controller.signal,
+            ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
+            ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
+            ...(preparedAttachments.imagePaths.length === 0 ? {} : { imagePaths: preparedAttachments.imagePaths }),
+            onVisibleAgentMarkdown: (text) => {
+              const active = this.activeRuns.get(runId);
+              if (active?.sessionId === input.sessionId) {
+                active.liveMarkdown = text;
+                const recordedAt = this.nowIso();
+                progressFactTail = progressFactTail.then(() =>
+                  this.storeCall("local-console-store-record-worker-progress", () =>
+                    this.sessionFactStore().recordProgressEvent({
+                      sessionId: input.sessionId,
+                      runId,
+                      role: input.role,
+                      body: text,
+                      now: recordedAt,
+                    })));
+              }
+            },
+            onThreadStarted: async (threadId) => {
+              const active = this.activeRuns.get(runId);
+              if (active?.sessionId === input.sessionId) {
+                active.threadId = threadId;
+              }
+              await this.recordCodexThreadLink({
+                sessionId: input.sessionId,
+                runId,
+                sourceMessageId: input.sourceMessage.id,
+                role: input.role,
+                threadId,
+                startedAt: this.nowIso(),
+                contextFingerprint,
+              });
+            },
+          });
+        } finally {
+          await progressFactTail;
+        }
+      })();
+
+      if (!result.ok) {
+        await this.recordDetachedWorkerResult(input.sessionId, runId, result);
+        return;
+      }
+      if (recoveryStore !== null) {
+        await this.storeCall("local-console-store-record-worker-codex-usage", () =>
+          recoveryStore.recordCodexRunUsage({
+            sessionId: input.sessionId,
+            runId,
+            cachedInputTokens: result.cachedInputTokens,
+            recordedAt: this.nowIso(),
+          }));
+      }
+
+      const sourceDirectoryAvailable = await this.sessionProjectDirectoryAvailable(input.sessionId);
+      const childSessionCard = sourceDirectoryAvailable && input.role === "ceo"
+        ? await this.executeLocalCeoChildSessionOrchestrationIfNeeded({
+            sessionId: input.sessionId,
+            runId,
+            runDir: result.runDir,
+            finalText: result.finalText,
+            availableAgentNames: input.agentFiles.map((agent) => agent.name),
+          })
+        : null;
+
+      if (sourceDirectoryAvailable) {
+        await this.recordWorkspaceDiffIfNeeded(
+          input.sessionId,
+          runId,
+          runDir,
+          workspace,
+          result.finalText,
+          controller.signal,
+        );
+      }
+
+      const recordDetachedAgentResponse = this.options.store.recordDetachedAgentResponse;
+      if (recordDetachedAgentResponse === undefined) {
+        throw new Error("local console detached agent response store capability unavailable");
+      }
+      await this.storeCall("local-console-store-record-worker-response", () =>
+        recordDetachedAgentResponse.call(this.options.store, {
+          sessionId: input.sessionId,
+          role: input.role,
+          body: result.finalText,
+          runId,
+          runDir: result.runDir,
+          now: this.nowIso(),
+        }),
+      );
+      if (childSessionCard !== null) {
+        await this.storeCall("local-console-store-worker-child-session-card", () =>
+          this.sessionFactStore().recordChildSessionCard({
+            parentSessionId: input.sessionId,
+            sourceId: childSessionCard.sourceId,
+            childSessionIds: childSessionCard.childSessionIds,
+            runId,
+            runDir: result.runDir,
+            now: this.nowIso(),
+          }));
+      }
+      this.lastError = null;
+      if (!sourceDirectoryAvailable) {
+        await this.storeCall("local-console-store-worker-directory-unavailable", () =>
+          this.options.store.recordSystemMessage({
+            sessionId: input.sessionId,
+            body: "项目文件夹不可用；隔离工作区已完成当前步骤，修复项目文件夹后才能继续。",
+            systemEventKind: "other",
+            runId,
+            runDir: result.runDir,
+            error: "PROJECT_DIRECTORY_UNAVAILABLE",
+            status: "failed",
+            now: this.nowIso(),
+          }),
+        );
+      }
+    } catch (error) {
+      this.lastError = formatLocalError(error);
+      try {
+        await this.recordDetachedRunTerminal({
+          sessionId: input.sessionId,
+          body: "这一步没跑起来。你可以直接告诉主理人下一步怎么处理。",
+          systemEventKind: "run-not-started",
+          runId,
+          runDir,
+          error: this.lastError,
+          status: "failed",
+        });
+      } catch {
+        // The original store failure remains the useful error.
+      }
+      throw error;
+    } finally {
+      const completedWorkspace = this.activeRuns.get(runId)?.cwd ?? null;
+      this.activeRuns.delete(runId);
+      if (completedWorkspace !== null) {
+        invalidateLocalWorkspaceFacts(completedWorkspace);
+      }
+    }
+  }
+
+  private async recordDetachedRunTerminal(input: {
+    sessionId: string;
+    body: string;
+    systemEventKind: LocalConsoleSystemEventKind;
+    runId: string;
+    runDir: string | null;
+    error: string;
+    status: "failed" | "interrupted" | "stuck";
+  }): Promise<void> {
+    const recordDetachedRunTerminal = this.options.store.recordDetachedRunTerminal;
+    if (recordDetachedRunTerminal === undefined) {
+      await this.options.store.recordSystemMessage({
+        ...input,
+        now: this.nowIso(),
+      });
+      return;
+    }
+    await recordDetachedRunTerminal.call(this.options.store, {
+      ...input,
+      now: this.nowIso(),
+    });
+  }
+
+  private async hasPersistedPrimaryRun(sessionId: string): Promise<boolean> {
+    const messages = await this.storeCall("local-console-store-list-primary-running", () =>
+      this.options.store.listMessages(sessionId),
+    );
+    return messages.some((message) => message.speaker === "user" && message.status === "running");
   }
 
   async repairStaleRunning(sessionId = this.sessionId): Promise<number> {
@@ -1647,6 +2080,24 @@ export class LocalConsoleRuntime {
     };
   }
 
+  private withRuntimeActivity(project: LocalConsoleProjectSummary): LocalConsoleProjectSummary {
+    const sessions = project.sessions.map((session) => {
+      const runs = this.activeRunsForSession(session.sessionId);
+      const runningCount = Math.max(session.runningCount, runs.length);
+      return {
+        ...session,
+        status: runningCount > 0 ? "running" as const : session.status,
+        runningCount,
+        hasPendingControlWork: session.hasPendingControlWork === true || runningCount > 0,
+      };
+    });
+    return {
+      ...project,
+      sessions,
+      runningCount: sessions.reduce((total, session) => total + session.runningCount, 0),
+    };
+  }
+
   private async synchronizeNonContinuableRecords(projects: LocalConsoleProjectSummary[]): Promise<void> {
     for (const session of projects.flatMap((project) => project.sessions)) {
       if (session.continuation === undefined || session.continuation.canContinue) {
@@ -1805,7 +2256,7 @@ export class LocalConsoleRuntime {
       return;
     }
     if (isInterruptedCodexRunResult(result)) {
-      const active = this.activeRuns.get(sessionId);
+      const active = this.activeRuns.get(runId);
       if (result.reason.includes("runtime-closing") && active?.runId === runId && active.gracefulResumePrepared) {
         return;
       }
@@ -1824,6 +2275,84 @@ export class LocalConsoleRuntime {
       return;
     }
     await this.recordFailureOrDeadLetterBestEffort(message, sessionId, runId, result.runDir, result.reason);
+  }
+
+  private async recordDetachedWorkerResult(
+    sessionId: string,
+    runId: string,
+    result: Extract<CodexRunResult, { ok: false }>,
+  ): Promise<void> {
+    const active = this.activeRuns.get(runId);
+    if (
+      isInterruptedCodexRunResult(result)
+      && result.reason.includes("runtime-closing")
+      && active?.gracefulResumePrepared
+    ) {
+      const messages = await this.storeCall("local-console-store-list-graceful-worker-placeholder", () =>
+        this.options.store.listMessages(sessionId));
+      const placeholder = messages.find((message) =>
+        message.runId === runId
+        && message.sourceKind === "local-worker-run");
+      if (placeholder !== undefined) {
+        await this.storeCall("local-console-store-release-graceful-worker-placeholder", () =>
+          this.options.store.releaseMessageForRetry({
+            userMessageId: placeholder.id,
+            sessionId,
+            now: this.nowIso(),
+          }));
+      }
+      return;
+    }
+    const timeoutKind = codexTimeoutKind(result.reason);
+    if (timeoutKind !== null) {
+      await this.storeCall("local-console-store-record-detached-worker-stuck", () =>
+        this.recordDetachedRunTerminal({
+          sessionId,
+          body: "这一步卡住了。你可以直接告诉主理人下一步怎么处理。",
+          systemEventKind: "run-stuck",
+          runId,
+          runDir: result.runDir,
+          error: result.reason,
+          status: "stuck",
+        }),
+      );
+      return;
+    }
+    if (isInterruptedCodexRunResult(result)) {
+      const contextUnavailable =
+        result.reason.includes("project-directory-unavailable")
+        || result.reason.includes("agent-team-unavailable");
+      const redirected =
+        result.reason.includes("primary-redirected-active-agent")
+        || result.reason.includes("user-redirected-active-agent");
+      await this.storeCall("local-console-store-record-detached-worker-interrupted", () =>
+        this.recordDetachedRunTerminal({
+          sessionId,
+          body: contextUnavailable
+            ? "这一步依赖的项目或团队内容已经不可用，因此已停止。已经产生的文件改动会保留。"
+            : redirected
+              ? "主理人发来了新的指令，当前这一步已经停下；这个成员会带着新指令重新开始。"
+              : "你让这一步停下了。已经产生的文件改动会保留。",
+          systemEventKind: redirected || contextUnavailable ? "other" : "user-stopped",
+          runId,
+          runDir: result.runDir,
+          error: result.reason,
+          status: "interrupted",
+        }),
+      );
+      return;
+    }
+    await this.storeCall("local-console-store-record-detached-worker-failed", () =>
+      this.recordDetachedRunTerminal({
+        sessionId,
+        body: "这一步没跑起来。你可以直接告诉主理人下一步怎么处理。",
+        systemEventKind: "run-not-started",
+        runId,
+        runDir: result.runDir,
+        error: result.reason,
+        status: "failed",
+      }),
+    );
   }
 
   private async recordNoTrigger(message: LocalConsoleMessage, sessionId: string, runId: string): Promise<void> {
@@ -1867,14 +2396,34 @@ export class LocalConsoleRuntime {
     }
   }
 
-  private async activeRunSnapshot(sessionId: string): Promise<LocalConsoleRunSnapshot | null> {
-    const active = this.activeRuns.get(sessionId);
-    if (active === undefined) {
-      return null;
-    }
+  private activeRunsForSession(sessionId: string): ActiveLocalRun[] {
+    return [...this.activeRuns.values()]
+      .filter((active) => active.sessionId === sessionId)
+      .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.runId.localeCompare(right.runId));
+  }
+
+  private hasActiveRunForSession(sessionId: string): boolean {
+    return this.activeRunsForSession(sessionId).length > 0;
+  }
+
+  private activeRunForLane(sessionId: string, lane: ActiveLocalRun["lane"]): ActiveLocalRun | undefined {
+    return this.activeRunsForSession(sessionId).find((active) => active.lane === lane);
+  }
+
+  private activeRunForRole(sessionId: string, role: string): ActiveLocalRun | undefined {
+    return this.activeRunsForSession(sessionId).find((active) => active.role === role);
+  }
+
+  private async activeRunSnapshots(sessionId: string): Promise<LocalConsoleRunSnapshot[]> {
+    return await Promise.all(
+      this.activeRunsForSession(sessionId).map((active) => this.snapshotActiveRun(active)),
+    );
+  }
+
+  private async snapshotActiveRun(active: ActiveLocalRun): Promise<LocalConsoleRunSnapshot> {
     const tail = await readLocalConsoleOutputTail(active.runDir);
     return {
-      sessionId,
+      sessionId: active.sessionId,
       runId: active.runId,
       role: active.role,
       status: "running",
@@ -1893,6 +2442,18 @@ export class LocalConsoleRuntime {
       tailDiagnostic: tail.tailDiagnostic,
       interruptible: true,
     };
+  }
+
+  private async applyPendingSessionContextWhenIdle(sessionId: string): Promise<void> {
+    const hasScheduledWorker = [...this.workerLaneTails.keys()].some((key) =>
+      key.startsWith(`${sessionId}\u0000`),
+    );
+    if (this.hasActiveRunForSession(sessionId) || hasScheduledWorker) {
+      return;
+    }
+    await this.storeCall("local-console-store-apply-pending-session-context", () =>
+      this.options.store.applyPendingSessionContext({ sessionId, now: this.nowIso() }),
+    );
   }
 
   private async recordFailureOrDeadLetterBestEffort(
@@ -2297,6 +2858,22 @@ export async function withLocalConsoleTimeout<T>(
 
 export function formatLocalError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function workerLaneKey(sessionId: string, role: string): string {
+  return `${sessionId}\u0000${role}`;
+}
+
+function isPendingPrimaryMessage(message: LocalConsoleMessage): boolean {
+  return message.speaker === "user" && message.status === "pending";
+}
+
+function isWorkerRunPlaceholder(message: LocalConsoleMessage): boolean {
+  return message.sourceKind === "local-worker-run";
+}
+
+function isVisibleTimelineMessage(message: LocalConsoleMessage): boolean {
+  return !isPendingPrimaryMessage(message) && !isWorkerRunPlaceholder(message);
 }
 
 function requireAgentFilePath(agent: LocalConsoleAgentFile): string {

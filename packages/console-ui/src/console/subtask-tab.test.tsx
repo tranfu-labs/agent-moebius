@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { OperatorMessage, OperatorRunSnapshot, OperatorSession } from "./operator-console";
@@ -52,7 +52,7 @@ describe("SubtaskTab", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(onRetry).toHaveBeenCalledWith("qa");
+    expect(onRetry).toHaveBeenCalledWith("run-1");
 
     rerender(tab({
       state: {
@@ -69,8 +69,45 @@ describe("SubtaskTab", () => {
       onRetry,
       onInterrupt,
     }));
-    fireEvent.click(screen.getByRole("button", { name: "停下当前这一步" }));
+    fireEvent.click(screen.getByRole("button", { name: "停下主理人" }));
     expect(onInterrupt).toHaveBeenCalledWith("child-a", "run-active");
+  });
+
+  it("opens complete output with the child session for historical and active Agent runs", () => {
+    const onOpenOutput = vi.fn();
+    const { rerender } = renderTab({ onOpenOutput });
+    const historicalEntry = screen.getByText("正在核对空状态的验收语句…").closest("article");
+    if (historicalEntry === null) {
+      throw new Error("historical Agent entry missing");
+    }
+    fireEvent.click(within(historicalEntry).getByRole("button", { name: "完整输出" }));
+    expect(onOpenOutput).toHaveBeenLastCalledWith({
+      sessionId: "child-a",
+      runId: "run-1",
+      role: "qa",
+      fallbackOutput: "正在核对空状态的验收语句…",
+    });
+
+    rerender(tab({
+      state: {
+        status: "ready",
+        view: {
+          session,
+          messages,
+          activeRun,
+        },
+      },
+      onOpenOutput,
+    }));
+    fireEvent.click(within(screen.getByTestId("subtask-active-run")).getByRole("button", {
+      name: "完整输出",
+    }));
+    expect(onOpenOutput).toHaveBeenLastCalledWith({
+      sessionId: "child-a",
+      runId: "run-active",
+      role: "qa",
+      fallbackOutput: "running",
+    });
   });
 });
 
