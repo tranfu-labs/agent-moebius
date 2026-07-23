@@ -58,6 +58,9 @@ import {
   ConsoleStateCoordinator,
   loadProcessOutput,
   processOutputRunId,
+  loadProjectFile,
+  loadProjectFiles,
+  loadWorkspaceDiff,
   refreshConsoleState,
   type ConsoleSelection,
   type SelectionMutationKind,
@@ -1501,6 +1504,27 @@ function App(): JSX.Element {
     setRightSidebarTabs(nextState);
   }, []);
 
+  const readWorkspaceDiff = useCallback((sessionId: string) => {
+    if (apiBase === null) {
+      return Promise.reject(new Error("local console is unavailable"));
+    }
+    return loadWorkspaceDiff({ apiBase, sessionId, fetch });
+  }, [apiBase]);
+
+  const readProjectFiles = useCallback((sessionId: string) => {
+    if (apiBase === null) {
+      return Promise.reject(new Error("local console is unavailable"));
+    }
+    return loadProjectFiles({ apiBase, sessionId, fetch });
+  }, [apiBase]);
+
+  const readProjectFile = useCallback((sessionId: string, filePath: string) => {
+    if (apiBase === null) {
+      return Promise.reject(new Error("local console is unavailable"));
+    }
+    return loadProjectFile({ apiBase, sessionId, filePath, fetch });
+  }, [apiBase]);
+
   return (
     <OperatorConsole
       project={project}
@@ -1676,6 +1700,9 @@ function App(): JSX.Element {
       onRightSidebarOpenChange={setRightSidebarOpen}
       onRightSidebarWidthChange={changeRightSidebarWidth}
       onRightSidebarTabsChange={changeRightSidebarTabs}
+      onLoadWorkspaceDiff={readWorkspaceDiff}
+      onLoadProjectFiles={readProjectFiles}
+      onLoadProjectFile={readProjectFile}
     />
   );
 }
