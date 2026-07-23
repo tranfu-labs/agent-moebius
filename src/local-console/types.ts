@@ -353,6 +353,7 @@ export interface LocalConsoleStore {
   reorderProjects(projectIds: string[]): Promise<LocalConsoleProjectSummary[]>;
   listProjects(): Promise<LocalConsoleProjectSummary[]>;
   getSessionWorkspace(sessionId: string): Promise<LocalConsoleSessionWorkspaceSource>;
+  getSessionBaselineCommit?(sessionId: string): Promise<string | null>;
   switchSessionWorkspace(input: {
     sessionId: string;
     workspaceMode: LocalConsoleWorkspaceMode;

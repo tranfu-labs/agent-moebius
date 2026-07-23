@@ -117,6 +117,13 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     });
   }
 
+  async getSessionBaselineCommit(sessionId: string): Promise<string | null> {
+    return this.enqueue(async () => {
+      const events = await readFactEvents(this.getSessionFactLogPath(sessionId), sessionId, true);
+      return readConversationBaselineCommit(events);
+    });
+  }
+
   async switchSessionWorkspace(input: {
     sessionId: string;
     workspaceMode: LocalConsoleWorkspaceMode;

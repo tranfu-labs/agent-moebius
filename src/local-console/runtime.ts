@@ -173,6 +173,7 @@ export class LocalConsoleRuntime {
   private readonly pendingProcessSessions = new Set<string>();
   private readonly activeRuns = new Map<string, ActiveLocalRun>();
   private readonly inactiveSessions = new Set<string>();
+  private readonly conversationBaselineCommits = new Map<string, string | null>();
   private closing = false;
   private lastError: string | null = null;
 
@@ -413,6 +414,7 @@ export class LocalConsoleRuntime {
         now: this.nowIso(),
       }),
     );
+    this.conversationBaselineCommits.set(sessionId, baselineCommit ?? null);
     if (normalizedInitialMessage !== undefined || attachmentIds.length > 0) {
       void this.processPending(sessionId);
     }
@@ -1320,9 +1322,19 @@ export class LocalConsoleRuntime {
 
   private async readConversationWorkspaceDiff(sessionId: string): Promise<LocalConsoleWorkspaceDiffSummary> {
     try {
+      if (!this.conversationBaselineCommits.has(sessionId) && this.options.store.getSessionBaselineCommit !== undefined) {
+        const baselineCommit = await this.storeCall("local-console-store-session-baseline", () =>
+          this.options.store.getSessionBaselineCommit!(sessionId),
+        );
+        this.conversationBaselineCommits.set(sessionId, baselineCommit);
+      }
+      if (this.conversationBaselineCommits.get(sessionId) === null) {
+        return { available: false, fileCount: null, reason: "missing-baseline" };
+      }
       const source = await this.storeCall("local-console-store-session-workspace-diff", () =>
         this.options.store.getSessionWorkspace(sessionId),
       );
+      this.conversationBaselineCommits.set(sessionId, source.baselineCommit ?? null);
       const workspacePath = source.workspaceMode === "worktree"
         ? localSessionWorktreePath(this.options.workdirRoot, source.projectId, sessionId)
         : source.folderPath;
