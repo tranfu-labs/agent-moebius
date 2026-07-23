@@ -20,6 +20,7 @@
 ![local-console-operator](local-console-operator.svg)
 ![local-console-managed-attachments](local-console-managed-attachments.svg)
 ![local-console-streamdown-markdown](local-console-streamdown-markdown.svg)
+![local-console-recovery-resume](local-console-recovery-resume.svg)
 ![agent-teams-runtime-binding](agent-teams-runtime-binding.svg)
 
 ### console-ui
@@ -32,14 +33,15 @@
 
 ### local-console
 - 活动 Markdown 边界：active run snapshot 只在内存/API 中携带当前最新一段 Agent 可见 `liveMarkdown`；Codex driver 以 1 MiB 单行上限增量 framing JSONL，命令、reasoning 和生命周期事件不进入对话事实，最终 Agent 消息仍只落库一次。
-- 职责边界：本地对话操作台数据通道。它在本机 loopback HTTP server 与 `.state/local-console.sqlite` 上提供一个本地项目、多会话、会话级 Agent 团队标识、session-scoped message submit、agent 回复接力 drain、SQLite 消息处理位点、`activeRuns` 多运行投影、主 Agent pending FIFO、有界 stdout/stderr tail、按 `sessionId + runId` 精确中断、失败、卡住状态记录，以及本地 failure budget / dead-letter / restart recovery 可见收敛。它还通过 capability 保护的窄附件 API，把不可变托管 blob 与草稿/消息有序 refs 分离持久化，原子提交正文和附件，并在 Codex 运行前把 prompt 范围附件复制到当前 runDir：图片进入 `imagePaths`，普通文件只进入 prompt manifest。它按 `sessionId` 向桌面壳注入的 resolver 请求可用 Agent 名单；团队快照首成员是主 Agent 单一事实，所有 composer 用户消息均先交给主 Agent，正文 mention 只作为派工意图；成员回复中的合法 mention 继续显式交棒，非主 Agent 无 mention 时最终回到主 Agent，主 Agent 无 mention 时结束本轮。每个 session 最多一个主 Agent run、每个专业角色最多一个执行 run，不同角色可并行，同角色 redirect 等旧 run 终态后串行重启。未绑定的存量会话回退共享 `agents/`，绑定团队不可用时显式失败。agent 回复落库后可立即作为同一 session 的下一轮可 claim 触发源继续处理，server 启动只做一次 catch-up，不依赖固定 1s 周期 poll。cursor 待处理 source、主 Agent pending、全部活动 run、active claim、真实 running message 与待主 Agent 接回的专业结果合并派生 `hasPendingControlWork`，供 session/project、侧边栏和子会话状态共同消费；该事实不表示成功或验收通过。自然语言中的“验收 / 通过 / 不通过”只保留为时间线内容，既有 acceptance 表只读保留且不再驱动路由或返工。
-- 入口：`src/local-console/server.ts`、`src/local-console/runtime.ts`、`src/local-console/prompt.ts`、`src/local-console/store.ts`、`src/local-console/attachments.ts`、`src/local-console/output-tail.ts`。
+- 职责边界：本地对话操作台数据通道。它在本机 loopback HTTP server 与 `.state/local-console.sqlite` 上提供一个本地项目、多会话、会话级 Agent 团队标识、session-scoped message submit、agent 回复接力 drain、SQLite 消息处理位点、`activeRuns` 多运行投影、主 Agent pending FIFO、有界 stdout/stderr tail、按 `sessionId + runId` 精确中断、失败、卡住状态记录，以及本地 failure budget / dead-letter / restart recovery 可见收敛。正常新消息、主 Agent 派工、成员接力和下一步骤固定走 full；只有持久化恢复意图明确指向同一未完成 run，且 thread link、角色/团队内容、工作空间指纹与本机 rollout 均兼容时才走 Codex resume。正常退出在 abort 前写恢复意图并由下次启动按原 lane 自动接管；无意图 orphan 仍落成 stuck，由主时间线或子会话按精确 `sessionId + runId` 重试；改一改重发保留公开新消息，同时用内部原 runId 恢复。它还通过 capability 保护的窄附件 API，把不可变托管 blob 与草稿/消息有序 refs 分离持久化，原子提交正文和附件，并在 Codex 运行前把 prompt 范围附件复制到当前 runDir：图片进入 `imagePaths`，普通文件只进入 prompt manifest。它按 `sessionId` 向桌面壳注入的 resolver 请求可用 Agent 名单；团队快照首成员是主 Agent 单一事实，所有 composer 用户消息均先交给主 Agent，正文 mention 只作为派工意图；成员回复中的合法 mention 继续显式交棒，非主 Agent 无 mention 时最终回到主 Agent，主 Agent 无 mention 时结束本轮。每个 session 最多一个主 Agent run、每个专业角色最多一个执行 run，不同角色可并行，同角色 redirect 等旧 run 终态后串行重启。未绑定的存量会话回退共享 `agents/`，绑定团队不可用时显式失败。agent 回复落库后可立即作为同一 session 的下一轮可 claim 触发源继续处理，server 启动只做一次 catch-up，不依赖固定 1s 周期 poll。cursor 待处理 source、主 Agent pending、全部活动 run、active claim、真实 running message 与待主 Agent 接回的专业结果合并派生 `hasPendingControlWork`，供 session/project、侧边栏和子会话状态共同消费；该事实不表示成功或验收通过。自然语言中的“验收 / 通过 / 不通过”只保留为时间线内容，既有 acceptance 表只读保留且不再驱动路由或返工。
+- 入口：`src/local-console/server.ts`、`src/local-console/runtime.ts`、`src/local-console/codex-resume.ts`、`src/local-console/codex-thread-link.ts`、`src/local-console/prompt.ts`、`src/local-console/store.ts`、`src/local-console/attachments.ts`、`src/local-console/output-tail.ts`。
 - 上游：Electron main process、兼容的本地浏览器调试页、local-console 测试。
 - 下游：`src/conversation.ts` 的时间线与 mention 纯函数、`src/triggers/*`、`src/ceo-orchestration.ts` 的纯结构化 parser、`src/codex.ts`、SQLite state worker、数据根下的托管附件目录、会话团队快照、agent Markdown 素材目录、Codex runDir stdout/stderr artifacts 与 `input-attachments/`。
 - 禁止依赖：MUST NOT 调用 GitHub / artifact publisher / GitHub CEO orchestration executor；MUST NOT 修改 conversation、trigger、stage、goal-ledger 或 GitHub issue runner 的业务规则；MUST NOT 启动 GitHub heartbeat、读取 GitHub intake 或把 local session 数据镜像到 `.state/github-runner.sqlite`。本地 child session orchestration 只允许复用纯 parser 并映射为 local child session、`sessions.parent_session_id` 和桌面子会话呈现，不得反向调用 GitHub child issue 编排；本地 descriptor 的任务检查可选，legacy `acceptanceStatements` 只兼容显示为“任务检查参考”，不得恢复 formal acceptance scope。dead-letter/recovery 仍仅限本地 SQLite 可见收敛。
 
 ![local-console-primary-agent-closeout](local-console-primary-agent-closeout.svg)
 ![local-console-primary-control-lanes](local-console-primary-control-lanes.svg)
+![local-console-recovery-resume](local-console-recovery-resume.svg)
 
 ### agents
 - 职责边界：存放 agent/用户画像类 Markdown 素材；可通过受信任 frontmatter 声明 runner 预置的 `pre_script`，或通过 `workspace_access: write | read-run` 选择内置 issue worktree capability，但不负责 GitHub 轮询、状态记录或直接执行本地脚本。`agents/ceo.md` 是 CEO 的共享身份素材：发布前 guardrail 路径只读取 persona body 并保持无状态 fail-open，普通 `@ceo` agent 路径执行 frontmatter prescript 并进入 fail-closed 编排。`agents/ceo-scripts/` 存放 CEO 剧本数据，不作为可 mention agent。`agents/secretary.md` 是 CEO 规则维护入口，作为普通 mention agent 运行但只维护当前仓库的 CEO 规则与相关事实源。

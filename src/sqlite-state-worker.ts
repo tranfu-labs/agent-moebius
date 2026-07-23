@@ -2683,12 +2683,33 @@ function releaseMessageForRetry(
   return transaction(database, () => {
     ensureLocalCursor(database, input.sessionId, input.now);
     const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
-    if (source.speaker === "user" && source.status === "running") {
+    if (source.sourceKind === "local-worker-run") {
+      if (
+        source.status === "running"
+        || source.status === "stuck"
+        || source.status === "failed"
+        || source.status === "interrupted"
+      ) {
+        database
+          .prepare("UPDATE session_messages SET status = 'interrupted', error = NULL, updated_at = ? WHERE id = ?")
+          .run(input.now, source.id);
+      }
+      return null;
+    }
+    if (
+      source.speaker !== "system"
+      && (
+        source.status === "running"
+        || source.status === "stuck"
+        || source.status === "failed"
+        || source.status === "interrupted"
+      )
+    ) {
       database
         .prepare("UPDATE session_messages SET status = 'pending', run_id = NULL, error = NULL, updated_at = ? WHERE id = ?")
         .run(input.now, source.id);
     }
-    clearLocalCursorActive(database, input.sessionId, input.now);
+    rewindLocalCursorForRetry(database, input.sessionId, source.id, input.now);
     return null;
   });
 }
@@ -3202,6 +3223,28 @@ function clearLocalCursorActive(database: SqliteDatabase, sessionId: string, now
        WHERE session_id = ?`,
     )
     .run(now, sessionId);
+}
+
+function rewindLocalCursorForRetry(
+  database: SqliteDatabase,
+  sessionId: string,
+  messageId: number,
+  now: string,
+): void {
+  database
+    .prepare(
+      `UPDATE local_message_cursors
+       SET processed_through_message_id =
+             CASE
+               WHEN processed_through_message_id >= ? THEN ?
+               ELSE processed_through_message_id
+             END,
+           active_message_id = NULL,
+           active_run_id = NULL,
+           updated_at = ?
+       WHERE session_id = ?`,
+    )
+    .run(messageId, Math.max(0, messageId - 1), now, sessionId);
 }
 
 function completeSourceMessage(

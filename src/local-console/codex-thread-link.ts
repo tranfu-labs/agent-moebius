@@ -8,6 +8,7 @@ export interface LocalCodexThreadLinkFact {
   role: string;
   threadId: string;
   startedAt: string;
+  contextFingerprint?: string | null;
 }
 
 export interface LocalProcessPublicAttachment {
@@ -86,7 +87,8 @@ function sameThreadLink(
     && left.sourceMessageId === right.sourceMessageId
     && left.role === right.role
     && left.threadId === right.threadId
-    && left.startedAt === right.startedAt;
+    && left.startedAt === right.startedAt
+    && left.contextFingerprint === right.contextFingerprint;
 }
 
 export function restorePublicInput(
@@ -142,6 +144,9 @@ function parseThreadLink(
     role: readString(value.role, "role"),
     threadId: readString(value.threadId, "threadId"),
     startedAt: readString(value.startedAt, "startedAt"),
+    ...(typeof value.contextFingerprint === "string"
+      ? { contextFingerprint: value.contextFingerprint }
+      : {}),
   };
 }
 

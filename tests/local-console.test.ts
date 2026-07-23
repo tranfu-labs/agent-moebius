@@ -2542,7 +2542,7 @@ describe("local console", { timeout: 15_000 }, () => {
     expect(tail.stdoutTail?.length).toBeLessThanOrEqual(256);
   });
 
-  it("serves one process output with ordered retry attempts, raw errors, truncation, and restart fallback", async () => {
+  it("does not substitute runDir output when Codex thread links are unavailable", async () => {
     const root = await makeFixtureRoot();
     const sqlitePath = path.join(root, ".state", "local-console.sqlite");
     await writeAgent(root, "dev", "# Dev");
@@ -2588,7 +2588,10 @@ describe("local console", { timeout: 15_000 }, () => {
     try {
       await postSessionMessage(started.url, session.sessionId, "@dev retry this step");
       await waitForState(started.url, session.sessionId, (data) =>
-        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending" && entry.error === "exit:42"),
+        data.pendingPrimaryMessages.some((entry) =>
+          entry.speaker === "user"
+          && entry.status === "pending"
+          && entry.error === "exit:42"),
       );
       await started.runtime.processPending(session.sessionId);
       const completed = await waitForState(started.url, session.sessionId, (data) =>
@@ -2605,24 +2608,18 @@ describe("local console", { timeout: 15_000 }, () => {
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
         role: string | null;
-        attempts: Array<{
-          attempt: number;
-          stdout: string | null;
-          stderr: string | null;
-          availability: string;
-          stdoutTruncated: boolean;
-        }>;
+        status: string;
+        unavailableReason: string | null;
+        attempts: unknown[];
+        events: unknown[];
       };
-      expect(body.role).toBe("dev");
-      expect(body.attempts).toHaveLength(2);
-      expect(body.attempts.map((attempt) => attempt.attempt)).toEqual([1, 2]);
-      expect(body.attempts[0]).toEqual(expect.objectContaining({
-        availability: "available",
-        stdoutTruncated: true,
-        stderr: "FAIL original stderr /tmp/project/tests/index.test.ts\n",
+      expect(body).toEqual(expect.objectContaining({
+        role: null,
+        status: "unavailable",
+        unavailableReason: "link-missing",
+        attempts: [],
+        events: [],
       }));
-      expect(body.attempts[0]?.stdout).toContain("first-attempt-tail /tmp/project/src/index.ts");
-      expect(body.attempts[1]?.stdout).toBe("second-attempt PASS /tmp/project/src/index.ts\n");
     } finally {
       await started.close();
     }
@@ -2644,12 +2641,17 @@ describe("local console", { timeout: 15_000 }, () => {
       ));
       expect(response.status).toBe(200);
       const body = (await response.json()) as {
-        attempts: Array<{ availability: string; fallback: string | null }>;
+        status: string;
+        unavailableReason: string | null;
+        attempts: unknown[];
+        events: unknown[];
       };
-      expect(body.attempts).toHaveLength(2);
-      expect(body.attempts.map((attempt) => attempt.availability)).toEqual(["unavailable", "unavailable"]);
-      expect(body.attempts[0]?.fallback).toContain("exit:42");
-      expect(body.attempts[1]?.fallback).toBe("retry finished");
+      expect(body).toEqual(expect.objectContaining({
+        status: "unavailable",
+        unavailableReason: "link-missing",
+        attempts: [],
+        events: [],
+      }));
     } finally {
       await restarted.close();
     }

@@ -74,12 +74,22 @@ import { listLocalWorkspaceFiles, readLocalWorkspaceTextFile } from "./file-read
 import { resolveSessionWorkspaceContext } from "./workspace-resolution.js";
 import { nonContinuableSystemMessage, resolveLocalSessionContinuation } from "./session-status.js";
 import { ORPHAN_RUN_STUCK_REASON, identifyOrphanRuns } from "./orphan-runs.js";
+import { readCodexThreadLinks } from "./codex-thread-link.js";
+import {
+  buildLocalResumePrompt,
+  planLocalCodexRecovery,
+  readLocalCodexRecoveryFacts,
+  type LocalCodexResumeConsumedFact,
+  type LocalCodexResumeIntentFact,
+  type LocalCodexRunUsageFact,
+} from "./codex-resume.js";
 import {
   loadLocalProcessAppendPage,
   loadLocalProcessHistoryPage,
   type LocalConsoleProcessAppendPage,
   type LocalConsoleProcessHistoryPage,
 } from "./process-history.js";
+import { resolveCodexRollout } from "./codex-rollout.js";
 
 export interface LocalConsoleAgentFile {
   name: string;
@@ -110,6 +120,7 @@ export interface LocalConsoleRuntimeOptions {
   routeTimeoutMs?: number;
   failureRetryLimit?: number;
   attachmentManager?: LocalAttachmentManager;
+  isCodexThreadAvailable?: (threadId: string) => Promise<boolean>;
   now?: () => Date;
 }
 
@@ -156,6 +167,13 @@ interface SessionFactWritingStore extends LocalConsoleStore {
   }): Promise<void>;
 }
 
+interface CodexRecoveryFactStore extends LocalConsoleStore {
+  getSessionFactLogPath(sessionId: string): string;
+  recordCodexResumeIntent(input: LocalCodexResumeIntentFact): Promise<void>;
+  recordCodexResumeConsumed(input: LocalCodexResumeConsumedFact): Promise<void>;
+  recordCodexRunUsage(input: LocalCodexRunUsageFact): Promise<void>;
+}
+
 interface ActiveLocalRun {
   sessionId: string;
   runId: string;
@@ -172,6 +190,8 @@ interface ActiveLocalRun {
   liveMarkdown: string | null;
   startedAt: string;
   controller: AbortController;
+  threadId: string | null;
+  gracefulResumePrepared: boolean;
 }
 
 export class LocalConsoleRuntime {
@@ -235,8 +255,33 @@ export class LocalConsoleRuntime {
       [...this.activeRuns.values()].map((active) => active.sessionId),
     );
     const orphans = identifyOrphanRuns({ sessionId, messages, activeSessionIds });
+    const recoveryStore = this.codexRecoveryFactStore();
+    const recoveryFacts = recoveryStore === null
+      ? { intents: [], consumedIntentIds: new Set<string>(), usage: [] }
+      : await readLocalCodexRecoveryFacts(recoveryStore.getSessionFactLogPath(sessionId), sessionId);
     for (const orphan of orphans) {
       try {
+        const gracefulIntent = recoveryFacts.intents.find((intent) =>
+          intent.targetRunId === orphan.runId
+          && intent.reason === "graceful-shutdown"
+          && !recoveryFacts.consumedIntentIds.has(intent.intentId));
+        if (gracefulIntent !== undefined) {
+          if (orphan.userMessageId !== gracefulIntent.sourceMessageId) {
+            await this.storeCall("local-console-store-release-graceful-worker-placeholder", () =>
+              this.options.store.releaseMessageForRetry({
+                userMessageId: orphan.userMessageId,
+                sessionId,
+                now: this.nowIso(),
+              }));
+          }
+          await this.storeCall("local-console-store-release-graceful-resume", () =>
+            this.options.store.releaseMessageForRetry({
+              userMessageId: gracefulIntent.sourceMessageId,
+              sessionId,
+              now: this.nowIso(),
+            }));
+          continue;
+        }
         await this.storeCall("local-console-store-record-stuck", () =>
           this.options.store.recordStuck({
             userMessageId: orphan.userMessageId,
@@ -265,7 +310,40 @@ export class LocalConsoleRuntime {
     }
     this.closing = true;
     this.pendingProcessSessions.clear();
-    for (const active of this.activeRuns.values()) {
+    for (const active of [...this.activeRuns.values()]) {
+      try {
+        if (active.threadId !== null) {
+          const intent: LocalCodexResumeIntentFact = {
+            sessionId: active.sessionId,
+            intentId: `graceful-shutdown:${active.runId}`,
+            targetRunId: active.runId,
+            sourceMessageId: active.userMessageId,
+            role: active.role ?? "",
+            reason: "graceful-shutdown",
+            createdAt: this.nowIso(),
+          };
+          if (intent.role !== "") {
+            const recoveryStore = this.requireCodexRecoveryFactStore();
+            await this.storeCall("local-console-store-record-graceful-resume", () =>
+              recoveryStore.recordCodexResumeIntent(intent));
+            await this.storeCall("local-console-store-release-graceful-resume", () =>
+              this.options.store.releaseMessageForRetry({
+                userMessageId: active.userMessageId,
+                sessionId: active.sessionId,
+                now: this.nowIso(),
+              }));
+            active.gracefulResumePrepared = true;
+          }
+        }
+      } catch (error) {
+        this.lastError = formatLocalError(error);
+        log({
+          event: "local-console-prepare-graceful-resume-failed",
+          sessionId: active.sessionId,
+          runId: active.runId,
+          error: this.lastError,
+        });
+      }
       active.controller.abort("runtime-closing");
     }
     const processingDeadline = Date.now() + this.storeTimeoutMs;
@@ -619,6 +697,7 @@ export class LocalConsoleRuntime {
     body: string,
     sessionId = this.sessionId,
     attachmentIds: string[] = [],
+    resumeRunId?: string,
   ): Promise<LocalConsoleMessage> {
     const trimmed = body.trim();
     if (trimmed === "" && attachmentIds.length === 0) {
@@ -646,8 +725,82 @@ export class LocalConsoleRuntime {
         now: this.nowIso(),
       }),
     );
+    if (resumeRunId !== undefined) {
+      const recoveryStore = this.codexRecoveryFactStore();
+      const links = recoveryStore === null
+        ? []
+        : await readCodexThreadLinks(recoveryStore.getSessionFactLogPath(sessionId), sessionId);
+      const link = links.find((candidate) => candidate.runId === resumeRunId);
+      if (link !== undefined) {
+        await this.storeCall("local-console-store-record-edit-resume", () =>
+          recoveryStore!.recordCodexResumeIntent({
+            sessionId,
+            intentId: crypto.randomUUID(),
+            targetRunId: resumeRunId,
+            sourceMessageId: message.id,
+            role: link.role,
+            reason: "edit-resend",
+            createdAt: this.nowIso(),
+          }));
+      }
+    }
     void this.processPending(sessionId);
     return message;
+  }
+
+  async retryRun(input: { sessionId: string; runId: string }): Promise<boolean> {
+    await this.assertSessionCanContinue(input.sessionId);
+    const messages = await this.storeCall("local-console-store-list-retry-source", () =>
+      this.options.store.listMessages(input.sessionId));
+    const terminal = messages.find((message) =>
+      message.runId === input.runId
+      && (message.status === "stuck" || message.status === "failed" || message.status === "interrupted"));
+    if (terminal === undefined) {
+      return false;
+    }
+    const recoveryStore = this.codexRecoveryFactStore();
+    const links = recoveryStore === null
+      ? []
+      : await readCodexThreadLinks(recoveryStore.getSessionFactLogPath(input.sessionId), input.sessionId);
+    const link = links.find((candidate) => candidate.runId === input.runId);
+    const source = link === undefined
+      ? messages.find((message) =>
+          message.runId === input.runId
+          && message.speaker !== "system"
+          && (message.status === "stuck" || message.status === "failed" || message.status === "interrupted"))
+      : messages.find((message) =>
+          message.id === link.sourceMessageId
+          && message.speaker !== "system");
+    if (source === undefined) {
+      return false;
+    }
+    const role = link?.role ?? source.role;
+    if (
+      role !== null
+      && this.activeRunForRole(input.sessionId, role) !== undefined
+    ) {
+      throw new LocalConsoleBusyError();
+    }
+    if (link !== undefined) {
+      await this.storeCall("local-console-store-record-retry-resume", () =>
+        recoveryStore!.recordCodexResumeIntent({
+          sessionId: input.sessionId,
+          intentId: crypto.randomUUID(),
+          targetRunId: input.runId,
+          sourceMessageId: source.id,
+          role: link.role,
+          reason: "retry",
+          createdAt: this.nowIso(),
+        }));
+    }
+    await this.storeCall("local-console-store-release-user-retry", () =>
+      this.options.store.releaseMessageForRetry({
+        userMessageId: source.id,
+        sessionId: input.sessionId,
+        now: this.nowIso(),
+      }));
+    void this.processAfterCurrent(input.sessionId);
+    return true;
   }
 
   async interruptRun(input: { sessionId: string; runId: string }): Promise<boolean> {
@@ -1103,7 +1256,7 @@ export class LocalConsoleRuntime {
           const agentMarkdown = selectedAgent.agentMarkdown
             ?? await fs.readFile(requireAgentFilePath(selectedAgent), "utf8");
           const agentManifest = parseAgentManifest(agentMarkdown);
-          let prompt = buildLocalAgentPrompt({
+          const fullPrompt = buildLocalAgentPrompt({
             role: trigger.role,
             agentMarkdown: agentManifest.body,
             timeline,
@@ -1122,18 +1275,81 @@ export class LocalConsoleRuntime {
             }),
           );
 
-          const preparedAttachments = this.options.attachmentManager === undefined
-            ? { promptSuffix: "", imagePaths: [] as string[] }
-            : await this.options.attachmentManager.prepareRunAttachments({
-                messages: timelineMessages,
-                runDir: resolvedRunDir,
-              });
-          prompt += preparedAttachments.promptSuffix;
-
           const controller = new AbortController();
           const workspace = await this.resolveWorkspace(sessionId, workspaceSource, controller.signal);
           if (this.inactiveSessions.has(sessionId)) {
             return;
+          }
+          const agentContents = await Promise.all(agentFiles.map(async (agent) => ({
+            name: agent.name,
+            agentMarkdown: agent.name === selectedAgent.name
+              ? agentMarkdown
+              : agent.agentMarkdown ?? await fs.readFile(requireAgentFilePath(agent), "utf8"),
+          })));
+          const contextFingerprint = localCodexContextFingerprint({
+            role: trigger.role,
+            agentMarkdown,
+            agentContents,
+            cwd: workspace.cwd,
+            workspaceMode: workspace.mode,
+          });
+          const recoveryStore = this.codexRecoveryFactStore();
+          const [recoveryFacts, threadLinks] = recoveryStore === null
+            ? [
+                { intents: [], consumedIntentIds: new Set<string>() },
+                [],
+              ]
+            : await Promise.all([
+                readLocalCodexRecoveryFacts(recoveryStore.getSessionFactLogPath(sessionId), sessionId),
+                readCodexThreadLinks(recoveryStore.getSessionFactLogPath(sessionId), sessionId),
+              ]);
+          let recoveryPlan = planLocalCodexRecovery({
+            sourceMessageId: claimedMessage.id,
+            role: trigger.role,
+            contextFingerprint,
+            intents: recoveryFacts.intents,
+            consumedIntentIds: recoveryFacts.consumedIntentIds,
+            threadLinks,
+          });
+          if (recoveryPlan.kind === "resume") {
+            const available = await (this.options.isCodexThreadAvailable
+              ?? defaultCodexThreadAvailability)(recoveryPlan.threadId);
+            if (!available) {
+              recoveryPlan = {
+                kind: "full-fallback",
+                intent: recoveryPlan.intent,
+                reason: "rollout-unavailable",
+              };
+            }
+          }
+          const attachmentMessages = recoveryPlan.kind === "resume" && recoveryPlan.intent.reason === "edit-resend"
+            ? [claimedMessage]
+            : timelineMessages;
+          const preparedAttachments = this.options.attachmentManager === undefined
+            ? { promptSuffix: "", imagePaths: [] as string[] }
+            : await this.options.attachmentManager.prepareRunAttachments({
+                messages: attachmentMessages,
+                runDir: resolvedRunDir,
+              });
+          let prompt = recoveryPlan.kind === "resume"
+            ? buildLocalResumePrompt({
+                reason: recoveryPlan.intent.reason,
+                ...(recoveryPlan.intent.reason === "edit-resend" ? { correctionBody: claimedMessage.body } : {}),
+              })
+            : fullPrompt;
+          prompt += preparedAttachments.promptSuffix;
+
+          if (recoveryPlan.intent !== null) {
+            const recoveryStore = this.requireCodexRecoveryFactStore();
+            await this.storeCall("local-console-store-consume-resume", () =>
+              recoveryStore.recordCodexResumeConsumed({
+                sessionId,
+                intentId: recoveryPlan.intent.intentId,
+                resumedByRunId: nextRunId,
+                mode: recoveryPlan.kind === "resume" ? "resume" : "full-fallback",
+                reason: recoveryPlan.reason,
+                consumedAt: this.nowIso(),
+              }));
           }
           this.activeRuns.set(nextRunId, {
             sessionId,
@@ -1151,6 +1367,8 @@ export class LocalConsoleRuntime {
             liveMarkdown: null,
             startedAt: this.nowIso(),
             controller,
+            threadId: null,
+            gracefulResumePrepared: false,
           });
 
           let progressFactTail = Promise.resolve();
@@ -1160,7 +1378,9 @@ export class LocalConsoleRuntime {
                 prompt,
                 runDir: activeRunDir,
                 cwd: workspace.cwd,
-                mode: { kind: "full" },
+                mode: recoveryPlan.kind === "resume"
+                  ? { kind: "resume", threadId: recoveryPlan.threadId }
+                  : { kind: "full" },
                 signal: controller.signal,
                 ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
                 ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
@@ -1181,15 +1401,21 @@ export class LocalConsoleRuntime {
                         })));
                   }
                 },
-                onThreadStarted: (threadId) =>
-                  this.recordCodexThreadLink({
+                onThreadStarted: async (threadId) => {
+                  const active = this.activeRuns.get(nextRunId);
+                  if (active?.runId === nextRunId) {
+                    active.threadId = threadId;
+                  }
+                  await this.recordCodexThreadLink({
                     sessionId,
                     runId: nextRunId,
                     sourceMessageId: claimedMessage.id,
                     role: trigger.role,
                     threadId,
                     startedAt: this.nowIso(),
-                  }),
+                    contextFingerprint,
+                  });
+                },
               });
             } finally {
               await progressFactTail;
@@ -1199,6 +1425,15 @@ export class LocalConsoleRuntime {
           if (!result.ok) {
             await this.recordFailedCodexResult(claimedMessage, sessionId, nextRunId, result);
             return;
+          }
+          if (recoveryStore !== null) {
+            await this.storeCall("local-console-store-record-codex-usage", () =>
+              recoveryStore.recordCodexRunUsage({
+                sessionId,
+                runId: nextRunId,
+                cachedInputTokens: result.cachedInputTokens,
+                recordedAt: this.nowIso(),
+              }));
           }
 
           const sourceDirectoryAvailable = await this.sessionProjectDirectoryAvailable(sessionId);
@@ -1316,6 +1551,15 @@ export class LocalConsoleRuntime {
     }
   }
 
+  private async processAfterCurrent(sessionId: string): Promise<void> {
+    while (!this.closing && this.processingSessions.has(sessionId)) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    if (!this.closing) {
+      await this.processPending(sessionId);
+    }
+  }
+
   private scheduleWorkerRun(input: {
     sessionId: string;
     sourceMessage: LocalConsoleMessage;
@@ -1373,7 +1617,7 @@ export class LocalConsoleRuntime {
     const agentMarkdown = input.selectedAgent.agentMarkdown
       ?? await fs.readFile(requireAgentFilePath(input.selectedAgent), "utf8");
     const agentManifest = parseAgentManifest(agentMarkdown);
-    let prompt = buildLocalAgentPrompt({
+    const fullPrompt = buildLocalAgentPrompt({
       role: input.role,
       agentMarkdown: agentManifest.body,
       timeline: input.timeline,
@@ -1382,18 +1626,80 @@ export class LocalConsoleRuntime {
     });
 
     const runDir = path.resolve(this.options.makeRunDir(input.timelineMessages.length, this.now()));
+    const controller = new AbortController();
+    const workspace = await this.resolveWorkspace(input.sessionId, input.workspaceSource, controller.signal);
+    if (this.closing || this.inactiveSessions.has(input.sessionId)) {
+      return;
+    }
+    const agentContents = await Promise.all(input.agentFiles.map(async (agent) => ({
+      name: agent.name,
+      agentMarkdown: agent.name === input.selectedAgent.name
+        ? agentMarkdown
+        : agent.agentMarkdown ?? await fs.readFile(requireAgentFilePath(agent), "utf8"),
+    })));
+    const contextFingerprint = localCodexContextFingerprint({
+      role: input.role,
+      agentMarkdown,
+      agentContents,
+      cwd: workspace.cwd,
+      workspaceMode: workspace.mode,
+    });
+    const recoveryStore = this.codexRecoveryFactStore();
+    const [recoveryFacts, threadLinks] = recoveryStore === null
+      ? [
+          { intents: [], consumedIntentIds: new Set<string>() },
+          [],
+        ]
+      : await Promise.all([
+          readLocalCodexRecoveryFacts(
+            recoveryStore.getSessionFactLogPath(input.sessionId),
+            input.sessionId,
+          ),
+          readCodexThreadLinks(
+            recoveryStore.getSessionFactLogPath(input.sessionId),
+            input.sessionId,
+          ),
+        ]);
+    let recoveryPlan = planLocalCodexRecovery({
+      sourceMessageId: input.sourceMessage.id,
+      role: input.role,
+      contextFingerprint,
+      intents: recoveryFacts.intents,
+      consumedIntentIds: recoveryFacts.consumedIntentIds,
+      threadLinks,
+    });
+    if (recoveryPlan.kind === "resume") {
+      const available = await (this.options.isCodexThreadAvailable
+        ?? defaultCodexThreadAvailability)(recoveryPlan.threadId);
+      if (!available) {
+        recoveryPlan = {
+          kind: "full-fallback",
+          intent: recoveryPlan.intent,
+          reason: "rollout-unavailable",
+        };
+      }
+    }
     const preparedAttachments = this.options.attachmentManager === undefined
       ? { promptSuffix: "", imagePaths: [] as string[] }
       : await this.options.attachmentManager.prepareRunAttachments({
           messages: input.timelineMessages,
           runDir,
         });
+    let prompt = recoveryPlan.kind === "resume"
+      ? buildLocalResumePrompt({ reason: recoveryPlan.intent.reason })
+      : fullPrompt;
     prompt += preparedAttachments.promptSuffix;
-
-    const controller = new AbortController();
-    const workspace = await this.resolveWorkspace(input.sessionId, input.workspaceSource, controller.signal);
-    if (this.closing || this.inactiveSessions.has(input.sessionId)) {
-      return;
+    if (recoveryPlan.intent !== null) {
+      const requiredRecoveryStore = this.requireCodexRecoveryFactStore();
+      await this.storeCall("local-console-store-consume-worker-resume", () =>
+        requiredRecoveryStore.recordCodexResumeConsumed({
+          sessionId: input.sessionId,
+          intentId: recoveryPlan.intent!.intentId,
+          resumedByRunId: runId,
+          mode: recoveryPlan.kind === "resume" ? "resume" : "full-fallback",
+          reason: recoveryPlan.reason,
+          consumedAt: this.nowIso(),
+        }));
     }
     const recordDetachedRunStarted = this.options.store.recordDetachedRunStarted;
     if (recordDetachedRunStarted === undefined) {
@@ -1424,6 +1730,8 @@ export class LocalConsoleRuntime {
       liveMarkdown: null,
       startedAt: this.nowIso(),
       controller,
+      threadId: null,
+      gracefulResumePrepared: false,
     });
 
     let progressFactTail = Promise.resolve();
@@ -1434,7 +1742,9 @@ export class LocalConsoleRuntime {
             prompt,
             runDir,
             cwd: workspace.cwd,
-            mode: { kind: "full" },
+            mode: recoveryPlan.kind === "resume"
+              ? { kind: "resume", threadId: recoveryPlan.threadId }
+              : { kind: "full" },
             signal: controller.signal,
             ...(this.codexIdleTimeoutMs === undefined ? {} : { idleTimeoutMs: this.codexIdleTimeoutMs }),
             ...(this.codexMaxDurationMs === undefined ? {} : { maxDurationMs: this.codexMaxDurationMs }),
@@ -1455,15 +1765,21 @@ export class LocalConsoleRuntime {
                     })));
               }
             },
-            onThreadStarted: (threadId) =>
-              this.recordCodexThreadLink({
+            onThreadStarted: async (threadId) => {
+              const active = this.activeRuns.get(runId);
+              if (active?.sessionId === input.sessionId) {
+                active.threadId = threadId;
+              }
+              await this.recordCodexThreadLink({
                 sessionId: input.sessionId,
                 runId,
                 sourceMessageId: input.sourceMessage.id,
                 role: input.role,
                 threadId,
                 startedAt: this.nowIso(),
-              }),
+                contextFingerprint,
+              });
+            },
           });
         } finally {
           await progressFactTail;
@@ -1473,6 +1789,15 @@ export class LocalConsoleRuntime {
       if (!result.ok) {
         await this.recordDetachedWorkerResult(input.sessionId, runId, result);
         return;
+      }
+      if (recoveryStore !== null) {
+        await this.storeCall("local-console-store-record-worker-codex-usage", () =>
+          recoveryStore.recordCodexRunUsage({
+            sessionId: input.sessionId,
+            runId,
+            cachedInputTokens: result.cachedInputTokens,
+            recordedAt: this.nowIso(),
+          }));
       }
 
       const sourceDirectoryAvailable = await this.sessionProjectDirectoryAvailable(input.sessionId);
@@ -1931,6 +2256,10 @@ export class LocalConsoleRuntime {
       return;
     }
     if (isInterruptedCodexRunResult(result)) {
+      const active = this.activeRuns.get(runId);
+      if (result.reason.includes("runtime-closing") && active?.runId === runId && active.gracefulResumePrepared) {
+        return;
+      }
       await this.recordInterruptedBestEffort(
         message,
         sessionId,
@@ -1953,6 +2282,27 @@ export class LocalConsoleRuntime {
     runId: string,
     result: Extract<CodexRunResult, { ok: false }>,
   ): Promise<void> {
+    const active = this.activeRuns.get(runId);
+    if (
+      isInterruptedCodexRunResult(result)
+      && result.reason.includes("runtime-closing")
+      && active?.gracefulResumePrepared
+    ) {
+      const messages = await this.storeCall("local-console-store-list-graceful-worker-placeholder", () =>
+        this.options.store.listMessages(sessionId));
+      const placeholder = messages.find((message) =>
+        message.runId === runId
+        && message.sourceKind === "local-worker-run");
+      if (placeholder !== undefined) {
+        await this.storeCall("local-console-store-release-graceful-worker-placeholder", () =>
+          this.options.store.releaseMessageForRetry({
+            userMessageId: placeholder.id,
+            sessionId,
+            now: this.nowIso(),
+          }));
+      }
+      return;
+    }
     const timeoutKind = codexTimeoutKind(result.reason);
     if (timeoutKind !== null) {
       await this.storeCall("local-console-store-record-detached-worker-stuck", () =>
@@ -2367,6 +2717,7 @@ export class LocalConsoleRuntime {
     role: string;
     threadId: string;
     startedAt: string;
+    contextFingerprint: string;
   }): Promise<void> {
     const record = this.options.store.recordCodexThreadLink;
     if (record === undefined) {
@@ -2390,9 +2741,55 @@ export class LocalConsoleRuntime {
     return store as SessionFactWritingStore;
   }
 
+  private codexRecoveryFactStore(): CodexRecoveryFactStore | null {
+    const store = this.options.store as Partial<CodexRecoveryFactStore> & LocalConsoleStore;
+    if (
+      typeof store.getSessionFactLogPath !== "function" ||
+      typeof store.recordCodexResumeIntent !== "function" ||
+      typeof store.recordCodexResumeConsumed !== "function" ||
+      typeof store.recordCodexRunUsage !== "function"
+    ) {
+      return null;
+    }
+    return store as CodexRecoveryFactStore;
+  }
+
+  private requireCodexRecoveryFactStore(): CodexRecoveryFactStore {
+    const store = this.codexRecoveryFactStore();
+    if (store === null) {
+      throw new Error("local console store does not provide Codex recovery fact persistence");
+    }
+    return store;
+  }
+
   private nowIso(): string {
     return this.now().toISOString();
   }
+}
+
+function localCodexContextFingerprint(input: {
+  role: string;
+  agentMarkdown: string;
+  agentContents: Array<{ name: string; agentMarkdown: string }>;
+  cwd: string;
+  workspaceMode: string;
+}): string {
+  return crypto.createHash("sha256").update(JSON.stringify({
+    role: input.role,
+    agentMarkdown: input.agentMarkdown,
+    team: [...input.agentContents]
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map((agent) => ({
+        name: agent.name,
+        agentMarkdown: agent.agentMarkdown,
+      })),
+    cwd: path.resolve(input.cwd),
+    workspaceMode: input.workspaceMode,
+  })).digest("hex");
+}
+
+async function defaultCodexThreadAvailability(threadId: string): Promise<boolean> {
+  return (await resolveCodexRollout(threadId)).status === "available";
 }
 
 function buildFallbackProjectSummary(projectRoot: string): LocalConsoleProjectSummary {

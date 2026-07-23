@@ -62,6 +62,7 @@ export interface LocalConsoleServerOptions {
   routeJudgment?: LocalRouteJudgment;
   routeTimeoutMs?: number;
   failureRetryLimit?: number;
+  isCodexThreadAvailable?: LocalConsoleRuntimeOptions["isCodexThreadAvailable"];
   attachmentRoot?: string;
   attachmentCapability?: string;
 }
@@ -113,6 +114,7 @@ export async function startLocalConsoleServer(options: LocalConsoleServerOptions
     routeJudgment: options.routeJudgment,
     routeTimeoutMs: options.routeTimeoutMs,
     failureRetryLimit: options.failureRetryLimit,
+    isCodexThreadAvailable: options.isCodexThreadAvailable,
     attachmentManager,
   });
   await runtime.init();
@@ -572,7 +574,14 @@ async function handleRequest(
         sendJson(response, 400, { error: "Expected JSON body with a string body field" });
         return;
       }
-      await submitMessage(response, runtime, payload.body, sessionMessagesMatch.sessionId, readOptionalStringArray(payload.attachmentIds));
+      await submitMessage(
+        response,
+        runtime,
+        payload.body,
+        sessionMessagesMatch.sessionId,
+        readOptionalStringArray(payload.attachmentIds),
+        readOptionalString(payload.resumeRunId),
+      );
       return;
     }
 
@@ -635,6 +644,16 @@ async function handleRequest(
       return;
     }
 
+    const retryRunMatch = matchRunRetryRoute(url.pathname);
+    if (request.method === "POST" && retryRunMatch !== null) {
+      const retried = await runtime.retryRun(retryRunMatch);
+      sendJson(response, retried ? 202 : 404, {
+        retried,
+        ...(retried ? {} : { error: "No retryable run matched the requested sessionId/runId" }),
+      });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/local-console/messages") {
       sendJson(response, 200, await runtime.snapshot());
       return;
@@ -675,9 +694,10 @@ async function submitMessage(
   body: string,
   sessionId?: string,
   attachmentIds?: string[],
+  resumeRunId?: string,
 ): Promise<void> {
   try {
-    const message = await runtime.submitUserMessage(body, sessionId, attachmentIds);
+    const message = await runtime.submitUserMessage(body, sessionId, attachmentIds, resumeRunId);
     sendJson(response, 202, { message });
   } catch (error) {
     if (error instanceof LocalConsoleBusyError) {
@@ -1062,6 +1082,17 @@ function matchSessionRoute(
 
 function matchRunOutputRoute(pathname: string): { sessionId: string; runId: string } | null {
   const match = /^\/api\/local-console\/sessions\/([^/]+)\/runs\/([^/]+)\/output$/u.exec(pathname);
+  if (match === null) {
+    return null;
+  }
+  return {
+    sessionId: decodeURIComponent(match[1] ?? ""),
+    runId: decodeURIComponent(match[2] ?? ""),
+  };
+}
+
+function matchRunRetryRoute(pathname: string): { sessionId: string; runId: string } | null {
+  const match = /^\/api\/local-console\/sessions\/([^/]+)\/runs\/([^/]+)\/retry$/u.exec(pathname);
   if (match === null) {
     return null;
   }

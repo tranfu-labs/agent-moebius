@@ -31,6 +31,22 @@ describe("conversation draft store", () => {
     expect(drafts.read(NEW_CONVERSATION_DRAFT_KEY)).toBe("");
     expect(drafts.read(sessionDraftKey("session-a"))).toBe("existing draft");
   });
+
+  it("persists edit-and-resend recovery metadata separately from visible draft text", () => {
+    const storage = new MemoryStorage();
+    const key = sessionDraftKey("session-a");
+    const firstRun = createConversationDraftStore(storage);
+    firstRun.write(key, "修正后的指令");
+    firstRun.writeResumeRunId(key, "run-stopped");
+
+    const restarted = createConversationDraftStore(storage);
+    expect(restarted.read(key)).toBe("修正后的指令");
+    expect(restarted.readResumeRunId(key)).toBe("run-stopped");
+
+    restarted.clearResumeRunId(key);
+    expect(restarted.read(key)).toBe("修正后的指令");
+    expect(restarted.readResumeRunId(key)).toBeNull();
+  });
 });
 
 class MemoryStorage implements Storage {

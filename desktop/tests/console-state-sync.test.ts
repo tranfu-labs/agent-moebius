@@ -14,6 +14,7 @@ import {
   loadProjectFiles,
   loadWorkspaceDiff,
   refreshConsoleState,
+  retrySessionRun,
   subSessionIdFromSourceKey,
   submitSessionMessage,
   type ConsoleSelection,
@@ -134,6 +135,7 @@ describe("sub-session adapters", () => {
       sessionId: "child/a",
       body: "@qa 继续验收",
       attachmentIds: ["attachment-1"],
+      resumeRunId: "run-stopped",
       fetch,
     })).resolves.toBeUndefined();
 
@@ -147,8 +149,24 @@ describe("sub-session adapters", () => {
       new URL("http://127.0.0.1:8787/api/local-console/sessions/child%2Fa/messages"),
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ body: "@qa 继续验收", attachmentIds: ["attachment-1"] }),
+        body: JSON.stringify({
+          body: "@qa 继续验收",
+          attachmentIds: ["attachment-1"],
+          resumeRunId: "run-stopped",
+        }),
       }),
+    );
+
+    await expect(retrySessionRun({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "child/a",
+      runId: "run/stuck",
+      fetch,
+    })).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      new URL("http://127.0.0.1:8787/api/local-console/sessions/child%2Fa/runs/run%2Fstuck/retry"),
+      { method: "POST" },
     );
   });
 });

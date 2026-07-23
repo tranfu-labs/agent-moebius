@@ -32,7 +32,7 @@ export interface SubtaskTabProps {
   onComposerAttachmentRemove?: (clientId: string) => void;
   onComposerAttachmentRetry?: (clientId: string) => void;
   onSend(): void;
-  onRetry(role: string | null): void;
+  onRetry(runId: string): void;
   onInterrupt(sessionId: string, runId: string): void;
   onOpenOutput?(input: {
     sessionId: string;
@@ -171,7 +171,7 @@ function SubtaskTimelineEntry({
   onOpenExternalLink,
 }: {
   message: OperatorMessage;
-  onRetry(role: string | null): void;
+  onRetry(runId: string): void;
   onOpenOutput?: SubtaskTabProps["onOpenOutput"];
   onOpenExternalLink?: (url: string) => void;
 }): JSX.Element {
@@ -183,8 +183,8 @@ function SubtaskTimelineEntry({
         role={message.role}
         rawReason={message.error ?? message.body}
         rawOutput={message.error ?? message.body}
-        onRetry={outcome === "run-not-started" || outcome === "run-stuck"
-          ? () => onRetry(message.role)
+        onRetry={(outcome === "run-not-started" || outcome === "run-stuck") && message.runId !== null
+          ? () => onRetry(message.runId!)
           : undefined}
         onOpenOutput={message.runId === null || onOpenOutput === undefined
           ? undefined

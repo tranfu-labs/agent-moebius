@@ -1385,10 +1385,12 @@ describe("OperatorConsole", () => {
     const onOpenDiagnostics = vi.fn();
     const onOpenEvidence = vi.fn();
     const onEditAndResend = vi.fn();
+    const onRetryRun = vi.fn();
     renderConsole({
       onOpenDiagnostics,
       onOpenEvidence,
       onEditAndResend,
+      onRetryRun,
       messages: [
         message({ id: 1, speaker: "system", runId: "run-stop", status: "interrupted", systemEventKind: "user-stopped", body: "你让这一步停下了", error: "interrupted:user-interrupted" }),
         message({ id: 2, speaker: "system", runId: "run-fail", status: "failed", systemEventKind: "run-not-started", body: "这一步没跑起来", error: "exit:42" }),
@@ -1414,6 +1416,11 @@ describe("OperatorConsole", () => {
       runId: "run-stop",
     });
     expect(screen.getAllByRole("button", { name: /改一改重发/u })).toHaveLength(1);
+    const retryButtons = screen.getAllByRole("button", { name: "重试" });
+    fireEvent.click(retryButtons[0]!);
+    fireEvent.click(retryButtons[1]!);
+    expect(onRetryRun).toHaveBeenNthCalledWith(1, "session-a", "run-fail");
+    expect(onRetryRun).toHaveBeenNthCalledWith(2, "session-a", "run-stuck");
   });
 
   it("keeps derived sessions out of the sidebar and opens them from a timeline card", () => {
