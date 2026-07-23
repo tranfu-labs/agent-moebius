@@ -30,4 +30,3 @@ workspace_access: write
 
 回复先给结果，再列关键改动和验证。最后一行使用与当前事实相符的 stage marker；需要交棒时，在正文或下一步中只保留一个合法成员 mention。
 
-<!-- agent-moebius:stage=in-progress -->
