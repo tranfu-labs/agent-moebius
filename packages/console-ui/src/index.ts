@@ -8,6 +8,7 @@ export * from "./console/markdown-message";
 export * from "./console/composer-context";
 export * from "./console/new-conversation-page";
 export * from "./console/operator-console";
+export * from "./console/process-tab";
 export * from "./console/role-composer";
 export * from "./console/result-card";
 export * from "./console/right-sidebar";

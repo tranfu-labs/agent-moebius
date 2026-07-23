@@ -1081,6 +1081,145 @@ describe("OperatorConsole", () => {
     });
   });
 
+  it("renders ordered raw attempts from the complete-output entry without sanitizing paths or errors", () => {
+    renderConsole({
+      messages: [message({
+        id: 2,
+        speaker: "agent",
+        role: "dev",
+        runId: "run-retry-2",
+        body: "已完成第二次执行",
+      })],
+      processOutputs: {
+        "run-output:session-a:run-retry-2": {
+          status: "ready",
+          output: {
+            sessionId: "session-a",
+            requestedRunId: "run-retry-2",
+            role: "dev",
+            status: "settled",
+            attempts: [
+              {
+                runId: "run-retry-1",
+                attempt: 1,
+                startedAt: "2026-07-09T00:00:00.000Z",
+                status: "settled",
+                stdout: null,
+                stderr: "Error: failed at /Users/wing/private/source.ts\n**raw stderr**",
+                fallback: "first failure",
+                availability: "available",
+                stdoutTruncated: false,
+                stderrTruncated: true,
+              },
+              {
+                runId: "run-retry-2",
+                attempt: 2,
+                startedAt: "2026-07-09T00:01:00.000Z",
+                status: "settled",
+                stdout: "saved /Users/wing/private/result.txt",
+                stderr: null,
+                fallback: "second result",
+                availability: "available",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+
+    const content = screen.getByTestId("right-sidebar-content");
+    expect(within(content).getByText("开发 · 这一步的完整输出")).toBeVisible();
+    expect(within(content).getByText("第 1 次执行")).toBeVisible();
+    expect(within(content).getByText("第 2 次执行")).toBeVisible();
+    expect(within(content).getByRole("note")).toHaveTextContent("此处已截断");
+    expect(content).toHaveTextContent("Error: failed at /Users/wing/private/source.ts");
+    expect(content).toHaveTextContent("**raw stderr**");
+    expect(content).toHaveTextContent("saved /Users/wing/private/result.txt");
+    expect(content).not.toHaveTextContent("路径已隐藏");
+    expect(within(content).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(content).queryByRole("button")).not.toBeInTheDocument();
+    expect(content.querySelectorAll("pre.select-text")).toHaveLength(2);
+  });
+
+  it("numbers separate process tabs by member and never derives a title from step content", () => {
+    renderConsole({
+      messages: [
+        message({ id: 2, speaker: "agent", role: "dev", runId: "run-one", body: "实现上传协议" }),
+        message({ id: 3, speaker: "agent", role: "dev", runId: "run-two", body: "修复数据库迁移" }),
+      ],
+    });
+
+    const outputButtons = screen.getAllByRole("button", { name: "完整输出" });
+    fireEvent.click(outputButtons[0]!);
+    fireEvent.click(outputButtons[1]!);
+
+    const panel = screen.getByTestId("right-sidebar");
+    expect(within(panel).getByRole("tab", { name: "开发" })).toHaveAttribute("title", "开发");
+    expect(within(panel).getByRole("tab", { name: "开发 2" })).toHaveAttribute("title", "开发 2");
+    expect(within(panel).queryByRole("tab", { name: /上传协议|数据库迁移/u })).not.toBeInTheDocument();
+  });
+
+  it("distinguishes unavailable original output from an empty execution", () => {
+    renderConsole({
+      messages: [message({
+        id: 2,
+        speaker: "agent",
+        role: null,
+        runId: "run-missing",
+        body: "fallback result",
+      })],
+      processOutputs: {
+        "run-output:session-a:run-missing": {
+          status: "ready",
+          output: {
+            sessionId: "session-a",
+            requestedRunId: "run-missing",
+            role: null,
+            status: "settled",
+            attempts: [
+              {
+                runId: "run-missing",
+                attempt: 1,
+                startedAt: "2026-07-09T00:00:00.000Z",
+                status: "settled",
+                stdout: null,
+                stderr: null,
+                fallback: "fallback /tmp/run-missing",
+                availability: "unavailable",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              },
+              {
+                runId: "run-empty",
+                attempt: 2,
+                startedAt: "2026-07-09T00:01:00.000Z",
+                status: "settled",
+                stdout: null,
+                stderr: null,
+                fallback: null,
+                availability: "empty",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+
+    const panel = screen.getByTestId("right-sidebar");
+    expect(within(panel).getByRole("tab", { name: "成员未知" })).toHaveAttribute("title", "成员未知");
+    expect(within(panel).getByText("原始输出已不可用，以下为会话中保留的记录。")).toBeVisible();
+    expect(within(panel).getByText("这一步没有产生输出。")).toBeVisible();
+    expect(panel).toHaveTextContent("fallback /tmp/run-missing");
+  });
+
   it("keeps terminal outcomes readable and gives every fact a complete-output outlet", () => {
     const onOpenDiagnostics = vi.fn();
     const onOpenEvidence = vi.fn();
