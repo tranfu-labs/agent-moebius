@@ -4,7 +4,10 @@ import { interruptLocalConsoleRun } from "../src/console-page/interrupt.js";
 
 describe("desktop console interrupt adapter", () => {
   it("posts the active run identity and refreshes after a successful stop", async () => {
-    const fetch = vi.fn(async () => jsonResponse({ interrupted: true }, 202));
+    const fetch = vi.fn(function (this: unknown) {
+      expect(this).toBeUndefined();
+      return Promise.resolve(jsonResponse({ interrupted: true }, 202));
+    });
     const refresh = vi.fn(async () => undefined);
 
     await expect(interruptLocalConsoleRun({

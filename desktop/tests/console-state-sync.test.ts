@@ -5,11 +5,14 @@ import {
   ConsoleStateCoordinator,
   loadEvidenceView,
   loadProcessOutput,
+  loadSubSessionView,
   processOutputRunId,
   loadProjectFile,
   loadProjectFiles,
   loadWorkspaceDiff,
   refreshConsoleState,
+  subSessionIdFromSourceKey,
+  submitSessionMessage,
   type ConsoleSelection,
   type SelectionMutationKind,
 } from "../src/console-page/state-sync.js";
@@ -90,6 +93,58 @@ describe("acknowledgeDisplayedResult", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ unreadSince: "2026-07-09T00:00:02.000Z" }),
+      }),
+    );
+  });
+});
+
+describe("sub-session adapters", () => {
+  it("parses only a non-empty sub-session source key", () => {
+    expect(subSessionIdFromSourceKey("sub-session:child/a")).toBe("child/a");
+    expect(subSessionIdFromSourceKey("run-output:child/a")).toBeNull();
+    expect(subSessionIdFromSourceKey("sub-session:")).toBeNull();
+    expect(subSessionIdFromSourceKey(null)).toBeNull();
+  });
+
+  it("loads and advances the exact child session", async () => {
+    const view = {
+      session: { sessionId: "child/a" },
+      messages: [],
+      activeRun: null,
+    };
+    let requestCount = 0;
+    const fetch = vi.fn(function (this: unknown) {
+      expect(this).toBeUndefined();
+      requestCount += 1;
+      return Promise.resolve(requestCount === 1
+        ? jsonResponse(view)
+        : jsonResponse({ accepted: true }, 202));
+    });
+
+    await expect(loadSubSessionView({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "child/a",
+      fetch,
+    })).resolves.toEqual(view);
+    await expect(submitSessionMessage({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "child/a",
+      body: "@qa 继续验收",
+      attachmentIds: ["attachment-1"],
+      fetch,
+    })).resolves.toBeUndefined();
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      new URL("http://127.0.0.1:8787/api/local-console/sessions/child%2Fa/view"),
+      undefined,
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      new URL("http://127.0.0.1:8787/api/local-console/sessions/child%2Fa/messages"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ body: "@qa 继续验收", attachmentIds: ["attachment-1"] }),
       }),
     );
   });

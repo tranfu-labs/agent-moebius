@@ -7,7 +7,8 @@ export async function interruptLocalConsoleRun(input: {
   fetch: FetchLike;
   refresh: () => Promise<unknown>;
 }): Promise<"interrupted" | "already-finished"> {
-  const response = await input.fetch(
+  const fetch = input.fetch;
+  const response = await fetch(
     endpoint(input.apiBase, `/api/local-console/sessions/${encodeURIComponent(input.sessionId)}/interrupt`),
     {
       method: "POST",

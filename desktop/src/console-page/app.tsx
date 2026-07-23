@@ -17,6 +17,7 @@ import {
   type OperatorRunSnapshot,
   type OperatorRunnerStatus,
   type OperatorSession,
+  type OperatorSubSessionViewState,
   type RightSidebarTabsState,
   hasBlockingComposerAttachment,
   readyComposerAttachmentIds,
@@ -57,11 +58,14 @@ import {
   ConsoleStateActions,
   ConsoleStateCoordinator,
   loadProcessOutput,
+  loadSubSessionView,
   processOutputRunId,
   loadProjectFile,
   loadProjectFiles,
   loadWorkspaceDiff,
   refreshConsoleState,
+  subSessionIdFromSourceKey,
+  submitSessionMessage,
   type ConsoleSelection,
   type SelectionMutationKind,
   type SelectionMutationToken,
@@ -208,7 +212,7 @@ declare global {
   }
 }
 
-function App(): JSX.Element {
+export function App(): JSX.Element {
   const [apiBase, setApiBase] = useState<string | null>(readQueryApiBase());
   const [attachmentCapability, setAttachmentCapability] = useState<string | null>(null);
   const [initialSelectionPreference] = useState<ConsoleSelection | null>(() =>
@@ -229,6 +233,9 @@ function App(): JSX.Element {
     rightSidebarTabsStoreRef.current.read(selection.sessionId),
   );
   const [processOutputs, setProcessOutputs] = useState<Record<string, OperatorProcessOutputState>>({});
+  const [subSessionViews, setSubSessionViews] = useState<Record<string, OperatorSubSessionViewState>>({});
+  const [subSessionComposerValues, setSubSessionComposerValues] = useState<Record<string, string>>({});
+  const [subSessionSendingId, setSubSessionSendingId] = useState<string | null>(null);
   const [composerValue, setComposerValue] = useState(() =>
     conversationDraftStoreRef.current.read(sessionDraftKey(selection.sessionId)),
   );
@@ -257,14 +264,27 @@ function App(): JSX.Element {
     readRightSidebarWidthPreference(window.localStorage),
   );
   const resultAcknowledgementsRef = useRef(new Set<string>());
+  const activeRightSidebarTab = rightSidebarTabs.tabs.find(
+    (tab) => tab.id === rightSidebarTabs.activeTabId,
+  ) ?? null;
+  const activeSubSessionId = activeRightSidebarTab?.type === "sub-session"
+    ? subSessionIdFromSourceKey(activeRightSidebarTab.sourceKey)
+    : null;
   const currentAttachmentDraftKey = newConversation === null
     ? sessionDraftKey(selection.sessionId)
     : NEW_CONVERSATION_DRAFT_KEY;
+  const activeSubSessionDraftKey = sessionDraftKey(activeSubSessionId ?? "__inactive-sub-session__");
   const reportAttachmentError = useCallback((error: string) => setClientError(error), []);
   const managedAttachments = useManagedAttachmentDrafts({
     apiBase,
     capability: attachmentCapability,
     currentDraftKey: currentAttachmentDraftKey,
+    onError: reportAttachmentError,
+  });
+  const managedSubSessionAttachments = useManagedAttachmentDrafts({
+    apiBase,
+    capability: attachmentCapability,
+    currentDraftKey: activeSubSessionDraftKey,
     onError: reportAttachmentError,
   });
 
@@ -1059,11 +1079,9 @@ function App(): JSX.Element {
   useEffect(() => {
     setRightSidebarTabs(rightSidebarTabsStoreRef.current.read(selection.sessionId));
     setProcessOutputs({});
+    setSubSessionViews({});
   }, [selection.sessionId]);
 
-  const activeRightSidebarTab = rightSidebarTabs.tabs.find(
-    (tab) => tab.id === rightSidebarTabs.activeTabId,
-  ) ?? null;
   const activeProcessSourceKey = activeRightSidebarTab?.type === "run-output"
     ? activeRightSidebarTab.sourceKey
     : null;
@@ -1127,6 +1145,60 @@ function App(): JSX.Element {
       controller.abort("process-output-tab-changed");
     };
   }, [activeProcessSourceKey, apiBase, selection.sessionId]);
+
+  useEffect(() => {
+    if (apiBase === null || activeSubSessionId === null) {
+      return;
+    }
+    const controller = new AbortController();
+    let inFlight = false;
+    let timer: number | null = null;
+    setSubSessionViews((current) => ({
+      ...current,
+      [activeSubSessionId]: current[activeSubSessionId]?.status === "ready"
+        ? current[activeSubSessionId]!
+        : { status: "loading" },
+    }));
+    const refreshSubSessionView = async (): Promise<void> => {
+      if (inFlight) {
+        return;
+      }
+      inFlight = true;
+      try {
+        const view = await loadSubSessionView({
+          apiBase,
+          sessionId: activeSubSessionId,
+          fetch,
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) {
+          setSubSessionViews((current) => ({
+            ...current,
+            [activeSubSessionId]: { status: "ready", view },
+          }));
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setSubSessionViews((current) => ({
+            ...current,
+            [activeSubSessionId]: { status: "error", message: formatError(error) },
+          }));
+        }
+      } finally {
+        inFlight = false;
+        if (!controller.signal.aborted) {
+          timer = window.setTimeout(() => void refreshSubSessionView(), 1_000);
+        }
+      }
+    };
+    void refreshSubSessionView();
+    return () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      controller.abort("sub-session-tab-changed");
+    };
+  }, [activeSubSessionId, apiBase]);
 
   const refresh = useCallback(async (
     targetSelection: ConsoleSelection,
@@ -1206,7 +1278,43 @@ function App(): JSX.Element {
     apiBase,
     capability: attachmentCapability,
   });
+  const activeSubSessionState = activeSubSessionId === null ? undefined : subSessionViews[activeSubSessionId];
+  const activeSubSessionMessages = activeSubSessionState?.status === "ready"
+    ? activeSubSessionState.view.messages
+    : NO_OPERATOR_MESSAGES;
+  const activeSubSessionMessagesWithPreviews = useMessagesWithAttachmentPreviews({
+    messages: activeSubSessionMessages,
+    apiBase,
+    capability: attachmentCapability,
+  });
+  const subSessionViewsWithPreviews = useMemo(() => {
+    if (
+      activeSubSessionId === null
+      || activeSubSessionState?.status !== "ready"
+    ) {
+      return subSessionViews;
+    }
+    return {
+      ...subSessionViews,
+      [activeSubSessionId]: {
+        status: "ready" as const,
+        view: {
+          ...activeSubSessionState.view,
+          messages: activeSubSessionMessagesWithPreviews,
+        },
+      },
+    };
+  }, [
+    activeSubSessionId,
+    activeSubSessionMessagesWithPreviews,
+    activeSubSessionState,
+    subSessionViews,
+  ]);
   const activeRun = state?.activeRun ?? null;
+  const activeSubSessionComposerValue = activeSubSessionId === null
+    ? ""
+    : subSessionComposerValues[activeSubSessionId]
+      ?? conversationDraftStoreRef.current.read(sessionDraftKey(activeSubSessionId));
   const sqlitePath = state?.sqlitePath;
   const projectListState = state !== null ? "ready" : clientError === null ? "loading" : "error";
 
@@ -1454,6 +1562,17 @@ function App(): JSX.Element {
     }
   }, [apiBase, refresh]);
 
+  const refreshSubSessionNow = useCallback(async (sessionId: string): Promise<void> => {
+    if (apiBase === null) {
+      return;
+    }
+    const view = await loadSubSessionView({ apiBase, sessionId, fetch });
+    setSubSessionViews((current) => ({
+      ...current,
+      [sessionId]: { status: "ready", view },
+    }));
+  }, [apiBase]);
+
   const interrupt = useCallback(async (sessionId: string, runId: string) => {
     if (apiBase === null) {
       return;
@@ -1471,6 +1590,87 @@ function App(): JSX.Element {
       setClientError(formatError(error));
     }
   }, [apiBase, refresh]);
+
+  const sendSubSessionMessage = useCallback(async (sessionId: string) => {
+    if (apiBase === null || subSessionSendingId !== null) {
+      return;
+    }
+    const body = subSessionComposerValues[sessionId]
+      ?? conversationDraftStoreRef.current.read(sessionDraftKey(sessionId));
+    const attachmentIds = readyComposerAttachmentIds(managedSubSessionAttachments.attachments);
+    if (body.trim() === "" && attachmentIds.length === 0) {
+      return;
+    }
+    setSubSessionSendingId(sessionId);
+    try {
+      await submitSessionMessage({ apiBase, sessionId, body, attachmentIds, fetch });
+      conversationDraftStoreRef.current.clear(sessionDraftKey(sessionId));
+      setSubSessionComposerValues((current) => ({ ...current, [sessionId]: "" }));
+      managedSubSessionAttachments.clearDraft(sessionDraftKey(sessionId));
+      await Promise.all([
+        refreshSubSessionNow(sessionId),
+        refresh(selectionRef.current),
+      ]);
+      setClientError(null);
+    } catch (error) {
+      setClientError(formatError(error));
+    } finally {
+      setSubSessionSendingId(null);
+    }
+  }, [
+    apiBase,
+    managedSubSessionAttachments.attachments,
+    managedSubSessionAttachments.clearDraft,
+    refresh,
+    refreshSubSessionNow,
+    subSessionComposerValues,
+    subSessionSendingId,
+  ]);
+
+  const retrySubSession = useCallback(async (sessionId: string, role: string | null) => {
+    if (apiBase === null || subSessionSendingId !== null) {
+      return;
+    }
+    const retryBody = role !== null && /^[a-z0-9][a-z0-9-]*$/u.test(role)
+      ? `@${role} 请重试刚才没有完成的步骤。`
+      : "请重试刚才没有完成的步骤。";
+    setSubSessionSendingId(sessionId);
+    try {
+      await submitSessionMessage({ apiBase, sessionId, body: retryBody, fetch });
+      await Promise.all([
+        refreshSubSessionNow(sessionId),
+        refresh(selectionRef.current),
+      ]);
+      setClientError(null);
+    } catch (error) {
+      setClientError(formatError(error));
+    } finally {
+      setSubSessionSendingId(null);
+    }
+  }, [apiBase, refresh, refreshSubSessionNow, subSessionSendingId]);
+
+  const interruptSubSession = useCallback(async (sessionId: string, runId: string) => {
+    if (apiBase === null) {
+      return;
+    }
+    try {
+      await interruptLocalConsoleRun({
+        apiBase,
+        sessionId,
+        runId,
+        fetch,
+        refresh: async () => {
+          await Promise.all([
+            refreshSubSessionNow(sessionId),
+            refresh(selectionRef.current),
+          ]);
+        },
+      });
+      setClientError(null);
+    } catch (error) {
+      setClientError(formatError(error));
+    }
+  }, [apiBase, refresh, refreshSubSessionNow]);
 
   const openDiagnostics = useMemo(() => {
     if (window.agentMoebius?.openStatusPage === undefined) {
@@ -1534,6 +1734,9 @@ function App(): JSX.Element {
       selectedSession={selectedSession}
       messages={messagesWithPreviews}
       childSessions={state?.childSessions ?? []}
+      subSessionViews={subSessionViewsWithPreviews}
+      subSessionComposerValue={activeSubSessionComposerValue}
+      subSessionComposerAttachments={managedSubSessionAttachments.attachments}
       activeRun={activeRun}
       workspaceDiff={state?.workspaceDiff ?? { available: false, fileCount: null, reason: "unavailable" }}
       composerValue={composerValue}
@@ -1566,6 +1769,22 @@ function App(): JSX.Element {
       onComposerAttachmentRemove={managedAttachments.remove}
       onComposerAttachmentRetry={managedAttachments.retry}
       onSend={actions.sendMessage}
+      onSubSessionComposerChange={(sessionId, value) => {
+        conversationDraftStoreRef.current.write(sessionDraftKey(sessionId), value);
+        setSubSessionComposerValues((current) => ({ ...current, [sessionId]: value }));
+      }}
+      onSubSessionComposerFilesAdded={managedSubSessionAttachments.addFiles}
+      onSubSessionComposerAttachmentRemove={managedSubSessionAttachments.remove}
+      onSubSessionComposerAttachmentRetry={managedSubSessionAttachments.retry}
+      onSubSessionSend={(sessionId) => {
+        void sendSubSessionMessage(sessionId);
+      }}
+      onSubSessionRetry={(sessionId, role) => {
+        void retrySubSession(sessionId, role);
+      }}
+      onSubSessionInterrupt={(sessionId, runId) => {
+        void interruptSubSession(sessionId, runId);
+      }}
       onStartNewConversation={startNewConversation}
       onNewConversationProjectChange={(projectId) => {
         setClientError(null);
@@ -1687,6 +1906,7 @@ function App(): JSX.Element {
       onTrashAgentTeamMember={trashAgentTeamMember}
       onTrashUserAgentTeam={trashUserAgentTeam}
       isSending={isSending}
+      isSubSessionSending={subSessionSendingId !== null}
       isSelectionMutationPending={selectionMutationKind !== null}
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}
       isProjectMutationPending={isProjectMutationPending}
@@ -1729,6 +1949,8 @@ const emptyProject: OperatorProject = {
   errorCount: 0,
 };
 
+const NO_OPERATOR_MESSAGES: OperatorMessage[] = [];
+
 function endpoint(base: string, path: string): URL {
   return new URL(path.replace(/^\//u, ""), base.endsWith("/") ? base : `${base}/`);
 }
@@ -1768,4 +1990,7 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-createRoot(document.getElementById("root") as HTMLElement).render(<App />);
+const rootElement = document.getElementById("root");
+if (rootElement !== null) {
+  createRoot(rootElement).render(<App />);
+}

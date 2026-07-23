@@ -1395,6 +1395,63 @@ describe("OperatorConsole", () => {
     expect(onOpenSubSession).toHaveBeenCalledWith(childSession.sessionId);
   });
 
+  it("keeps multiple subtask tabs and their conversation state isolated by session id", () => {
+    const firstSession = { ...sessions[1], sessionId: "child-a", parentSessionId: "session-a", title: "空状态验收" };
+    const secondSession = { ...sessions[1], sessionId: "child-b", parentSessionId: "session-a", title: "登录验收" };
+    renderConsole({
+      messages: [message({
+        id: 10,
+        speaker: "system",
+        sourceKind: "local-child-session-card",
+        body: JSON.stringify({ version: 1, childSessionIds: ["child-a", "child-b"] }),
+      })],
+      childSessions: [{
+        sessionId: "child-a",
+        title: "空状态验收",
+        memberName: "测试",
+        status: "waiting",
+        statusLabel: "等待中",
+      }, {
+        sessionId: "child-b",
+        title: "登录验收",
+        memberName: "开发",
+        status: "running",
+        statusLabel: "进行中",
+      }],
+      subSessionViews: {
+        "child-a": {
+          status: "ready",
+          view: {
+            session: firstSession,
+            messages: [message({ id: 11, sessionId: "child-a", role: "qa", speaker: "agent", body: "只属于空状态验收" })],
+            activeRun: null,
+          },
+        },
+        "child-b": {
+          status: "ready",
+          view: {
+            session: secondSession,
+            messages: [message({ id: 12, sessionId: "child-b", role: "dev", speaker: "agent", body: "只属于登录验收" })],
+            activeRun: null,
+          },
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /空状态验收，负责成员/u }));
+    fireEvent.click(screen.getByRole("button", { name: /登录验收，负责成员/u }));
+    expect(screen.getByRole("tab", { name: "空状态验收" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "登录验收" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("只属于登录验收")).toBeVisible();
+    expect(screen.queryByText("只属于空状态验收")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "空状态验收" }));
+    expect(screen.getByText("只属于空状态验收")).toBeVisible();
+    expect(screen.queryByText("只属于登录验收")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /空状态验收，负责成员/u })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /登录验收，负责成员/u })).toHaveAttribute("aria-pressed", "false");
+  });
+
   it("keeps the parent visible in a wide split, overlays narrow windows, and restores parent scroll after close", async () => {
     setWindowWidth(1200);
     const onOpenSubSession = vi.fn();
@@ -1429,7 +1486,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByTestId("right-sidebar")).toHaveAttribute("data-layout", "split");
     expect(screen.getByRole("tab", { name: "空状态验收" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "会话时间线" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox")).toBeEnabled();
+    expect(screen.getByPlaceholderText("描述你的目标，@ 一个角色开始…")).toBeEnabled();
     timeline.scrollTop = 700;
 
     setWindowWidth(700);
