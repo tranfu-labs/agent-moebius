@@ -531,6 +531,7 @@ export interface LocalConsoleStore {
     role: string;
     threadId: string;
     startedAt: string;
+    contextFingerprint?: string | null;
   }): Promise<void>;
   recordSystemAndComplete(input: {
     userMessageId: number;

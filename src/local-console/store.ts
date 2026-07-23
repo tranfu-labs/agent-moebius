@@ -34,6 +34,11 @@ import {
   readCodexThreadLinks,
   type LocalCodexThreadLinkFact,
 } from "./codex-thread-link.js";
+import type {
+  LocalCodexResumeConsumedFact,
+  LocalCodexResumeIntentFact,
+  LocalCodexRunUsageFact,
+} from "./codex-resume.js";
 
 export interface SqliteLocalConsoleStoreOptions {
   sqlitePath: string;
@@ -570,6 +575,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
           || existing.sourceMessageId !== input.sourceMessageId
           || existing.role !== input.role
           || existing.startedAt !== input.startedAt
+          || (existing.contextFingerprint ?? null) !== (input.contextFingerprint ?? null)
         ) {
           throw new Error(`conflicting Codex thread link for run ${input.runId}`);
         }
@@ -585,6 +591,36 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
         messageUpserts: [],
       });
     });
+  }
+
+  async recordCodexResumeIntent(input: LocalCodexResumeIntentFact): Promise<void> {
+    await this.appendIdempotentSessionFact(
+      input.sessionId,
+      "codex_resume_intent",
+      input.intentId,
+      input.createdAt,
+      input,
+    );
+  }
+
+  async recordCodexResumeConsumed(input: LocalCodexResumeConsumedFact): Promise<void> {
+    await this.appendIdempotentSessionFact(
+      input.sessionId,
+      "codex_resume_consumed",
+      input.intentId,
+      input.consumedAt,
+      input,
+    );
+  }
+
+  async recordCodexRunUsage(input: LocalCodexRunUsageFact): Promise<void> {
+    await this.appendIdempotentSessionFact(
+      input.sessionId,
+      "codex_run_usage",
+      input.runId,
+      input.recordedAt,
+      input,
+    );
   }
 
   getSessionFactLogPath(sessionId: string): string {
@@ -770,6 +806,38 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     } finally {
       await handle.close();
     }
+  }
+
+  private async appendIdempotentSessionFact(
+    sessionId: string,
+    type: string,
+    key: string,
+    recordedAt: string,
+    payload: unknown,
+  ): Promise<void> {
+    await this.enqueue(async () => {
+      await this.readMessagesFromFacts(sessionId);
+      const events = await readFactEvents(this.getSessionFactLogPath(sessionId), sessionId, false);
+      const existing = events.find((event) =>
+        event.type === type
+        && isRecord(event.payload)
+        && (event.payload.intentId === key || event.payload.runId === key));
+      if (existing !== undefined) {
+        if (JSON.stringify(existing.payload) !== JSON.stringify(payload)) {
+          throw new Error(`conflicting ${type} fact for ${key}`);
+        }
+        return;
+      }
+      await this.appendFactEvent(sessionId, {
+        version: 1,
+        eventId: crypto.randomUUID(),
+        sessionId,
+        type,
+        recordedAt,
+        payload,
+        messageUpserts: [],
+      });
+    });
   }
 
   private async enqueue<T>(operation: () => Promise<T>): Promise<T> {

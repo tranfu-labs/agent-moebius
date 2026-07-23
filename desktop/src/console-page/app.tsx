@@ -71,6 +71,7 @@ import {
   refreshConsoleState,
   subSessionIdFromSourceKey,
   submitSessionMessage,
+  retrySessionRun,
   type ConsoleSelection,
   type SelectionMutationKind,
   type SelectionMutationToken,
@@ -1416,7 +1417,11 @@ export function App(): JSX.Element {
       if (selectionRef.current.sessionId === targetSessionId) setComposerValue("");
     },
     getAttachmentIds: () => readyComposerAttachmentIds(managedAttachments.attachments),
+    getResumeRunId: (sessionId) =>
+      conversationDraftStoreRef.current.readResumeRunId(sessionDraftKey(sessionId)),
     clearAttachments: (sessionId) => managedAttachments.clearDraft(sessionDraftKey(sessionId)),
+    clearResumeRunId: (sessionId) =>
+      conversationDraftStoreRef.current.clearResumeRunId(sessionDraftKey(sessionId)),
     setMutationKind: setSelectionMutationKind,
     setSending: setIsSending,
     setError: setClientError,
@@ -1440,6 +1445,9 @@ export function App(): JSX.Element {
       persistBody: (body) => {
         const draftKey = sessionDraftKey(targetSessionId);
         conversationDraftStoreRef.current.write(draftKey, body);
+        if (target.runId !== null) {
+          conversationDraftStoreRef.current.writeResumeRunId(draftKey, target.runId);
+        }
         if (selectionRef.current.sessionId === targetSessionId) {
           setComposerValue(body);
         }
@@ -1711,16 +1719,13 @@ export function App(): JSX.Element {
     subSessionSendingId,
   ]);
 
-  const retrySubSession = useCallback(async (sessionId: string, role: string | null) => {
+  const retryRun = useCallback(async (sessionId: string, runId: string) => {
     if (apiBase === null || subSessionSendingId !== null) {
       return;
     }
-    const retryBody = role !== null && /^[a-z0-9][a-z0-9-]*$/u.test(role)
-      ? `@${role} 请重试刚才没有完成的步骤。`
-      : "请重试刚才没有完成的步骤。";
     setSubSessionSendingId(sessionId);
     try {
-      await submitSessionMessage({ apiBase, sessionId, body: retryBody, fetch });
+      await retrySessionRun({ apiBase, sessionId, runId, fetch });
       await Promise.all([
         refreshSubSessionNow(sessionId),
         refresh(selectionRef.current),
@@ -1925,8 +1930,8 @@ export function App(): JSX.Element {
       onSubSessionSend={(sessionId) => {
         void sendSubSessionMessage(sessionId);
       }}
-      onSubSessionRetry={(sessionId, role) => {
-        void retrySubSession(sessionId, role);
+      onSubSessionRetry={(sessionId, runId) => {
+        void retryRun(sessionId, runId);
       }}
       onSubSessionInterrupt={(sessionId, runId) => {
         void interruptSubSession(sessionId, runId);
@@ -1989,6 +1994,9 @@ export function App(): JSX.Element {
         return copySessionLogPath(sessionId);
       }}
       onInterrupt={interrupt}
+      onRetryRun={(sessionId, runId) => {
+        void retryRun(sessionId, runId);
+      }}
       onEditAndResend={editAndResend}
       onOpenDiagnostics={openDiagnostics}
       onOpenExternalLink={window.agentMoebius?.openExternalLink === undefined

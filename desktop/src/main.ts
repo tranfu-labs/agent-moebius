@@ -117,8 +117,15 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
-app.on("before-quit", () => {
-  isQuitting = true;
+let shutdownPromise: Promise<void> | null = null;
+let shutdownComplete = false;
+
+app.on("before-quit", (event) => {
+  if (shutdownComplete) {
+    return;
+  }
+  event.preventDefault();
+  void shutdownAndQuit();
 });
 
 app.on("window-all-closed", () => {
@@ -492,11 +499,18 @@ ipcMain.handle("action:check-updates", async () => {
 });
 
 async function shutdownAndQuit(): Promise<void> {
+  if (shutdownPromise !== null) {
+    return shutdownPromise;
+  }
   isQuitting = true;
-  runnerSupervisor?.stop();
-  await closeObserver();
-  await closeLocalConsole();
-  app.quit();
+  shutdownPromise = (async () => {
+    runnerSupervisor?.stop();
+    await closeObserver();
+    await closeLocalConsole();
+    shutdownComplete = true;
+    app.quit();
+  })();
+  return shutdownPromise;
 }
 
 async function closeObserver(): Promise<void> {

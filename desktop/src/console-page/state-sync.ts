@@ -377,6 +377,7 @@ export async function submitSessionMessage(options: {
   sessionId: string;
   body: string;
   attachmentIds?: readonly string[];
+  resumeRunId?: string | null;
   fetch: FetchLike;
 }): Promise<void> {
   const attachmentIds = options.attachmentIds ?? [];
@@ -389,14 +390,36 @@ export async function submitSessionMessage(options: {
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(attachmentIds.length === 0
-        ? { body: options.body }
-        : { body: options.body, attachmentIds }),
+      body: JSON.stringify({
+        body: options.body,
+        ...(attachmentIds.length === 0 ? {} : { attachmentIds }),
+        ...(options.resumeRunId == null ? {} : { resumeRunId: options.resumeRunId }),
+      }),
     },
   );
   const responseBody = await response.json() as { error?: string };
   if (!response.ok) {
     throw new Error(responseBody.error ?? "send failed");
+  }
+}
+
+export async function retrySessionRun(options: {
+  apiBase: string;
+  sessionId: string;
+  runId: string;
+  fetch: FetchLike;
+}): Promise<void> {
+  const fetch = options.fetch;
+  const response = await fetch(
+    endpoint(
+      options.apiBase,
+      `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/runs/${encodeURIComponent(options.runId)}/retry`,
+    ),
+    { method: "POST" },
+  );
+  const responseBody = await response.json() as { error?: string };
+  if (!response.ok) {
+    throw new Error(responseBody.error ?? "retry failed");
   }
 }
 
@@ -540,7 +563,9 @@ export interface ConsoleStateActionsOptions {
   composerValue: string;
   clearComposer(sessionId?: string): void;
   getAttachmentIds?(): readonly string[];
+  getResumeRunId?(sessionId: string): string | null;
   clearAttachments?(sessionId: string): void;
+  clearResumeRunId?(sessionId: string): void;
   setMutationKind(kind: SelectionMutationKind | null): void;
   setSending(sending: boolean): void;
   setError(error: string): void;
@@ -828,8 +853,19 @@ export class ConsoleStateActions {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(attachmentIds.length === 0
-            ? { body: this.options.composerValue }
-            : { body: this.options.composerValue, attachmentIds }),
+            ? {
+                body: this.options.composerValue,
+                ...(this.options.getResumeRunId?.(selection.sessionId) == null
+                  ? {}
+                  : { resumeRunId: this.options.getResumeRunId?.(selection.sessionId) }),
+              }
+            : {
+                body: this.options.composerValue,
+                attachmentIds,
+                ...(this.options.getResumeRunId?.(selection.sessionId) == null
+                  ? {}
+                  : { resumeRunId: this.options.getResumeRunId?.(selection.sessionId) }),
+              }),
         },
       );
       const body = await response.json() as { error?: string };
@@ -838,6 +874,7 @@ export class ConsoleStateActions {
       }
       this.options.clearComposer(selection.sessionId);
       this.options.clearAttachments?.(selection.sessionId);
+      this.options.clearResumeRunId?.(selection.sessionId);
       await this.options.refresh(this.options.getSelection());
     } catch (error) {
       this.options.setError(formatError(error));

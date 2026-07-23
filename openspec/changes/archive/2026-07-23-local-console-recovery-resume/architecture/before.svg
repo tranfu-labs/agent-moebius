@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">局部恢复前的数据流</title>
+  <desc id="desc">桌面退出直接中止运行，启动把孤儿运行标为卡住，所有 Codex 调用均为 full。</desc>
+  <rect width="1280" height="720" fill="#F7F8FC"/>
+  <text x="64" y="70" font-family="Inter, sans-serif" font-size="30" font-weight="700" fill="#1E2330">Before · thread 只留痕，执行无法续接</text>
+  <text x="64" y="106" font-family="Inter, sans-serif" font-size="16" fill="#667085">基线：desktop shell → local-console → Codex driver</text>
+  <g font-family="Inter, sans-serif">
+    <rect x="64" y="170" width="260" height="150" rx="18" fill="#FFFFFF" stroke="#C9CEDA" stroke-width="2"/>
+    <circle cx="104" cy="210" r="18" fill="#E6E8FA"/><path d="M96 210h16M104 202v16" stroke="#5E6AD2" stroke-width="2"/>
+    <text x="136" y="216" font-size="20" font-weight="650" fill="#1E2330">Electron 生命周期</text>
+    <text x="88" y="262" font-size="15" fill="#667085">退出：直接 abort</text>
+    <text x="88" y="290" font-size="15" fill="#667085">不等待恢复状态落盘</text>
+    <rect x="510" y="150" width="300" height="190" rx="18" fill="#FFFFFF" stroke="#C9CEDA" stroke-width="2"/>
+    <circle cx="550" cy="190" r="18" fill="#FFF0D8"/><path d="M542 190h16" stroke="#C47A19" stroke-width="2"/>
+    <text x="582" y="196" font-size="20" font-weight="650" fill="#1E2330">Local runtime</text>
+    <text x="538" y="244" font-size="15" fill="#667085">启动：orphan → stuck</text>
+    <text x="538" y="272" font-size="15" fill="#667085">Retry 未接通主时间线</text>
+    <text x="538" y="300" font-size="15" fill="#667085">每次固定 mode = full</text>
+    <rect x="970" y="170" width="246" height="150" rx="18" fill="#FFFFFF" stroke="#C9CEDA" stroke-width="2"/>
+    <circle cx="1010" cy="210" r="18" fill="#E7F3EE"/><path d="M1002 210l6 6 10-12" fill="none" stroke="#397C64" stroke-width="2"/>
+    <text x="1042" y="216" font-size="20" font-weight="650" fill="#1E2330">Codex CLI</text>
+    <text x="994" y="262" font-size="15" fill="#667085">新 thread</text>
+    <text x="994" y="290" font-size="15" fill="#667085">旧 thread 无恢复入口</text>
+    <path d="M324 245H494" fill="none" stroke="#8A91A1" stroke-width="3"/><path d="M486 237l12 8-12 8" fill="#8A91A1"/>
+    <path d="M810 245H954" fill="none" stroke="#8A91A1" stroke-width="3"/><path d="M946 237l12 8-12 8" fill="#8A91A1"/>
+    <rect x="354" y="450" width="572" height="154" rx="18" fill="#FFFFFF" stroke="#D9DDE7" stroke-width="2"/>
+    <text x="394" y="494" font-size="20" font-weight="650" fill="#1E2330">session JSONL</text>
+    <text x="394" y="536" font-size="15" fill="#667085">公开消息与终态事实</text>
+    <text x="394" y="566" font-size="15" fill="#667085">codex_thread_link 只支持过程读取，不驱动恢复</text>
+    <path d="M660 340V434" fill="none" stroke="#8A91A1" stroke-width="3" stroke-dasharray="8 8"/><path d="M652 426l8 12 8-12" fill="#8A91A1"/>
+  </g>
+</svg>

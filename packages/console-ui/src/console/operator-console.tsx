@@ -306,7 +306,7 @@ export interface OperatorConsoleProps {
   onSubSessionComposerAttachmentRemove?: (clientId: string) => void;
   onSubSessionComposerAttachmentRetry?: (clientId: string) => void;
   onSubSessionSend?: (sessionId: string) => void;
-  onSubSessionRetry?: (sessionId: string, role: string | null) => void;
+  onSubSessionRetry?: (sessionId: string, runId: string) => void;
   onSubSessionInterrupt?: (sessionId: string, runId: string) => void;
   onOpenEvidence?: (intent: OperatorEvidenceOpenIntent) => void;
   onCloseEvidence?: () => void;
@@ -322,6 +322,7 @@ export interface OperatorConsoleProps {
   onArchiveSession?: (sessionId: string, projectId: string) => void | Promise<void>;
   onCopySessionLogPath?: (sessionId: string, projectId: string) => Promise<CopySessionLogPathResult>;
   onInterrupt(sessionId: string, runId: string): void;
+  onRetryRun?: (sessionId: string, runId: string) => void;
   onEditAndResend?: (target: OperatorEditAndResendTarget) => void;
   onOpenDiagnostics?: () => void;
   onOpenExternalLink?: (url: string) => void;
@@ -435,6 +436,7 @@ export function OperatorConsole({
   onArchiveSession,
   onCopySessionLogPath,
   onInterrupt,
+  onRetryRun,
   onEditAndResend,
   onOpenDiagnostics,
   onOpenExternalLink,
@@ -1098,6 +1100,7 @@ export function OperatorConsole({
                           childSessions={childSessions}
                           openedSubSessionId={openedSubSessionId}
                           onOpenSubSession={openSubSession}
+                          onRetryRun={onRetryRun}
                           onEditAndResend={onEditAndResend}
                           onOpenDiagnostics={onOpenDiagnostics}
                           onOpenExternalLink={onOpenExternalLink}
@@ -1263,7 +1266,7 @@ export function OperatorConsole({
                 onComposerAttachmentRemove={onSubSessionComposerAttachmentRemove}
                 onComposerAttachmentRetry={onSubSessionComposerAttachmentRetry}
                 onSend={() => onSubSessionSend?.(sessionId)}
-                onRetry={(role) => onSubSessionRetry?.(sessionId, role)}
+                onRetry={(runId) => onSubSessionRetry?.(sessionId, runId)}
                 onInterrupt={onSubSessionInterrupt ?? onInterrupt}
                 onOpenExternalLink={onOpenExternalLink}
               />
@@ -1780,6 +1783,7 @@ function TimelineEntry({
   childSessions = [],
   openedSubSessionId = null,
   onOpenSubSession,
+  onRetryRun,
   onEditAndResend,
   onOpenDiagnostics,
   onOpenExternalLink,
@@ -1789,6 +1793,7 @@ function TimelineEntry({
   childSessions?: readonly OperatorChildSessionSummary[];
   openedSubSessionId?: string | null;
   onOpenSubSession?: (sessionId: string) => void;
+  onRetryRun?: (sessionId: string, runId: string) => void;
   onEditAndResend?: (target: OperatorEditAndResendTarget) => void;
   onOpenDiagnostics?: () => void;
   onOpenExternalLink?: (url: string) => void;
@@ -1813,6 +1818,9 @@ function TimelineEntry({
         role={message.role}
         rawReason={message.error ?? message.body}
         rawOutput={message.error ?? message.body}
+        onRetry={(outcome === "run-not-started" || outcome === "run-stuck") && message.runId !== null
+          ? () => onRetryRun?.(message.sessionId, message.runId!)
+          : undefined}
         onEditAndResend={outcome === "user-stopped" && onEditAndResend !== undefined
           ? () => onEditAndResend({
               stoppedMessageId: message.id,
