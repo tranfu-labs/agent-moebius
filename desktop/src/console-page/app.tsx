@@ -1088,7 +1088,6 @@ function App(): JSX.Element {
         return;
       }
       inFlight = true;
-      let shouldContinue = false;
       try {
         const output = await loadProcessOutput({
           apiBase,
@@ -1103,18 +1102,16 @@ function App(): JSX.Element {
             [activeProcessSourceKey]: { status: "ready", output },
           }));
         }
-        shouldContinue = output.status === "running";
       } catch (error) {
         if (!controller.signal.aborted) {
           setProcessOutputs((current) => ({
             ...current,
             [activeProcessSourceKey]: { status: "error", message: formatError(error) },
           }));
-          shouldContinue = true;
         }
       } finally {
         inFlight = false;
-        if (!controller.signal.aborted && shouldContinue) {
+        if (!controller.signal.aborted) {
           timer = window.setTimeout(() => void refreshProcessOutput(), 1_000);
         }
       }

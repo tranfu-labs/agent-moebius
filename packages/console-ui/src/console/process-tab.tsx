@@ -88,11 +88,23 @@ export function resolveOperatorMemberName(
 
 export function nextProcessTabTitle(state: RightSidebarTabsState, role: string | null): string {
   const memberName = resolveOperatorMemberName(role, "成员未知");
-  const count = state.tabs.filter((tab) =>
-    tab.type === "run-output"
-    && (tab.title === memberName || tab.title.startsWith(`${memberName} `))
-  ).length;
-  return count === 0 ? memberName : `${memberName} ${String(count + 1)}`;
+  const usedOrdinals = new Set(state.tabs.flatMap((tab): number[] => {
+    if (tab.type !== "run-output") {
+      return [];
+    }
+    if (tab.title === memberName) {
+      return [1];
+    }
+    const suffix = tab.title.startsWith(`${memberName} `)
+      ? tab.title.slice(memberName.length + 1)
+      : "";
+    return /^[2-9]\d*$/u.test(suffix) ? [Number(suffix)] : [];
+  }));
+  let nextOrdinal = 1;
+  while (usedOrdinals.has(nextOrdinal)) {
+    nextOrdinal += 1;
+  }
+  return nextOrdinal === 1 ? memberName : `${memberName} ${String(nextOrdinal)}`;
 }
 
 function ProcessAttempt({ attempt }: { attempt: OperatorProcessOutputAttempt }): JSX.Element {

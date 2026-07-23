@@ -25,7 +25,7 @@ Source: docs/product/pages/main-right-sidebar.md#标签条
 ## Requirement: 验收 #14 — 同一步骤的每次执行在一个过程标签内按序保留
 Source: docs/product/pages/main-right-sidebar.md#过程标签
 
-系统 MUST 在同一过程标签内按开始时间显示同一步骤的全部执行，并以「第 1 次执行」「第 2 次执行」连续编号；运行中的输出 MUST 通过活动标签轮询追加，执行结束后的已有分段 MUST 继续可见。系统 MUST NOT 用后一次执行覆盖前一次执行。
+系统 MUST 在同一过程标签内按开始时间显示同一步骤的全部执行，并以「第 1 次执行」「第 2 次执行」连续编号；活动过程标签 MUST 持续轮询，因此某次执行已 settled、下一次 retry 尚未开始的间隙也不得停止更新，执行结束后的已有分段 MUST 继续可见。系统 MUST NOT 用后一次执行覆盖前一次执行。
 
 ### Scenario: 失败后重试同一步骤
 - GIVEN 某步骤第一次执行失败并产生原始错误，第二次执行随后成功

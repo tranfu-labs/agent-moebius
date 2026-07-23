@@ -1163,6 +1163,29 @@ describe("OperatorConsole", () => {
     expect(within(panel).queryByRole("tab", { name: /上传协议|数据库迁移/u })).not.toBeInTheDocument();
   });
 
+  it("reuses an available member ordinal without duplicating another open process tab", () => {
+    renderConsole({
+      messages: [
+        message({ id: 2, speaker: "agent", role: "dev", runId: "run-one", body: "one" }),
+        message({ id: 3, speaker: "agent", role: "dev", runId: "run-two", body: "two" }),
+        message({ id: 4, speaker: "agent", role: "dev", runId: "run-three", body: "three" }),
+        message({ id: 5, speaker: "agent", role: "dev", runId: "run-four", body: "four" }),
+      ],
+    });
+
+    const outputButtons = screen.getAllByRole("button", { name: "完整输出" });
+    fireEvent.click(outputButtons[0]!);
+    fireEvent.click(outputButtons[1]!);
+    fireEvent.click(outputButtons[2]!);
+    fireEvent.click(screen.getByRole("button", { name: "关闭标签：开发 2" }));
+    fireEvent.click(outputButtons[3]!);
+
+    const panel = screen.getByTestId("right-sidebar");
+    expect(within(panel).getAllByRole("tab", { name: "开发" })).toHaveLength(1);
+    expect(within(panel).getAllByRole("tab", { name: "开发 2" })).toHaveLength(1);
+    expect(within(panel).getAllByRole("tab", { name: "开发 3" })).toHaveLength(1);
+  });
+
   it("distinguishes unavailable original output from an empty execution", () => {
     renderConsole({
       messages: [message({
