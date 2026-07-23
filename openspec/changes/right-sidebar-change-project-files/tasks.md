@@ -2,21 +2,21 @@
 
 前置：`right-sidebar-shell` 已落 main（提供改动 / 项目文件两类内容标签的占位槽与分派缝）；`main-conversation-evidence-outlets` 已落 main（`baselineCommit` + `workspace-diff.ts` diff 生成 + `workspace-diff` 入口意图）。
 
-- [ ] T1: 改动清单读取后端（清单 + 增删行数）
-  - [ ] 扩 `workspace-diff.ts`：在既有 diff 上补 `--numstat`，产出「改动文件清单 + 每文件增删行数」，覆盖项目文件夹 / 独立工作空间两种模式，非 git 返回不可用
-  - [ ] 共享语义回扫：不破坏 evidence-outlets 对 fileCount 的既有用途，callsite_sweep 记全调用点
-  - [ ] 新增只读 HTTP 路由下发清单（对照 evidence-outlets 的 `/runs/:runId/output` 范式）
-  - [ ] 覆盖验收 #9 #21（增删行数）
+- [x] T1: 改动清单读取后端（清单 + 增删行数）
+  - [x] 扩 `workspace-diff.ts`：在既有 diff 上补 `--numstat`，产出「改动文件清单 + 每文件增删行数」，覆盖项目文件夹 / 独立工作空间两种模式，非 git 返回不可用
+  - [x] 共享语义回扫：不破坏 evidence-outlets 对 fileCount 的既有用途，callsite_sweep 记全调用点
+  - [x] 新增只读 HTTP 路由下发清单（对照 evidence-outlets 的 `/runs/:runId/output` 范式）
+  - [x] 覆盖验收 #9 #21（增删行数）
 
-- [ ] T2: 行级 hunk 读取后端
-  - [ ] 解析 `git diff` patch → 逐行标新增 / 删除 / 未改动，下发选中文件的行级内容
-  - [ ] 覆盖验收 #8
+- [x] T2: 行级 hunk 读取后端
+  - [x] 解析 `git diff` patch → 逐行标新增 / 删除 / 未改动，下发选中文件的行级内容
+  - [x] 覆盖验收 #8
 
-- [ ] T3: 项目文件读取后端（文件树 + 内容）
-  - [ ] 列完整项目文件树 + 读任意文件内容的只读通道
-  - [ ] 文件过大 / 非文本时返回可显示的原因，不静默留白
-  - [ ] 有改动的文件同样能取到行级变化
-  - [ ] 覆盖验收 #23（页面状态：项目文件 / 读取失败）
+- [x] T3: 项目文件读取后端（文件树 + 内容）
+  - [x] 列完整项目文件树 + 读任意文件内容的只读通道
+  - [x] 文件过大 / 非文本时返回可显示的原因，不静默留白
+  - [x] 有改动的文件同样能取到行级变化
+  - [x] 覆盖验收 #23（页面状态：项目文件 / 读取失败）
 
 - [ ] T4: 文件内容呈现组件（改动 / 项目文件共用）
   - [ ] `file-diff-view.tsx`：行级新增 / 删除 / 未改动，未改动行照常显示提供上下文
