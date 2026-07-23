@@ -2,6 +2,7 @@ import type {
   OperatorEvidenceOpenIntent,
   OperatorEvidenceView,
   OperatorProcessOutput,
+  OperatorSubSessionView,
   ProjectFilesData,
   WorkspaceDiffData,
   WorkspaceFileContent,
@@ -247,6 +248,64 @@ export async function loadProcessOutput(options: {
       : "process output request failed");
   }
   return body as OperatorProcessOutput;
+}
+
+export function subSessionIdFromSourceKey(sourceKey: string | null): string | null {
+  if (sourceKey === null) {
+    return null;
+  }
+  const prefix = "sub-session:";
+  const sessionId = sourceKey.startsWith(prefix) ? sourceKey.slice(prefix.length) : "";
+  return sessionId === "" ? null : sessionId;
+}
+
+export async function loadSubSessionView(options: {
+  apiBase: string;
+  sessionId: string;
+  fetch: FetchLike;
+  signal?: AbortSignal;
+}): Promise<OperatorSubSessionView> {
+  const response = await options.fetch(
+    endpoint(
+      options.apiBase,
+      `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/view`,
+    ),
+    options.signal === undefined ? undefined : { signal: options.signal },
+  );
+  const body = await response.json() as OperatorSubSessionView | { error?: string };
+  if (!response.ok) {
+    throw new Error("error" in body && typeof body.error === "string"
+      ? body.error
+      : "sub-session view request failed");
+  }
+  return body as OperatorSubSessionView;
+}
+
+export async function submitSessionMessage(options: {
+  apiBase: string;
+  sessionId: string;
+  body: string;
+  attachmentIds?: readonly string[];
+  fetch: FetchLike;
+}): Promise<void> {
+  const attachmentIds = options.attachmentIds ?? [];
+  const response = await options.fetch(
+    endpoint(
+      options.apiBase,
+      `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/messages`,
+    ),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(attachmentIds.length === 0
+        ? { body: options.body }
+        : { body: options.body, attachmentIds }),
+    },
+  );
+  const responseBody = await response.json() as { error?: string };
+  if (!response.ok) {
+    throw new Error(responseBody.error ?? "send failed");
+  }
 }
 
 export function processOutputRunId(sourceKey: string | null, sessionId: string): string | null {
