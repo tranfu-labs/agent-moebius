@@ -281,8 +281,8 @@ function spawnRunnerProcess(logPath: string): RunnerProcess {
     cwd: status.dataRoot,
     env: {
       ...process.env,
+      // WORKDIR_ROOT 默认派生自 DATA_ROOT，故只需注入数据根，workdir 自动跟随。
       AGENT_MOEBIUS_DATA_ROOT: status.dataRoot,
-      AGENT_MOEBIUS_WORKDIR_ROOT: path.join(status.dataRoot, "workdir"),
     },
     stdio: "pipe",
     serviceName: "agent-moebius-runner",

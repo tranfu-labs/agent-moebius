@@ -13,6 +13,7 @@ try {
 }
 
 export const AGENT_MOEBIUS_DATA_ROOT_ENV = "AGENT_MOEBIUS_DATA_ROOT";
+export const AGENT_MOEBIUS_WORKDIR_ROOT_ENV = "AGENT_MOEBIUS_WORKDIR_ROOT";
 
 export interface RuntimePathResolutionInput {
   env?: NodeJS.ProcessEnv;
@@ -25,6 +26,7 @@ export interface RuntimePaths {
   configPath: string;
   localConfigPath: string;
   agentsDir: string;
+  workdirRoot: string;
 }
 
 export function resolveRuntimePaths(input: RuntimePathResolutionInput = {}): RuntimePaths {
@@ -32,12 +34,20 @@ export function resolveRuntimePaths(input: RuntimePathResolutionInput = {}): Run
   const dataRootOverride = input.env?.[AGENT_MOEBIUS_DATA_ROOT_ENV]?.trim();
   const dataRoot = path.resolve(dataRootOverride && dataRootOverride.length > 0 ? dataRootOverride : projectRoot);
 
+  // workdir（git worktree 根）默认派生自数据根，绝不以源码/应用包为基准；
+  // AGENT_MOEBIUS_WORKDIR_ROOT 仅作显式覆盖。
+  const workdirOverride = input.env?.[AGENT_MOEBIUS_WORKDIR_ROOT_ENV]?.trim();
+  const workdirRoot = path.resolve(
+    workdirOverride && workdirOverride.length > 0 ? workdirOverride : path.join(dataRoot, "workdir"),
+  );
+
   return {
     projectRoot,
     dataRoot,
     configPath: path.join(dataRoot, "config.toml"),
     localConfigPath: path.join(dataRoot, "config.local.toml"),
     agentsDir: path.join(dataRoot, "agents"),
+    workdirRoot,
   };
 }
 
@@ -93,9 +103,7 @@ export const ROLE_THREADS_STATE_PATH = path.join(DATA_ROOT, ".state", "role-thre
 export const AGENT_CONTEXTS_STATE_PATH = path.join(DATA_ROOT, ".state", "agent-contexts.json");
 export const GITHUB_RESPONSE_INTAKE_STATE_PATH = path.join(DATA_ROOT, ".state", "github-response-intake.json");
 export const GOAL_LEDGER_STATE_PATH = path.join(DATA_ROOT, ".state", "goal-ledger.json");
-export const WORKDIR_ROOT = path.resolve(
-  process.env.AGENT_MOEBIUS_WORKDIR_ROOT ?? path.join(PROJECT_ROOT, "..", "agent-moebius-workdir"),
-);
+export const WORKDIR_ROOT = RUNTIME_PATHS.workdirRoot;
 
 export const DEFAULT_CODEX_MODEL = "gpt-5.6-sol";
 

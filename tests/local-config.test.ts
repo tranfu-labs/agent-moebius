@@ -112,6 +112,8 @@ repo = "local-repo"
       configPath: "/Users/test/.agent-moebius/config.toml",
       localConfigPath: "/Users/test/.agent-moebius/config.local.toml",
       agentsDir: "/Users/test/.agent-moebius/agents",
+      // workdir 跟随数据根覆盖，不落在 projectRoot 旁
+      workdirRoot: "/Users/test/.agent-moebius/workdir",
     });
   });
 
@@ -122,6 +124,7 @@ repo = "local-repo"
       configPath: "/repo/agent-moebius/config.toml",
       localConfigPath: "/repo/agent-moebius/config.local.toml",
       agentsDir: "/repo/agent-moebius/agents",
+      workdirRoot: "/repo/agent-moebius/workdir",
     });
   });
 });
