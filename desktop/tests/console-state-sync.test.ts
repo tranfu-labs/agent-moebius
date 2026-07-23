@@ -4,6 +4,8 @@ import {
   ConsoleStateActions,
   ConsoleStateCoordinator,
   loadEvidenceView,
+  loadProcessOutput,
+  processOutputRunId,
   refreshConsoleState,
   type ConsoleSelection,
   type SelectionMutationKind,
@@ -132,6 +134,49 @@ describe("loadEvidenceView", () => {
       title: "开发 · 完整输出",
       content: "标准输出\ncomplete stdout\n\n错误输出\ncomplete stderr\n\n记录\nrecorded fallback",
     });
+  });
+});
+
+describe("loadProcessOutput", () => {
+  it("loads the active process tab through the aggregate HTTP endpoint", async () => {
+    const output = {
+      sessionId: "local:session/a",
+      requestedRunId: "run/2",
+      role: "dev",
+      status: "running" as const,
+      attempts: [{
+        runId: "run/2",
+        attempt: 1,
+        startedAt: "2026-07-09T00:00:00.000Z",
+        status: "running" as const,
+        stdout: "raw /tmp/output",
+        stderr: null,
+        fallback: null,
+        availability: "available" as const,
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      }],
+    };
+    const fetch = vi.fn(async (_input: string | URL | Request) => jsonResponse(output));
+
+    await expect(loadProcessOutput({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: output.sessionId,
+      runId: output.requestedRunId,
+      fetch,
+    })).resolves.toEqual(output);
+
+    expect(String(fetch.mock.calls[0]?.[0])).toContain(
+      "/sessions/local%3Asession%2Fa/runs/run%2F2/process-output",
+    );
+  });
+
+  it("resolves a persisted source key against the whole selected session id", () => {
+    expect(processOutputRunId(
+      "run-output:local:project:session-a:run:retry-2",
+      "local:project:session-a",
+    )).toBe("run:retry-2");
+    expect(processOutputRunId("run-output:other:run-1", "session-a")).toBeNull();
   });
 });
 

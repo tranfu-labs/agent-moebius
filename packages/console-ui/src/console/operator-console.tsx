@@ -27,6 +27,12 @@ import { ConversationEmptyState } from "@/console/conversation-empty-state";
 import { ComposerContext } from "@/console/composer-context";
 import { NewConversationPage } from "@/console/new-conversation-page";
 import {
+  ProcessTab,
+  nextProcessTabTitle,
+  resolveOperatorMemberName,
+  type OperatorProcessOutputState,
+} from "@/console/process-tab";
+import {
   ConversationSidebar,
   type ConversationSidebarProject,
   type CopySessionLogPathResult,
@@ -339,6 +345,7 @@ export interface OperatorConsoleProps {
   rightSidebarOpen?: boolean;
   rightSidebarWidth?: number;
   rightSidebarTabs?: RightSidebarTabsState;
+  processOutputs?: Readonly<Record<string, OperatorProcessOutputState>>;
   onRightSidebarOpenChange?: (open: boolean) => void;
   onRightSidebarWidthChange?: (width: number) => void;
   onRightSidebarTabsChange?: (state: RightSidebarTabsState) => void;
@@ -436,6 +443,7 @@ export function OperatorConsole({
   rightSidebarOpen,
   rightSidebarWidth,
   rightSidebarTabs,
+  processOutputs = {},
   onRightSidebarOpenChange,
   onRightSidebarWidthChange,
   onRightSidebarTabsChange,
@@ -603,7 +611,7 @@ export function OperatorConsole({
       : {
           id: createRightSidebarTabId(nextRightSidebarTabIdRef),
           type: "run-output",
-          title: localizeTimelineRole(intent.role),
+          title: nextProcessTabTitle(effectiveRightSidebarTabs, intent.role),
           sourceKey: `run-output:${intent.sessionId}:${intent.runId}`,
         }));
     onOpenEvidence?.(intent);
@@ -1202,6 +1210,14 @@ export function OperatorConsole({
         onOpenChange={setRightSidebarOpen}
         onWidthChange={setRightSidebarWidth}
         createTabId={() => createRightSidebarTabId(nextRightSidebarTabIdRef)}
+        contentSlots={{
+          "run-output": (tab) => (
+            <ProcessTab
+              title={tab.title}
+              state={tab.sourceKey === null ? { status: "idle" } : processOutputs[tab.sourceKey] ?? { status: "idle" }}
+            />
+          ),
+        }}
       />
       </div>
 
@@ -1726,7 +1742,7 @@ function TimelineEntry({
   return (
     <div className="group py-4 pl-10 text-sm">
       <div className="mb-1.5 flex items-center gap-2 text-xs text-sub">
-        <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : message.speaker === "agent" ? localizeTimelineRole(message.role) : "系统提示"}</span>
+        <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : message.speaker === "agent" ? resolveOperatorMemberName(message.role) : "系统提示"}</span>
         <span className="tnum text-hint opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">{formatTime(message.updatedAt)}</span>
       </div>
       {message.speaker === "system" ? (
@@ -1875,17 +1891,4 @@ function formatTime(value: string): string {
 function nonBlank(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
-}
-
-function localizeTimelineRole(role: string | null): string {
-  const labels: Record<string, string> = {
-    ceo: "CEO",
-    dev: "开发",
-    "dev-manager": "技术负责人",
-    "hermes-user": "用户代表",
-    "product-manager": "产品",
-    qa: "测试",
-    secretary: "秘书",
-  };
-  return role === null ? "团队成员" : labels[role] ?? "团队成员";
 }

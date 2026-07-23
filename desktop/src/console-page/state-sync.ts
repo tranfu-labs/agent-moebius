@@ -1,4 +1,8 @@
-import type { OperatorEvidenceOpenIntent, OperatorEvidenceView } from "@agent-moebius/console-ui";
+import type {
+  OperatorEvidenceOpenIntent,
+  OperatorEvidenceView,
+  OperatorProcessOutput,
+} from "@agent-moebius/console-ui";
 
 export interface ConsoleSelection {
   projectId: string;
@@ -219,6 +223,36 @@ export async function loadEvidenceView(options: {
     title: `${localizeRole(options.intent.role)} · 完整输出`,
     content: content || "这一步还没有可显示的输出。",
   };
+}
+
+export async function loadProcessOutput(options: {
+  apiBase: string;
+  sessionId: string;
+  runId: string;
+  fetch: FetchLike;
+  signal?: AbortSignal;
+}): Promise<OperatorProcessOutput> {
+  const fetch = options.fetch;
+  const response = await fetch(endpoint(
+    options.apiBase,
+    `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/runs/${encodeURIComponent(options.runId)}/process-output`,
+  ), options.signal === undefined ? undefined : { signal: options.signal });
+  const body = await response.json() as OperatorProcessOutput | { error?: string };
+  if (!response.ok) {
+    throw new Error("error" in body && typeof body.error === "string"
+      ? body.error
+      : "process output request failed");
+  }
+  return body as OperatorProcessOutput;
+}
+
+export function processOutputRunId(sourceKey: string | null, sessionId: string): string | null {
+  if (sourceKey === null) {
+    return null;
+  }
+  const prefix = `run-output:${sessionId}:`;
+  const runId = sourceKey.startsWith(prefix) ? sourceKey.slice(prefix.length) : "";
+  return runId === "" ? null : runId;
 }
 
 function labeledOutput(label: string, value: string | null | undefined): string | null {
