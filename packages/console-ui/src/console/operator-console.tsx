@@ -53,6 +53,7 @@ import { RunBlock } from "@/console/run-block";
 import { MarkdownMessage } from "@/console/markdown-message";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { SubSessionCard, type SubSessionCardItem } from "@/console/sub-session-card";
+import { SubtaskTab, type OperatorSubSessionViewState } from "@/console/subtask-tab";
 import {
   DEFAULT_RIGHT_SIDEBAR_WIDTH_PX,
   RIGHT_SIDEBAR_OVERLAY_WIDTH_PX,
@@ -262,6 +263,9 @@ export interface OperatorConsoleProps {
   messages: OperatorMessage[];
   childSessions?: OperatorChildSessionSummary[];
   openedSubSession?: OperatorSubSessionView | null;
+  subSessionViews?: Readonly<Record<string, OperatorSubSessionViewState>>;
+  subSessionComposerValue?: string;
+  subSessionComposerAttachments?: readonly ComposerAttachment[];
   openedEvidence?: OperatorEvidenceView | null;
   activeRun: OperatorRunSnapshot | null;
   workspaceDiff?: OperatorWorkspaceDiffSummary;
@@ -296,6 +300,13 @@ export interface OperatorConsoleProps {
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
   onOpenSubSession?: (sessionId: string) => void;
   onCloseSubSession?: () => void;
+  onSubSessionComposerChange?: (sessionId: string, value: string) => void;
+  onSubSessionComposerFilesAdded?: (files: File[]) => void;
+  onSubSessionComposerAttachmentRemove?: (clientId: string) => void;
+  onSubSessionComposerAttachmentRetry?: (clientId: string) => void;
+  onSubSessionSend?: (sessionId: string) => void;
+  onSubSessionRetry?: (sessionId: string, role: string | null) => void;
+  onSubSessionInterrupt?: (sessionId: string, runId: string) => void;
   onOpenEvidence?: (intent: OperatorEvidenceOpenIntent) => void;
   onCloseEvidence?: () => void;
   onLoadWorkspaceDiff?: (sessionId: string) => Promise<WorkspaceDiffData>;
@@ -342,6 +353,7 @@ export interface OperatorConsoleProps {
   onTrashAgentTeamMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onTrashUserAgentTeam?: (teamKey: string) => void | Promise<void>;
   isSending?: boolean;
+  isSubSessionSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
   isProjectMutationPending?: boolean;
@@ -366,6 +378,9 @@ export function OperatorConsole({
   selectedSession,
   messages,
   childSessions = [],
+  subSessionViews = {},
+  subSessionComposerValue = "",
+  subSessionComposerAttachments = [],
   activeRun,
   workspaceDiff = { available: false, fileCount: null, reason: "unavailable" },
   composerValue,
@@ -397,6 +412,13 @@ export function OperatorConsole({
   onSelectSession,
   onOpenSubSession,
   onCloseSubSession,
+  onSubSessionComposerChange,
+  onSubSessionComposerFilesAdded,
+  onSubSessionComposerAttachmentRemove,
+  onSubSessionComposerAttachmentRetry,
+  onSubSessionSend,
+  onSubSessionRetry,
+  onSubSessionInterrupt,
   onOpenEvidence,
   onCloseEvidence,
   onLoadWorkspaceDiff = unavailableWorkspaceDiff,
@@ -443,6 +465,7 @@ export function OperatorConsole({
   onTrashAgentTeamMember,
   onTrashUserAgentTeam,
   isSending = false,
+  isSubSessionSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
   isProjectMutationPending = false,
@@ -1220,6 +1243,29 @@ export function OperatorConsole({
         onWidthChange={setRightSidebarWidth}
         createTabId={() => createRightSidebarTabId(nextRightSidebarTabIdRef)}
         contentSlots={{
+          "sub-session": (tab) => {
+            const sessionId = tab.sourceKey?.replace(/^sub-session:/u, "") ?? "";
+            const summary = childSessions.find((candidate) => candidate.sessionId === sessionId) ?? null;
+            return (
+              <SubtaskTab
+                sessionId={sessionId}
+                summary={summary}
+                state={subSessionViews[sessionId] ?? { status: "idle" }}
+                composerValue={subSessionComposerValue}
+                composerAttachments={subSessionComposerAttachments}
+                roles={roleCompletionsForTeam(displayedConversationAgentTeam)}
+                sending={isSubSessionSending}
+                onComposerChange={(value) => onSubSessionComposerChange?.(sessionId, value)}
+                onComposerFilesAdded={onSubSessionComposerFilesAdded}
+                onComposerAttachmentRemove={onSubSessionComposerAttachmentRemove}
+                onComposerAttachmentRetry={onSubSessionComposerAttachmentRetry}
+                onSend={() => onSubSessionSend?.(sessionId)}
+                onRetry={(role) => onSubSessionRetry?.(sessionId, role)}
+                onInterrupt={onSubSessionInterrupt ?? onInterrupt}
+                onOpenExternalLink={onOpenExternalLink}
+              />
+            );
+          },
           "run-output": (tab) => (
             <ProcessTab
               title={tab.title}

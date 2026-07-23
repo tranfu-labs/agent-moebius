@@ -23,6 +23,7 @@ export * from "./console/session-context-header";
 export * from "./console/session-team-menu";
 export * from "./console/sub-session-card";
 export * from "./console/sub-session-panel";
+export * from "./console/subtask-tab";
 export * from "./ui/avatar";
 export * from "./ui/badge";
 export * from "./ui/button";
