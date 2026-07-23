@@ -1,6 +1,7 @@
 import type {
   OperatorEvidenceOpenIntent,
   OperatorEvidenceView,
+  OperatorProcessAppendOutput,
   OperatorProcessOutput,
   OperatorSubSessionView,
   ProjectFilesData,
@@ -234,20 +235,109 @@ export async function loadProcessOutput(options: {
   sessionId: string;
   runId: string;
   fetch: FetchLike;
+  cursor?: string;
   signal?: AbortSignal;
 }): Promise<OperatorProcessOutput> {
-  const fetch = options.fetch;
-  const response = await fetch(endpoint(
+  const url = endpoint(
     options.apiBase,
     `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/runs/${encodeURIComponent(options.runId)}/process-output`,
-  ), options.signal === undefined ? undefined : { signal: options.signal });
-  const body = await response.json() as OperatorProcessOutput | { error?: string };
+  );
+  if (options.cursor !== undefined) {
+    url.searchParams.set("cursor", options.cursor);
+  }
+  const response = await options.fetch(
+    url,
+    options.signal === undefined ? undefined : { signal: options.signal },
+  );
+  const body = await response.json() as OperatorProcessOutput | { code?: string; error?: string };
   if (!response.ok) {
-    throw new Error("error" in body && typeof body.error === "string"
-      ? body.error
-      : "process output request failed");
+    throw new ProcessOutputRequestError(
+      "error" in body && typeof body.error === "string" ? body.error : "process output request failed",
+      response.status,
+      "code" in body && typeof body.code === "string" ? body.code : null,
+    );
   }
   return body as OperatorProcessOutput;
+}
+
+export async function loadProcessOutputThroughAnchor(options: {
+  apiBase: string;
+  sessionId: string;
+  runId: string;
+  anchorEventKey: string | null;
+  fetch: FetchLike;
+  signal?: AbortSignal;
+}): Promise<OperatorProcessOutput> {
+  let output = await loadProcessOutput(options);
+  const anchorEventKey = options.anchorEventKey;
+  if (
+    anchorEventKey === null
+    || output.status === "unavailable"
+    || output.events.some((event) => event.key === anchorEventKey)
+  ) {
+    return output;
+  }
+
+  while (output.previousCursor !== null) {
+    const cursor = output.previousCursor;
+    const previous = await loadProcessOutput({ ...options, cursor });
+    output = {
+      ...output,
+      attempts: previous.attempts,
+      events: mergeProcessOutputEvents(previous.events, output.events),
+      previousCursor: previous.previousCursor,
+    };
+    if (output.events.some((event) => event.key === anchorEventKey)) {
+      break;
+    }
+    if (output.previousCursor === cursor) {
+      throw new ProcessOutputRequestError(
+        "process output cursor did not advance",
+        409,
+        "PROCESS_CURSOR_INVALID",
+      );
+    }
+  }
+  return output;
+}
+
+export async function loadProcessOutputAppend(options: {
+  apiBase: string;
+  sessionId: string;
+  runId: string;
+  appendCursor: string;
+  fetch: FetchLike;
+  signal?: AbortSignal;
+}): Promise<OperatorProcessAppendOutput> {
+  const url = endpoint(
+    options.apiBase,
+    `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/runs/${encodeURIComponent(options.runId)}/process-output`,
+  );
+  url.searchParams.set("appendCursor", options.appendCursor);
+  const response = await options.fetch(
+    url,
+    options.signal === undefined ? undefined : { signal: options.signal },
+  );
+  const body = await response.json() as OperatorProcessAppendOutput | { code?: string; error?: string };
+  if (!response.ok) {
+    throw new ProcessOutputRequestError(
+      "error" in body && typeof body.error === "string" ? body.error : "process output append request failed",
+      response.status,
+      "code" in body && typeof body.code === "string" ? body.code : null,
+    );
+  }
+  return body as OperatorProcessAppendOutput;
+}
+
+export class ProcessOutputRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null,
+  ) {
+    super(message);
+    this.name = "ProcessOutputRequestError";
+  }
 }
 
 export function subSessionIdFromSourceKey(sourceKey: string | null): string | null {
@@ -380,6 +470,20 @@ async function loadWorkspaceJson<T>(
 function labeledOutput(label: string, value: string | null | undefined): string | null {
   const text = value?.trim();
   return text ? `${label}\n${text}` : null;
+}
+
+function mergeProcessOutputEvents<T extends { key: string }>(
+  before: readonly T[],
+  after: readonly T[],
+): T[] {
+  const seen = new Set<string>();
+  return [...before, ...after].filter((event) => {
+    if (seen.has(event.key)) {
+      return false;
+    }
+    seen.add(event.key);
+    return true;
+  });
 }
 
 function localizeRole(role: string | null): string {

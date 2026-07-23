@@ -12,6 +12,7 @@ import {
   parseRightSidebarTabsState,
   selectRightSidebarTab,
   serializeRightSidebarTabsState,
+  updateRightSidebarProcessScroll,
   type RightSidebarTabsState,
 } from "./right-sidebar-tabs";
 
@@ -136,5 +137,55 @@ describe("right sidebar tab model", () => {
       id: "files",
       isGitRepository: false,
     }).tabs[0]?.type).toBe("project-files");
+  });
+
+  it("persists an independent process reading anchor only on the matching run tab", () => {
+    const state = openRightSidebarSourceTab(EMPTY_RIGHT_SIDEBAR_TABS, {
+      id: "run-tab",
+      type: "run-output",
+      title: "开发",
+      sourceKey: "run:session-a:run-a",
+    });
+    const updated = updateRightSidebarProcessScroll(state, "run-tab", {
+      anchorEventKey: "run-a:event-42",
+      offsetPx: 18,
+      followLatest: false,
+    });
+    const restored = parseRightSidebarTabsState(JSON.parse(serializeRightSidebarTabsState(updated)));
+
+    expect(restored.tabs[0]?.processScroll).toEqual({
+      anchorEventKey: "run-a:event-42",
+      offsetPx: 18,
+      followLatest: false,
+    });
+    expect(updateRightSidebarProcessScroll(restored, "missing", {
+      anchorEventKey: null,
+      offsetPx: 0,
+      followLatest: true,
+    })).toEqual(restored);
+  });
+
+  it("restores a process anchor after that tab was closed and opened again", () => {
+    const source = {
+      id: "run-tab",
+      type: "run-output" as const,
+      title: "开发",
+      sourceKey: "run-output:session-a:run-a",
+    };
+    const opened = openRightSidebarSourceTab(EMPTY_RIGHT_SIDEBAR_TABS, source);
+    const scrolled = updateRightSidebarProcessScroll(opened, "run-tab", {
+      anchorEventKey: "run-a:event-7",
+      offsetPx: 24,
+      followLatest: false,
+    });
+    const closed = closeRightSidebarTab(scrolled, "run-tab", "blank");
+    const restored = parseRightSidebarTabsState(JSON.parse(serializeRightSidebarTabsState(closed)));
+    const reopened = openRightSidebarSourceTab(restored, { ...source, id: "run-tab-again" });
+
+    expect(reopened.tabs.at(-1)?.processScroll).toEqual({
+      anchorEventKey: "run-a:event-7",
+      offsetPx: 24,
+      followLatest: false,
+    });
   });
 });

@@ -24,6 +24,7 @@ import {
 } from "./attachments.js";
 import { listLocalT5Facts } from "./t5-store.js";
 import type { LocalRouteJudgment } from "./route-bus.js";
+import { ProcessCursorError } from "./process-history.js";
 import {
   LocalConsoleBusyError,
   LocalConsoleProjectFolderError,
@@ -451,7 +452,31 @@ async function handleRequest(
 
     const processOutputMatch = matchProcessOutputRoute(url.pathname);
     if (request.method === "GET" && processOutputMatch !== null) {
-      sendJson(response, 200, await runtime.processOutput(processOutputMatch.sessionId, processOutputMatch.runId));
+      try {
+        const cursor = url.searchParams.get("cursor") ?? undefined;
+        const appendCursor = url.searchParams.get("appendCursor") ?? undefined;
+        if (cursor !== undefined && appendCursor !== undefined) {
+          sendJson(response, 400, { error: "Expected only one process output cursor" });
+          return;
+        }
+        const output = appendCursor === undefined
+          ? await runtime.processOutput(processOutputMatch.sessionId, processOutputMatch.runId, cursor)
+          : await runtime.processOutputAppend(
+              processOutputMatch.sessionId,
+              processOutputMatch.runId,
+              appendCursor,
+            );
+        sendJson(response, 200, output);
+      } catch (error) {
+        if (error instanceof ProcessCursorError) {
+          sendJson(response, 409, {
+            error: error.message,
+            code: "PROCESS_CURSOR_INVALID",
+          });
+          return;
+        }
+        throw error;
+      }
       return;
     }
 

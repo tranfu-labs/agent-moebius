@@ -7,6 +7,7 @@ import {
   codexTimeoutKind,
   createCodexJsonlFramer,
   createRunWatchdogs,
+  extractCodexThreadId,
   extractCodexOutput,
   extractFinalAssistant,
   extractVisibleAgentMarkdown,
@@ -276,6 +277,12 @@ describe("Codex visible Markdown stream", () => {
     expect(events.map(extractVisibleAgentMarkdown)).toEqual([null, null, null, null, null, "## 可见进度"]);
   });
 
+  it("extracts a valid thread id and ignores unrelated events", () => {
+    expect(extractCodexThreadId({ type: "thread.started", thread_id: "thread-123" })).toBe("thread-123");
+    expect(extractCodexThreadId({ type: "thread.started", thread_id: "" })).toBeNull();
+    expect(extractCodexThreadId({ type: "turn.started", thread_id: "thread-123" })).toBeNull();
+  });
+
   it("delivers complete visible segments without making callback failures fatal", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
@@ -317,6 +324,113 @@ for (const event of events) process.stdout.write(JSON.stringify(event) + "\\n");
       expect(await fs.readFile(path.join(runDir, "stderr.log"), "utf8")).toContain(
         "codex-visible-markdown-callback-failed:consumer unavailable",
       );
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  it("delivers thread.started exactly once before returning a successful run", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const binDir = path.join(tempDir, "bin");
+    const runDir = path.join(tempDir, "run");
+    await fs.mkdir(binDir);
+    const codexPath = path.join(binDir, "codex");
+    await fs.writeFile(
+      codexPath,
+      `#!/usr/bin/env node
+const thread = JSON.stringify({ type: "thread.started", thread_id: "thread-live" }) + "\\n";
+process.stdout.write(thread.slice(0, 17));
+process.stdout.write(thread.slice(17));
+process.stdout.write(thread);
+process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "done" } }) + "\\n");
+`,
+      "utf8",
+    );
+    await fs.chmod(codexPath, 0o755);
+
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    const observed: string[] = [];
+    try {
+      const result = await run({
+        prompt: "hello",
+        runDir,
+        async onThreadStarted(threadId) {
+          await Promise.resolve();
+          observed.push(threadId);
+        },
+      });
+      expect(result).toMatchObject({ ok: true, threadId: "thread-live" });
+      expect(observed).toEqual(["thread-live"]);
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  it("fails closed when the thread link callback cannot persist", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const binDir = path.join(tempDir, "bin");
+    const runDir = path.join(tempDir, "run");
+    await fs.mkdir(binDir);
+    const codexPath = path.join(binDir, "codex");
+    await fs.writeFile(
+      codexPath,
+      `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "thread-live" }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "done" } }) + "\\n");
+`,
+      "utf8",
+    );
+    await fs.chmod(codexPath, 0o755);
+
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    try {
+      const result = await run({
+        prompt: "hello",
+        runDir,
+        onThreadStarted() {
+          throw new Error("session fact unavailable");
+        },
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        reason: "thread-link-callback-failed:session fact unavailable",
+      });
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  it("persists thread.started before reporting a later Codex failure", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const binDir = path.join(tempDir, "bin");
+    const runDir = path.join(tempDir, "run");
+    await fs.mkdir(binDir);
+    const codexPath = path.join(binDir, "codex");
+    await fs.writeFile(
+      codexPath,
+      `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "thread-failed" }) + "\\n");
+process.exitCode = 7;
+`,
+      "utf8",
+    );
+    await fs.chmod(codexPath, 0o755);
+
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    const observed: string[] = [];
+    try {
+      const result = await run({
+        prompt: "hello",
+        runDir,
+        onThreadStarted(threadId) {
+          observed.push(threadId);
+        },
+      });
+      expect(observed).toEqual(["thread-failed"]);
+      expect(result).toMatchObject({ ok: false, reason: "exit-code-7" });
     } finally {
       process.env.PATH = previousPath;
     }

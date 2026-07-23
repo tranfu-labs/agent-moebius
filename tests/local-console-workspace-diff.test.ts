@@ -253,6 +253,86 @@ describe("local console conversation workspace diff through HTTP", () => {
       stderr: expect.stringContaining("complete stderr"),
     });
   }, 20_000);
+
+  it("serves friendly Codex rollout history and append pages without runDir fallback", async () => {
+    const root = await temporaryRoot();
+    const repository = path.join(root, "repository");
+    const codexHome = path.join(root, "codex-home");
+    const threadId = "019f8cd7-cbc4-7a72-b0f7-71fecb7bd2e3";
+    const rolloutPath = path.join(
+      codexHome,
+      "sessions",
+      "2026",
+      "07",
+      "23",
+      `rollout-http-${threadId}.jsonl`,
+    );
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    try {
+      await initializeRepository(repository);
+      await fs.mkdir(path.dirname(rolloutPath), { recursive: true });
+      await fs.writeFile(rolloutPath, `${JSON.stringify(rolloutAssistant("开始检查"))}\n`, "utf8");
+      const started = await startHarness(root, async (options) => {
+        await fs.mkdir(options.runDir, { recursive: true });
+        await fs.writeFile(path.join(options.runDir, "stdout.jsonl"), "RUN_DIR_FALLBACK_MUST_NOT_APPEAR\n");
+        await fs.writeFile(path.join(options.runDir, "stderr.log"), "RUN_DIR_STDERR_MUST_NOT_APPEAR\n");
+        await options.onThreadStarted?.(threadId);
+        return successfulRun(options, "final reply must stay in the main timeline");
+      });
+      const project = await createProject(started.url, repository);
+      const session = await createSession(started.url, project.projectId, "direct", "请检查实现");
+      const finished = await waitForState(started.url, session.sessionId, (snapshot) =>
+        snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
+      );
+      const runId = finished.messages.find((message) => message.speaker === "agent")?.runId;
+      expect(runId).toBeTruthy();
+
+      const endpoint = new URL(
+        `/api/local-console/sessions/${encodeURIComponent(session.sessionId)}/runs/${encodeURIComponent(runId!)}/process-output`,
+        started.url,
+      );
+      const initialResponse = await fetch(endpoint);
+      expect(initialResponse.status).toBe(200);
+      const initial = await initialResponse.json() as {
+        status: string;
+        events: Array<{ kind: string; markdown?: string }>;
+        appendCursor: string | null;
+      };
+      expect(initial.status).toBe("settled");
+      expect(initial.events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "public-message", markdown: "请检查实现" }),
+        expect.objectContaining({ kind: "agent-markdown", markdown: "开始检查" }),
+      ]));
+      expect(JSON.stringify(initial)).not.toContain("RUN_DIR_");
+      expect(JSON.stringify(initial)).not.toContain("final reply must stay");
+      expect(initial.appendCursor).not.toBeNull();
+
+      await fs.appendFile(rolloutPath, `${JSON.stringify(rolloutAssistant("新增过程"))}\n`, "utf8");
+      const appendEndpoint = new URL(endpoint);
+      appendEndpoint.searchParams.set("appendCursor", initial.appendCursor!);
+      const appendResponse = await fetch(appendEndpoint);
+      expect(appendResponse.status).toBe(200);
+      await expect(appendResponse.json()).resolves.toMatchObject({
+        events: [expect.objectContaining({ kind: "agent-markdown", markdown: "新增过程" })],
+      });
+
+      await fs.rename(rolloutPath, `${rolloutPath}.bak`);
+      const unavailableResponse = await fetch(endpoint);
+      expect(unavailableResponse.status).toBe(200);
+      await expect(unavailableResponse.json()).resolves.toMatchObject({
+        status: "unavailable",
+        unavailableReason: "not-found",
+        events: [],
+      });
+    } finally {
+      if (previousCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = previousCodexHome;
+      }
+    }
+  }, 20_000);
 });
 
 async function temporaryRoot(): Promise<string> {
@@ -308,6 +388,18 @@ function successfulRun(options: CodexRunOptions, finalText: string): Extract<Cod
     runDir: options.runDir,
     stdoutPath: path.join(options.runDir, "stdout.jsonl"),
     stderrPath: path.join(options.runDir, "stderr.log"),
+  };
+}
+
+function rolloutAssistant(markdown: string): unknown {
+  return {
+    timestamp: "2026-07-23T01:00:00.000Z",
+    type: "response_item",
+    payload: {
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: markdown }],
+    },
   };
 }
 

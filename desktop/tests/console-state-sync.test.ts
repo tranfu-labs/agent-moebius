@@ -5,7 +5,10 @@ import {
   ConsoleStateCoordinator,
   loadEvidenceView,
   loadProcessOutput,
+  loadProcessOutputAppend,
+  loadProcessOutputThroughAnchor,
   loadSubSessionView,
+  ProcessOutputRequestError,
   processOutputRunId,
   loadProjectFile,
   loadProjectFiles,
@@ -287,6 +290,112 @@ describe("workspace file readers", () => {
     expect(String(fetch.mock.calls[2]?.[0])).toContain(
       "/api/local-console/sessions/session%2Fa/files/content?path=docs%2F",
     );
+  });
+});
+
+describe("process output reads", () => {
+  it("loads the structured Codex projection with opaque backward and append cursors", async () => {
+    const initial = processOutputFixture();
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(initial))
+      .mockResolvedValueOnce(jsonResponse({
+        events: [],
+        appendCursor: "append-next",
+        atLatest: true,
+        status: "running",
+      }));
+
+    await expect(loadProcessOutput({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      runId: "run/1",
+      cursor: "previous-page",
+      fetch,
+    })).resolves.toEqual(initial);
+    await expect(loadProcessOutputAppend({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      runId: "run/1",
+      appendCursor: "append-current",
+      fetch,
+    })).resolves.toEqual(expect.objectContaining({ appendCursor: "append-next" }));
+
+    expect(String(fetch.mock.calls[0]?.[0])).toContain(
+      "sessions/session%2Fa/runs/run%2F1/process-output?cursor=previous-page",
+    );
+    expect(String(fetch.mock.calls[1]?.[0])).toContain("appendCursor=append-current");
+  });
+
+  it("preserves the structured cursor error code for a safe initial reload", async () => {
+    const fetch = vi.fn(async () => jsonResponse({
+      error: "process output cursor is no longer valid",
+      code: "PROCESS_CURSOR_INVALID",
+    }, 409));
+
+    await expect(loadProcessOutputAppend({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session-a",
+      runId: "run-1",
+      appendCursor: "stale",
+      fetch,
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "PROCESS_CURSOR_INVALID",
+    } satisfies Partial<ProcessOutputRequestError>);
+  });
+
+  it("loads older pages until a persisted reading anchor is present", async () => {
+    const latest = {
+      ...processOutputFixture(),
+      events: [{
+        key: "latest",
+        kind: "agent-markdown" as const,
+        timestamp: null,
+        markdown: "最新",
+      }],
+      previousCursor: "page-2",
+    };
+    const older = {
+      ...latest,
+      events: [{
+        key: "saved-anchor",
+        kind: "command" as const,
+        timestamp: null,
+        phase: "completed" as const,
+        command: "pnpm test",
+        output: "PASS",
+        exitCode: 0,
+      }],
+      previousCursor: "page-1",
+      appendCursor: null,
+      atLatest: false,
+    };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(latest))
+      .mockResolvedValueOnce(jsonResponse(older));
+
+    await expect(loadProcessOutputThroughAnchor({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      runId: "run/1",
+      anchorEventKey: "saved-anchor",
+      fetch,
+    })).resolves.toMatchObject({
+      events: [
+        expect.objectContaining({ key: "saved-anchor" }),
+        expect.objectContaining({ key: "latest" }),
+      ],
+      previousCursor: "page-1",
+      appendCursor: "append-current",
+      atLatest: true,
+    });
+    expect(String(fetch.mock.calls[1]?.[0])).toContain("cursor=page-2");
+  });
+
+  it("extracts only a run locator belonging to the selected session", () => {
+    expect(processOutputRunId("run-output:session-a:run-1", "session-a")).toBe("run-1");
+    expect(processOutputRunId("run-output:session-b:run-1", "session-a")).toBeNull();
+    expect(processOutputRunId(null, "session-a")).toBeNull();
   });
 });
 
@@ -742,6 +851,32 @@ describe("ConsoleStateActions", () => {
     expect(coordinator.isSelectionMutationPending).toBe(false);
   });
 });
+
+function processOutputFixture() {
+  return {
+    sessionId: "session/a",
+    requestedRunId: "run/1",
+    role: "dev",
+    status: "running" as const,
+    unavailableReason: null,
+    attempts: [{
+      runId: "run/1",
+      attempt: 1,
+      role: "dev",
+      startedAt: "2026-07-23T00:00:00.000Z",
+      status: "running" as const,
+    }],
+    events: [{
+      key: "run/1:agent",
+      kind: "agent-markdown" as const,
+      timestamp: "2026-07-23T00:00:01.000Z",
+      markdown: "正在检查。",
+    }],
+    previousCursor: "previous-page",
+    appendCursor: "append-current",
+    atLatest: true,
+  };
+}
 
 function refreshOptions(input: {
   coordinator: ConsoleStateCoordinator;

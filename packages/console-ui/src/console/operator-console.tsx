@@ -64,6 +64,7 @@ import {
   EMPTY_RIGHT_SIDEBAR_TABS,
   ensureRightSidebarTabsForOpen,
   openRightSidebarSourceTab,
+  updateRightSidebarProcessScroll,
   type RightSidebarTabsState,
 } from "@/console/right-sidebar-tabs";
 import { containsMachineText, sanitizeMachineText } from "@/console/machine-text";
@@ -367,6 +368,7 @@ export interface OperatorConsoleProps {
   onRightSidebarOpenChange?: (open: boolean) => void;
   onRightSidebarWidthChange?: (width: number) => void;
   onRightSidebarTabsChange?: (state: RightSidebarTabsState) => void;
+  onLoadProcessOutputPrevious?: (sourceKey: string, cursor: string) => void;
   className?: string;
 }
 
@@ -479,6 +481,7 @@ export function OperatorConsole({
   onRightSidebarOpenChange,
   onRightSidebarWidthChange,
   onRightSidebarTabsChange,
+  onLoadProcessOutputPrevious,
   className,
 }: OperatorConsoleProps): JSX.Element {
   const [uncontrolledSidebarOpen, setUncontrolledSidebarOpen] = useState(true);
@@ -1269,7 +1272,21 @@ export function OperatorConsole({
           "run-output": (tab) => (
             <ProcessTab
               title={tab.title}
-              state={tab.sourceKey === null ? { status: "idle" } : processOutputs[tab.sourceKey] ?? { status: "idle" }}
+              state={tab.sourceKey === null
+                ? { status: "idle" }
+                : processOutputs[tab.sourceKey] ?? { status: "idle" }}
+              scrollSnapshot={tab.processScroll}
+              onScrollSnapshotChange={(snapshot) => {
+                updateRightSidebarTabs(updateRightSidebarProcessScroll(
+                  effectiveRightSidebarTabs,
+                  tab.id,
+                  snapshot,
+                ));
+              }}
+              onLoadPrevious={tab.sourceKey === null || onLoadProcessOutputPrevious === undefined
+                ? undefined
+                : (cursor) => onLoadProcessOutputPrevious(tab.sourceKey!, cursor)}
+              onOpenExternalLink={onOpenExternalLink}
             />
           ),
           "workspace-diff": () => selectedSession === null ? null : (

@@ -13,7 +13,9 @@ import {
   type OperatorChildSessionSummary,
   type OperatorEditAndResendTarget,
   type OperatorProject,
+  type OperatorProcessOutput,
   type OperatorProcessOutputState,
+  type OperatorProcessTimelineEvent,
   type OperatorRunSnapshot,
   type OperatorRunnerStatus,
   type OperatorSession,
@@ -58,11 +60,14 @@ import {
   ConsoleStateActions,
   ConsoleStateCoordinator,
   loadProcessOutput,
-  loadSubSessionView,
-  processOutputRunId,
+  loadProcessOutputAppend,
+  loadProcessOutputThroughAnchor,
   loadProjectFile,
   loadProjectFiles,
+  loadSubSessionView,
   loadWorkspaceDiff,
+  ProcessOutputRequestError,
+  processOutputRunId,
   refreshConsoleState,
   subSessionIdFromSourceKey,
   submitSessionMessage,
@@ -233,6 +238,7 @@ export function App(): JSX.Element {
     rightSidebarTabsStoreRef.current.read(selection.sessionId),
   );
   const [processOutputs, setProcessOutputs] = useState<Record<string, OperatorProcessOutputState>>({});
+  const processOutputsRef = useRef(processOutputs);
   const [subSessionViews, setSubSessionViews] = useState<Record<string, OperatorSubSessionViewState>>({});
   const [subSessionComposerValues, setSubSessionComposerValues] = useState<Record<string, string>>({});
   const [subSessionSendingId, setSubSessionSendingId] = useState<string | null>(null);
@@ -1078,6 +1084,7 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     setRightSidebarTabs(rightSidebarTabsStoreRef.current.read(selection.sessionId));
+    processOutputsRef.current = {};
     setProcessOutputs({});
     setSubSessionViews({});
   }, [selection.sessionId]);
@@ -1085,6 +1092,16 @@ export function App(): JSX.Element {
   const activeProcessSourceKey = activeRightSidebarTab?.type === "run-output"
     ? activeRightSidebarTab.sourceKey
     : null;
+
+  const commitProcessOutputs = useCallback((
+    update: (current: Record<string, OperatorProcessOutputState>) => Record<string, OperatorProcessOutputState>,
+  ) => {
+    setProcessOutputs((current) => {
+      const next = update(current);
+      processOutputsRef.current = next;
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (apiBase === null || activeProcessSourceKey === null) {
@@ -1096,9 +1113,12 @@ export function App(): JSX.Element {
     }
 
     const controller = new AbortController();
+    const restoreAnchorEventKey = activeRightSidebarTab?.processScroll?.followLatest === false
+      ? activeRightSidebarTab.processScroll.anchorEventKey
+      : null;
     let inFlight = false;
     let timer: number | null = null;
-    setProcessOutputs((current) => ({
+    commitProcessOutputs((current) => ({
       ...current,
       [activeProcessSourceKey]: current[activeProcessSourceKey]?.status === "ready"
         ? current[activeProcessSourceKey]!
@@ -1110,24 +1130,88 @@ export function App(): JSX.Element {
       }
       inFlight = true;
       try {
-        const output = await loadProcessOutput({
-          apiBase,
-          sessionId: selection.sessionId,
-          runId,
-          fetch,
-          signal: controller.signal,
-        });
+        const current = processOutputsRef.current[activeProcessSourceKey];
+        if (
+          current?.status === "ready"
+          && current.output.status !== "unavailable"
+          && current.output.appendCursor !== null
+        ) {
+          try {
+            const append = await loadProcessOutputAppend({
+              apiBase,
+              sessionId: selection.sessionId,
+              runId,
+              appendCursor: current.output.appendCursor,
+              fetch,
+              signal: controller.signal,
+            });
+            if (!controller.signal.aborted) {
+              commitProcessOutputs((latest) => {
+                const ready = latest[activeProcessSourceKey];
+                return ready?.status !== "ready"
+                  ? latest
+                  : {
+                      ...latest,
+                      [activeProcessSourceKey]: {
+                        ...ready,
+                        output: {
+                          ...ready.output,
+                          events: mergeProcessEvents(ready.output.events, append.events),
+                          appendCursor: append.appendCursor,
+                          atLatest: append.atLatest,
+                          status: append.status,
+                        },
+                      },
+                    };
+              });
+            }
+            return;
+          } catch (error) {
+            if (
+              !(error instanceof ProcessOutputRequestError)
+              || error.code !== "PROCESS_CURSOR_INVALID"
+            ) {
+              throw error;
+            }
+          }
+        }
+        const output = current?.status === "ready"
+          ? await loadProcessOutput({
+              apiBase,
+              sessionId: selection.sessionId,
+              runId,
+              fetch,
+              signal: controller.signal,
+            })
+          : await loadProcessOutputThroughAnchor({
+              apiBase,
+              sessionId: selection.sessionId,
+              runId,
+              anchorEventKey: restoreAnchorEventKey,
+              fetch,
+              signal: controller.signal,
+            });
         if (!controller.signal.aborted) {
-          setProcessOutputs((current) => ({
-            ...current,
-            [activeProcessSourceKey]: { status: "ready", output },
-          }));
+          commitProcessOutputs((latest) => {
+            const ready = latest[activeProcessSourceKey];
+            return {
+              ...latest,
+              [activeProcessSourceKey]: {
+                status: "ready",
+                output: ready?.status === "ready"
+                  ? mergeRefreshedProcessOutput(ready.output, output)
+                  : output,
+              },
+            };
+          });
         }
       } catch (error) {
         if (!controller.signal.aborted) {
-          setProcessOutputs((current) => ({
+          commitProcessOutputs((current) => ({
             ...current,
-            [activeProcessSourceKey]: { status: "error", message: formatError(error) },
+            [activeProcessSourceKey]: current[activeProcessSourceKey]?.status === "ready"
+              ? current[activeProcessSourceKey]!
+              : { status: "error", message: formatError(error) },
           }));
         }
       } finally {
@@ -1144,7 +1228,7 @@ export function App(): JSX.Element {
       }
       controller.abort("process-output-tab-changed");
     };
-  }, [activeProcessSourceKey, apiBase, selection.sessionId]);
+  }, [activeProcessSourceKey, apiBase, commitProcessOutputs, selection.sessionId]);
 
   useEffect(() => {
     if (apiBase === null || activeSubSessionId === null) {
@@ -1725,6 +1809,68 @@ export function App(): JSX.Element {
     return loadProjectFile({ apiBase, sessionId, filePath, fetch });
   }, [apiBase]);
 
+  const loadPreviousProcessOutput = useCallback((sourceKey: string, cursor: string) => {
+    if (apiBase === null) {
+      return;
+    }
+    const sessionId = selectionRef.current.sessionId;
+    const runId = processOutputRunId(sourceKey, sessionId);
+    const ready = processOutputsRef.current[sourceKey];
+    if (runId === null || ready?.status !== "ready" || ready.loadingPrevious === true) {
+      return;
+    }
+    commitProcessOutputs((current) => ({
+      ...current,
+      [sourceKey]: current[sourceKey]?.status === "ready"
+        ? { ...current[sourceKey], loadingPrevious: true }
+        : current[sourceKey] ?? { status: "idle" },
+    }));
+    void loadProcessOutput({
+      apiBase,
+      sessionId,
+      runId,
+      cursor,
+      fetch,
+    }).then((page) => {
+      if (selectionRef.current.sessionId !== sessionId) {
+        return;
+      }
+      commitProcessOutputs((current) => {
+        const currentReady = current[sourceKey];
+        if (currentReady?.status !== "ready") {
+          return current;
+        }
+        return {
+          ...current,
+          [sourceKey]: {
+            status: "ready",
+            loadingPrevious: false,
+            output: {
+              ...currentReady.output,
+              attempts: page.attempts,
+              events: mergeProcessEvents(page.events, currentReady.output.events),
+              previousCursor: page.previousCursor,
+            },
+          },
+        };
+      });
+    }).catch((error: unknown) => {
+      if (selectionRef.current.sessionId !== sessionId) {
+        return;
+      }
+      commitProcessOutputs((current) => {
+        const currentReady = current[sourceKey];
+        return currentReady?.status !== "ready"
+          ? current
+          : {
+              ...current,
+              [sourceKey]: { ...currentReady, loadingPrevious: false },
+            };
+      });
+      setClientError(formatError(error));
+    });
+  }, [apiBase, commitProcessOutputs]);
+
   return (
     <OperatorConsole
       project={project}
@@ -1923,8 +2069,41 @@ export function App(): JSX.Element {
       onLoadWorkspaceDiff={readWorkspaceDiff}
       onLoadProjectFiles={readProjectFiles}
       onLoadProjectFile={readProjectFile}
+      onLoadProcessOutputPrevious={loadPreviousProcessOutput}
     />
   );
+}
+
+function mergeRefreshedProcessOutput(
+  current: OperatorProcessOutput,
+  incoming: OperatorProcessOutput,
+): OperatorProcessOutput {
+  if (
+    current.status === "unavailable"
+    || incoming.status === "unavailable"
+    || incoming.attempts.length <= current.attempts.length
+  ) {
+    return incoming;
+  }
+  return {
+    ...incoming,
+    events: mergeProcessEvents(current.events, incoming.events),
+    previousCursor: current.previousCursor,
+  };
+}
+
+function mergeProcessEvents(
+  before: readonly OperatorProcessTimelineEvent[],
+  after: readonly OperatorProcessTimelineEvent[],
+): OperatorProcessTimelineEvent[] {
+  const seen = new Set<string>();
+  return [...before, ...after].filter((event) => {
+    if (seen.has(event.key)) {
+      return false;
+    }
+    seen.add(event.key);
+    return true;
+  });
 }
 
 const emptyProject: OperatorProject = {

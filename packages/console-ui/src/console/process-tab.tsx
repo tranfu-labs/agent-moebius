@@ -1,71 +1,327 @@
-import type { RightSidebarTabsState } from "@/console/right-sidebar-tabs";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+
+import {
+  ProcessEvent,
+  type OperatorProcessTimelineEvent,
+} from "@/console/process-event";
+import {
+  INITIAL_PROCESS_SCROLL_MODEL,
+  processDistanceFromBottom,
+  reduceProcessScroll,
+  type ProcessScrollModel,
+} from "@/console/process-scroll-model";
+import type { RightSidebarProcessScrollSnapshot } from "@/console/right-sidebar-tabs";
 import { cn } from "@/lib/utils";
-import type { ReactNode } from "react";
 
-export type OperatorProcessOutputAvailability = "available" | "empty" | "unavailable";
-
-export interface OperatorProcessOutputAttempt {
+export interface OperatorProcessAttemptMeta {
   runId: string;
   attempt: number;
+  role: string;
   startedAt: string;
   status: "running" | "settled";
-  stdout: string | null;
-  stderr: string | null;
-  fallback: string | null;
-  availability: OperatorProcessOutputAvailability;
-  stdoutTruncated: boolean;
-  stderrTruncated: boolean;
 }
 
 export interface OperatorProcessOutput {
   sessionId: string;
   requestedRunId: string;
   role: string | null;
+  status: "running" | "settled" | "unavailable";
+  unavailableReason: string | null;
+  attempts: OperatorProcessAttemptMeta[];
+  events: OperatorProcessTimelineEvent[];
+  previousCursor: string | null;
+  appendCursor: string | null;
+  atLatest: boolean;
+}
+
+export interface OperatorProcessAppendOutput {
+  events: OperatorProcessTimelineEvent[];
+  appendCursor: string;
+  atLatest: boolean;
   status: "running" | "settled";
-  attempts: OperatorProcessOutputAttempt[];
 }
 
 export type OperatorProcessOutputState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; output: OperatorProcessOutput };
+  | {
+      status: "ready";
+      output: OperatorProcessOutput;
+      loadingPrevious?: boolean;
+    };
 
 export interface ProcessTabProps {
   title: string;
   state: OperatorProcessOutputState;
+  scrollSnapshot?: RightSidebarProcessScrollSnapshot;
+  onScrollSnapshotChange?: (snapshot: RightSidebarProcessScrollSnapshot) => void;
+  onLoadPrevious?: (cursor: string) => void;
+  onOpenExternalLink?: (url: string) => void;
   className?: string;
 }
 
-export function ProcessTab({ title, state, className }: ProcessTabProps): JSX.Element {
+export function ProcessTab({
+  title,
+  state,
+  scrollSnapshot,
+  onScrollSnapshotChange,
+  onLoadPrevious,
+  onOpenExternalLink,
+  className,
+}: ProcessTabProps): JSX.Element {
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const initializedRef = useRef(false);
+  const previousKeysRef = useRef<string[]>([]);
+  const snapshotRef = useRef(scrollSnapshot);
+  const snapshotFrameRef = useRef<number | null>(null);
+  const [scrollModel, setScrollModel] = useState<ProcessScrollModel>(() =>
+    scrollSnapshot === undefined
+      ? INITIAL_PROCESS_SCROLL_MODEL
+      : reduceProcessScroll(INITIAL_PROCESS_SCROLL_MODEL, {
+          type: "restore",
+          followLatest: scrollSnapshot.followLatest,
+        }),
+  );
+  const output = state.status === "ready" ? state.output : null;
+  const events = output?.events ?? [];
+  const eventKeys = useMemo(() => events.map((event) => event.key), [events]);
+  const virtualizer = useVirtualizer({
+    count: events.length,
+    getScrollElement: () => sectionRef.current?.parentElement ?? null,
+    getItemKey: (index) => events[index]?.key ?? index,
+    estimateSize: () => 96,
+    measureElement: (element) => element.getBoundingClientRect().height,
+    overscan: 6,
+    initialRect: { width: 420, height: 640 },
+    scrollMargin: listRef.current?.offsetTop ?? 0,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  const memberName = title.replace(/\s+\d+$/u, "");
+
+  useEffect(() => {
+    snapshotRef.current = scrollSnapshot;
+  }, [scrollSnapshot]);
+
+  useLayoutEffect(() => {
+    if (state.status !== "ready" || events.length === 0) {
+      return;
+    }
+    const previousKeys = previousKeysRef.current;
+    const firstReady = !initializedRef.current;
+    const prepended = previousKeys.length > 0
+      && eventKeys.length > previousKeys.length
+      && eventKeys.at(-1) === previousKeys.at(-1)
+      && eventKeys[0] !== previousKeys[0];
+    const appended = previousKeys.length > 0
+      && eventKeys.length > previousKeys.length
+      && eventKeys[0] === previousKeys[0];
+
+    if (firstReady) {
+      initializedRef.current = true;
+      const anchorKey = snapshotRef.current?.anchorEventKey ?? null;
+      const anchorIndex = anchorKey === null ? -1 : eventKeys.indexOf(anchorKey);
+      if (anchorIndex >= 0 && snapshotRef.current?.followLatest === false) {
+        virtualizer.scrollToIndex(anchorIndex, { align: "start" });
+        const offset = snapshotRef.current.offsetPx;
+        if (offset > 0) {
+          requestAnimationFrame(() => {
+            const parent = sectionRef.current?.parentElement;
+            if (parent !== null && parent !== undefined) {
+              parent.scrollTop += offset;
+            }
+          });
+        }
+        setScrollModel(reduceProcessScroll(INITIAL_PROCESS_SCROLL_MODEL, {
+          type: "restore",
+          followLatest: false,
+        }));
+      } else {
+        virtualizer.scrollToIndex(events.length - 1, { align: "end" });
+        setScrollModel(reduceProcessScroll(INITIAL_PROCESS_SCROLL_MODEL, { type: "ready" }));
+      }
+    } else if (prepended) {
+      const anchorKey = snapshotRef.current?.anchorEventKey ?? previousKeys[0] ?? null;
+      const anchorIndex = anchorKey === null ? -1 : eventKeys.indexOf(anchorKey);
+      if (anchorIndex >= 0) {
+        virtualizer.scrollToIndex(anchorIndex, { align: "start" });
+        const offset = snapshotRef.current?.offsetPx ?? 0;
+        if (offset > 0) {
+          requestAnimationFrame(() => {
+            const parent = sectionRef.current?.parentElement;
+            if (parent !== null && parent !== undefined) {
+              parent.scrollTop += offset;
+            }
+          });
+        }
+      }
+    } else if (appended) {
+      const count = eventKeys.length - previousKeys.length;
+      setScrollModel((current) => {
+        const next = reduceProcessScroll(current, { type: "append", count });
+        if (current.mode === "following") {
+          requestAnimationFrame(() => virtualizer.scrollToIndex(events.length - 1, { align: "end" }));
+        }
+        return next;
+      });
+    }
+    previousKeysRef.current = eventKeys;
+  }, [eventKeys, events.length, state.status, virtualizer]);
+
+  useEffect(() => {
+    const parent = sectionRef.current?.parentElement;
+    if (parent === null || parent === undefined) {
+      return;
+    }
+    const persistSnapshot = () => {
+      if (onScrollSnapshotChange === undefined || events.length === 0) {
+        return;
+      }
+      const firstVisible = virtualizer.getVirtualItems()[0];
+      const anchorEventKey = firstVisible === undefined
+        ? events.at(-1)?.key ?? null
+        : events[firstVisible.index]?.key ?? null;
+      const offsetPx = firstVisible === undefined
+        ? 0
+        : Math.max(0, parent.scrollTop - firstVisible.start);
+      onScrollSnapshotChange({
+        anchorEventKey,
+        offsetPx,
+        followLatest: processDistanceFromBottom(parent) <= 48,
+      });
+    };
+    const onScroll = () => {
+      const distanceFromBottom = processDistanceFromBottom(parent);
+      setScrollModel((current) => reduceProcessScroll(current, {
+        type: "scroll",
+        distanceFromBottom,
+      }));
+      if (snapshotFrameRef.current !== null) {
+        cancelAnimationFrame(snapshotFrameRef.current);
+      }
+      snapshotFrameRef.current = requestAnimationFrame(persistSnapshot);
+    };
+    parent.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      parent.removeEventListener("scroll", onScroll);
+      if (snapshotFrameRef.current !== null) {
+        cancelAnimationFrame(snapshotFrameRef.current);
+        snapshotFrameRef.current = null;
+      }
+    };
+  }, [events, onScrollSnapshotChange, virtualizer]);
+
+  useEffect(() => {
+    if (
+      state.status !== "ready"
+      || state.loadingPrevious === true
+      || state.output.previousCursor === null
+      || onLoadPrevious === undefined
+      || virtualItems[0]?.index !== 0
+    ) {
+      return;
+    }
+    onLoadPrevious(state.output.previousCursor);
+  }, [onLoadPrevious, state, virtualItems]);
+
+  const returnLatest = () => {
+    if (events.length === 0) {
+      return;
+    }
+    virtualizer.scrollToIndex(events.length - 1, { align: "end" });
+    setScrollModel((current) => reduceProcessScroll(current, { type: "return-latest" }));
+  };
+
   return (
     <section
-      className={cn("min-h-full select-text px-5 py-5 text-sm text-ink", className)}
+      ref={sectionRef}
+      className={cn("relative min-h-full select-text px-5 pb-5 text-sm text-ink", className)}
       aria-label={`${title}的过程输出`}
       data-testid="process-tab"
     >
-      <header className="border-b border-line pb-4">
-        <h2 className="truncate text-sm font-semibold text-ink" title={title}>
-          {title} · 这一步的完整输出
-        </h2>
-        <p className="mt-1 text-xs text-sub">
-          {state.status === "ready" && state.output.status === "running" ? "正在追加原始输出" : "只读原始记录"}
-        </p>
+      <header className="sticky top-0 z-10 -mx-5 flex items-start justify-between gap-3 border-b border-line bg-canvas px-5 py-4">
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold text-ink" title={title}>
+            {title} · 这一步的完整输出
+          </h2>
+          <p className="mt-1 text-xs text-sub">
+            {scrollModel.mode === "reading"
+              ? "已暂停跟随"
+              : output?.status === "running"
+                ? "跟随最新"
+                : "只读完整过程"}
+          </p>
+        </div>
       </header>
 
       {state.status === "idle" || state.status === "loading" ? (
-        <ProcessNotice>正在读取这一步的原始输出…</ProcessNotice>
+        <ProcessNotice>正在读取 Codex 过程记录…</ProcessNotice>
       ) : state.status === "error" ? (
-        <ProcessNotice>原始输出暂时无法读取：{state.message}</ProcessNotice>
-      ) : state.output.attempts.length === 0 ? (
-        <ProcessNotice>这一步没有产生输出。</ProcessNotice>
+        <ProcessNotice>Codex 过程记录暂时无法读取：{state.message}</ProcessNotice>
+      ) : state.output.status === "unavailable" ? (
+        <ProcessNotice>
+          <span className="block font-medium text-ink">Codex 过程记录文件已不可用</span>
+          <span className="mt-1 block">这一步的最终回复仍保留在主对话区。</span>
+        </ProcessNotice>
+      ) : events.length === 0 ? (
+        <ProcessNotice>这一步没有产生可显示的过程事件。</ProcessNotice>
       ) : (
-        <div className="divide-y divide-line">
-          {state.output.attempts.map((attempt) => (
-            <ProcessAttempt key={attempt.runId} attempt={attempt} />
-          ))}
-        </div>
+        <>
+          {state.loadingPrevious === true ? (
+            <p className="py-2 text-center text-xs text-sub">正在加载更早过程…</p>
+          ) : state.output.previousCursor !== null ? (
+            <p className="py-2 text-center text-xs text-sub">↑ 向上滚动加载更早过程</p>
+          ) : null}
+          <div
+            ref={listRef}
+            className="relative"
+            style={{ height: `${virtualizer.getTotalSize()}px` }}
+          >
+            {virtualItems.map((virtualItem) => {
+              const event = events[virtualItem.index];
+              if (event === undefined) {
+                return null;
+              }
+              return (
+                <div
+                  key={event.key}
+                  ref={virtualizer.measureElement}
+                  data-index={virtualItem.index}
+                  className="absolute left-0 top-0 w-full"
+                  style={{
+                    transform: `translateY(${String(virtualItem.start - virtualizer.options.scrollMargin)}px)`,
+                  }}
+                >
+                  <ProcessEvent
+                    event={event}
+                    memberName={memberName}
+                    onOpenExternalLink={onOpenExternalLink}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
+
+      {scrollModel.mode === "reading" && scrollModel.unreadCount > 0 ? (
+        <button
+          type="button"
+          className="sticky bottom-4 ml-auto mt-3 block rounded-full border border-line bg-card px-3 py-1.5 text-xs font-medium text-ink shadow-overlay hover:bg-hover"
+          onClick={returnLatest}
+        >
+          ↓ {scrollModel.unreadCount} 条新内容 / 到最新
+        </button>
+      ) : null}
     </section>
   );
 }
@@ -86,7 +342,10 @@ export function resolveOperatorMemberName(
   return role === null ? unknownLabel : labels[role] ?? unknownLabel;
 }
 
-export function nextProcessTabTitle(state: RightSidebarTabsState, role: string | null): string {
+export function nextProcessTabTitle(
+  state: { tabs: Array<{ type: string; title: string }> },
+  role: string | null,
+): string {
   const memberName = resolveOperatorMemberName(role, "成员未知");
   const usedOrdinals = new Set(state.tabs.flatMap((tab): number[] => {
     if (tab.type !== "run-output") {
@@ -107,67 +366,6 @@ export function nextProcessTabTitle(state: RightSidebarTabsState, role: string |
   return nextOrdinal === 1 ? memberName : `${memberName} ${String(nextOrdinal)}`;
 }
 
-function ProcessAttempt({ attempt }: { attempt: OperatorProcessOutputAttempt }): JSX.Element {
-  const hasRawOutput = nonEmpty(attempt.stdout) !== null || nonEmpty(attempt.stderr) !== null;
-  return (
-    <article className="py-5 first:pt-4 last:pb-0" aria-label={`第 ${String(attempt.attempt)} 次执行`}>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-xs font-semibold text-ink">第 {attempt.attempt} 次执行</h3>
-        {attempt.status === "running" ? (
-          <span className="text-xs text-sub">正在执行</span>
-        ) : null}
-      </div>
-
-      {attempt.stdoutTruncated || attempt.stderrTruncated ? (
-        <p className="mb-3 rounded-md border border-line bg-card px-3 py-2 text-xs text-sub" role="note">
-          此处已截断，只显示留存的末尾内容。
-        </p>
-      ) : null}
-
-      {hasRawOutput ? (
-        <div className="grid gap-4">
-          <RawOutput label="标准输出" value={attempt.stdout} />
-          <RawOutput label="错误输出" value={attempt.stderr} />
-        </div>
-      ) : attempt.availability === "unavailable" ? (
-        <div className="grid gap-3">
-          <p className="text-xs text-sub">原始输出已不可用，以下为会话中保留的记录。</p>
-          <RawOutput label="保留记录" value={attempt.fallback} emptyText="没有可显示的保留记录。" />
-        </div>
-      ) : (
-        <p className="text-xs text-sub">这一步没有产生输出。</p>
-      )}
-    </article>
-  );
-}
-
-function RawOutput({
-  label,
-  value,
-  emptyText,
-}: {
-  label: string;
-  value: string | null;
-  emptyText?: string;
-}): JSX.Element | null {
-  const text = nonEmpty(value);
-  if (text === null && emptyText === undefined) {
-    return null;
-  }
-  return (
-    <div className="min-w-0">
-      <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-sub">{label}</h4>
-      <pre className="scroll-thin max-w-full select-text overflow-x-auto whitespace-pre rounded-md bg-card px-3 py-2 font-mono text-xs leading-5 text-ink">
-        {text ?? emptyText}
-      </pre>
-    </div>
-  );
-}
-
 function ProcessNotice({ children }: { children: ReactNode }): JSX.Element {
-  return <p className="py-8 text-center text-sm text-sub">{children}</p>;
-}
-
-function nonEmpty(value: string | null): string | null {
-  return value !== null && value.length > 0 ? value : null;
+  return <p className="py-10 text-center text-sm leading-6 text-sub">{children}</p>;
 }

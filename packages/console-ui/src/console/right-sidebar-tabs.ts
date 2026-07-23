@@ -21,11 +21,19 @@ export interface RightSidebarTab {
   title: string;
   sourceKey: string | null;
   closable: true;
+  processScroll?: RightSidebarProcessScrollSnapshot;
+}
+
+export interface RightSidebarProcessScrollSnapshot {
+  anchorEventKey: string | null;
+  offsetPx: number;
+  followLatest: boolean;
 }
 
 export interface RightSidebarTabsState {
   tabs: RightSidebarTab[];
   activeTabId: string | null;
+  processScrollBySourceKey?: Record<string, RightSidebarProcessScrollSnapshot>;
 }
 
 export interface RightSidebarSourceTab {
@@ -102,6 +110,9 @@ export function openRightSidebarSourceTab(
     ...source,
     id: uniqueRightSidebarTabId(state, source.id),
     closable: true,
+    ...(state.processScrollBySourceKey?.[source.sourceKey] === undefined
+      ? {}
+      : { processScroll: state.processScrollBySourceKey[source.sourceKey] }),
   };
   return {
     tabs: [...state.tabs, tab],
@@ -118,6 +129,30 @@ export function selectRightSidebarTab(
     : state;
 }
 
+export function updateRightSidebarProcessScroll(
+  state: RightSidebarTabsState,
+  tabId: string,
+  snapshot: RightSidebarProcessScrollSnapshot,
+): RightSidebarTabsState {
+  const normalized = normalizeProcessScrollSnapshot(snapshot);
+  const sourceKey = state.tabs.find((tab) => tab.id === tabId && tab.type === "run-output")?.sourceKey;
+  return {
+    ...state,
+    tabs: state.tabs.map((tab) =>
+      tab.id === tabId && tab.type === "run-output"
+        ? { ...tab, processScroll: normalized }
+        : tab),
+    ...(sourceKey === null || sourceKey === undefined
+      ? {}
+      : {
+          processScrollBySourceKey: {
+            ...state.processScrollBySourceKey,
+            [sourceKey]: normalized,
+          },
+        }),
+  };
+}
+
 export function closeRightSidebarTab(
   state: RightSidebarTabsState,
   tabId: string,
@@ -130,7 +165,11 @@ export function closeRightSidebarTab(
   const remaining = state.tabs.filter((tab) => tab.id !== tabId);
   if (remaining.length === 0) {
     const blank = createBlankRightSidebarTab(fallbackBlankId);
-    return { tabs: [blank], activeTabId: blank.id };
+    return {
+      ...state,
+      tabs: [blank],
+      activeTabId: blank.id,
+    };
   }
   if (state.activeTabId !== tabId) {
     return { ...state, tabs: remaining };
@@ -168,12 +207,16 @@ export function parseRightSidebarTabsState(value: unknown): RightSidebarTabsStat
     ) {
       return [];
     }
+    const processScroll = entry.type === "run-output"
+      ? parseProcessScrollSnapshot(entry.processScroll)
+      : undefined;
     return [{
       id: entry.id,
       type: entry.type,
       title: entry.title,
       sourceKey: entry.sourceKey,
       closable: true,
+      ...(processScroll === undefined ? {} : { processScroll }),
     }];
   });
   const uniqueTabs = tabs.filter(
@@ -183,7 +226,17 @@ export function parseRightSidebarTabsState(value: unknown): RightSidebarTabsStat
     && uniqueTabs.some((tab) => tab.id === value.activeTabId)
     ? value.activeTabId
     : uniqueTabs[0]?.id ?? null;
-  return { tabs: uniqueTabs, activeTabId };
+  const processScrollBySourceKey = parseProcessScrollBySourceKey(value.processScrollBySourceKey);
+  for (const tab of uniqueTabs) {
+    if (tab.type === "run-output" && tab.sourceKey !== null && tab.processScroll !== undefined) {
+      processScrollBySourceKey[tab.sourceKey] = tab.processScroll;
+    }
+  }
+  return {
+    tabs: uniqueTabs,
+    activeTabId,
+    ...(Object.keys(processScrollBySourceKey).length === 0 ? {} : { processScrollBySourceKey }),
+  };
 }
 
 export function serializeRightSidebarTabsState(state: RightSidebarTabsState): string {
@@ -207,4 +260,43 @@ function uniqueRightSidebarTabId(state: RightSidebarTabsState, requestedId: stri
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseProcessScrollSnapshot(value: unknown): RightSidebarProcessScrollSnapshot | undefined {
+  if (
+    !isRecord(value)
+    || !(typeof value.anchorEventKey === "string" || value.anchorEventKey === null)
+    || typeof value.offsetPx !== "number"
+    || !Number.isFinite(value.offsetPx)
+    || typeof value.followLatest !== "boolean"
+  ) {
+    return undefined;
+  }
+  return normalizeProcessScrollSnapshot({
+    anchorEventKey: value.anchorEventKey,
+    offsetPx: value.offsetPx,
+    followLatest: value.followLatest,
+  });
+}
+
+function normalizeProcessScrollSnapshot(
+  value: RightSidebarProcessScrollSnapshot,
+): RightSidebarProcessScrollSnapshot {
+  return {
+    anchorEventKey: value.anchorEventKey,
+    offsetPx: Math.max(0, value.offsetPx),
+    followLatest: value.followLatest,
+  };
+}
+
+function parseProcessScrollBySourceKey(
+  value: unknown,
+): Record<string, RightSidebarProcessScrollSnapshot> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  return Object.fromEntries(Object.entries(value).flatMap(([sourceKey, snapshot]) => {
+    const parsed = sourceKey.trim() === "" ? undefined : parseProcessScrollSnapshot(snapshot);
+    return parsed === undefined ? [] : [[sourceKey, parsed]];
+  }));
 }

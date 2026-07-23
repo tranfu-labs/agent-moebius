@@ -19,6 +19,7 @@ export interface CodexRunOptions {
   idleTimeoutMs?: number;
   maxDurationMs?: number;
   onVisibleAgentMarkdown?: (text: string) => void;
+  onThreadStarted?: (threadId: string) => void | Promise<void>;
 }
 
 export type CodexWatchdogKind = "idle" | "max-duration";
@@ -190,6 +191,18 @@ export function extractVisibleAgentMarkdown(event: unknown): string | null {
   return event.item.text.trim().length > 0 ? event.item.text : null;
 }
 
+export function extractCodexThreadId(event: unknown): string | null {
+  if (
+    !isRecord(event)
+    || event.type !== "thread.started"
+    || typeof event.thread_id !== "string"
+    || event.thread_id.trim() === ""
+  ) {
+    return null;
+  }
+  return event.thread_id;
+}
+
 export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   const { prompt, runDir, mode = { kind: "full" }, cwd, signal, imagePaths = [], idleTimeoutMs, maxDurationMs } = options;
   await fs.mkdir(runDir, { recursive: true });
@@ -224,6 +237,9 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   let terminationTimer: NodeJS.Timeout | null = null;
   let killTimer: NodeJS.Timeout | null = null;
   let forceSettleTimer: NodeJS.Timeout | null = null;
+  let observedThreadId: string | null = null;
+  let threadStartedCallback: Promise<void> = Promise.resolve();
+  let threadStartedCallbackError: string | null = null;
   const terminationDelayMs = options.interruptTerminationDelayMs ?? INTERRUPT_TERMINATION_DELAY_MS;
   const killDelayMs = options.interruptKillDelayMs ?? INTERRUPT_KILL_DELAY_MS;
 
@@ -284,17 +300,41 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   const recordStdoutActivity = () => {
     watchdogs.recordActivity();
   };
+  const handleStreamEvent = (event: unknown) => {
+    const threadId = extractCodexThreadId(event);
+    if (threadId !== null) {
+      if (observedThreadId === null) {
+        observedThreadId = threadId;
+        if (options.onThreadStarted !== undefined) {
+          try {
+            threadStartedCallback = Promise.resolve(options.onThreadStarted(threadId)).catch((error: unknown) => {
+              threadStartedCallbackError = formatUnknownError(error);
+              beginTermination();
+            });
+          } catch (error) {
+            threadStartedCallbackError = formatUnknownError(error);
+            beginTermination();
+          }
+        }
+      } else if (observedThreadId !== threadId) {
+        threadStartedCallbackError = `conflicting-thread-id:${observedThreadId}:${threadId}`;
+        beginTermination();
+      }
+    }
+
+    const markdown = extractVisibleAgentMarkdown(event);
+    if (markdown === null || options.onVisibleAgentMarkdown === undefined) {
+      return;
+    }
+    try {
+      options.onVisibleAgentMarkdown(markdown);
+    } catch (error) {
+      stderrFile.write(`[agent-moebius] codex-visible-markdown-callback-failed:${formatUnknownError(error)}\n`);
+    }
+  };
   const handleVisibleStdout = (chunk: Buffer) => {
     for (const event of streamFramer.push(chunk)) {
-      const markdown = extractVisibleAgentMarkdown(event);
-      if (markdown === null || options.onVisibleAgentMarkdown === undefined) {
-        continue;
-      }
-      try {
-        options.onVisibleAgentMarkdown(markdown);
-      } catch (error) {
-        stderrFile.write(`[agent-moebius] codex-visible-markdown-callback-failed:${formatUnknownError(error)}\n`);
-      }
+      handleStreamEvent(event);
     }
   };
   child.stdout.on("data", recordStdoutActivity);
@@ -309,16 +349,9 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   child.stdout.removeListener("data", recordStdoutActivity);
   child.stdout.removeListener("data", handleVisibleStdout);
   for (const event of streamFramer.finish()) {
-    const markdown = extractVisibleAgentMarkdown(event);
-    if (markdown === null || options.onVisibleAgentMarkdown === undefined) {
-      continue;
-    }
-    try {
-      options.onVisibleAgentMarkdown(markdown);
-    } catch (error) {
-      stderrFile.write(`[agent-moebius] codex-visible-markdown-callback-failed:${formatUnknownError(error)}\n`);
-    }
+    handleStreamEvent(event);
   }
+  await threadStartedCallback;
   signal?.removeEventListener("abort", handleAbort);
   if (terminationTimer !== null) {
     clearTimeout(terminationTimer);
@@ -331,6 +364,16 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   }
 
   await Promise.all([finishWritable(stdoutFile), finishWritable(stderrFile)]);
+
+  if (threadStartedCallbackError !== null) {
+    return {
+      ok: false,
+      reason: `thread-link-callback-failed:${threadStartedCallbackError}`,
+      runDir,
+      stdoutPath,
+      stderrPath,
+    };
+  }
 
   if (abortReason !== null) {
     return {

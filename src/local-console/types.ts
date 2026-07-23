@@ -232,29 +232,6 @@ export interface LocalConsoleRunOutput {
   fallback: string | null;
 }
 
-export type LocalConsoleProcessOutputAvailability = "available" | "empty" | "unavailable";
-
-export interface LocalConsoleProcessOutputAttempt {
-  runId: string;
-  attempt: number;
-  startedAt: string;
-  status: "running" | "settled";
-  stdout: string | null;
-  stderr: string | null;
-  fallback: string | null;
-  availability: LocalConsoleProcessOutputAvailability;
-  stdoutTruncated: boolean;
-  stderrTruncated: boolean;
-}
-
-export interface LocalConsoleProcessOutput {
-  sessionId: string;
-  requestedRunId: string;
-  role: string | null;
-  status: "running" | "settled";
-  attempts: LocalConsoleProcessOutputAttempt[];
-}
-
 export interface LocalConsoleSessionSummary {
   sessionId: string;
   projectId: string;
@@ -546,6 +523,14 @@ export interface LocalConsoleStore {
     runId: string;
     runDir: string;
     now: string;
+  }): Promise<void>;
+  recordCodexThreadLink?(input: {
+    sessionId: string;
+    runId: string;
+    sourceMessageId: number;
+    role: string;
+    threadId: string;
+    startedAt: string;
   }): Promise<void>;
   recordSystemAndComplete(input: {
     userMessageId: number;

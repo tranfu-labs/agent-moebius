@@ -1157,7 +1157,7 @@ describe("OperatorConsole", () => {
     });
   });
 
-  it("renders ordered raw attempts from the complete-output entry without sanitizing paths or errors", () => {
+  it("renders the friendly Codex timeline without raw JSON or fallback output", () => {
     renderConsole({
       messages: [message({
         id: 2,
@@ -1174,32 +1174,79 @@ describe("OperatorConsole", () => {
             requestedRunId: "run-retry-2",
             role: "dev",
             status: "settled",
+            unavailableReason: null,
             attempts: [
               {
                 runId: "run-retry-1",
                 attempt: 1,
+                role: "dev",
                 startedAt: "2026-07-09T00:00:00.000Z",
                 status: "settled",
-                stdout: null,
-                stderr: "Error: failed at /Users/wing/private/source.ts\n**raw stderr**",
-                fallback: "first failure",
-                availability: "available",
-                stdoutTruncated: false,
-                stderrTruncated: true,
               },
               {
                 runId: "run-retry-2",
                 attempt: 2,
+                role: "dev",
                 startedAt: "2026-07-09T00:01:00.000Z",
                 status: "settled",
-                stdout: "saved /Users/wing/private/result.txt",
-                stderr: null,
-                fallback: "second result",
-                availability: "available",
-                stdoutTruncated: false,
-                stderrTruncated: false,
               },
             ],
+            events: [
+              {
+                key: "attempt-1",
+                kind: "attempt-header",
+                runId: "run-retry-1",
+                attempt: 1,
+                startedAt: "2026-07-09T00:00:00.000Z",
+                status: "settled",
+              },
+              {
+                key: "public-1",
+                kind: "public-message",
+                messageId: 1,
+                speaker: "user",
+                role: null,
+                markdown: "请检查实现",
+                attachments: [],
+                timestamp: "2026-07-09T00:00:00.000Z",
+              },
+              {
+                key: "execution-1",
+                kind: "execution-header",
+                runId: "run-retry-1",
+                attempt: 1,
+              },
+              {
+                key: "error-1",
+                kind: "error",
+                timestamp: "2026-07-09T00:00:01.000Z",
+                message: "第一次失败",
+                detail: "命令退出码为 1",
+              },
+              {
+                key: "attempt-2",
+                kind: "attempt-header",
+                runId: "run-retry-2",
+                attempt: 2,
+                startedAt: "2026-07-09T00:01:00.000Z",
+                status: "settled",
+              },
+              {
+                key: "execution-2",
+                kind: "execution-header",
+                runId: "run-retry-2",
+                attempt: 2,
+              },
+              {
+                key: "agent-2",
+                kind: "agent-markdown",
+                timestamp: "2026-07-09T00:01:01.000Z",
+                markdown: "第二次执行完成",
+              },
+            ],
+            previousCursor: null,
+            appendCursor: "append-cursor",
+            atLatest: true,
           },
         },
       },
@@ -1209,16 +1256,9 @@ describe("OperatorConsole", () => {
 
     const content = screen.getByTestId("right-sidebar-content");
     expect(within(content).getByText("开发 · 这一步的完整输出")).toBeVisible();
-    expect(within(content).getByText("第 1 次执行")).toBeVisible();
-    expect(within(content).getByText("第 2 次执行")).toBeVisible();
-    expect(within(content).getByRole("note")).toHaveTextContent("此处已截断");
-    expect(content).toHaveTextContent("Error: failed at /Users/wing/private/source.ts");
-    expect(content).toHaveTextContent("**raw stderr**");
-    expect(content).toHaveTextContent("saved /Users/wing/private/result.txt");
-    expect(content).not.toHaveTextContent("路径已隐藏");
+    expect(content).not.toHaveTextContent("stdout");
+    expect(content).not.toHaveTextContent("fallback");
     expect(within(content).queryByRole("textbox")).not.toBeInTheDocument();
-    expect(within(content).queryByRole("button")).not.toBeInTheDocument();
-    expect(content.querySelectorAll("pre.select-text")).toHaveLength(2);
   });
 
   it("numbers separate process tabs by member and never derives a title from step content", () => {
@@ -1262,7 +1302,7 @@ describe("OperatorConsole", () => {
     expect(within(panel).getAllByRole("tab", { name: "开发 3" })).toHaveLength(1);
   });
 
-  it("distinguishes unavailable original output from an empty execution", () => {
+  it("shows explicit Codex file unavailability without rendering the retained final reply", () => {
     renderConsole({
       messages: [message({
         id: 2,
@@ -1278,33 +1318,13 @@ describe("OperatorConsole", () => {
             sessionId: "session-a",
             requestedRunId: "run-missing",
             role: null,
-            status: "settled",
-            attempts: [
-              {
-                runId: "run-missing",
-                attempt: 1,
-                startedAt: "2026-07-09T00:00:00.000Z",
-                status: "settled",
-                stdout: null,
-                stderr: null,
-                fallback: "fallback /tmp/run-missing",
-                availability: "unavailable",
-                stdoutTruncated: false,
-                stderrTruncated: false,
-              },
-              {
-                runId: "run-empty",
-                attempt: 2,
-                startedAt: "2026-07-09T00:01:00.000Z",
-                status: "settled",
-                stdout: null,
-                stderr: null,
-                fallback: null,
-                availability: "empty",
-                stdoutTruncated: false,
-                stderrTruncated: false,
-              },
-            ],
+            status: "unavailable",
+            unavailableReason: "not-found",
+            attempts: [],
+            events: [],
+            previousCursor: null,
+            appendCursor: null,
+            atLatest: true,
           },
         },
       },
@@ -1314,9 +1334,9 @@ describe("OperatorConsole", () => {
 
     const panel = screen.getByTestId("right-sidebar");
     expect(within(panel).getByRole("tab", { name: "成员未知" })).toHaveAttribute("title", "成员未知");
-    expect(within(panel).getByText("原始输出已不可用，以下为会话中保留的记录。")).toBeVisible();
-    expect(within(panel).getByText("这一步没有产生输出。")).toBeVisible();
-    expect(panel).toHaveTextContent("fallback /tmp/run-missing");
+    expect(within(panel).getByText("Codex 过程记录文件已不可用")).toBeVisible();
+    expect(within(panel).getByText("这一步的最终回复仍保留在主对话区。")).toBeVisible();
+    expect(panel).not.toHaveTextContent("fallback /tmp/run-missing");
   });
 
   it("keeps terminal outcomes readable and gives every fact a complete-output outlet", () => {

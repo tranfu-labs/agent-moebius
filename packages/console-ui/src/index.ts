@@ -10,6 +10,8 @@ export * from "./console/change-tab";
 export * from "./console/file-diff-view";
 export * from "./console/new-conversation-page";
 export * from "./console/operator-console";
+export * from "./console/process-event";
+export * from "./console/process-scroll-model";
 export * from "./console/process-tab";
 export * from "./console/project-files-tab";
 export * from "./console/role-composer";

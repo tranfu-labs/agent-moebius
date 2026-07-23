@@ -30,6 +30,10 @@ import {
   type LocalConsoleSystemEventKind,
   type LocalConsoleStore,
 } from "./types.js";
+import {
+  readCodexThreadLinks,
+  type LocalCodexThreadLinkFact,
+} from "./codex-thread-link.js";
 
 export interface SqliteLocalConsoleStoreOptions {
   sqlitePath: string;
@@ -548,6 +552,36 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
           role: input.role,
           body: input.body,
         },
+        messageUpserts: [],
+      });
+    });
+  }
+
+  async recordCodexThreadLink(input: LocalCodexThreadLinkFact): Promise<void> {
+    await this.enqueue(async () => {
+      await this.readMessagesFromFacts(input.sessionId);
+      const existing = (await readCodexThreadLinks(
+        this.getSessionFactLogPath(input.sessionId),
+        input.sessionId,
+      )).find((link) => link.runId === input.runId);
+      if (existing !== undefined) {
+        if (
+          existing.threadId !== input.threadId
+          || existing.sourceMessageId !== input.sourceMessageId
+          || existing.role !== input.role
+          || existing.startedAt !== input.startedAt
+        ) {
+          throw new Error(`conflicting Codex thread link for run ${input.runId}`);
+        }
+        return;
+      }
+      await this.appendFactEvent(input.sessionId, {
+        version: 1,
+        eventId: crypto.randomUUID(),
+        sessionId: input.sessionId,
+        type: "codex_thread_link",
+        recordedAt: input.startedAt,
+        payload: input,
         messageUpserts: [],
       });
     });
