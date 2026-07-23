@@ -17,7 +17,7 @@ describe("SubtaskTab", () => {
       .not.toBeInTheDocument();
   });
 
-  it("uses the shared composer for mention, send, retry, and stop actions", () => {
+  it("uses the shared composer for mention, send, retry, and stop actions", async () => {
     const onComposerChange = vi.fn();
     const onSend = vi.fn();
     const onRetry = vi.fn();
@@ -31,10 +31,14 @@ describe("SubtaskTab", () => {
     });
 
     const input = screen.getByRole("textbox", { name: "消息内容" }) as HTMLTextAreaElement;
-    act(() => input.setSelectionRange(1, 1));
-    fireEvent.select(input);
-    fireEvent.focus(input);
-    fireEvent.mouseDown(screen.getByRole("option", { name: /开发/u }));
+    await act(async () => {
+      input.setSelectionRange(1, 1);
+      fireEvent.select(input);
+      fireEvent.focus(input);
+    });
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByRole("option", { name: /开发/u }));
+    });
     expect(onComposerChange).toHaveBeenCalledWith("@dev ");
 
     rerender(tab({
