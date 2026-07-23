@@ -43,6 +43,36 @@ describe("onboarding state", () => {
     expect(state.relayRun).toBe(2);
   });
 
+  it("moves back without losing the selected team and replays relay on return", () => {
+    let state = initialOnboardingState();
+    state = onboardingReducer(state, { type: "continue" });
+
+    state = onboardingReducer(state, { type: "back" });
+    expect(state.view).toBe(1);
+    expect(state.selectedTeam).toEqual(DEVELOPMENT_TEAM);
+
+    state = onboardingReducer(state, { type: "continue" });
+    state = onboardingReducer(state, { type: "continue" });
+    state = onboardingReducer(state, { type: "continue" });
+    const relayRunBeforeReturn = state.relayRun;
+
+    state = onboardingReducer(state, { type: "back" });
+    expect(state.view).toBe(3);
+    expect(state.relayRun).toBe(relayRunBeforeReturn + 1);
+    expect(state.selectedTeam).toEqual(DEVELOPMENT_TEAM);
+  });
+
+  it("does not move back from the first step or completed conversation", () => {
+    const first = initialOnboardingState();
+    expect(onboardingReducer(first, { type: "back" })).toBe(first);
+
+    let completed = first;
+    for (let index = 0; index < 4; index += 1) {
+      completed = onboardingReducer(completed, { type: "continue" });
+    }
+    expect(onboardingReducer(completed, { type: "back" })).toBe(completed);
+  });
+
   it("lets recheck restore the hard gate without resetting the journey", () => {
     let state = initialOnboardingState("missing");
     state = onboardingReducer(state, {

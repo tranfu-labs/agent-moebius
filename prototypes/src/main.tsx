@@ -1,20 +1,18 @@
 import {
+  ArrowLeft,
   ArrowRight,
-  Bot,
   Check,
   ChevronDown,
-  Code2,
   Copy,
-  FileCode2,
-  FlaskConical,
+  CornerUpLeft,
   FolderPlus,
+  Info,
   MessageSquarePlus,
   Moon,
-  Play,
   RefreshCw,
+  RotateCcw,
   Send,
   SlidersHorizontal,
-  Sparkles,
   Sun,
   Users,
   X
@@ -25,6 +23,7 @@ import {
   useReducedMotion
 } from "motion/react";
 import {
+  type CSSProperties,
   type ReactNode,
   useCallback,
   useEffect,
@@ -38,8 +37,10 @@ import { createRoot } from "react-dom/client";
 import {
   EASE_OUT,
   PrototypeButton,
-  SPRING_LAYOUT
+  SPRING_LAYOUT,
+  SPRING_PRESS
 } from "./beui-button.js";
+import { LoaderDots } from "./beui-loader.js";
 import {
   canContinue,
   initialOnboardingState,
@@ -47,70 +48,70 @@ import {
   type EnvironmentState,
   type OnboardingStep
 } from "./onboarding-state.js";
+import "./tokens.css";
 import "./styles.css";
 
-const RELAY_STAGES = [
-  {
-    role: "开发经理",
-    eyebrow: "拆解目标",
-    title: "把需求收束成可执行方案",
-    detail: "明确边界、风险和验收口径，再把实现交给开发。",
-    node: 0
-  },
-  {
-    role: "开发",
-    eyebrow: "实现",
-    title: "按方案完成修改",
-    detail: "实现核心路径，同时保留可以复核的命令和改动证据。",
-    node: 1
-  },
-  {
-    role: "测试",
-    eyebrow: "独立复核",
-    title: "发现一个边界状态遗漏",
-    detail: "测试没有重复实现，而是带着具体证据把问题交回开发。",
-    node: 2
-  },
-  {
-    role: "开发",
-    eyebrow: "修正",
-    title: "补齐边界并重新验证",
-    detail: "修正完成后携带最新结果重新交给测试，不跳过独立复核。",
-    node: 1
-  },
-  {
-    role: "测试",
-    eyebrow: "再次复核",
-    title: "边界状态已覆盖，验证通过",
-    detail: "测试确认问题已经解决，并把可复核的结果交回主 Agent。",
-    node: 2
-  },
-  {
-    role: "开发经理",
-    eyebrow: "带证据收尾",
-    title: "整合改动与复核结果，向你收尾",
-    detail: "团队内部闭环结束；你看到的不只是完成声明，还有测试通过的依据。",
-    node: 0
-  }
+/*
+ * 第 3 步接力故事线（PRD 固定 6 拍，参照真实本地会话案例口吻）：
+ * 经理拆解派工 → 开发执行 → 测试打回 → 开发修正 → 测试复核通过 → 经理带证据收尾。
+ * member 索引对应 MEMBERS：0 开发经理 / 1 开发 / 2 测试。
+ */
+const MEMBERS = [
+  { name: "开发经理", initial: "经", duty: "主 Agent" },
+  { name: "开发", initial: "开", duty: "实现" },
+  { name: "测试", initial: "测", duty: "复核" }
 ] as const;
 
-const NODE_META = [
+type PillTone = "success" | "amber" | "danger" | "info" | "neutral";
+
+interface RelayBeat {
+  member: number;
+  tag: string;
+  body: string;
+  pill?: { tone: PillTone; label: string };
+  handoff?: { kind: "交棒" | "打回"; to: number };
+}
+
+const RELAY_BEATS: RelayBeat[] = [
   {
-    name: "开发经理",
-    short: "经",
-    icon: Users
+    member: 0,
+    tag: "拆解派工",
+    body: "运行时长统计对不上？这单我接了。先查是断线时间被持续累计，还是并行会话重复计时，确认根因再动手。",
+    handoff: { kind: "交棒", to: 1 }
   },
   {
-    name: "开发",
-    short: "开",
-    icon: Code2
+    member: 1,
+    tag: "排查修复",
+    body: "确认了，是缺陷：断线后的时间被持续累计。我按 180 秒心跳断档重新切段，改完跑全量测试。",
+    handoff: { kind: "交棒", to: 2 }
   },
   {
-    name: "测试",
-    short: "测",
-    icon: FlaskConical
+    member: 2,
+    tag: "独立复核",
+    pill: { tone: "danger", label: "复核不通过" },
+    body: "复核不通过：pending 心跳的断档还有两处一致性缺陷，直接收尾会留坑。",
+    handoff: { kind: "打回", to: 1 }
+  },
+  {
+    member: 1,
+    tag: "修正",
+    body: "收到。断档边界补齐：pending 心跳先固化再开新段，新增的回归测试全部通过。",
+    handoff: { kind: "交棒", to: 2 }
+  },
+  {
+    member: 2,
+    tag: "再次复核",
+    pill: { tone: "success", label: "复核通过" },
+    body: "复核通过：边界用例都盖住了，379 项测试全绿。证据留在上面，可以收尾。",
+    handoff: { kind: "交棒", to: 0 }
+  },
+  {
+    member: 0,
+    tag: "带证据收尾",
+    pill: { tone: "success", label: "已收尾" },
+    body: "收尾：时长口径已修复，测试复核两轮、第二轮通过。过程和证据都在上面，这个目标完成。"
   }
-] as const;
+];
 
 function App() {
   const search = useMemo(
@@ -142,6 +143,10 @@ function App() {
 
   const continueJourney = useCallback(() => {
     dispatch({ type: "continue" });
+  }, []);
+
+  const returnToPreviousStep = useCallback(() => {
+    dispatch({ type: "back" });
   }, []);
 
   const recheck = useCallback(() => {
@@ -184,16 +189,26 @@ function App() {
           />
         ) : (
           <OnboardingShell
-            key={`step-${state.view}`}
+            key="onboarding"
             step={state.view}
             titleRef={titleRef}
             title={stepTitle(state.view)}
             subtitle={stepSubtitle(state.view)}
+            wide={state.view === 3}
             primaryLabel={state.view === 4 ? "开始使用" : "继续"}
             primaryDisabled={!canContinue(state)}
             onPrimary={continueJourney}
             secondary={
-              state.view === 1 && state.environment !== "ready" ? (
+              state.view > 1 ? (
+                <PrototypeButton
+                  variant="secondary"
+                  onClick={returnToPreviousStep}
+                  data-testid="back-action"
+                >
+                  <ArrowLeft size={14} />
+                  上一步
+                </PrototypeButton>
+              ) : state.environment !== "ready" ? (
                 <PrototypeButton
                   variant="secondary"
                   onClick={recheck}
@@ -201,7 +216,7 @@ function App() {
                   data-testid="recheck"
                 >
                   <RefreshCw
-                    size={15}
+                    size={14}
                     className={
                       state.environment === "checking" ? "is-spinning" : ""
                     }
@@ -228,9 +243,7 @@ function App() {
                 onReplay={() => dispatch({ type: "replay-relay" })}
               />
             ) : null}
-            {state.view === 4 ? (
-              <ReadyStep teamName={state.selectedTeam.name} />
-            ) : null}
+            {state.view === 4 ? <ReadyStep /> : null}
           </OnboardingShell>
         )}
       </AnimatePresence>
@@ -245,7 +258,7 @@ function stepTitle(step: OnboardingStep): string {
     case 2:
       return "选择一支团队";
     case 3:
-      return "看看他们怎么替你接力";
+      return "看看团队如何完成一次接力";
     case 4:
       return "准备就绪";
   }
@@ -258,10 +271,20 @@ function stepSubtitle(step: OnboardingStep): string {
     case 2:
       return "先选一支最接近你当前工作的团队，之后随时可以切换";
     case 3:
-      return "你只说目标，团队会把控制权交给当前最合适的成员";
+      return "每一次交接都会留下过程、结论和复核证据";
     case 4:
       return "团队已经就位，说出你的目标就能开工";
   }
+}
+
+function Pill({
+  tone,
+  children
+}: {
+  tone: PillTone;
+  children: ReactNode;
+}) {
+  return <span className={`pill pill--${tone}`}>{children}</span>;
 }
 
 interface OnboardingShellProps {
@@ -269,6 +292,7 @@ interface OnboardingShellProps {
   title: string;
   subtitle: string;
   titleRef: React.RefObject<HTMLHeadingElement>;
+  wide: boolean;
   primaryLabel: string;
   primaryDisabled: boolean;
   onPrimary: () => void;
@@ -281,6 +305,7 @@ function OnboardingShell({
   title,
   subtitle,
   titleRef,
+  wide,
   primaryLabel,
   primaryDisabled,
   onPrimary,
@@ -292,18 +317,10 @@ function OnboardingShell({
   return (
     <motion.main
       className="onboarding-shell"
-      initial={
-        reduceMotion
-          ? { opacity: 0 }
-          : { opacity: 0, x: 24, filter: "blur(8px)" }
-      }
-      animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
-      exit={
-        reduceMotion
-          ? { opacity: 0 }
-          : { opacity: 0, x: -18, filter: "blur(6px)" }
-      }
-      transition={{ duration: reduceMotion ? 0.12 : 0.36, ease: EASE_OUT }}
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8 }}
+      transition={{ duration: reduceMotion ? 0.12 : 0.3, ease: EASE_OUT }}
       data-testid={`step-${step}`}
     >
       <PrototypeChrome />
@@ -316,7 +333,7 @@ function OnboardingShell({
             animate={{ opacity: 1 }}
             transition={{ delay: reduceMotion ? 0 : 0.08 }}
           >
-            FIRST RUN · {String(step).padStart(2, "0")}
+            首次启动 · 第 {step} 步，共 4 步
           </motion.div>
           <h1 ref={titleRef} tabIndex={-1}>
             {title}
@@ -324,7 +341,9 @@ function OnboardingShell({
           <p>{subtitle}</p>
         </div>
 
-        <div className="stage-content">{children}</div>
+        <div className={wide ? "stage-content stage-content--wide" : "stage-content"}>
+          {children}
+        </div>
       </section>
 
       <footer className="onboarding-footer">
@@ -388,6 +407,8 @@ function StepProgress({ current }: { current: OnboardingStep }) {
   );
 }
 
+/* ---------- 第 1 步 · 环境 ---------- */
+
 interface EnvironmentStepProps {
   environment: EnvironmentState;
   copied: boolean;
@@ -403,23 +424,23 @@ function EnvironmentStep({
     return (
       <motion.div
         className="environment-card"
-        initial={{ opacity: 0, y: 12 }}
+        initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ ...SPRING_LAYOUT, delay: 0.06 }}
+        transition={{ ...SPRING_LAYOUT, delay: 0.05 }}
       >
         <StatusRow
-          icon={<FileCode2 size={17} />}
+          icon={<Check size={15} />}
           label="codex 已安装"
           meta="已在本机找到命令"
         />
         <StatusRow
-          icon={<Check size={17} />}
+          icon={<Check size={15} />}
           label="codex 可以运行"
           meta="团队成员已经可以开始工作"
         />
         <div className="ready-note">
-          <Sparkles size={14} />
-          只检查运行团队所需的 codex，不要求配置 GitHub。
+          <Info size={13} />
+          只检查运行团队所需的 codex，不检查其他工具。
         </div>
       </motion.div>
     );
@@ -428,13 +449,13 @@ function EnvironmentStep({
   return (
     <motion.div
       className="environment-card environment-card--error"
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={SPRING_LAYOUT}
     >
       <div className="missing-head">
         <span className="status-icon status-icon--danger">
-          <X size={17} />
+          <X size={15} />
         </span>
         <div>
           <strong>没有找到 codex</strong>
@@ -450,7 +471,7 @@ function EnvironmentStep({
           onClick={onCopy}
           aria-live="polite"
         >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? <Check size={13} /> : <Copy size={13} />}
           {copied ? "已复制" : "复制"}
         </button>
       </div>
@@ -485,13 +506,12 @@ function StatusRow({
         <strong>{label}</strong>
         <span>{meta}</span>
       </div>
-      <span className="status-verdict">
-        <Check size={13} />
-        通过
-      </span>
+      <Pill tone="success">通过</Pill>
     </div>
   );
 }
+
+/* ---------- 第 2 步 · 团队 ---------- */
 
 function TeamStep({ teamName }: { teamName: string }) {
   return (
@@ -500,7 +520,7 @@ function TeamStep({ teamName }: { teamName: string }) {
         type="button"
         className="team-card is-selected"
         aria-pressed="true"
-        initial={{ opacity: 0, y: 14 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...SPRING_LAYOUT, delay: 0.03 }}
       >
@@ -514,23 +534,22 @@ function TeamStep({ teamName }: { teamName: string }) {
               <span>软件内置</span>
             </div>
           </div>
-          <span className="selected-label">
-            <Check size={13} />
+          <Pill tone="neutral">
+            <Check size={12} />
             已选择
-          </span>
+          </Pill>
         </div>
 
         <div className="team-members">
-          {NODE_META.map(({ name, short, icon: Icon }, index) => (
+          {MEMBERS.map(({ name, initial, duty }) => (
             <div className="member-chip" key={name}>
-              <span className="member-avatar">
-                <Icon size={13} aria-hidden />
+              <span className="member-avatar" aria-hidden>
+                {initial}
               </span>
               <span>
                 <strong>{name}</strong>
-                <small>{index === 0 ? "主 Agent" : index === 1 ? "实现" : "复核"}</small>
+                <small>{duty}</small>
               </span>
-              <span className="sr-only">{short}</span>
             </div>
           ))}
         </div>
@@ -541,20 +560,20 @@ function TeamStep({ teamName }: { teamName: string }) {
       <motion.button
         type="button"
         className="create-team-card is-pending"
-        initial={{ opacity: 0, y: 14 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...SPRING_LAYOUT, delay: 0.09 }}
         disabled
         aria-describedby="create-team-prototype-note"
       >
         <span className="create-team-icon">
-          <MessageSquarePlus size={18} />
+          <MessageSquarePlus size={16} />
         </span>
         <span>
           <strong>跟 AI 聊出一支新团队</strong>
           <small>说一下想做什么，AI 帮你把成员组齐</small>
         </span>
-        <span className="pending-label">流程待讨论</span>
+        <Pill tone="neutral">流程待讨论</Pill>
       </motion.button>
       <span id="create-team-prototype-note" className="sr-only">
         此入口的后续流程仍待产品讨论，本原型只确认入口位置。
@@ -563,24 +582,57 @@ function TeamStep({ teamName }: { teamName: string }) {
   );
 }
 
+/* ---------- 第 3 步 · 团队接力（迷你会话时间线） ---------- */
+
+/*
+ * 节拍编排：每个 beat 先出现「正在输入」气泡（beUI Loader dots 适配版），
+ * 角色表头的接力棒下划线用 beUI shared-layout（layoutId）技法提前滑到
+ * 即将发言的成员列，随后消息弹入、相邻节点间的 S 形连接线描画到位。
+ * 减少动态效果：跳过打字气泡与描画，逐条淡入，信息等价。
+ */
+const BEAT_FIRST_MS = 420;
+const BEAT_STEP_MS = 1700;
+const BEAT_TYPING_MS = 640;
+
 function RelayStep({ run, onReplay }: { run: number; onReplay: () => void }) {
   const reduceMotion = useReducedMotion();
-  const [stageIndex, setStageIndex] = useState(0);
-  const stage = RELAY_STAGES[stageIndex];
+  const [beatIndex, setBeatIndex] = useState(-1);
+  const [typingIndex, setTypingIndex] = useState(-1);
+  const timelineRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setStageIndex(0);
-    const interval = window.setInterval(() => {
-      setStageIndex((current) =>
-        current >= RELAY_STAGES.length - 1 ? current : current + 1
-      );
-    }, reduceMotion ? 1100 : 1850);
-
-    return () => window.clearInterval(interval);
+    const timers = RELAY_BEATS.flatMap((_, index) => {
+      if (reduceMotion) {
+        return [
+          window.setTimeout(() => setBeatIndex(index), 250 + index * 900)
+        ];
+      }
+      const start = BEAT_FIRST_MS + index * BEAT_STEP_MS;
+      return [
+        window.setTimeout(() => setTypingIndex(index), start),
+        window.setTimeout(() => {
+          setTypingIndex(-1);
+          setBeatIndex(index);
+        }, start + BEAT_TYPING_MS)
+      ];
+    });
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [reduceMotion, run]);
 
-  const cursorPosition =
-    [16.667, 50, 83.333, 50, 83.333, 16.667][stageIndex] ?? 16.667;
+  useEffect(() => {
+    const current = timelineRef.current?.querySelector(".relay-msg.is-current");
+    current?.scrollIntoView({
+      block: "end",
+      behavior: reduceMotion ? "auto" : "smooth"
+    });
+  }, [beatIndex, reduceMotion]);
+
+  const holder =
+    typingIndex >= 0
+      ? RELAY_BEATS[typingIndex].member
+      : beatIndex >= 0
+        ? RELAY_BEATS[beatIndex].member
+        : -1;
 
   return (
     <div className="relay-card">
@@ -588,7 +640,7 @@ function RelayStep({ run, onReplay }: { run: number; onReplay: () => void }) {
         <div>
           <span className="live-indicator">
             <span />
-            团队接力演示
+            接力演示
           </span>
           <strong>开发团队</strong>
         </div>
@@ -598,167 +650,249 @@ function RelayStep({ run, onReplay }: { run: number; onReplay: () => void }) {
           onClick={onReplay}
           data-testid="replay-relay"
         >
-          <Play size={13} />
+          <RotateCcw size={13} />
           重新播放
         </button>
       </div>
 
-      <div className="relay-track" aria-label="开发团队接力顺序">
-        <div className="relay-line" aria-hidden>
-          <span />
-        </div>
-        <motion.div
-          className="relay-cursor"
-          aria-hidden
-          animate={{ left: `${cursorPosition}%` }}
-          transition={reduceMotion ? { duration: 0 } : SPRING_LAYOUT}
-        />
-
-        {NODE_META.map(({ name, short, icon: Icon }, index) => {
-          const active = index === stage.node;
-          const visited =
-            stageIndex >=
-            RELAY_STAGES.findIndex((relayStage) => relayStage.node === index);
-          return (
-            <div
-              className={[
-                "relay-node",
-                active ? "is-active" : "",
-                visited ? "is-visited" : ""
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              key={name}
-            >
-              <motion.span
-                className="relay-avatar"
-                animate={
-                  active && !reduceMotion
-                    ? { scale: [1, 1.05, 1] }
-                    : { scale: 1 }
-                }
-                transition={
-                  active && !reduceMotion
-                    ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
-                    : undefined
-                }
-              >
-                <Icon size={18} aria-hidden />
-                <span className="sr-only">{short}</span>
-              </motion.span>
-              <strong>{name}</strong>
-              <small>{active ? "正在接棒" : visited ? "已参与" : "等待"}</small>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="relay-detail" aria-live="polite" data-testid="relay-stage">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={`${run}-${stageIndex}`}
-            initial={
-              reduceMotion
-                ? { opacity: 0 }
-                : { opacity: 0, y: 10, filter: "blur(5px)" }
-            }
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={
-              reduceMotion
-                ? { opacity: 0 }
-                : { opacity: 0, y: -8, filter: "blur(4px)" }
-            }
-            transition={{ duration: reduceMotion ? 0.12 : 0.3, ease: EASE_OUT }}
-          >
-            <div className="relay-detail__meta">
-              <span>{String(stageIndex + 1).padStart(2, "0")}</span>
-              <span>{stage.role}</span>
-              <span>{stage.eyebrow}</span>
-            </div>
-            <strong>{stage.title}</strong>
-            <p>{stage.detail}</p>
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      <ol className="relay-history" aria-label="已发生的接力步骤">
-        {RELAY_STAGES.map((relayStage, index) => (
-          <li
-            key={`${relayStage.role}-${relayStage.eyebrow}`}
-            className={[
-              index < stageIndex ? "is-complete" : "",
-              index === stageIndex ? "is-current" : ""
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            <span>
-              {index < stageIndex ? (
-                <Check size={10} aria-hidden />
-              ) : (
-                String(index + 1).padStart(2, "0")
-              )}
+      <div className="relay-grid-heading">
+        <div className="relay-role-columns" aria-label="接力角色位置">
+          {MEMBERS.map(({ name, initial }, index) => (
+            <span className={index === holder ? "is-holder" : ""} key={name}>
+              <b aria-hidden>{initial}</b>
+              <small>{name}</small>
+              {index === holder ? (
+                reduceMotion ? (
+                  <i className="relay-holder-glide" aria-hidden />
+                ) : (
+                  /*
+                   * 接力棒下划线：layoutId 共享布局滑行，
+                   * 技法改编自 beUI shared-layout-bg
+                   * https://beui.dev/components/motion/shared-layout-bg
+                   */
+                  <motion.i
+                    className="relay-holder-glide"
+                    layoutId="relay-holder-glide"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={SPRING_LAYOUT}
+                    aria-hidden
+                  />
+                )
+              ) : null}
             </span>
-            <small>{relayStage.eyebrow}</small>
-          </li>
-        ))}
-      </ol>
+          ))}
+        </div>
+        <span>对话记录</span>
+      </div>
+
+      <div className="relay-timeline" ref={timelineRef}>
+        <div className="relay-goal-row">
+          <span className="relay-goal-label">你的目标</span>
+          <div className="relay-msg__body">
+            <div className="relay-msg__head">
+              <strong>你</strong>
+              <small>目标</small>
+            </div>
+            <p className="relay-msg__text">
+              排查一下：运行时长统计好像不太对。
+            </p>
+          </div>
+        </div>
+
+        <ol
+          className="relay-history"
+          aria-label="接力记录"
+          aria-live="polite"
+          data-testid="relay-stage"
+        >
+          {/*
+           * popLayout：退出中的「正在输入」气泡立即脱离布局流，
+           * 不与新消息同时占位，避免高度先撑开再塌回的闪烁。
+           */}
+          <AnimatePresence initial={false} mode="popLayout">
+            {RELAY_BEATS.slice(0, beatIndex + 1).map((beat, index) => {
+              const member = MEMBERS[beat.member];
+              const previousMember =
+                index > 0 ? RELAY_BEATS[index - 1].member : null;
+              const isCurrent = index === beatIndex;
+              const isComplete = index < beatIndex;
+              const isLast = index === RELAY_BEATS.length - 1;
+              const graphStyle = {
+                "--role-index": beat.member
+              } as CSSProperties;
+              const nodeX = (beat.member + 0.5) * 100;
+              const previousX =
+                previousMember === null ? nodeX : (previousMember + 0.5) * 100;
+              return (
+                <motion.li
+                  className={[
+                    "relay-msg",
+                    isCurrent ? "is-current" : "",
+                    isComplete ? "is-complete" : "",
+                    isCurrent && isLast ? "is-last" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  key={`${run}-${index}`}
+                  data-member={member.name}
+                  data-testid="relay-beat"
+                  initial={
+                    reduceMotion
+                      ? { opacity: 0 }
+                      : { opacity: 0, y: 12, filter: "blur(4px)" }
+                  }
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  transition={
+                    reduceMotion
+                      ? { duration: 0.12 }
+                      : { ...SPRING_LAYOUT, filter: { duration: 0.3 } }
+                  }
+                >
+                  <div
+                    className="relay-graph-cell"
+                    style={graphStyle}
+                    aria-label={
+                      previousMember === null
+                        ? `${member.name}开始处理`
+                        : `${MEMBERS[previousMember].name}交给${member.name}`
+                    }
+                  >
+                    {previousMember !== null ? (
+                      <svg
+                        className="relay-graph-svg"
+                        viewBox="0 0 300 31"
+                        preserveAspectRatio="none"
+                        aria-hidden
+                      >
+                        <motion.path
+                          className="relay-graph-connector"
+                          d={`M ${previousX} 0 C ${previousX} 20 ${nodeX} 11 ${nodeX} 31`}
+                          initial={reduceMotion ? false : { pathLength: 0 }}
+                          animate={{ pathLength: 1 }}
+                          transition={
+                            reduceMotion
+                              ? { duration: 0.12 }
+                              : { duration: 0.5, ease: EASE_OUT, delay: 0.1 }
+                          }
+                        />
+                      </svg>
+                    ) : null}
+                    <motion.span
+                      className={[
+                        "relay-graph-node",
+                        isCurrent ? "is-current" : "",
+                        isComplete ? "is-complete" : ""
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      initial={
+                        reduceMotion
+                          ? { opacity: 0 }
+                          : { opacity: 0, scale: 0.3 }
+                      }
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={
+                        reduceMotion
+                          ? { duration: 0.12 }
+                          : { ...SPRING_PRESS, delay: 0.32 }
+                      }
+                      aria-hidden
+                    />
+                    {index < beatIndex ? (
+                      <span className="relay-graph-tail" aria-hidden />
+                    ) : null}
+                  </div>
+                  <div className="relay-msg__body">
+                    <div className="relay-msg__head">
+                      <strong>{member.name}</strong>
+                      <small>{beat.tag}</small>
+                      {beat.pill ? (
+                        <Pill tone={beat.pill.tone}>{beat.pill.label}</Pill>
+                      ) : null}
+                    </div>
+                    <p className="relay-msg__text">{beat.body}</p>
+                    {beat.handoff ? (
+                      <div className="relay-msg__foot">
+                        <span
+                          className={[
+                            "relay-handoff",
+                            beat.handoff.kind === "打回"
+                              ? "relay-handoff--back"
+                              : ""
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                        >
+                          {beat.handoff.kind === "打回" ? (
+                            <CornerUpLeft size={11} aria-hidden />
+                          ) : (
+                            <ArrowRight size={11} aria-hidden />
+                          )}
+                          {beat.handoff.kind}{" "}
+                          <b>@{MEMBERS[beat.handoff.to].name}</b>
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                </motion.li>
+              );
+            })}
+            {typingIndex >= 0 && typingIndex > beatIndex ? (
+              <motion.li
+                className="relay-typing"
+                key={`typing-${run}-${typingIndex}`}
+                initial={
+                  reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8 }
+                }
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: reduceMotion ? 0 : -4 }}
+                transition={
+                  reduceMotion ? { duration: 0.12 } : SPRING_LAYOUT
+                }
+                aria-hidden
+              >
+                <div className="relay-graph-cell" />
+                <div className="relay-typing__bubble">
+                  <span className="relay-typing__avatar">
+                    {MEMBERS[RELAY_BEATS[typingIndex].member].initial}
+                  </span>
+                  <LoaderDots size={14} />
+                </div>
+              </motion.li>
+            ) : null}
+          </AnimatePresence>
+        </ol>
+      </div>
 
       <div className="relay-caption">
-        <Bot size={14} />
+        <Users size={12} />
         动画不会拦住你；看懂以后可以随时继续。
       </div>
     </div>
   );
 }
 
-function ReadyStep({ teamName }: { teamName: string }) {
+/* ---------- 第 4 步 · 准备就绪 ---------- */
+
+function ReadyStep() {
   const reduceMotion = useReducedMotion();
 
   return (
     <div className="ready-state">
       <motion.div
-        className="ready-orbit"
-        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.76 }}
+        className="ready-mark"
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.82 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={reduceMotion ? { duration: 0.12 } : SPRING_LAYOUT}
       >
-        <motion.svg viewBox="0 0 120 120" aria-hidden>
-          <circle className="ready-orbit__track" cx="60" cy="60" r="53" />
-          <motion.circle
-            className="ready-orbit__progress"
-            cx="60"
-            cy="60"
-            r="53"
-            initial={{ pathLength: 0, rotate: -90 }}
-            animate={{ pathLength: 1, rotate: -90 }}
-            transition={{
-              duration: reduceMotion ? 0 : 0.72,
-              ease: EASE_OUT,
-              delay: reduceMotion ? 0 : 0.08
-            }}
-          />
-        </motion.svg>
-        <motion.span
-          initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.72 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ ...SPRING_LAYOUT, delay: reduceMotion ? 0 : 0.25 }}
-        >
-          <Check size={34} />
-        </motion.span>
+        <Check size={38} />
       </motion.div>
-
-      <div className="ready-team">
-        <span className="ready-team__avatar">M</span>
-        <span>
-          <small>已选团队</small>
-          <strong>{teamName}</strong>
-        </span>
-      </div>
-      <p>下一步会进入新对话，你只需要选择项目并描述目标。</p>
     </div>
   );
 }
+
+/* ---------- 去向：新建对话 ---------- */
 
 interface ConversationDestinationProps {
   teamName: string;
@@ -776,14 +910,10 @@ function ConversationDestination({
   return (
     <motion.main
       className="conversation-shell"
-      initial={
-        reduceMotion
-          ? { opacity: 0 }
-          : { opacity: 0, scale: 0.985, filter: "blur(8px)" }
-      }
-      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: reduceMotion ? 0.12 : 0.4, ease: EASE_OUT }}
+      transition={{ duration: reduceMotion ? 0.12 : 0.32, ease: EASE_OUT }}
       data-testid="conversation-destination"
     >
       <PrototypeChrome />
@@ -809,10 +939,10 @@ function ConversationDestination({
 
         <section className="conversation-main">
           <div className="conversation-heading">
-            <span className="complete-pill">
-              <Check size={13} />
+            <Pill tone="success">
+              <Check size={12} />
               引导完成
-            </span>
+            </Pill>
             <h1 ref={titleRef} tabIndex={-1}>
               新对话
             </h1>
@@ -822,24 +952,24 @@ function ConversationDestination({
           <div className="conversation-composer">
             <div className="composer-context">
               <button type="button" className="context-chip context-chip--empty">
-                <FolderPlus size={14} />
+                <FolderPlus size={13} />
                 选择项目
-                <ChevronDown size={13} />
+                <ChevronDown size={12} />
               </button>
               <button
                 type="button"
                 className="context-chip"
                 data-testid="selected-team"
               >
-                <Users size={14} />
+                <Users size={13} />
                 {teamName}
-                <ChevronDown size={13} />
+                <ChevronDown size={12} />
               </button>
             </div>
             <div className="composer-input">
               <span>描述你的目标…</span>
               <button type="button" aria-label="发送" disabled>
-                <Send size={16} />
+                <Send size={15} />
               </button>
             </div>
             <p>选择一个项目后才能发送</p>
@@ -853,9 +983,9 @@ function ConversationDestination({
             <p>开发经理会先理解目标，再决定由谁接棒。</p>
           </div>
           <div className="inspector-member-row">
-            {NODE_META.map(({ name, short }) => (
+            {MEMBERS.map(({ name, initial }) => (
               <span key={name} title={name}>
-                {short}
+                {initial}
               </span>
             ))}
           </div>
@@ -864,6 +994,8 @@ function ConversationDestination({
     </motion.main>
   );
 }
+
+/* ---------- 原型评审浮动控制（不属于产品界面） ---------- */
 
 interface ReviewControlsProps {
   open: boolean;
@@ -886,9 +1018,9 @@ function ReviewControls({
         {open ? (
           <motion.div
             className="review-panel"
-            initial={{ opacity: 0, y: 8, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.98 }}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
             transition={SPRING_LAYOUT}
             role="dialog"
             aria-label="原型评审场景"
@@ -910,7 +1042,7 @@ function ReviewControls({
                 type="button"
                 onClick={() => onThemeChange(theme === "dark" ? "light" : "dark")}
               >
-                {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+                {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
                 切换为{theme === "dark" ? "亮色" : "暗色"}
               </button>
             </div>
@@ -926,7 +1058,7 @@ function ReviewControls({
         aria-expanded={open}
         aria-label="打开原型评审场景"
       >
-        <SlidersHorizontal size={15} />
+        <SlidersHorizontal size={14} />
         <span>原型场景</span>
       </button>
     </div>
