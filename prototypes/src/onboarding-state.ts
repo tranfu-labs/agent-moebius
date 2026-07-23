@@ -27,6 +27,7 @@ export type OnboardingAction =
   | { type: "continue" }
   | { type: "back" }
   | { type: "set-environment"; value: EnvironmentState }
+  | { type: "select-team"; team: TeamChoice }
   | { type: "replay-relay" }
   | { type: "reset"; environment?: EnvironmentState };
 
@@ -84,6 +85,11 @@ export function onboardingReducer(
       return {
         ...state,
         environment: action.value
+      };
+    case "select-team":
+      return {
+        ...state,
+        selectedTeam: action.team
       };
     case "replay-relay":
       return {

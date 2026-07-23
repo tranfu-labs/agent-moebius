@@ -43,6 +43,34 @@ describe("onboarding state", () => {
     expect(state.relayRun).toBe(2);
   });
 
+  it("carries an AI-created team through back navigation and completion", () => {
+    const createdTeam = {
+      id: "product-launch",
+      name: "产品发布团队",
+      primaryAgent: "发布负责人",
+      members: ["内容策划", "渠道运营"]
+    };
+    let state = initialOnboardingState();
+
+    state = onboardingReducer(state, { type: "continue" });
+    state = onboardingReducer(state, {
+      type: "select-team",
+      team: createdTeam
+    });
+    state = onboardingReducer(state, { type: "continue" });
+    state = onboardingReducer(state, { type: "back" });
+
+    expect(state.view).toBe(2);
+    expect(state.selectedTeam).toEqual(createdTeam);
+
+    for (let index = 0; index < 3; index += 1) {
+      state = onboardingReducer(state, { type: "continue" });
+    }
+
+    expect(state.view).toBe("conversation");
+    expect(state.selectedTeam.name).toBe("产品发布团队");
+  });
+
   it("moves back without losing the selected team and replays relay on return", () => {
     let state = initialOnboardingState();
     state = onboardingReducer(state, { type: "continue" });
