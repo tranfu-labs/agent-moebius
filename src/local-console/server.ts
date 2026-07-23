@@ -420,6 +420,29 @@ async function handleRequest(
       return;
     }
 
+    const sessionWorkspaceDiffMatch = matchSessionRoute(url.pathname, "workspace-diff");
+    if (request.method === "GET" && sessionWorkspaceDiffMatch !== null) {
+      sendJson(response, 200, await runtime.workspaceDiffDetail(sessionWorkspaceDiffMatch.sessionId));
+      return;
+    }
+
+    const sessionFilesMatch = matchSessionRoute(url.pathname, "files");
+    if (request.method === "GET" && sessionFilesMatch !== null) {
+      sendJson(response, 200, await runtime.projectFiles(sessionFilesMatch.sessionId));
+      return;
+    }
+
+    const sessionFileContentMatch = matchSessionRoute(url.pathname, "files/content");
+    if (request.method === "GET" && sessionFileContentMatch !== null) {
+      const filePath = url.searchParams.get("path");
+      if (filePath === null || filePath.trim() === "") {
+        sendJson(response, 400, { error: "Expected a non-empty path query parameter" });
+        return;
+      }
+      sendJson(response, 200, await runtime.projectFile(sessionFileContentMatch.sessionId, filePath));
+      return;
+    }
+
     const runOutputMatch = matchRunOutputRoute(url.pathname);
     if (request.method === "GET" && runOutputMatch !== null) {
       sendJson(response, 200, await runtime.runOutput(runOutputMatch.sessionId, runOutputMatch.runId));
@@ -985,7 +1008,20 @@ function matchProjectRoute(pathname: string): { projectId: string } | null {
 
 function matchSessionRoute(
   pathname: string,
-  action: "messages" | "read" | "interrupt" | "project" | "workspace" | "team" | "archive" | "restore" | "children" | "view",
+  action:
+    | "messages"
+    | "read"
+    | "interrupt"
+    | "project"
+    | "workspace"
+    | "workspace-diff"
+    | "files"
+    | "files/content"
+    | "team"
+    | "archive"
+    | "restore"
+    | "children"
+    | "view",
 ): { sessionId: string } | null {
   const match = new RegExp(`^/api/local-console/sessions/(.+)/${action}$`, "u").exec(pathname);
   if (match === null) {

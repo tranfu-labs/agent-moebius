@@ -2,6 +2,9 @@ import type {
   OperatorEvidenceOpenIntent,
   OperatorEvidenceView,
   OperatorProcessOutput,
+  ProjectFilesData,
+  WorkspaceDiffData,
+  WorkspaceFileContent,
 } from "@agent-moebius/console-ui";
 
 export interface ConsoleSelection {
@@ -253,6 +256,64 @@ export function processOutputRunId(sourceKey: string | null, sessionId: string):
   const prefix = `run-output:${sessionId}:`;
   const runId = sourceKey.startsWith(prefix) ? sourceKey.slice(prefix.length) : "";
   return runId === "" ? null : runId;
+}
+
+export async function loadWorkspaceDiff(options: {
+  apiBase: string;
+  sessionId: string;
+  fetch: FetchLike;
+}): Promise<WorkspaceDiffData> {
+  return await loadWorkspaceJson<WorkspaceDiffData>(
+    options,
+    `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/workspace-diff`,
+    "workspace diff request failed",
+  );
+}
+
+export async function loadProjectFiles(options: {
+  apiBase: string;
+  sessionId: string;
+  fetch: FetchLike;
+}): Promise<ProjectFilesData> {
+  return await loadWorkspaceJson<ProjectFilesData>(
+    options,
+    `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/files`,
+    "project files request failed",
+  );
+}
+
+export async function loadProjectFile(options: {
+  apiBase: string;
+  sessionId: string;
+  filePath: string;
+  fetch: FetchLike;
+}): Promise<WorkspaceFileContent> {
+  const url = endpoint(
+    options.apiBase,
+    `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/files/content`,
+  );
+  url.searchParams.set("path", options.filePath);
+  const response = await options.fetch(url);
+  const body = await response.json() as WorkspaceFileContent | { error?: string };
+  if (!response.ok) {
+    throw new Error("error" in body && body.error ? body.error : "project file request failed");
+  }
+  return body as WorkspaceFileContent;
+}
+
+async function loadWorkspaceJson<T>(
+  options: { apiBase: string; fetch: FetchLike },
+  pathname: string,
+  fallbackError: string,
+): Promise<T> {
+  const response = await options.fetch(endpoint(options.apiBase, pathname));
+  const body = await response.json() as T | { error?: string };
+  if (!response.ok) {
+    throw new Error(typeof body === "object" && body !== null && "error" in body && body.error
+      ? body.error
+      : fallbackError);
+  }
+  return body as T;
 }
 
 function labeledOutput(label: string, value: string | null | undefined): string | null {

@@ -1033,6 +1033,82 @@ describe("OperatorConsole", () => {
     });
   });
 
+  it("drives the result-card entry through the console container into the loaded change tab", async () => {
+    const loadDiff = vi.fn(async () => ({
+      available: true as const,
+      fileCount: 1,
+      files: [{ path: "src/app.ts", additions: 2, deletions: 1 }],
+      reason: null,
+      workspaceMode: "worktree" as const,
+    }));
+    const loadFile = vi.fn(async () => ({
+      available: true as const,
+      path: "src/app.ts",
+      lines: [
+        { kind: "unchanged" as const, oldLineNumber: 1, newLineNumber: 1, text: "const before = true;" },
+        { kind: "deletion" as const, oldLineNumber: 2, newLineNumber: null, text: "const oldValue = 1;" },
+        { kind: "addition" as const, oldLineNumber: null, newLineNumber: 2, text: "const newValue = 2;" },
+      ],
+      reason: null,
+    }));
+    renderConsole({
+      selectedSession: { ...sessions[0], status: "idle", runningCount: 0, lastMessageMentionsAgent: false },
+      messages: [message({ id: 2, speaker: "agent", role: "dev", body: "完成实现" })],
+      workspaceDiff: { available: true, fileCount: 1, reason: null },
+      onLoadWorkspaceDiff: loadDiff,
+      onLoadProjectFile: loadFile,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "查看" }));
+
+    const panel = await screen.findByTestId("change-tab");
+    expect(within(panel).getByText("这段对话期间，项目发生了这些改动（独立工作空间）。")).toBeVisible();
+    expect(within(panel).getByText("这些改动在一份隔离副本里，你的项目文件夹没有被动过。")).toBeVisible();
+    expect(within(panel).getByTitle("src/app.ts")).toBeVisible();
+    expect(await within(panel).findByText("const newValue = 2;")).toHaveClass("whitespace-pre");
+    expect(loadDiff).toHaveBeenCalledWith("session-a");
+    expect(loadFile).toHaveBeenCalledWith("session-a", "src/app.ts");
+    expect(within(panel).queryByText(/成员改了|团队改了/u)).not.toBeInTheDocument();
+  });
+
+  it("drives a blank-tab project-files choice through the console container and includes unchanged files", async () => {
+    const loadFiles = vi.fn(async () => ({
+      available: true as const,
+      files: [
+        { path: "README.md", additions: null, deletions: null, changed: false },
+        { path: "src/app.ts", additions: 1, deletions: 0, changed: true },
+      ],
+      reason: null,
+      workspaceMode: "direct" as const,
+    }));
+    const loadFile = vi.fn(async (_sessionId: string, filePath: string) => ({
+      available: true as const,
+      path: filePath,
+      lines: [{ kind: "unchanged" as const, oldLineNumber: 1, newLineNumber: 1, text: "# Project" }],
+      reason: null,
+    }));
+    renderConsole({
+      rightSidebarOpen: true,
+      project: {
+        ...project,
+        isGitRepository: false,
+      },
+      selectedSession: {
+        ...sessions[0],
+        workspaceMode: "direct",
+      },
+      onLoadProjectFiles: loadFiles,
+      onLoadProjectFile: loadFile,
+    });
+
+    const panel = await screen.findByTestId("project-files-tab");
+    expect(within(panel).getByText("正在浏览完整项目树（项目文件夹）。")).toBeVisible();
+    expect(within(panel).getByTitle("README.md")).toBeVisible();
+    expect(await within(panel).findByText("# Project")).toBeVisible();
+    expect(loadFiles).toHaveBeenCalledWith("session-a");
+    expect(loadFile).toHaveBeenCalledWith("session-a", "README.md");
+  });
+
   it("keeps historical Streamdown Markdown and hides machine details beside the output outlet", () => {
     renderConsole({
       messages: [message({

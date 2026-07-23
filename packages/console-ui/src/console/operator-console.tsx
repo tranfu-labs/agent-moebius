@@ -25,7 +25,10 @@ import {
 } from "@/console/agent-teams-page";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
 import { ComposerContext } from "@/console/composer-context";
+import { ChangeTab, type WorkspaceDiffData } from "@/console/change-tab";
+import type { WorkspaceFileContent } from "@/console/file-diff-view";
 import { NewConversationPage } from "@/console/new-conversation-page";
+import { ProjectFilesTab, type ProjectFilesData } from "@/console/project-files-tab";
 import {
   ProcessTab,
   nextProcessTabTitle,
@@ -295,6 +298,9 @@ export interface OperatorConsoleProps {
   onCloseSubSession?: () => void;
   onOpenEvidence?: (intent: OperatorEvidenceOpenIntent) => void;
   onCloseEvidence?: () => void;
+  onLoadWorkspaceDiff?: (sessionId: string) => Promise<WorkspaceDiffData>;
+  onLoadProjectFiles?: (sessionId: string) => Promise<ProjectFilesData>;
+  onLoadProjectFile?: (sessionId: string, filePath: string) => Promise<WorkspaceFileContent>;
   onChangeSessionProject?: (sessionId: string, projectId: string) => void;
   onShowProjectInFolder?: (folderPath: string) => void | Promise<void>;
   onRenameProject?: (projectId: string, title: string) => void | Promise<void>;
@@ -393,6 +399,9 @@ export function OperatorConsole({
   onCloseSubSession,
   onOpenEvidence,
   onCloseEvidence,
+  onLoadWorkspaceDiff = unavailableWorkspaceDiff,
+  onLoadProjectFiles = unavailableProjectFiles,
+  onLoadProjectFile = unavailableProjectFile,
   onChangeSessionProject,
   onShowProjectInFolder,
   onRenameProject,
@@ -1217,6 +1226,28 @@ export function OperatorConsole({
               state={tab.sourceKey === null ? { status: "idle" } : processOutputs[tab.sourceKey] ?? { status: "idle" }}
             />
           ),
+          "workspace-diff": () => selectedSession === null ? null : (
+            <ChangeTab
+              sessionId={selectedSession.sessionId}
+              workspaceMode={selectedSession.workspaceMode}
+              conversationStarted={messages.length > 0}
+              isWorking={
+                activeRun !== null
+                || selectedSession.status === "running"
+                || selectedSession.runningCount > 0
+              }
+              loadDiff={onLoadWorkspaceDiff}
+              loadFile={onLoadProjectFile}
+            />
+          ),
+          "project-files": () => selectedSession === null ? null : (
+            <ProjectFilesTab
+              sessionId={selectedSession.sessionId}
+              workspaceMode={selectedSession.workspaceMode}
+              loadFiles={onLoadProjectFiles}
+              loadFile={onLoadProjectFile}
+            />
+          ),
         }}
       />
       </div>
@@ -1891,4 +1922,45 @@ function formatTime(value: string): string {
 function nonBlank(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function localizeTimelineRole(role: string | null): string {
+  const labels: Record<string, string> = {
+    ceo: "CEO",
+    dev: "开发",
+    "dev-manager": "技术负责人",
+    "hermes-user": "用户代表",
+    "product-manager": "产品",
+    qa: "测试",
+    secretary: "秘书",
+  };
+  return role === null ? "团队成员" : labels[role] ?? "团队成员";
+}
+
+async function unavailableWorkspaceDiff(): Promise<WorkspaceDiffData> {
+  return {
+    available: false,
+    fileCount: null,
+    files: [],
+    reason: "workspace-unavailable",
+    workspaceMode: "direct",
+  };
+}
+
+async function unavailableProjectFiles(): Promise<ProjectFilesData> {
+  return {
+    available: false,
+    files: [],
+    reason: "workspace-unavailable",
+    workspaceMode: "direct",
+  };
+}
+
+async function unavailableProjectFile(_sessionId: string, filePath: string): Promise<WorkspaceFileContent> {
+  return {
+    available: false,
+    path: filePath,
+    lines: [],
+    reason: "workspace-unavailable",
+  };
 }

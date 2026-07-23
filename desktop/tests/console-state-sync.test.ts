@@ -6,6 +6,9 @@ import {
   loadEvidenceView,
   loadProcessOutput,
   processOutputRunId,
+  loadProjectFile,
+  loadProjectFiles,
+  loadWorkspaceDiff,
   refreshConsoleState,
   type ConsoleSelection,
   type SelectionMutationKind,
@@ -177,6 +180,58 @@ describe("loadProcessOutput", () => {
       "local:project:session-a",
     )).toBe("run:retry-2");
     expect(processOutputRunId("run-output:other:run-1", "session-a")).toBeNull();
+  });
+});
+
+describe("workspace file readers", () => {
+  it("loads diff, project tree, and selected file through session-scoped read-only routes", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        available: true,
+        fileCount: 1,
+        files: [{ path: "src/app.ts", additions: 2, deletions: 1 }],
+        reason: null,
+        workspaceMode: "direct",
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        available: true,
+        files: [{ path: "README.md", additions: null, deletions: null, changed: false }],
+        reason: null,
+        workspaceMode: "direct",
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        available: true,
+        path: "README.md",
+        lines: [{ kind: "unchanged", oldLineNumber: 1, newLineNumber: 1, text: "# Project" }],
+        reason: null,
+      }));
+
+    await expect(loadWorkspaceDiff({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      fetch,
+    })).resolves.toMatchObject({ available: true, fileCount: 1 });
+    await expect(loadProjectFiles({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      fetch,
+    })).resolves.toMatchObject({ available: true, files: [expect.objectContaining({ path: "README.md" })] });
+    await expect(loadProjectFile({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      filePath: "docs/中文 文件.md",
+      fetch,
+    })).resolves.toMatchObject({ available: true, path: "README.md" });
+
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "http://127.0.0.1:8787/api/local-console/sessions/session%2Fa/workspace-diff",
+    );
+    expect(String(fetch.mock.calls[1]?.[0])).toBe(
+      "http://127.0.0.1:8787/api/local-console/sessions/session%2Fa/files",
+    );
+    expect(String(fetch.mock.calls[2]?.[0])).toContain(
+      "/api/local-console/sessions/session%2Fa/files/content?path=docs%2F",
+    );
   });
 });
 

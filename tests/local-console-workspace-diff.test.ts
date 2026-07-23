@@ -46,6 +46,60 @@ describe("local console conversation workspace diff through HTTP", () => {
       );
 
       expect(state.workspaceDiff).toEqual({ available: true, fileCount: 2, reason: null });
+      const diff = await getJson<{
+        available: true;
+        fileCount: number;
+        workspaceMode: "direct" | "worktree";
+        files: Array<{ path: string; additions: number | null; deletions: number | null }>;
+      }>(
+        started.url,
+        `/api/local-console/sessions/${encodeURIComponent(session.sessionId)}/workspace-diff`,
+      );
+      expect(diff).toEqual({
+        available: true,
+        fileCount: 2,
+        workspaceMode,
+        reason: null,
+        files: [
+          { path: "committed.txt", additions: 1, deletions: 1 },
+          { path: "draft.txt", additions: 1, deletions: 0 },
+        ],
+      });
+
+      const changedFile = await getJson<{
+        available: true;
+        lines: Array<{ kind: string; oldLineNumber: number | null; newLineNumber: number | null; text: string }>;
+      }>(
+        started.url,
+        `/api/local-console/sessions/${encodeURIComponent(session.sessionId)}/files/content?path=committed.txt`,
+      );
+      expect(changedFile.lines).toEqual([
+        { kind: "deletion", oldLineNumber: 1, newLineNumber: null, text: "baseline" },
+        { kind: "addition", oldLineNumber: null, newLineNumber: 1, text: "committed during conversation" },
+      ]);
+
+      const projectFiles = await getJson<{
+        available: true;
+        files: Array<{ path: string; changed: boolean }>;
+      }>(
+        started.url,
+        `/api/local-console/sessions/${encodeURIComponent(session.sessionId)}/files`,
+      );
+      expect(projectFiles.files).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: "committed.txt", changed: true }),
+        expect.objectContaining({ path: "draft.txt", changed: true }),
+        expect.objectContaining({ path: "unchanged.txt", changed: false }),
+      ]));
+      const unchangedFile = await getJson<{
+        available: true;
+        lines: Array<{ kind: string; text: string }>;
+      }>(
+        started.url,
+        `/api/local-console/sessions/${encodeURIComponent(session.sessionId)}/files/content?path=unchanged.txt`,
+      );
+      expect(unchangedFile.lines).toEqual([
+        expect.objectContaining({ kind: "unchanged", text: "keep me" }),
+      ]);
       const factLog = await readSessionFactLog(root, session.sessionId);
       expect(factLog[0]).toMatchObject({
         type: "create_session",
@@ -80,6 +134,7 @@ describe("local console conversation workspace diff through HTTP", () => {
     const root = await temporaryRoot();
     const nonGit = path.join(root, "plain-folder");
     await fs.mkdir(nonGit, { recursive: true });
+    await fs.writeFile(path.join(nonGit, "notes.txt"), "plain project\n", "utf8");
     const started = await startHarness(root, async (options) => successfulRun(options, "done"));
     const plainProject = await createProject(started.url, nonGit);
     const plainSession = await createSession(started.url, plainProject.projectId, "direct", "plain folder");
@@ -87,6 +142,23 @@ describe("local console conversation workspace diff through HTTP", () => {
       snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
     );
     expect(plainState.workspaceDiff).toEqual({ available: false, fileCount: null, reason: "missing-baseline" });
+    await expect(getJson(
+      started.url,
+      `/api/local-console/sessions/${encodeURIComponent(plainSession.sessionId)}/workspace-diff`,
+    )).resolves.toMatchObject({
+      available: false,
+      files: [],
+      reason: "missing-baseline",
+      workspaceMode: "direct",
+    });
+    await expect(getJson(
+      started.url,
+      `/api/local-console/sessions/${encodeURIComponent(plainSession.sessionId)}/files`,
+    )).resolves.toMatchObject({
+      available: true,
+      files: [expect.objectContaining({ path: "notes.txt", changed: false })],
+      workspaceMode: "direct",
+    });
 
     const repository = path.join(root, "repository");
     await initializeRepository(repository);
@@ -106,6 +178,44 @@ describe("local console conversation workspace diff through HTTP", () => {
       snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
     );
     expect(legacyState.workspaceDiff).toEqual({ available: false, fileCount: null, reason: "missing-baseline" });
+  }, 20_000);
+
+  it("explains large, binary, missing, and out-of-workspace files instead of returning blank content", async () => {
+    const root = await temporaryRoot();
+    const repository = path.join(root, "repository");
+    await initializeRepository(repository);
+    const started = await startHarness(root, async (options) => {
+      const cwd = requireCwd(options);
+      await fs.writeFile(path.join(cwd, "large.txt"), "x".repeat(2 * 1024 * 1024 + 1), "utf8");
+      await fs.writeFile(path.join(cwd, "binary.dat"), Buffer.from([0, 1, 2, 3]));
+      return successfulRun(options, "special files");
+    });
+    const project = await createProject(started.url, repository);
+    const session = await createSession(started.url, project.projectId, "direct", "create special files");
+    await waitForState(started.url, session.sessionId, (snapshot) =>
+      snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
+    );
+
+    for (const [filePath, reason] of [
+      ["large.txt", "file-too-large"],
+      ["binary.dat", "binary-file"],
+      ["missing.txt", "not-found"],
+      ["../outside.txt", "outside-workspace"],
+    ] as const) {
+      const endpoint = new URL(
+        `/api/local-console/sessions/${encodeURIComponent(session.sessionId)}/files/content`,
+        started.url,
+      );
+      endpoint.searchParams.set("path", filePath);
+      const response = await fetch(endpoint);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        available: false,
+        path: filePath,
+        lines: [],
+        reason,
+      });
+    }
   }, 20_000);
 
   it("restores full run output through the persisted HTTP run locator after restart", async () => {
@@ -163,6 +273,7 @@ async function initializeRepository(repository: string): Promise<void> {
   await git(repository, "config", "user.name", "Evidence Test");
   await git(repository, "config", "user.email", "evidence@example.test");
   await fs.writeFile(path.join(repository, "committed.txt"), "baseline\n", "utf8");
+  await fs.writeFile(path.join(repository, "unchanged.txt"), "keep me\n", "utf8");
   await git(repository, "add", ".");
   await git(repository, "commit", "-m", "baseline");
 }
@@ -249,4 +360,10 @@ async function waitForState(
 
 async function git(cwd: string, ...args: string[]): Promise<void> {
   await execFileAsync("git", ["-C", cwd, ...args]);
+}
+
+async function getJson<T = unknown>(url: string, pathname: string): Promise<T> {
+  const response = await fetch(new URL(pathname, url));
+  expect(response.status).toBe(200);
+  return await response.json() as T;
 }
