@@ -420,6 +420,12 @@ async function handleRequest(
       return;
     }
 
+    const runOutputMatch = matchRunOutputRoute(url.pathname);
+    if (request.method === "GET" && runOutputMatch !== null) {
+      sendJson(response, 200, await runtime.runOutput(runOutputMatch.sessionId, runOutputMatch.runId));
+      return;
+    }
+
     const sessionProjectMatch = matchSessionRoute(url.pathname, "project");
     if (request.method === "PATCH" && sessionProjectMatch !== null) {
       let payload: unknown;
@@ -980,4 +986,15 @@ function matchSessionRoute(
     return null;
   }
   return { sessionId: decodeURIComponent(match[1] ?? "") };
+}
+
+function matchRunOutputRoute(pathname: string): { sessionId: string; runId: string } | null {
+  const match = /^\/api\/local-console\/sessions\/([^/]+)\/runs\/([^/]+)\/output$/u.exec(pathname);
+  if (match === null) {
+    return null;
+  }
+  return {
+    sessionId: decodeURIComponent(match[1] ?? ""),
+    runId: decodeURIComponent(match[2] ?? ""),
+  };
 }

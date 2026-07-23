@@ -37,6 +37,7 @@ import {
   type ComposerAttachment,
   type StructuredAttachment,
 } from "@/console/structured-attachments";
+import { ResultCard, shouldShowResultCard } from "@/console/result-card";
 import { RunBlock } from "@/console/run-block";
 import { MarkdownMessage } from "@/console/markdown-message";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
@@ -176,6 +177,26 @@ export interface OperatorSubSessionView {
   activeRun: OperatorRunSnapshot | null;
 }
 
+export type OperatorEvidenceOpenIntent =
+  | { kind: "workspace-diff"; sessionId: string; fileCount: number }
+  | {
+      kind: "run-output";
+      sessionId: string;
+      runId: string;
+      role: string | null;
+      fallbackOutput: string | null;
+    };
+
+export interface OperatorEvidenceView {
+  kind: OperatorEvidenceOpenIntent["kind"];
+  title: string;
+  content: string;
+}
+
+export type OperatorWorkspaceDiffSummary =
+  | { available: true; fileCount: number; reason: null }
+  | { available: false; fileCount: null; reason: string };
+
 export interface OperatorRunSnapshot {
   sessionId: string;
   runId: string;
@@ -219,7 +240,9 @@ export interface OperatorConsoleProps {
   messages: OperatorMessage[];
   childSessions?: OperatorChildSessionSummary[];
   openedSubSession?: OperatorSubSessionView | null;
+  openedEvidence?: OperatorEvidenceView | null;
   activeRun: OperatorRunSnapshot | null;
+  workspaceDiff?: OperatorWorkspaceDiffSummary;
   composerValue: string;
   composerAttachments?: readonly ComposerAttachment[];
   runnerStatus?: OperatorRunnerStatus;
@@ -251,6 +274,8 @@ export interface OperatorConsoleProps {
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
   onOpenSubSession?: (sessionId: string) => void;
   onCloseSubSession?: () => void;
+  onOpenEvidence?: (intent: OperatorEvidenceOpenIntent) => void;
+  onCloseEvidence?: () => void;
   onChangeSessionProject?: (sessionId: string, projectId: string) => void;
   onShowProjectInFolder?: (folderPath: string) => void | Promise<void>;
   onRenameProject?: (projectId: string, title: string) => void | Promise<void>;
@@ -310,7 +335,9 @@ export function OperatorConsole({
   messages,
   childSessions = [],
   openedSubSession = null,
+  openedEvidence = null,
   activeRun,
+  workspaceDiff = { available: false, fileCount: null, reason: "unavailable" },
   composerValue,
   composerAttachments = [],
   lastError,
@@ -340,6 +367,8 @@ export function OperatorConsole({
   onSelectSession,
   onOpenSubSession,
   onCloseSubSession,
+  onOpenEvidence,
+  onCloseEvidence,
   onChangeSessionProject,
   onShowProjectInFolder,
   onRenameProject,
@@ -453,6 +482,14 @@ export function OperatorConsole({
     && !selectedAgentTeamUnavailable
     && !continuationBlocked;
   const emptyConversation = messages.length === 0 && activeRun === null;
+  const resultCardVisible = shouldShowResultCard({
+    diffAvailable: workspaceDiff.available,
+    isRunning: activeRun !== null || selectedSession?.status === "running" || (selectedSession?.runningCount ?? 0) > 0,
+    lastMessageMentionsAgent: selectedSession?.lastMessageMentionsAgent === true,
+    hasCompletedStep: messages.some((message) => message.speaker === "agent" || terminalOutcome(message) !== null),
+    hasPendingWork: messages.some((message) => message.status === "pending" || message.status === "running"),
+  });
+  const evidencePanelOpen = openedEvidence !== null || openedSubSession !== null;
   const requestedSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
   const sidebarAutoCollapsed = !isFirstRunOnboarding && requestedSidebarOpen && isNarrowWindow;
   const effectiveSidebarOpen = isFirstRunOnboarding || (requestedSidebarOpen && !isNarrowWindow);
@@ -483,8 +520,18 @@ export function OperatorConsole({
     onOpenSubSession?.(sessionId);
   };
 
+  const openEvidence = (intent: OperatorEvidenceOpenIntent) => {
+    parentScrollTopRef.current = timelineScrollRef.current?.scrollTop ?? 0;
+    onOpenEvidence?.(intent);
+  };
+
   const closeSubSession = () => {
     onCloseSubSession?.();
+    restoreTimelineScroll(timelineScrollRef, parentScrollTopRef.current);
+  };
+
+  const closeEvidence = () => {
+    onCloseEvidence?.();
     restoreTimelineScroll(timelineScrollRef, parentScrollTopRef.current);
   };
 
@@ -843,7 +890,7 @@ export function OperatorConsole({
             <div
               className={cn(
                 "relative flex min-h-0 flex-1 flex-col",
-                openedSubSession && !isNarrowWindow && "mr-[50%]",
+                evidencePanelOpen && !isNarrowWindow && "mr-[50%]",
               )}
               data-testid="parent-conversation-pane"
             >
@@ -890,6 +937,7 @@ export function OperatorConsole({
                           onEditAndResend={onEditAndResend}
                           onOpenDiagnostics={onOpenDiagnostics}
                           onOpenExternalLink={onOpenExternalLink}
+                          onOpenEvidence={openEvidence}
                         />
                       ))}
                     </div>
@@ -902,9 +950,27 @@ export function OperatorConsole({
                           liveMarkdown={activeRun.liveMarkdown}
                           rawOutput={runRawOutput(activeRun)}
                           onOpenExternalLink={onOpenExternalLink}
+                          onOpenOutput={(fallbackOutput) => openEvidence({
+                            kind: "run-output",
+                            sessionId: activeRun.sessionId,
+                            runId: activeRun.runId,
+                            role: activeRun.role,
+                            fallbackOutput,
+                          })}
                           className="mt-3 max-w-none"
                         />
                       </div>
+                    ) : null}
+
+                    {resultCardVisible && workspaceDiff.available && selectedSession ? (
+                      <ResultCard
+                        fileCount={workspaceDiff.fileCount}
+                        onOpen={() => openEvidence({
+                          kind: "workspace-diff",
+                          sessionId: selectedSession.sessionId,
+                          fileCount: workspaceDiff.fileCount,
+                        })}
+                      />
                     ) : null}
 
                     {lastError ? (
@@ -1003,7 +1069,19 @@ export function OperatorConsole({
             </div>
             </div>
 
-            {openedSubSession ? (
+            {openedEvidence ? (
+              <SubSessionPanel
+                title={openedEvidence.title}
+                narrow={isNarrowWindow}
+                onClose={closeEvidence}
+                ariaLabel={openedEvidence.title}
+                closeLabel="关闭证据内容"
+              >
+                <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-ink" data-testid="evidence-panel-content">
+                  {openedEvidence.content}
+                </pre>
+              </SubSessionPanel>
+            ) : openedSubSession ? (
               <SubSessionPanel
                 title={openedSubSession.session.title}
                 narrow={isNarrowWindow}
@@ -1016,6 +1094,7 @@ export function OperatorConsole({
                       message={message}
                       onOpenDiagnostics={onOpenDiagnostics}
                       onOpenExternalLink={onOpenExternalLink}
+                      onOpenEvidence={openEvidence}
                     />
                   ))}
                   {openedSubSession.activeRun ? (
@@ -1025,6 +1104,13 @@ export function OperatorConsole({
                       liveMarkdown={openedSubSession.activeRun.liveMarkdown}
                       rawOutput={runRawOutput(openedSubSession.activeRun)}
                       onOpenExternalLink={onOpenExternalLink}
+                      onOpenOutput={(fallbackOutput) => openEvidence({
+                        kind: "run-output",
+                        sessionId: openedSubSession.activeRun!.sessionId,
+                        runId: openedSubSession.activeRun!.runId,
+                        role: openedSubSession.activeRun!.role,
+                        fallbackOutput,
+                      })}
                       className="my-3"
                     />
                   ) : null}
@@ -1493,6 +1579,7 @@ function TimelineEntry({
   onEditAndResend,
   onOpenDiagnostics,
   onOpenExternalLink,
+  onOpenEvidence,
 }: {
   message: OperatorMessage;
   childSessions?: readonly OperatorChildSessionSummary[];
@@ -1501,6 +1588,7 @@ function TimelineEntry({
   onEditAndResend?: (target: OperatorEditAndResendTarget) => void;
   onOpenDiagnostics?: () => void;
   onOpenExternalLink?: (url: string) => void;
+  onOpenEvidence?: (intent: OperatorEvidenceOpenIntent) => void;
 }): JSX.Element {
   if (message.sourceKind === "local-child-session-card") {
     const sessionIds = parseChildSessionCardIds(message.body);
@@ -1520,7 +1608,7 @@ function TimelineEntry({
         status={outcome}
         role={message.role}
         rawReason={message.error ?? message.body}
-        rawOutput={message.error ? message.body : null}
+        rawOutput={message.error ?? message.body}
         onEditAndResend={outcome === "user-stopped" && onEditAndResend !== undefined
           ? () => onEditAndResend({
               stoppedMessageId: message.id,
@@ -1529,6 +1617,13 @@ function TimelineEntry({
             })
           : undefined}
         onOpenDiagnostics={onOpenDiagnostics}
+        onOpenOutput={message.runId === null ? undefined : (fallbackOutput) => onOpenEvidence?.({
+          kind: "run-output",
+          sessionId: message.sessionId,
+          runId: message.runId!,
+          role: message.role,
+          fallbackOutput,
+        })}
         className="py-4"
       />
     );
@@ -1545,7 +1640,11 @@ function TimelineEntry({
       ) : (
         <>
           {message.body.trim() === "" ? null : (
-            <MarkdownMessage content={message.body} mode="static" onOpenExternalLink={onOpenExternalLink} />
+            <MarkdownMessage
+              content={sanitizeMachineText(message.body)}
+              mode="static"
+              onOpenExternalLink={onOpenExternalLink}
+            />
           )}
           <StructuredAttachmentList
             attachments={message.attachments ?? []}
@@ -1554,6 +1653,23 @@ function TimelineEntry({
           />
         </>
       )}
+      {message.speaker === "agent" && message.runId !== null && onOpenEvidence ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-2"
+          onClick={() => onOpenEvidence({
+            kind: "run-output",
+            sessionId: message.sessionId,
+            runId: message.runId!,
+            role: message.role,
+            fallbackOutput: message.body,
+          })}
+        >
+          完整输出
+        </Button>
+      ) : null}
     </div>
   );
 }

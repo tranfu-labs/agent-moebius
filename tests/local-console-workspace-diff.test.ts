@@ -1,0 +1,252 @@
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { afterEach, describe, expect, it } from "vitest";
+
+import type { CodexRunOptions, CodexRunResult } from "../src/codex.js";
+import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../src/local-console/server.js";
+import type { LocalConsoleStateSnapshot } from "../src/local-console/types.js";
+
+const execFileAsync = promisify(execFile);
+const roots: string[] = [];
+const servers: StartedLocalConsoleServer[] = [];
+
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) => server.close()));
+  await Promise.all(roots.splice(0).map((root) => fs.rm(root, {
+    recursive: true,
+    force: true,
+    maxRetries: 20,
+    retryDelay: 50,
+  })));
+});
+
+describe("local console conversation workspace diff through HTTP", () => {
+  it.each(["direct", "worktree"] as const)(
+    "counts committed and uncommitted files in %s workspace without attributing them",
+    async (workspaceMode) => {
+      const root = await temporaryRoot();
+      const repository = path.join(root, "repository");
+      await initializeRepository(repository);
+      const started = await startHarness(root, async (options) => {
+        const cwd = requireCwd(options);
+        await fs.writeFile(path.join(cwd, "committed.txt"), "committed during conversation\n", "utf8");
+        await git(cwd, "add", "committed.txt");
+        await git(cwd, "commit", "-m", "conversation commit");
+        await fs.writeFile(path.join(cwd, "draft.txt"), "uncommitted during conversation\n", "utf8");
+        return successfulRun(options, "workspace diff complete");
+      });
+      const project = await createProject(started.url, repository);
+      const session = await createSession(started.url, project.projectId, workspaceMode, "count changes");
+
+      const state = await waitForState(started.url, session.sessionId, (snapshot) =>
+        snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
+      );
+
+      expect(state.workspaceDiff).toEqual({ available: true, fileCount: 2, reason: null });
+      const factLog = await readSessionFactLog(root, session.sessionId);
+      expect(factLog[0]).toMatchObject({
+        type: "create_session",
+        payload: {
+          kind: "local-create-session",
+          baselineCommit: expect.stringMatching(/^[0-9a-f]{40}$/u),
+        },
+      });
+
+      if (workspaceMode === "worktree") {
+        await expect(fs.readFile(path.join(repository, "draft.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    },
+    20_000,
+  );
+
+  it("reports an available zero instead of omitting the fact", async () => {
+    const root = await temporaryRoot();
+    const repository = path.join(root, "repository");
+    await initializeRepository(repository);
+    const started = await startHarness(root, async (options) => successfulRun(options, "no changes"));
+    const project = await createProject(started.url, repository);
+    const session = await createSession(started.url, project.projectId, "direct", "leave clean");
+
+    const state = await waitForState(started.url, session.sessionId, (snapshot) =>
+      snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
+    );
+    expect(state.workspaceDiff).toEqual({ available: true, fileCount: 0, reason: null });
+  }, 20_000);
+
+  it("returns unavailable for non-Git projects and legacy sessions without a baseline", async () => {
+    const root = await temporaryRoot();
+    const nonGit = path.join(root, "plain-folder");
+    await fs.mkdir(nonGit, { recursive: true });
+    const started = await startHarness(root, async (options) => successfulRun(options, "done"));
+    const plainProject = await createProject(started.url, nonGit);
+    const plainSession = await createSession(started.url, plainProject.projectId, "direct", "plain folder");
+    const plainState = await waitForState(started.url, plainSession.sessionId, (snapshot) =>
+      snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
+    );
+    expect(plainState.workspaceDiff).toEqual({ available: false, fileCount: null, reason: "missing-baseline" });
+
+    const repository = path.join(root, "repository");
+    await initializeRepository(repository);
+    const gitProject = await createProject(started.url, repository);
+    const response = await fetch(new URL("/api/local-console/sessions", started.url), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: gitProject.projectId, workspaceMode: "direct" }),
+    });
+    const legacy = await response.json() as { session: { sessionId: string } };
+    await fetch(new URL(`/api/local-console/sessions/${encodeURIComponent(legacy.session.sessionId)}/messages`, started.url), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "legacy first message" }),
+    });
+    const legacyState = await waitForState(started.url, legacy.session.sessionId, (snapshot) =>
+      snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
+    );
+    expect(legacyState.workspaceDiff).toEqual({ available: false, fileCount: null, reason: "missing-baseline" });
+  }, 20_000);
+
+  it("restores full run output through the persisted HTTP run locator after restart", async () => {
+    const root = await temporaryRoot();
+    const repository = path.join(root, "repository");
+    await initializeRepository(repository);
+    const runCodex = async (options: CodexRunOptions): Promise<CodexRunResult> => {
+      await fs.mkdir(options.runDir, { recursive: true });
+      await fs.writeFile(path.join(options.runDir, "stdout.jsonl"), '{"type":"item","text":"complete stdout"}\n', "utf8");
+      await fs.writeFile(path.join(options.runDir, "stderr.log"), "complete stderr\n", "utf8");
+      return successfulRun(options, "output persisted");
+    };
+    const started = await startHarness(root, runCodex);
+    const project = await createProject(started.url, repository);
+    const session = await createSession(started.url, project.projectId, "direct", "persist output");
+    const finished = await waitForState(started.url, session.sessionId, (snapshot) =>
+      snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent"),
+    );
+    const runId = finished.messages.find((message) => message.speaker === "agent")?.runId;
+    expect(runId).toBeTruthy();
+    await started.close();
+    servers.splice(servers.indexOf(started), 1);
+
+    const restarted = await startHarness(root, runCodex);
+    const response = await fetch(new URL(
+      `/api/local-console/sessions/${encodeURIComponent(session.sessionId)}/runs/${encodeURIComponent(runId!)}/output`,
+      restarted.url,
+    ));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sessionId: session.sessionId,
+      runId,
+      role: "dev",
+      stdout: expect.stringContaining("complete stdout"),
+      stderr: expect.stringContaining("complete stderr"),
+    });
+  }, 20_000);
+});
+
+async function temporaryRoot(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-evidence-outlets-"));
+  roots.push(root);
+  return root;
+}
+
+async function readSessionFactLog(root: string, sessionId: string): Promise<unknown[]> {
+  const filename = `${Buffer.from(sessionId, "utf8").toString("base64url")}.jsonl`;
+  const content = await fs.readFile(path.join(root, "sessions", filename), "utf8");
+  return content.trim().split("\n").map((line) => JSON.parse(line) as unknown);
+}
+
+async function initializeRepository(repository: string): Promise<void> {
+  await fs.mkdir(repository, { recursive: true });
+  await git(repository, "init");
+  await git(repository, "config", "user.name", "Evidence Test");
+  await git(repository, "config", "user.email", "evidence@example.test");
+  await fs.writeFile(path.join(repository, "committed.txt"), "baseline\n", "utf8");
+  await git(repository, "add", ".");
+  await git(repository, "commit", "-m", "baseline");
+}
+
+async function startHarness(
+  root: string,
+  runCodex: (options: CodexRunOptions) => Promise<CodexRunResult>,
+): Promise<StartedLocalConsoleServer> {
+  const started = await startLocalConsoleServer({
+    host: "127.0.0.1",
+    port: 0,
+    projectRoot: root,
+    workdirRoot: path.join(root, "workdir"),
+    sqlitePath: path.join(root, "state", "local-console.sqlite"),
+    listAgentFiles: async () => [{
+      name: "dev",
+      agentMarkdown: "---\nname: dev\n---\nDeveloper\n",
+    }],
+    runCodex,
+    makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+  });
+  servers.push(started);
+  return started;
+}
+
+function successfulRun(options: CodexRunOptions, finalText: string): Extract<CodexRunResult, { ok: true }> {
+  return {
+    ok: true,
+    finalText: `${finalText}\n\n<!-- agent-moebius:stage=code-verified -->`,
+    threadId: "thread-evidence",
+    cachedInputTokens: 0,
+    runDir: options.runDir,
+    stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+    stderrPath: path.join(options.runDir, "stderr.log"),
+  };
+}
+
+function requireCwd(options: CodexRunOptions): string {
+  if (options.cwd === undefined) throw new Error("test run requires cwd");
+  return options.cwd;
+}
+
+async function createProject(url: string, folderPath: string): Promise<{ projectId: string }> {
+  const response = await fetch(new URL("/api/local-console/projects", url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ folderPath, worktreeMode: false }),
+  });
+  expect(response.status).toBe(201);
+  return (await response.json() as { project: { projectId: string } }).project;
+}
+
+async function createSession(
+  url: string,
+  projectId: string,
+  workspaceMode: "direct" | "worktree",
+  initialMessage: string,
+): Promise<{ sessionId: string }> {
+  const response = await fetch(new URL("/api/local-console/sessions", url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId, workspaceMode, initialMessage }),
+  });
+  expect(response.status).toBe(201);
+  return (await response.json() as { session: { sessionId: string } }).session;
+}
+
+async function waitForState(
+  url: string,
+  sessionId: string,
+  predicate: (snapshot: LocalConsoleStateSnapshot) => boolean,
+): Promise<LocalConsoleStateSnapshot> {
+  let latest: LocalConsoleStateSnapshot | null = null;
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const endpoint = new URL("/api/local-console/state", url);
+    endpoint.searchParams.set("sessionId", sessionId);
+    const response = await fetch(endpoint);
+    latest = await response.json() as LocalConsoleStateSnapshot;
+    if (predicate(latest)) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`timed out waiting for local state: ${JSON.stringify(latest)}`);
+}
+
+async function git(cwd: string, ...args: string[]): Promise<void> {
+  await execFileAsync("git", ["-C", cwd, ...args]);
+}

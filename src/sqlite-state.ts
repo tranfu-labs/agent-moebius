@@ -79,6 +79,7 @@ export type SqliteStateCommand =
       initialMessage?: string;
       initialAttachmentIds?: string[];
       attachmentDraftKey?: string;
+      baselineCommit?: string | null;
       now: string;
     }
   | { kind: "local-move-empty-session"; sessionId: string; projectId: string; now: string }

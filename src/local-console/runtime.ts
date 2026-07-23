@@ -40,6 +40,7 @@ import {
   LocalConsoleSessionRunningError,
   LocalConsoleSessionWorkspaceLockedError,
   type LocalConsoleRunSnapshot,
+  type LocalConsoleRunOutput,
   type LocalConsoleSessionSummary,
   type LocalConsoleSessionWorkspaceSource,
   type LocalConsoleWorkspaceMode,
@@ -48,6 +49,7 @@ import {
   type LocalConsoleSnapshot,
   type LocalConsoleStateSnapshot,
   type LocalConsoleSessionView,
+  type LocalConsoleWorkspaceDiffSummary,
   type LocalConsoleStore,
 } from "./types.js";
 import {
@@ -59,6 +61,10 @@ import {
   resolveLocalWorkspaceSource,
   type ResolvedLocalWorkspace,
 } from "./workspace-source.js";
+import {
+  readLocalConversationBaselineCommit,
+  readLocalConversationWorkspaceDiff,
+} from "./workspace-diff.js";
 import { resolveSessionWorkspaceContext } from "./workspace-resolution.js";
 import { nonContinuableSystemMessage, resolveLocalSessionContinuation } from "./session-status.js";
 
@@ -167,6 +173,7 @@ export class LocalConsoleRuntime {
   private readonly pendingProcessSessions = new Set<string>();
   private readonly activeRuns = new Map<string, ActiveLocalRun>();
   private readonly inactiveSessions = new Set<string>();
+  private readonly conversationBaselineCommits = new Map<string, string | null>();
   private closing = false;
   private lastError: string | null = null;
 
@@ -350,18 +357,34 @@ export class LocalConsoleRuntime {
       throw new Error("Attachment ids must be unique");
     }
     await this.assertProjectDirectoryAvailable(resolvedProjectId);
+    const project = (await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects()))
+      .find((candidate) => candidate.projectId === resolvedProjectId);
+    if (project === undefined) {
+      throw new Error(`local console project not found: ${resolvedProjectId}`);
+    }
     if (workspaceMode === "worktree") {
-      const project = (await this.storeCall("local-console-store-list-projects", () => this.options.store.listProjects()))
-        .find((candidate) => candidate.projectId === resolvedProjectId);
-      if (project === undefined) {
-        throw new Error(`local console project not found: ${resolvedProjectId}`);
-      }
       const facts = await readCachedLocalWorkspaceFacts({
         folderPath: project.folderPath,
         gitTimeoutMs: this.options.workspaceGitTimeoutMs,
       });
       if (!facts.isGitRepository) {
         throw new Error("not-git-repository");
+      }
+    }
+    let baselineCommit: string | null | undefined;
+    if (normalizedInitialMessage !== undefined || attachmentIds.length > 0) {
+      try {
+        baselineCommit = await readLocalConversationBaselineCommit({
+          folderPath: project.folderPath,
+          gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+        });
+      } catch (error) {
+        baselineCommit = null;
+        log({
+          event: "local-console-conversation-baseline-unavailable",
+          projectId: resolvedProjectId,
+          error: formatLocalError(error),
+        });
       }
     }
     const agentTeamSnapshot = agentTeam === undefined || this.options.loadAgentTeamSnapshot === undefined
@@ -387,9 +410,11 @@ export class LocalConsoleRuntime {
         initialMessage: normalizedInitialMessage,
         initialAttachmentIds: attachmentIds,
         attachmentDraftKey: "draft:new",
+        baselineCommit,
         now: this.nowIso(),
       }),
     );
+    this.conversationBaselineCommits.set(sessionId, baselineCommit ?? null);
     if (normalizedInitialMessage !== undefined || attachmentIds.length > 0) {
       void this.processPending(sessionId);
     }
@@ -641,6 +666,10 @@ export class LocalConsoleRuntime {
             sqlitePath: this.options.store.sqlitePath,
             timeoutMs: this.storeTimeoutMs,
           }, selectedSession.sessionId));
+    const activeRun = await this.activeRunSnapshot(sessionId);
+    const workspaceDiff = selectedSession === null
+      ? noSessionWorkspaceDiff()
+      : await this.readConversationWorkspaceDiff(selectedSession.sessionId);
     return {
       projects,
       project: selectedProject,
@@ -649,7 +678,8 @@ export class LocalConsoleRuntime {
       selectedSession,
       messages,
       childSessions,
-      activeRun: await this.activeRunSnapshot(sessionId),
+      activeRun,
+      workspaceDiff,
       sqlitePath: this.options.store.sqlitePath,
       lastError: this.lastError,
     };
@@ -662,10 +692,45 @@ export class LocalConsoleRuntime {
       throw new Error(`local console session not found: ${sessionId}`);
     }
     const messages = await this.storeCall("local-console-store-list", () => this.options.store.listMessages(sessionId));
+    const activeRun = await this.activeRunSnapshot(sessionId);
     return {
       session,
       messages,
-      activeRun: await this.activeRunSnapshot(sessionId),
+      activeRun,
+      workspaceDiff: await this.readConversationWorkspaceDiff(sessionId),
+    };
+  }
+
+  async runOutput(sessionId: string, runId: string): Promise<LocalConsoleRunOutput> {
+    const messages = await this.storeCall("local-console-store-list-run-output", () =>
+      this.options.store.listMessages(sessionId),
+    );
+    const matching = messages.filter((message) => message.runId === runId);
+    const active = this.activeRuns.get(sessionId);
+    const historicalWithRunDir = [...matching].reverse().find((message) => message.runDir !== null);
+    const runDir = active?.runId === runId ? active.runDir : historicalWithRunDir?.runDir ?? null;
+    const [stdout, stderr] = runDir === null
+      ? [null, null]
+      : await Promise.all([
+          readOptionalTextFile(path.join(runDir, "stdout.jsonl")),
+          readOptionalTextFile(path.join(runDir, "stderr.log")),
+        ]);
+    const fallback = matching
+      .map((message) => message.error ?? message.body)
+      .filter((value) => value.trim() !== "")
+      .join("\n\n") || null;
+    if (matching.length === 0 && active?.runId !== runId) {
+      throw new Error(`local console run not found: ${sessionId}/${runId}`);
+    }
+    return {
+      sessionId,
+      runId,
+      role: active?.runId === runId
+        ? active.role
+        : [...matching].reverse().find((message) => message.role !== null)?.role ?? null,
+      stdout,
+      stderr,
+      fallback,
     };
   }
 
@@ -1255,6 +1320,35 @@ export class LocalConsoleRuntime {
     return workspace;
   }
 
+  private async readConversationWorkspaceDiff(sessionId: string): Promise<LocalConsoleWorkspaceDiffSummary> {
+    try {
+      if (!this.conversationBaselineCommits.has(sessionId) && this.options.store.getSessionBaselineCommit !== undefined) {
+        const baselineCommit = await this.storeCall("local-console-store-session-baseline", () =>
+          this.options.store.getSessionBaselineCommit!(sessionId),
+        );
+        this.conversationBaselineCommits.set(sessionId, baselineCommit);
+      }
+      if (this.conversationBaselineCommits.get(sessionId) === null) {
+        return { available: false, fileCount: null, reason: "missing-baseline" };
+      }
+      const source = await this.storeCall("local-console-store-session-workspace-diff", () =>
+        this.options.store.getSessionWorkspace(sessionId),
+      );
+      this.conversationBaselineCommits.set(sessionId, source.baselineCommit ?? null);
+      const workspacePath = source.workspaceMode === "worktree"
+        ? localSessionWorktreePath(this.options.workdirRoot, source.projectId, sessionId)
+        : source.folderPath;
+      return await readLocalConversationWorkspaceDiff({
+        workspacePath,
+        baselineCommit: source.baselineCommit ?? null,
+        gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+      });
+    } catch (error) {
+      log({ event: "local-console-workspace-diff-count-unavailable", sessionId, error: formatLocalError(error) });
+      return { available: false, fileCount: null, reason: "workspace-unavailable" };
+    }
+  }
+
   private async recordFailedCodexResult(
     message: LocalConsoleMessage,
     sessionId: string,
@@ -1649,6 +1743,21 @@ function buildFallbackProjectSummary(projectRoot: string): LocalConsoleProjectSu
     stuckCount: 0,
     errorCount: 0,
   };
+}
+
+function noSessionWorkspaceDiff(): LocalConsoleWorkspaceDiffSummary {
+  return { available: false, fileCount: null, reason: "no-session" };
+}
+
+async function readOptionalTextFile(filePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function normalizeTitle(title: string | undefined): string {

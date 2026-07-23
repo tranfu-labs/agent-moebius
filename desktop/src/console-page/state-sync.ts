@@ -1,3 +1,5 @@
+import type { OperatorEvidenceOpenIntent, OperatorEvidenceView } from "@agent-moebius/console-ui";
+
 export interface ConsoleSelection {
   projectId: string;
   sessionId: string;
@@ -176,6 +178,65 @@ export async function acknowledgeDisplayedResult(options: {
     throw new Error(body.error ?? "mark result read failed");
   }
   return body.cleared === true;
+}
+
+export async function loadEvidenceView(options: {
+  apiBase: string;
+  intent: OperatorEvidenceOpenIntent;
+  fetch: FetchLike;
+}): Promise<OperatorEvidenceView> {
+  if (options.intent.kind === "workspace-diff") {
+    return {
+      kind: "workspace-diff",
+      title: "对话改动",
+      content: options.intent.fileCount === 0
+        ? "这段对话期间没有文件发生改动。"
+        : `这段对话期间有 ${String(options.intent.fileCount)} 个文件发生改动。`,
+    };
+  }
+
+  const fetch = options.fetch;
+  const response = await fetch(endpoint(
+    options.apiBase,
+    `/api/local-console/sessions/${encodeURIComponent(options.intent.sessionId)}/runs/${encodeURIComponent(options.intent.runId)}/output`,
+  ));
+  const body = await response.json() as {
+    stdout?: string | null;
+    stderr?: string | null;
+    fallback?: string | null;
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(body.error ?? "complete output request failed");
+  }
+  const content = [
+    labeledOutput("标准输出", body.stdout),
+    labeledOutput("错误输出", body.stderr),
+    labeledOutput("记录", body.fallback ?? options.intent.fallbackOutput),
+  ].filter((value): value is string => value !== null).join("\n\n");
+  return {
+    kind: "run-output",
+    title: `${localizeRole(options.intent.role)} · 完整输出`,
+    content: content || "这一步还没有可显示的输出。",
+  };
+}
+
+function labeledOutput(label: string, value: string | null | undefined): string | null {
+  const text = value?.trim();
+  return text ? `${label}\n${text}` : null;
+}
+
+function localizeRole(role: string | null): string {
+  const labels: Record<string, string> = {
+    ceo: "CEO",
+    dev: "开发",
+    "dev-manager": "技术负责人",
+    "hermes-user": "用户代表",
+    "product-manager": "产品",
+    qa: "测试",
+    secretary: "秘书",
+  };
+  return role === null ? "团队成员" : labels[role] ?? "团队成员";
 }
 
 export interface CreatedSession {

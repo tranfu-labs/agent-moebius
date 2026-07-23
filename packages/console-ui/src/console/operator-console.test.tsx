@@ -571,10 +571,11 @@ describe("OperatorConsole", () => {
 
     const memberStrip = within(rows[0]).getByTestId("agent-team-members");
     expect(within(memberStrip).getByTitle("开发经理")).toHaveAccessibleName("开发经理");
-    expect(within(memberStrip).getByText("· 主 Agent")).toBeVisible();
+    expect(memberStrip.querySelectorAll("[data-agent-initial-avatar]")).toHaveLength(3);
     for (const memberName of ["开发经理", "开发", "测试"]) {
       expect(within(memberStrip).getByTitle(memberName)).toHaveClass("w-28");
     }
+    expect(within(memberStrip).getByText("· 主 Agent")).toBeVisible();
     expect(within(memberStrip).getByLabelText("还有 2 名成员")).toHaveTextContent("＋2");
     expect(screen.queryByText("修改信息")).not.toBeInTheDocument();
     expect(screen.queryByText("复制并编辑")).not.toBeInTheDocument();
@@ -983,32 +984,125 @@ describe("OperatorConsole", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps terminal outcomes readable and routes machine details to diagnostics", () => {
+  it("emits a run-output intent beside the shared composer stop without using developer diagnostics", () => {
+    const onOpenEvidence = vi.fn();
     const onOpenDiagnostics = vi.fn();
+    renderConsole({ activeRun: runSnapshot, composerValue: "", onOpenEvidence, onOpenDiagnostics });
+
+    expect(screen.getByRole("button", { name: "完整输出" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /停下开发/u })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停下当前这一步" })).toBeVisible();
+    expect(screen.queryByText(/00:12|run-1|\/tmp\//u)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+    expect(onOpenEvidence).toHaveBeenCalledWith({
+      kind: "run-output",
+      sessionId: "session-a",
+      runId: "run-1",
+      role: "dev",
+      fallbackOutput: "live tail from codex",
+    });
+    expect(onOpenDiagnostics).not.toHaveBeenCalled();
+  });
+
+  it("shows one settled result card and keeps complete output on the historical step", () => {
+    const onOpenEvidence = vi.fn();
+    const settled = {
+      ...sessions[0],
+      status: "idle" as const,
+      runningCount: 0,
+      lastMessageMentionsAgent: false,
+    };
+    renderConsole({
+      selectedSession: settled,
+      messages: [message({ id: 2, speaker: "agent", role: "dev", runId: "run-finished", body: "完成实现" })],
+      workspaceDiff: { available: true, fileCount: 2, reason: null },
+      onOpenEvidence,
+    });
+
+    expect(screen.getByText("这段对话期间有 2 个文件发生改动。")).toBeVisible();
+    expect(screen.queryByText(/团队成员造成|src\//u)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看" }));
+    expect(onOpenEvidence).toHaveBeenCalledWith({ kind: "workspace-diff", sessionId: "session-a", fileCount: 2 });
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+    expect(onOpenEvidence).toHaveBeenLastCalledWith({
+      kind: "run-output",
+      sessionId: "session-a",
+      runId: "run-finished",
+      role: "dev",
+      fallbackOutput: "完成实现",
+    });
+  });
+
+  it("keeps historical Streamdown Markdown and hides machine details beside the output outlet", () => {
+    renderConsole({
+      messages: [message({
+        id: 2,
+        speaker: "agent",
+        role: "dev",
+        runId: "run-finished",
+        body: "## 完成\n\n产物位于 `/tmp/private-run`，runId=run-secret。",
+      })],
+      onOpenEvidence: vi.fn(),
+    });
+
+    expect(screen.getByRole("heading", { name: "完成" })).toBeVisible();
+    expect(screen.getByText(/路径已隐藏/u)).toBeVisible();
+    expect(screen.getByRole("button", { name: "完整输出" })).toBeVisible();
+    expect(screen.queryByText(/\/tmp\/private-run|run-secret/u)).not.toBeInTheDocument();
+  });
+
+  it("uses the existing single-content panel for evidence without tabs or type controls", () => {
+    const onCloseEvidence = vi.fn();
+    renderConsole({
+      openedEvidence: {
+        kind: "run-output",
+        title: "开发 · 完整输出",
+        content: "标准输出\nfull raw output /tmp/run",
+      },
+      onCloseEvidence,
+    });
+
+    const panel = screen.getByTestId("sub-session-panel");
+    expect(panel).toBeVisible();
+    expect(screen.getByTestId("evidence-panel-content")).toHaveTextContent("full raw output /tmp/run");
+    expect(within(panel).queryByRole("tablist")).not.toBeInTheDocument();
+    expect(within(panel).queryByText(/新建标签|类型选择|文件树|加号新建/u)).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: /新建|添加/u })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭证据内容" }));
+    expect(onCloseEvidence).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps terminal outcomes readable and gives every fact a complete-output outlet", () => {
+    const onOpenDiagnostics = vi.fn();
+    const onOpenEvidence = vi.fn();
     const onEditAndResend = vi.fn();
     renderConsole({
       onOpenDiagnostics,
+      onOpenEvidence,
       onEditAndResend,
       messages: [
-        message({ id: 1, speaker: "system", status: "interrupted", systemEventKind: "user-stopped", body: "你让这一步停下了", error: "interrupted:user-interrupted" }),
-        message({ id: 2, speaker: "system", status: "failed", systemEventKind: "run-not-started", body: "这一步没跑起来", error: "exit:42" }),
-        message({ id: 3, speaker: "system", status: "stuck", systemEventKind: "run-stuck", body: "这一步卡住了", error: "idle-timeout:10ms" }),
+        message({ id: 1, speaker: "system", runId: "run-stop", status: "interrupted", systemEventKind: "user-stopped", body: "你让这一步停下了", error: "interrupted:user-interrupted" }),
+        message({ id: 2, speaker: "system", runId: "run-fail", status: "failed", systemEventKind: "run-not-started", body: "这一步没跑起来", error: "exit:42" }),
+        message({ id: 3, speaker: "system", runId: "run-stuck", status: "stuck", systemEventKind: "run-stuck", body: "这一步卡住了", error: "idle-timeout:10ms" }),
+        message({ id: 4, speaker: "system", runId: "run-dead", status: "failed", systemEventKind: "retry-exhausted", body: "这一步反复没跑起来，已经不再重试", error: "retry-limit" }),
       ],
     });
 
     expect(screen.getByText("你让这一步停下了")).toBeVisible();
     expect(screen.getByText("这一步没跑起来")).toBeVisible();
     expect(screen.getByText("这一步卡住了")).toBeVisible();
+    expect(screen.getByText("这一步反复没跑起来，已经不再重试")).toBeVisible();
     expect(screen.queryByText("interrupted:user-interrupted")).not.toBeInTheDocument();
     expect(screen.queryByText("idle-timeout:10ms")).not.toBeInTheDocument();
 
     expect(screen.queryByRole("button", { name: "查看日志" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "完整输出" })).toHaveLength(4);
     expect(onOpenDiagnostics).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "改一改重发这轮消息" }));
     expect(onEditAndResend).toHaveBeenCalledWith({
       stoppedMessageId: 1,
       sessionId: "session-a",
-      runId: null,
+      runId: "run-stop",
     });
     expect(screen.getAllByRole("button", { name: /改一改重发/u })).toHaveLength(1);
   });
