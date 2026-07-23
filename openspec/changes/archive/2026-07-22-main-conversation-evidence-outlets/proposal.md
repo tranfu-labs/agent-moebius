@@ -25,7 +25,7 @@
 
 1. **对话级改动计数**（后端）：以「这段对话开始时项目所在的提交」为基线，统计这段对话期间项目文件夹里发生改动的文件数。默认工作空间统计项目文件夹，独立工作空间统计隔离副本；非 Git 项目返回不可用。计数随会话快照下发。
 2. **结果卡片**（前端）：一轮工作结束且没有成员继续接力时，时间线末尾出现卡片，只给数量与查看入口，不铺开文件清单。零改动如实说明，不省略；非 Git 项目不出现卡片。措辞不声称改动由团队成员造成。
-3. **完整输出入口**（前端）：运行中的操作条提供「完整输出」，与「停下」并列；这一步结束后「停下」消失、「完整输出」保留在历史记录上，历史记录随时可以重新展开。四种事实的记录同样提供该入口。
+3. **完整输出入口**（前端）：运行中的记录末尾只提供「完整输出」，「停下」由运行中空草稿输入框的同一动作按钮承载；这一步结束后「完整输出」保留在历史记录上，历史记录随时可以重新展开。四种事实的记录同样提供该入口。
 4. **右侧栏移交接口**：两个入口都不自己实现内容，只发出「打开右侧栏的某类标签」的意图（改动标签 / 该步骤的过程标签）。右侧栏的标签条、改动视图与过程视图由 `docs/product/pages/main-right-sidebar.md` 定义，不属本片。
 
 ## 关于右侧栏的边界（重要）
@@ -41,12 +41,13 @@
 受影响模块：
 
 - `src/local-console/workspace-diff.ts`（新增或扩展现有 diff 逻辑）：对话级改动计数，覆盖 direct 与 worktree 两种模式，非 Git 返回不可用。
-- `src/sqlite-state-worker.ts`、`src/local-console/store.ts`、`types.ts`：持久化对话开始时的基线提交；计数随快照下发。
+- `src/sqlite-state.ts`、`src/local-console/store.ts`、`types.ts`：让对话基线随 `local-create-session` 命令进入每会话 jsonl 事实写漏斗，读取时以事实日志为准；计数随快照下发。
 - `src/local-console/runtime.ts`：一轮结束（无成员接力）时产出结果卡片所需事实；现有 `affectedFiles` 只在 worktree + `code-verified` 下生成，需扩展覆盖面。
 - `src/local-console/server.ts`：计数随会话快照下发；本片不新增改动清单路由（清单属右侧栏）。
 - `packages/console-ui/src/console/result-card.tsx`：新增，含共置测试与 Story。
 - `packages/console-ui/src/console/run-block.tsx`、`run-outcome.tsx`：恢复 `rawOutput` 的出口，改为发出打开过程标签的意图。
 - `packages/console-ui/src/console/operator-console.tsx`：结果卡片接线；区分「操作台故障→开发者诊断」与「某一步的完整输出」两个不同入口，不复用同一个回调。
+- `packages/console-ui/src/console/sub-session-panel.tsx`：保留既有子会话默认语义，只增加可选的中性无障碍标签，供证据内容复用同一个单内容面板。
 - `packages/console-ui/src/index.ts`：导出结果卡片与打开意图类型。
 - `desktop/src/console-page/app.tsx`、`state-sync.ts`：接通计数读取与打开意图；右侧栏就绪前接现有面板降级显示。
 - `tests/local-console-workspace-diff.test.ts`（新增）、`tests/local-console.test.ts`、`desktop/tests/console-state-sync.test.ts` 及组件共置测试。
@@ -54,7 +55,7 @@
 对外行为：
 
 - 一轮工作结束后时间线末尾出现结果卡片，说明有几个文件发生改动并提供查看入口；零改动如实说明；非 Git 项目不出现。
-- 运行中的操作条多一个「完整输出」；步骤结束后它保留在历史记录上。
+- 运行中的记录末尾提供「完整输出」；步骤结束后它保留在历史记录上。
 
 保持不变的核心语义：时间线仍不堆积全量输出，成员仍只轮播当前最新的一句；C 片交付的四种事实、机器信息收口与状态点判据不动。
 
@@ -62,5 +63,5 @@
 
 对应 `docs/product/pages/main-conversation.md`「验收标准」#11 #22：
 
-1. 正在工作的成员记录末尾同时提供「停下」和「完整输出」且不显示计时；这一步结束后「停下」消失，「完整输出」保留在历史记录上并可重新展开。
+1. 正在工作的成员记录末尾只提供「完整输出」且不显示计时，「停下」只出现在空草稿输入框的动作按钮；这一步结束后「完整输出」保留在历史记录上并可重新展开。
 2. 一轮工作结束后时间线末尾出现结果卡片，说明有几个文件发生改动并能一步打开右侧栏的改动标签；没有文件改动时如实说明；措辞不声称改动由团队成员造成；非 Git 项目不出现结果卡片。

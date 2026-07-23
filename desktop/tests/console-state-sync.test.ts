@@ -3,6 +3,7 @@ import {
   acknowledgeDisplayedResult,
   ConsoleStateActions,
   ConsoleStateCoordinator,
+  loadEvidenceView,
   refreshConsoleState,
   type ConsoleSelection,
   type SelectionMutationKind,
@@ -86,6 +87,51 @@ describe("acknowledgeDisplayedResult", () => {
         body: JSON.stringify({ unreadSince: "2026-07-09T00:00:02.000Z" }),
       }),
     );
+  });
+});
+
+describe("loadEvidenceView", () => {
+  it("builds the diff fallback without requesting a file list", async () => {
+    const fetch = vi.fn();
+    await expect(loadEvidenceView({
+      apiBase: "http://127.0.0.1:8787/",
+      intent: { kind: "workspace-diff", sessionId: "session-a", fileCount: 0 },
+      fetch,
+    })).resolves.toEqual({
+      kind: "workspace-diff",
+      title: "对话改动",
+      content: "这段对话期间没有文件发生改动。",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("loads persisted run output using the session and run locator", async () => {
+    const fetch = vi.fn(function (this: unknown, _input: string | URL | Request) {
+      expect(this).toBeUndefined();
+      return Promise.resolve(jsonResponse({
+        stdout: "complete stdout",
+        stderr: "complete stderr",
+        fallback: "recorded fallback",
+      }));
+    });
+    const view = await loadEvidenceView({
+      apiBase: "http://127.0.0.1:8787/",
+      intent: {
+        kind: "run-output",
+        sessionId: "session-a",
+        runId: "run-1",
+        role: "dev",
+        fallbackOutput: null,
+      },
+      fetch,
+    });
+
+    expect(String(fetch.mock.calls[0]?.[0])).toContain("sessions/session-a/runs/run-1/output");
+    expect(view).toEqual({
+      kind: "run-output",
+      title: "开发 · 完整输出",
+      content: "标准输出\ncomplete stdout\n\n错误输出\ncomplete stderr\n\n记录\nrecorded fallback",
+    });
   });
 });
 

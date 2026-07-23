@@ -1,4 +1,4 @@
-import { AlertTriangle, Ban, CirclePause, Clock3 } from "lucide-react";
+import { AlertTriangle, Ban, CirclePause, Clock3, FileText } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
@@ -11,6 +11,7 @@ export interface RunOutcomeProps {
   rawReason?: string | null;
   rawOutput?: string | null;
   defaultOpen?: boolean;
+  onOpenOutput?: (rawOutput: string | null) => void;
   onOpenDiagnostics?: () => void;
   onRetry?: () => void;
   onEditAndResend?: () => void;
@@ -46,8 +47,9 @@ export function RunOutcome({
   status,
   role,
   rawReason: _rawReason,
-  rawOutput: _rawOutput,
+  rawOutput,
   defaultOpen: _defaultOpen,
+  onOpenOutput,
   onOpenDiagnostics: _onOpenDiagnostics,
   onRetry,
   onEditAndResend,
@@ -67,23 +69,36 @@ export function RunOutcome({
         {roleLabel ? <span className="ml-2 text-xs text-sub">{roleLabel}</span> : null}
         <span className="mt-1 block text-sm leading-6 text-sub">{outcomeDescriptions[status]}</span>
       </span>
-      {status === "run-not-started" || status === "run-stuck" ? (
-        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-          重试
-        </Button>
-      ) : status === "user-stopped" && onEditAndResend !== undefined ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-label="改一改重发这轮消息"
-          onClick={onEditAndResend}
-        >
-          改一改重发
-        </Button>
-      ) : null}
+      <span className="flex items-center gap-2">
+        {status === "run-not-started" || status === "run-stuck" ? (
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+            重试
+          </Button>
+        ) : status === "user-stopped" && onEditAndResend !== undefined ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label="改一改重发这轮消息"
+            onClick={onEditAndResend}
+          >
+            改一改重发
+          </Button>
+        ) : null}
+        {onOpenOutput ? (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onOpenOutput(nonBlank(rawOutput))}>
+            <FileText className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            完整输出
+          </Button>
+        ) : null}
+      </span>
     </div>
   );
+}
+
+function nonBlank(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function OutcomeIcon({ status }: { status: RunOutcomeStatus }): JSX.Element {

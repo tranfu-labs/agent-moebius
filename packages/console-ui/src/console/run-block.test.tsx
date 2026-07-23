@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { RunBlock, type RunBlockStep } from "./run-block";
 
@@ -69,10 +69,21 @@ describe("RunBlock", () => {
 
   it("keeps top-level machine output out of the conversation surface", () => {
     const specialRaw = "first line\n<node attr=\"x\"> & exit:42";
-    render(<RunBlock role="dev" elapsedTime="3秒" summary="正在运行测试" rawOutput={specialRaw} />);
+    const onOpenOutput = vi.fn();
+    render(
+      <RunBlock
+        role="dev"
+        elapsedTime="3秒"
+        summary="正在运行测试"
+        rawOutput={specialRaw}
+        onOpenOutput={onOpenOutput}
+      />,
+    );
 
     expect(screen.queryByText(specialRaw)).not.toBeInTheDocument();
-    expect(screen.queryByText("查看原始输出")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+    expect(onOpenOutput).toHaveBeenCalledWith(specialRaw);
+    expect(screen.queryByText(/3秒|runDir|sessionId/u)).not.toBeInTheDocument();
   });
 
   it("replaces live Markdown inside the same run node", async () => {
@@ -88,5 +99,18 @@ describe("RunBlock", () => {
     expect(screen.getByTestId("run-live-output")).toBe(liveNode);
     expect(screen.queryByRole("heading", { name: "第一段" })).not.toBeInTheDocument();
     expect(screen.getAllByTestId("run-live-output")).toHaveLength(1);
+  });
+
+  it("keeps Streamdown Markdown while hiding machine details from live output", () => {
+    render(
+      <RunBlock
+        role="dev"
+        liveMarkdown={"## 检查结果\n\n正在读取 `/tmp/private-run`，runId=run-secret。"}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "检查结果" })).toBeVisible();
+    expect(screen.getByText(/路径已隐藏/u)).toBeVisible();
+    expect(screen.queryByText(/\/tmp\/private-run|run-secret/u)).not.toBeInTheDocument();
   });
 });

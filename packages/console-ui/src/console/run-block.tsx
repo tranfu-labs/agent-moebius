@@ -1,4 +1,7 @@
+import { FileText } from "lucide-react";
+
 import { cn } from "@/lib/utils";
+import { Button } from "@/ui/button";
 import { sanitizeMachineText } from "@/console/machine-text";
 import { MarkdownMessage } from "@/console/markdown-message";
 
@@ -20,6 +23,7 @@ export interface RunBlockProps {
   steps?: RunBlockStep[] | null;
   liveMarkdown?: string | null;
   onOpenExternalLink?: (url: string) => void;
+  onOpenOutput?: (rawOutput: string | null) => void;
   className?: string;
 }
 
@@ -38,20 +42,34 @@ export function RunBlock({
   role,
   elapsedTime: _elapsedTime,
   summary,
-  rawOutput: _rawOutput,
+  rawOutput,
   steps,
   liveMarkdown,
   onOpenExternalLink,
+  onOpenOutput,
   className,
 }: RunBlockProps): JSX.Element {
   const roleLabel = localizeRole(role);
   const usableSteps = steps?.length ? steps : null;
+  const liveContent = nonBlank(liveMarkdown);
   const fallbackSummary = sanitizeMachineText(nonBlank(summary) ?? "正在推进这一步…", "正在推进这一步…");
 
   return (
     <div className={cn("max-w-[680px] border-y border-line py-3", className)}>
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold text-ink">{roleLabel}</span>
+        {onOpenOutput ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={() => onOpenOutput(nonBlank(rawOutput))}
+          >
+            <FileText className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            完整输出
+          </Button>
+        ) : null}
       </div>
 
       {usableSteps ? (
@@ -63,9 +81,11 @@ export function RunBlock({
       ) : (
         <div className="mt-3 max-w-full overflow-x-auto text-sm text-sub" data-testid="run-live-output">
           <MarkdownMessage
-            content={nonBlank(liveMarkdown) ?? fallbackSummary}
+            content={liveContent === null
+              ? fallbackSummary
+              : sanitizeMachineText(liveContent, "正在推进这一步…")}
             density="live"
-            mode={nonBlank(liveMarkdown) ? "streaming" : "static"}
+            mode={liveContent === null ? "static" : "streaming"}
             onOpenExternalLink={onOpenExternalLink}
           />
         </div>
