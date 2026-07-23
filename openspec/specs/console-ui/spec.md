@@ -739,7 +739,7 @@ Source: docs/product/pages/main-conversation.md#区域与信息
 ## Requirement: #11 运行记录只提供完整输出
 Source: docs/product/pages/main-conversation.md#运行中的操作条
 
-系统 MUST 让活动运行记录继续原地展示当前最新可见输出，并在记录末尾只提供「完整输出」；四种事实记录 MUST 同样提供「完整输出」。系统 MUST NOT 在活动运行记录或已结束历史记录中呈现「停下」或计时；停下入口 MUST 仅位于空草稿的运行中输入框按钮。「完整输出」MUST 在步骤结束后保留在历史记录上。打开意图 MUST 接入既有 `sub-session-panel` 的单内容降级显示，按需打开的完整输出内容 MAY 包含机器信息。系统 MUST NOT 把全量输出堆积进时间线，MUST NOT 用操作台故障诊断入口代替「完整输出」，MUST NOT 在入口文案或时间线常驻内容中泄露运行目录、工作目录、数据库路径或内部标识，MUST NOT 在降级显示中长出标签条、类型选择、文件树、加号新建或任何右侧栏正式形态。
+系统 MUST 让活动运行记录继续原地展示当前最新可见输出，并在记录末尾只提供「完整输出」；四种事实记录 MUST 同样提供「完整输出」。系统 MUST NOT 在活动运行记录或已结束历史记录中呈现「停下」或计时；停下入口 MUST 仅位于空草稿的运行中输入框按钮。「完整输出」MUST 在步骤结束后保留在历史记录上。右侧栏正式形态已就绪，「完整输出」打开意图 MUST 打开或聚焦右侧栏对应的“过程”标签，按需打开的完整输出内容 MAY 包含机器信息。系统 MUST NOT 把全量输出堆积进时间线，MUST NOT 用操作台故障诊断入口代替「完整输出」，MUST NOT 在入口文案或时间线常驻内容中泄露运行目录、工作目录、数据库路径或内部标识。
 
 ### Scenario: 查看活动运行记录
 - GIVEN 时间线正在展示一个成员的活动运行记录
@@ -758,10 +758,10 @@ Source: docs/product/pages/main-conversation.md#运行中的操作条
 - WHEN 用户查看该记录
 - THEN 记录上提供「完整输出」，与「重试」并存
 
-### Scenario: 完整输出按需显示且不提前实现右侧栏
+### Scenario: 完整输出在右侧栏按需显示
 - GIVEN 时间线上的「完整输出」入口没有展示路径、内部标识或计时
 - WHEN 用户打开该入口
-- THEN 既有子会话面板以单内容方式展示完整输出，内容可以包含机器信息，但界面没有标签条、类型选择、文件树或新建入口
+- THEN 右侧栏打开或聚焦对应的“过程”标签，内容可以包含机器信息
 
 ## Requirement: 主时间线运行记录复用正文列
 Source: docs/product/pages/main-conversation.md#页面结构
@@ -1061,7 +1061,7 @@ Source: docs/product/pages/main-conversation.md#停下
 ## Requirement: #22 一轮结束留下结果卡片
 Source: docs/product/pages/main-conversation.md#区域与信息
 
-系统 MUST 在没有任何成员在工作且没有待处理交棒时，于时间线末尾展示结果卡片，说明这段对话期间有几个文件发生改动并提供一步打开改动内容的入口；右侧栏正式形态就绪前，该入口 MUST 接入既有 `sub-session-panel` 的单内容降级显示；没有文件改动时 MUST 如实说明；项目文件夹不是 Git 仓库时 MUST NOT 出现结果卡片。系统 MUST NOT 在卡片上铺开文件清单，MUST NOT 声称这些改动由团队成员造成，MUST NOT 按单个步骤结束反复产出卡片，MUST NOT 在入口或卡片中泄露路径与内部标识，MUST NOT 新增标签条、类型选择、文件树、加号新建或任何右侧栏正式形态。
+系统 MUST 在没有任何成员在工作且没有待处理交棒时，于时间线末尾展示结果卡片，说明这段对话期间有几个文件发生改动并提供一步打开改动内容的入口；右侧栏正式形态已就绪，该入口 MUST 打开或聚焦右侧栏对应的“改动”标签；没有文件改动时 MUST 如实说明；项目文件夹不是 Git 仓库时 MUST NOT 出现结果卡片。系统 MUST NOT 在卡片上铺开文件清单，MUST NOT 声称这些改动由团队成员造成，MUST NOT 按单个步骤结束反复产出卡片，MUST NOT 在入口或卡片中泄露路径与内部标识。
 
 ### Scenario: 一轮结束且有改动
 - GIVEN 一轮工作结束且没有成员继续接力，这段对话期间有 2 个文件发生改动
@@ -1078,7 +1078,97 @@ Source: docs/product/pages/main-conversation.md#区域与信息
 - WHEN 一轮工作结束
 - THEN 时间线末尾不出现结果卡片
 
-### Scenario: 查看改动使用单内容降级显示
+### Scenario: 查看改动使用右侧栏正式形态
 - GIVEN 一张结果卡片只展示改动文件数量与「查看改动」入口
 - WHEN 用户点击「查看改动」
-- THEN 既有子会话面板打开单内容摘要，且没有标签条、类型选择、文件清单、路径或内部标识
+- THEN 右侧栏打开或聚焦对应的“改动”标签，入口与卡片均不显示路径或内部标识
+
+## Requirement: 验收 #1 右侧栏开关与宽度作为全局偏好持久化
+Source: docs/product/pages/main-right-sidebar.md#入口与去向
+
+系统 MUST 在没有已保存偏好时默认关闭右侧栏，并在用户改变开关或宽度后跨对话切换及应用重启恢复该值。系统 MUST NOT 让右侧栏开合清空当前会话草稿、改变运行状态或重置会话区滚动位。
+
+### Scenario: 重启后恢复右侧栏工作习惯
+- GIVEN 用户已打开右侧栏并把宽度调整为 500 像素
+- WHEN 用户切换对话并重启应用
+- THEN 右侧栏保持打开且恢复为 500 像素宽
+
+## Requirement: 验收 #2 标签条按对话隔离并跨重启恢复
+Source: docs/product/pages/main-right-sidebar.md#入口与去向
+
+系统 MUST 按会话标识分别持久化标签列表与当前标签，并在切换会话或重启应用后恢复目标会话自己的标签条。系统 MUST NOT 把一个会话的标签带到另一个会话，且 MUST NOT 因持久化数据包含未知标签类型而使右侧栏崩溃。
+
+### Scenario: 两个会话恢复各自标签
+- GIVEN 会话 A 打开了“改动”和“项目文件”，会话 B 只打开了“改动”
+- WHEN 用户从会话 B 切回会话 A 并重启应用
+- THEN 会话 A 恢复“改动”和“项目文件”及其原选中项
+
+## Requirement: 验收 #7 非 Git 项目不提供改动类型
+Source: docs/product/pages/main-right-sidebar.md#空白标签与类型选择
+
+系统 MUST 在当前项目文件夹不是 Git 仓库时只显示“项目文件”类型，并显示改动不可用的原因。系统 MUST NOT 显示或创建“改动”类型，也 MUST NOT 静默隐藏该类型而不解释。
+
+### Scenario: 非 Git 项目打开空白标签
+- GIVEN 当前会话绑定的项目文件夹不是 Git 仓库
+- WHEN 用户通过加号打开空白标签
+- THEN 类型选择仅有“项目文件”且同时显示不是 Git 仓库的说明
+
+## Requirement: 验收 #15 来源标签去重而手动标签不去重
+Source: docs/product/pages/main-right-sidebar.md#标签条
+
+系统 MUST 以来源键去重主对话区打开的标签，重复打开同一来源时聚焦已有标签；系统 MUST 让每次加号操作创建新的空白标签。系统 MUST NOT 因标签类型相同而合并来自不同来源或用户手动创建的标签。
+
+### Scenario: 重复打开同一结果卡片
+- GIVEN 结果卡片对应的改动标签已经存在且用户当前位于另一个标签
+- WHEN 用户再次点击该结果卡片的“查看”
+- THEN 标签总数不变且已有改动标签成为当前标签
+
+## Requirement: 验收 #16 每个标签可关闭且最后一个标签有空白兜底
+Source: docs/product/pages/main-right-sidebar.md#关闭标签
+
+系统 MUST 为每个标签提供关闭操作，并在最后一个标签关闭后立即留下一个空白标签且保持右侧栏打开。系统 MUST NOT 因关闭标签而关闭对话、停止推进或取消子任务。
+
+### Scenario: 关闭最后一个标签
+- GIVEN 右侧栏已打开且只剩一个标签
+- WHEN 用户关闭该标签
+- THEN 右侧栏继续显示并包含一个标题为“新标签”的空白标签
+
+## Requirement: 验收 #17 加号只创建两类可选内容
+Source: docs/product/pages/main-right-sidebar.md#空白标签与类型选择
+
+系统 MUST 让加号创建一个不参与去重的空白标签，并在 Git 项目中只提供“改动”和“项目文件”两种选择。系统 MUST NOT 在类型选择中出现过程、子任务、终端、预览或浏览器。
+
+### Scenario: Git 项目打开空白标签
+- GIVEN 当前会话绑定的是 Git 项目
+- WHEN 用户点击标签条加号
+- THEN 新空白标签的类型选择恰好包含“改动”和“项目文件”
+
+## Requirement: 验收 #18 空白标签说明受来源约束的内容入口
+Source: docs/product/pages/main-right-sidebar.md#空白标签与类型选择
+
+系统 MUST 在空白标签中说明成员完整输出与子任务需要从主对话区点开。系统 MUST NOT 把过程或子任务伪装成缺失的通用类型选择。
+
+### Scenario: 用户查看空白标签说明
+- GIVEN 用户已经通过加号创建空白标签
+- WHEN 空白标签成为当前标签
+- THEN 页面可见文字说明成员完整输出与子任务从主对话区点开
+
+## Requirement: 验收 #19 内容更新不抢占当前标签
+Source: docs/product/pages/main-right-sidebar.md#内容更新
+
+系统 MUST 在标签内容或会话状态更新时保留用户当前选中的标签。系统 MUST NOT 因非当前标签出现新内容而自动改变当前标签。
+
+### Scenario: 用户阅读项目文件时会话刷新
+- GIVEN 用户当前选中“项目文件”标签且“过程”标签收到新内容
+- WHEN 会话状态刷新
+- THEN “项目文件”仍为当前标签
+
+## Requirement: 验收 #23 窄窗右侧栏覆盖会话区并恢复滚动位
+Source: docs/product/pages/main-right-sidebar.md#窄窗口
+
+系统 MUST 在窗口不足以三栏并排时让右侧栏覆盖会话区，提供独立的关闭并回到会话区操作，并在关闭后恢复打开前的会话区滚动位。系统 MUST NOT 让用户必须依赖被覆盖的主内容按钮才能离开右侧栏。
+
+### Scenario: 窄窗打开并关闭右侧栏
+- GIVEN 窄窗口中的会话区滚动位置为 320 像素
+- WHEN 用户打开右侧栏并使用覆盖层内的关闭操作
+- THEN 右侧栏消失且会话区滚动位置仍为 320 像素

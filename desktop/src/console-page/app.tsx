@@ -12,13 +12,11 @@ import {
   type OperatorAgentTeamsState,
   type OperatorChildSessionSummary,
   type OperatorEditAndResendTarget,
-  type OperatorEvidenceOpenIntent,
-  type OperatorEvidenceView,
   type OperatorProject,
   type OperatorRunSnapshot,
   type OperatorRunnerStatus,
   type OperatorSession,
-  type OperatorSubSessionView,
+  type RightSidebarTabsState,
   hasBlockingComposerAttachment,
   readyComposerAttachmentIds,
   type OperatorWorkspaceDiffSummary,
@@ -58,7 +56,6 @@ import {
   ConsoleStateActions,
   ConsoleStateCoordinator,
   refreshConsoleState,
-  loadEvidenceView,
   type ConsoleSelection,
   type SelectionMutationKind,
   type SelectionMutationToken,
@@ -87,6 +84,14 @@ import {
   NEW_CONVERSATION_DRAFT_KEY,
   sessionDraftKey,
 } from "./draft-store.js";
+import {
+  readRightSidebarVisibilityPreference,
+  readRightSidebarWidthPreference,
+  writeRightSidebarVisibilityPreference,
+  writeRightSidebarWidthPreference,
+  type RightSidebarVisibilityPreference,
+} from "./right-sidebar-preference.js";
+import { createRightSidebarTabsStore } from "./right-sidebar-tabs-store.js";
 import {
   applyAgentTeamMemberExternalChange,
   clearAgentTeamMemberExternalChange,
@@ -212,9 +217,11 @@ function App(): JSX.Element {
   const selectionPersistenceEnabledRef = useRef(false);
   const coordinatorRef = useRef(new ConsoleStateCoordinator());
   const [state, setState] = useState<LocalConsoleState | null>(null);
-  const [openedSubSession, setOpenedSubSession] = useState<OperatorSubSessionView | null>(null);
-  const [openedEvidence, setOpenedEvidence] = useState<OperatorEvidenceView | null>(null);
   const conversationDraftStoreRef = useRef(createConversationDraftStore(window.localStorage));
+  const rightSidebarTabsStoreRef = useRef(createRightSidebarTabsStore(window.localStorage));
+  const [rightSidebarTabs, setRightSidebarTabs] = useState<RightSidebarTabsState>(() =>
+    rightSidebarTabsStoreRef.current.read(selection.sessionId),
+  );
   const [composerValue, setComposerValue] = useState(() =>
     conversationDraftStoreRef.current.read(sessionDraftKey(selection.sessionId)),
   );
@@ -236,6 +243,11 @@ function App(): JSX.Element {
   const [agentTeamsRefreshNonce, setAgentTeamsRefreshNonce] = useState(0);
   const [sidebarVisibilityPreference, setSidebarVisibilityPreference] = useState<SidebarVisibilityPreference>(() =>
     readSidebarVisibilityPreference(window.localStorage),
+  );
+  const [rightSidebarVisibilityPreference, setRightSidebarVisibilityPreference] =
+    useState<RightSidebarVisibilityPreference>(() => readRightSidebarVisibilityPreference(window.localStorage));
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(() =>
+    readRightSidebarWidthPreference(window.localStorage),
   );
   const resultAcknowledgementsRef = useRef(new Set<string>());
   const currentAttachmentDraftKey = newConversation === null
@@ -1038,8 +1050,7 @@ function App(): JSX.Element {
   }, [forgetPersistedSelection, rememberConfirmedSelection]);
 
   useEffect(() => {
-    setOpenedSubSession(null);
-    setOpenedEvidence(null);
+    setRightSidebarTabs(rightSidebarTabsStoreRef.current.read(selection.sessionId));
   }, [selection.sessionId]);
 
   const refresh = useCallback(async (
@@ -1395,58 +1406,27 @@ function App(): JSX.Element {
     };
   }, []);
 
-  const openSubSession = useCallback((sessionId: string) => {
-    if (apiBase === null) return;
-    const parentSessionId = selectionRef.current.sessionId;
-    void fetch(endpoint(apiBase, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/view`))
-      .then(async (response) => {
-        const body = await response.json() as OperatorSubSessionView & { error?: string };
-        if (!response.ok || body.session === undefined) {
-          throw new Error(body.error ?? "sub-session view request failed");
-        }
-        if (selectionRef.current.sessionId !== parentSessionId) return;
-        setOpenedEvidence(null);
-        setOpenedSubSession(body);
-        setClientError(null);
-      })
-      .catch((error: unknown) => setClientError(formatError(error)));
-  }, [apiBase]);
-
-  const openEvidence = useCallback((intent: OperatorEvidenceOpenIntent) => {
-    if (apiBase === null) return;
-    setOpenedSubSession(null);
-    if (intent.kind === "workspace-diff") {
-      void loadEvidenceView({ apiBase, intent, fetch })
-        .then((view) => {
-          if (selectionRef.current.sessionId === intent.sessionId) setOpenedEvidence(view);
-        })
-        .catch((error: unknown) => setClientError(formatError(error)));
-      return;
-    }
-    setOpenedEvidence({ kind: "run-output", title: "完整输出", content: "正在读取完整输出…" });
-    void loadEvidenceView({ apiBase, intent, fetch })
-      .then((view) => {
-        if (selectionRef.current.sessionId === intent.sessionId) setOpenedEvidence(view);
-      })
-      .catch((error: unknown) => setClientError(formatError(error)));
-  }, [apiBase]);
-
-  useEffect(() => {
-    if (apiBase === null || openedSubSession === null) return;
-    const sessionId = openedSubSession.session.sessionId;
-    const timer = window.setInterval(() => {
-      void fetch(endpoint(apiBase, `/api/local-console/sessions/${encodeURIComponent(sessionId)}/view`))
-        .then(async (response) => {
-          if (response.ok) setOpenedSubSession(await response.json() as OperatorSubSessionView);
-        });
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [apiBase, openedSubSession?.session.sessionId]);
-
   const setSidebarOpen = useCallback((open: boolean) => {
     const preference = open ? "open" : "closed";
     setSidebarVisibilityPreference(preference);
     writeSidebarVisibilityPreference(window.localStorage, preference);
+  }, []);
+
+  const setRightSidebarOpen = useCallback((open: boolean) => {
+    const preference = open ? "open" : "closed";
+    setRightSidebarVisibilityPreference(preference);
+    writeRightSidebarVisibilityPreference(window.localStorage, preference);
+  }, []);
+
+  const changeRightSidebarWidth = useCallback((width: number) => {
+    setRightSidebarWidth(width);
+    writeRightSidebarWidthPreference(window.localStorage, width);
+  }, []);
+
+  const changeRightSidebarTabs = useCallback((nextState: RightSidebarTabsState) => {
+    const sessionId = selectionRef.current.sessionId;
+    rightSidebarTabsStoreRef.current.write(sessionId, nextState);
+    setRightSidebarTabs(nextState);
   }, []);
 
   return (
@@ -1458,8 +1438,6 @@ function App(): JSX.Element {
       selectedSession={selectedSession}
       messages={messagesWithPreviews}
       childSessions={state?.childSessions ?? []}
-      openedSubSession={openedSubSession}
-      openedEvidence={openedEvidence}
       activeRun={activeRun}
       workspaceDiff={state?.workspaceDiff ?? { available: false, fileCount: null, reason: "unavailable" }}
       composerValue={composerValue}
@@ -1532,12 +1510,9 @@ function App(): JSX.Element {
         selectionPersistenceEnabledRef.current = true;
         dispatchNewConversation({ type: "close" });
         setComposerValue(conversationDraftStoreRef.current.read(sessionDraftKey(nextSelection.sessionId)));
+        setRightSidebarTabs(rightSidebarTabsStoreRef.current.read(nextSelection.sessionId));
         actions.selectSession(nextSelection);
       }}
-      onOpenSubSession={openSubSession}
-      onCloseSubSession={() => setOpenedSubSession(null)}
-      onOpenEvidence={openEvidence}
-      onCloseEvidence={() => setOpenedEvidence(null)}
       onChangeSessionProject={actions.rebindSessionProject}
       onShowProjectInFolder={showProjectInFolder}
       onRenameProject={renameProject}
@@ -1622,6 +1597,12 @@ function App(): JSX.Element {
       sidebarOpen={sidebarVisibilityPreference === "open"}
       isFirstRunOnboarding={isFirstRunOnboarding(state?.projects ?? null)}
       onSidebarOpenChange={setSidebarOpen}
+      rightSidebarOpen={rightSidebarVisibilityPreference === "open"}
+      rightSidebarWidth={rightSidebarWidth}
+      rightSidebarTabs={rightSidebarTabs}
+      onRightSidebarOpenChange={setRightSidebarOpen}
+      onRightSidebarWidthChange={changeRightSidebarWidth}
+      onRightSidebarTabsChange={changeRightSidebarTabs}
     />
   );
 }
