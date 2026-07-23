@@ -1,9 +1,0 @@
-url=http://127.0.0.1:8798/
-sqlitePath=/tmp/agent-moebius-t2-acceptance/data/.state/local-console.sqlite
-status=idle
-userStatus=completed
-agentRole=dev
-agentStatus=displayed
-agentRunDir=/tmp/agent-moebius-local-2026-07-09T04:40:52.803Z-c1-r1
-agentBodyFirstLine=阶段全流程：`in-progress`（先采访并暂停等待真人）→ `plan-written`（方案落盘后暂停）→ `in-progress`（按确认方案实现）→ `code-verified`（验证通过后暂停）。
-fakeGhLogBytes=0
