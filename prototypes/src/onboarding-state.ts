@@ -25,6 +25,7 @@ export interface OnboardingState {
 
 export type OnboardingAction =
   | { type: "continue" }
+  | { type: "back" }
   | { type: "set-environment"; value: EnvironmentState }
   | { type: "replay-relay" }
   | { type: "reset"; environment?: EnvironmentState };
@@ -66,6 +67,17 @@ export function onboardingReducer(
         ...state,
         view: (state.view + 1) as OnboardingStep,
         relayRun: state.view === 2 ? state.relayRun + 1 : state.relayRun
+      };
+    }
+    case "back": {
+      if (state.view === "conversation" || state.view === 1) {
+        return state;
+      }
+
+      return {
+        ...state,
+        view: (state.view - 1) as OnboardingStep,
+        relayRun: state.view === 4 ? state.relayRun + 1 : state.relayRun
       };
     }
     case "set-environment":

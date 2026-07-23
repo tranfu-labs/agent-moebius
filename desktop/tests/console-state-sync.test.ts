@@ -218,7 +218,7 @@ describe("loadProcessOutput", () => {
         stderrTruncated: false,
       }],
     };
-    const fetch = vi.fn(async (_input: string | URL | Request) => jsonResponse(output));
+    const fetch = receiverSensitiveFetch(jsonResponse(output));
 
     await expect(loadProcessOutput({
       apiBase: "http://127.0.0.1:8787/",
@@ -243,26 +243,27 @@ describe("loadProcessOutput", () => {
 
 describe("workspace file readers", () => {
   it("loads diff, project tree, and selected file through session-scoped read-only routes", async () => {
-    const fetch = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({
+    const fetch = receiverSensitiveFetch(
+      jsonResponse({
         available: true,
         fileCount: 1,
         files: [{ path: "src/app.ts", additions: 2, deletions: 1 }],
         reason: null,
         workspaceMode: "direct",
-      }))
-      .mockResolvedValueOnce(jsonResponse({
+      }),
+      jsonResponse({
         available: true,
         files: [{ path: "README.md", additions: null, deletions: null, changed: false }],
         reason: null,
         workspaceMode: "direct",
-      }))
-      .mockResolvedValueOnce(jsonResponse({
+      }),
+      jsonResponse({
         available: true,
         path: "README.md",
         lines: [{ kind: "unchanged", oldLineNumber: 1, newLineNumber: 1, text: "# Project" }],
         reason: null,
-      }));
+      }),
+    );
 
     await expect(loadWorkspaceDiff({
       apiBase: "http://127.0.0.1:8787/",
@@ -296,14 +297,15 @@ describe("workspace file readers", () => {
 describe("process output reads", () => {
   it("loads the structured Codex projection with opaque backward and append cursors", async () => {
     const initial = processOutputFixture();
-    const fetch = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(initial))
-      .mockResolvedValueOnce(jsonResponse({
+    const fetch = receiverSensitiveFetch(
+      jsonResponse(initial),
+      jsonResponse({
         events: [],
         appendCursor: "append-next",
         atLatest: true,
         status: "running",
-      }));
+      }),
+    );
 
     await expect(loadProcessOutput({
       apiBase: "http://127.0.0.1:8787/",
@@ -327,7 +329,7 @@ describe("process output reads", () => {
   });
 
   it("preserves the structured cursor error code for a safe initial reload", async () => {
-    const fetch = vi.fn(async () => jsonResponse({
+    const fetch = receiverSensitiveFetch(jsonResponse({
       error: "process output cursor is no longer valid",
       code: "PROCESS_CURSOR_INVALID",
     }, 409));
@@ -908,6 +910,23 @@ function actionHarness(input: {
     selection: () => selection,
     sending,
   };
+}
+
+function receiverSensitiveFetch(...responses: Response[]) {
+  let nextResponse = 0;
+  return vi.fn(function (
+    this: unknown,
+    _input: string | URL | Request,
+    _init?: RequestInit,
+  ) {
+    expect(this).toBeUndefined();
+    const response = responses[nextResponse];
+    nextResponse += 1;
+    if (response === undefined) {
+      return Promise.reject(new Error("unexpected fetch call"));
+    }
+    return Promise.resolve(response);
+  });
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

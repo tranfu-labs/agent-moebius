@@ -188,6 +188,34 @@ export type SqliteStateCommand =
       now: string;
     }
   | {
+      kind: "local-record-detached-agent-response";
+      sessionId: string;
+      role: string;
+      body: string;
+      runId: string;
+      runDir: string;
+      now: string;
+    }
+  | {
+      kind: "local-record-detached-run-started";
+      sessionId: string;
+      role: string;
+      runId: string;
+      runDir: string;
+      now: string;
+    }
+  | {
+      kind: "local-record-detached-run-terminal";
+      sessionId: string;
+      body: string;
+      systemEventKind: "run-not-started" | "run-stuck" | "user-stopped" | "retry-exhausted" | "other";
+      runId: string;
+      runDir: string | null;
+      error: string;
+      status: "failed" | "interrupted" | "stuck";
+      now: string;
+    }
+  | {
       kind: "local-record-system-and-complete";
       userMessageId: number;
       sessionId: string;
@@ -204,7 +232,7 @@ export type SqliteStateCommand =
       runId: string | null;
       runDir: string | null;
       error: string | null;
-      status?: "displayed" | "failed" | "stuck";
+      status?: "displayed" | "failed" | "interrupted" | "stuck";
       systemEventKind: "run-not-started" | "run-stuck" | "user-stopped" | "retry-exhausted" | "other";
       now: string;
     }

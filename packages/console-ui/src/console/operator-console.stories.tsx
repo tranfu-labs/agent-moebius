@@ -162,6 +162,60 @@ type Story = StoryObj<typeof meta>;
 
 export const T65Running: Story = {};
 
+export const PrimaryControlLanes: Story = {
+  args: {
+    activeRun: {
+      ...sample.activeRun!,
+      runId: "run-manager",
+      role: "dev-manager",
+      liveMarkdown: "## 正在判断新消息\n\n主理人保持运行，同时协调开发与测试两条执行车道。",
+      lastOutputSummary: "主理人正在协调团队",
+    },
+    activeRuns: [
+      {
+        ...sample.activeRun!,
+        runId: "run-manager",
+        role: "dev-manager",
+        liveMarkdown: "## 正在判断新消息\n\n主理人保持运行，同时协调开发与测试两条执行车道。",
+        lastOutputSummary: "主理人正在协调团队",
+      },
+      {
+        ...sample.activeRun!,
+        runId: "run-dev",
+        role: "dev",
+        liveMarkdown: "正在修复停止链路，并等待主理人的下一次重定向。",
+        lastOutputSummary: "开发正在修复停止链路",
+      },
+      {
+        ...sample.activeRun!,
+        runId: "run-qa",
+        role: "qa",
+        liveMarkdown: "正在验证并行运行时只停止自己的 runId。",
+        lastOutputSummary: "测试正在验证并行停止",
+      },
+    ],
+    pendingPrimaryMessages: [
+      {
+        ...sample.messages[0]!,
+        id: 21,
+        body: "先确认停止按钮只影响主理人",
+        status: "pending",
+      },
+      {
+        ...sample.messages[0]!,
+        id: 22,
+        body: "然后补充多 Agent 并行验收说明",
+        status: "pending",
+      },
+    ],
+    selectedSession: {
+      ...sessions[1]!,
+      runningCount: 3,
+    },
+    composerValue: "这条消息继续发给主理人",
+  },
+};
+
 export const T65Outcomes: Story = {
   args: {
     activeRun: null,

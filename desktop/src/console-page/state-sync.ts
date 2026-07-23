@@ -246,7 +246,8 @@ export async function loadProcessOutput(options: {
   if (options.cursor !== undefined) {
     url.searchParams.set("cursor", options.cursor);
   }
-  const response = await options.fetch(
+  const fetch = options.fetch;
+  const response = await fetch(
     url,
     options.signal === undefined ? undefined : { signal: options.signal },
   );
@@ -274,7 +275,8 @@ export async function loadProcessOutputAppend(options: {
     `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/runs/${encodeURIComponent(options.runId)}/process-output`,
   );
   url.searchParams.set("appendCursor", options.appendCursor);
-  const response = await options.fetch(
+  const fetch = options.fetch;
+  const response = await fetch(
     url,
     options.signal === undefined ? undefined : { signal: options.signal },
   );
@@ -407,7 +409,8 @@ export async function loadProjectFile(options: {
     `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/files/content`,
   );
   url.searchParams.set("path", options.filePath);
-  const response = await options.fetch(url);
+  const fetch = options.fetch;
+  const response = await fetch(url);
   const body = await response.json() as WorkspaceFileContent | { error?: string };
   if (!response.ok) {
     throw new Error("error" in body && body.error ? body.error : "project file request failed");
@@ -420,7 +423,8 @@ async function loadWorkspaceJson<T>(
   pathname: string,
   fallbackError: string,
 ): Promise<T> {
-  const response = await options.fetch(endpoint(options.apiBase, pathname));
+  const fetch = options.fetch;
+  const response = await fetch(endpoint(options.apiBase, pathname));
   const body = await response.json() as T | { error?: string };
   if (!response.ok) {
     throw new Error(typeof body === "object" && body !== null && "error" in body && body.error

@@ -942,7 +942,7 @@ describe("OperatorConsole", () => {
     expect(onSidebarOpenChange).not.toHaveBeenCalled();
   });
 
-  it("keeps the active-run composer usable and moves stop into its empty action button", () => {
+  it("keeps the active-run composer usable and binds its stop only to the primary run", () => {
     const onInterrupt = vi.fn();
     renderConsole({ activeRun: runSnapshot, composerValue: "", onInterrupt });
 
@@ -958,7 +958,7 @@ describe("OperatorConsole", () => {
     expect(screen.queryByText("查看当前会话原始信息")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "消息内容" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /停下开发当前这一步/u })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "停下当前这一步" }));
+    fireEvent.click(screen.getByRole("button", { name: "停下主理人" }));
     expect(onInterrupt).toHaveBeenCalledWith("session-a", "run-1");
   });
 
@@ -991,7 +991,7 @@ describe("OperatorConsole", () => {
 
     expect(screen.getByRole("button", { name: "完整输出" })).toBeVisible();
     expect(screen.queryByRole("button", { name: /停下开发/u })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "停下当前这一步" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "停下主理人" })).toBeVisible();
     expect(screen.queryByText(/00:12|run-1|\/tmp\//u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
     expect(onOpenEvidence).toHaveBeenCalledWith({
@@ -1002,6 +1002,48 @@ describe("OperatorConsole", () => {
       fallbackOutput: "live tail from codex",
     });
     expect(onOpenDiagnostics).not.toHaveBeenCalled();
+  });
+
+  it("renders a FIFO primary pending zone and independent worker stop controls", () => {
+    const onInterrupt = vi.fn();
+    const devRun = { ...runSnapshot, runId: "run-dev", role: "dev" };
+    const qaRun = { ...runSnapshot, runId: "run-qa", role: "qa" };
+    renderConsole({
+      activeRun: runSnapshot,
+      activeRuns: [runSnapshot, devRun, qaRun],
+      pendingPrimaryMessages: [
+        message({ id: 7, body: "先处理线上报错", status: "pending" }),
+        message({ id: 8, body: "再补一份回归说明", status: "pending" }),
+      ],
+      onInterrupt,
+    });
+
+    const pendingZone = screen.getByTestId("primary-pending-zone");
+    expect(within(pendingZone).getByText("先处理线上报错")).toBeVisible();
+    expect(within(pendingZone).getByText("再补一份回归说明")).toBeVisible();
+    expect(screen.getByRole("region", { name: "会话时间线" })).toHaveClass("pb-72");
+    expect(screen.getAllByTestId("active-run-block")).toHaveLength(3);
+
+    fireEvent.click(screen.getByRole("button", { name: "停下开发" }));
+    expect(onInterrupt).toHaveBeenLastCalledWith("session-a", "run-dev");
+    fireEvent.click(screen.getByRole("button", { name: "停下测试" }));
+    expect(onInterrupt).toHaveBeenLastCalledWith("session-a", "run-qa");
+    fireEvent.click(screen.getByRole("button", { name: "停下主理人" }));
+    expect(onInterrupt).toHaveBeenLastCalledWith("session-a", "run-1");
+  });
+
+  it("keeps the composer stop absent when only worker runs are active", () => {
+    const onInterrupt = vi.fn();
+    const workerRun = { ...runSnapshot, runId: "run-qa", role: "qa" };
+    renderConsole({
+      activeRun: null,
+      activeRuns: [workerRun],
+      onInterrupt,
+    });
+
+    expect(screen.queryByRole("button", { name: "停下主理人" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "停下测试" }));
+    expect(onInterrupt).toHaveBeenCalledWith("session-a", "run-qa");
   });
 
   it("shows one settled result card and keeps complete output on the historical step", () => {
@@ -1506,7 +1548,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByTestId("right-sidebar")).toHaveAttribute("data-layout", "split");
     expect(screen.getByRole("tab", { name: "空状态验收" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "会话时间线" })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("描述你的目标，@ 一个角色开始…")).toBeEnabled();
+    expect(screen.getByPlaceholderText("告诉主理人你的目标…")).toBeEnabled();
     timeline.scrollTop = 700;
 
     setWindowWidth(700);

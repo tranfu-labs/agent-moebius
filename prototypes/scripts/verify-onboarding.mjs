@@ -45,6 +45,21 @@ function watchExternalRequests(page) {
   });
 }
 
+async function expectStableStep(page, step) {
+  const currentStep = page.getByTestId(`step-${step}`);
+  await currentStep.waitFor();
+  await page.waitForTimeout(500);
+
+  const activeStepCount = await page
+    .locator('[data-testid^="step-"]')
+    .count();
+  if (activeStepCount !== 1 || (await currentStep.count()) !== 1) {
+    throw new Error(
+      `Expected onboarding to remain on step ${step}, found ${activeStepCount} active step roots.`
+    );
+  }
+}
+
 try {
   const desktopContext = await browser.newContext({
     viewport: { width: 1280, height: 800 },
@@ -54,19 +69,32 @@ try {
   watchExternalRequests(desktopPage);
   await desktopPage.goto(prototypeUrl);
   await desktopPage.getByTestId("step-1").waitFor();
+  if ((await desktopPage.getByTestId("back-action").count()) !== 0) {
+    throw new Error("The first onboarding step must not expose a back action.");
+  }
   checks.push("file-url-render");
 
   const primary = desktopPage.getByTestId("primary-action");
   await primary.focus();
   await desktopPage.keyboard.press("Enter");
-  await desktopPage.getByTestId("step-2").waitFor();
+  await expectStableStep(desktopPage, 2);
   checks.push("keyboard-step-1-to-2");
 
+  await desktopPage.getByTestId("back-action").click();
+  await expectStableStep(desktopPage, 1);
   await desktopPage.getByTestId("primary-action").click();
-  await desktopPage.getByTestId("step-3").waitFor();
+  await expectStableStep(desktopPage, 2);
+  checks.push("back-navigation-preserves-journey");
+
+  await desktopPage.getByTestId("primary-action").click();
+  await expectStableStep(desktopPage, 3);
   await desktopPage
     .getByTestId("relay-stage")
-    .getByText("边界状态已覆盖，验证通过")
+    .getByText("复核通过：边界用例都盖住了")
+    .waitFor();
+  await desktopPage
+    .getByTestId("relay-stage")
+    .getByText("这个目标完成")
     .waitFor();
   const completedRelayItems = await desktopPage
     .locator(".relay-history li.is-complete")
@@ -76,6 +104,31 @@ try {
       `Expected persistent relay history before closeout, found ${completedRelayItems} completed items.`
     );
   }
+  const graphMembers = await desktopPage
+    .getByTestId("relay-beat")
+    .evaluateAll((beats) => beats.map((beat) => beat.getAttribute("data-member")));
+  const expectedGraphMembers = [
+    "开发经理",
+    "开发",
+    "测试",
+    "开发",
+    "测试",
+    "开发经理"
+  ];
+  if (JSON.stringify(graphMembers) !== JSON.stringify(expectedGraphMembers)) {
+    throw new Error(
+      `Relay graph nodes do not match the message order: ${graphMembers.join(" -> ")}`
+    );
+  }
+  const graphConnections = await desktopPage
+    .locator(".relay-graph-connector")
+    .count();
+  if (graphConnections !== expectedGraphMembers.length - 1) {
+    throw new Error(
+      `Expected one connection per adjacent handoff, found ${graphConnections}.`
+    );
+  }
+  checks.push("relay-graph-aligns-nodes-with-messages");
   await desktopPage.screenshot({
     path: resolve(artifactDir, "relay-dark-wide.png"),
     fullPage: true
@@ -84,12 +137,26 @@ try {
   await desktopPage.getByTestId("replay-relay").click();
   await desktopPage
     .getByTestId("relay-stage")
-    .getByText("把需求收束成可执行方案")
+    .getByText("这单我接了")
     .waitFor();
   checks.push("relay-replay");
 
   await desktopPage.getByTestId("primary-action").click();
-  await desktopPage.getByTestId("step-4").waitFor();
+  await expectStableStep(desktopPage, 4);
+  await desktopPage.getByTestId("back-action").click();
+  await expectStableStep(desktopPage, 3);
+  const returnedRelayBeatCount = await desktopPage
+    .getByTestId("relay-beat")
+    .count();
+  if (returnedRelayBeatCount > 1) {
+    throw new Error(
+      `Returning to relay should replay from the start, found ${returnedRelayBeatCount} visible beats.`
+    );
+  }
+  await desktopPage.getByTestId("primary-action").click();
+  await expectStableStep(desktopPage, 4);
+  checks.push("step-4-back-replays-relay");
+  checks.push("stable-step-transitions");
   await desktopPage.getByTestId("primary-action").click();
   await desktopPage.getByTestId("conversation-destination").waitFor();
 
@@ -129,6 +196,10 @@ try {
   });
   await missingPrimary.click();
   await missingPage.getByTestId("step-2").waitFor();
+  await missingPage.screenshot({
+    path: resolve(artifactDir, "team-light-wide.png"),
+    fullPage: true
+  });
   checks.push("missing-codex-hard-gate-and-recheck");
   await missingContext.close();
 
@@ -150,9 +221,15 @@ try {
   if (!reduceMatches) {
     throw new Error("Reduced-motion verification context was not active.");
   }
+  await reducedPage
+    .getByTestId("relay-stage")
+    .getByText("这个目标完成")
+    .waitFor();
   const historyCount = await reducedPage.locator(".relay-history li").count();
   if (historyCount !== 6) {
-    throw new Error(`Expected 6 persistent relay stages, found ${historyCount}.`);
+    throw new Error(
+      `Expected persistent relay history with 6 role beats, found ${historyCount} items.`
+    );
   }
   checks.push("reduced-motion-equivalent-relay");
   await reducedPage.screenshot({
@@ -181,6 +258,7 @@ const evidence = {
     "relay-dark-wide.png",
     "conversation-dark-wide.png",
     "environment-missing-light.png",
+    "team-light-wide.png",
     "relay-reduced-narrow.png"
   ]
 };

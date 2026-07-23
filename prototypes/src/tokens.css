@@ -1,0 +1,62 @@
+/*
+ * 品牌令牌冻结快照（仅供本原型使用，不 import 正式设计令牌）。
+ * 来源：Moebius 桌面端 Brand Spec v1.0（Open Design 项目 988e2f24）。
+ * 姿态红线：零阴影、零渐变；紫只给数据 / @提及 / 焦点，每屏 ≤2 处；
+ * 主按钮 = 白底黑字（dark）/ 黑底白字（light），不用紫。
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: #101010;
+  --surface: #171717;
+  --raised: #1c1c1c;
+  --hover: #242424;
+  --active: #2d2d2d;
+  --fg: #f4f4f4;
+  --muted: #a1a1a1;
+  --faint: #6e6e6e;
+  --border: #262626;
+  --border-strong: #343434;
+  --accent: #c090ff;
+  --success: #2ee03a;
+  --info: #5fb3ff;
+  --amber: #f0d050;
+  --danger: #f72332;
+  --tint-green: #172c19;
+  --tint-amber: #2b2612;
+  --tint-blue: #19232d;
+  --tint-red: #321c1e;
+  --primary-bg: #f4f4f4;
+  --primary-fg: #101010;
+  --primary-hover: #ffffff;
+  --font-body:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
+    "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+:root.light {
+  color-scheme: light;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --raised: #f7f7f7;
+  --hover: #f3f3f3;
+  --active: #ededed;
+  --fg: #181818;
+  --muted: #636363;
+  --faint: #8a8a8a;
+  --border: #e8e8e8;
+  --border-strong: #d8d8d8;
+  --accent: #7c4cb4;
+  --success: #077c15;
+  --info: #196aa9;
+  --amber: #816a00;
+  --danger: #cb1124;
+  --tint-green: #eff3ef;
+  --tint-amber: #f3f2ef;
+  --tint-blue: #eff2f6;
+  --tint-red: #f9eff0;
+  --primary-bg: #181818;
+  --primary-fg: #fafafa;
+  --primary-hover: #000000;
+}
