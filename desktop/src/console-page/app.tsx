@@ -13,6 +13,7 @@ import {
   type OperatorChildSessionSummary,
   type OperatorEditAndResendTarget,
   type OperatorProject,
+  type OperatorProcessOutputState,
   type OperatorRunSnapshot,
   type OperatorRunnerStatus,
   type OperatorSession,
@@ -55,6 +56,8 @@ import {
   acknowledgeDisplayedResult,
   ConsoleStateActions,
   ConsoleStateCoordinator,
+  loadProcessOutput,
+  processOutputRunId,
   refreshConsoleState,
   type ConsoleSelection,
   type SelectionMutationKind,
@@ -222,6 +225,7 @@ function App(): JSX.Element {
   const [rightSidebarTabs, setRightSidebarTabs] = useState<RightSidebarTabsState>(() =>
     rightSidebarTabsStoreRef.current.read(selection.sessionId),
   );
+  const [processOutputs, setProcessOutputs] = useState<Record<string, OperatorProcessOutputState>>({});
   const [composerValue, setComposerValue] = useState(() =>
     conversationDraftStoreRef.current.read(sessionDraftKey(selection.sessionId)),
   );
@@ -1051,7 +1055,78 @@ function App(): JSX.Element {
 
   useEffect(() => {
     setRightSidebarTabs(rightSidebarTabsStoreRef.current.read(selection.sessionId));
+    setProcessOutputs({});
   }, [selection.sessionId]);
+
+  const activeRightSidebarTab = rightSidebarTabs.tabs.find(
+    (tab) => tab.id === rightSidebarTabs.activeTabId,
+  ) ?? null;
+  const activeProcessSourceKey = activeRightSidebarTab?.type === "run-output"
+    ? activeRightSidebarTab.sourceKey
+    : null;
+
+  useEffect(() => {
+    if (apiBase === null || activeProcessSourceKey === null) {
+      return;
+    }
+    const runId = processOutputRunId(activeProcessSourceKey, selection.sessionId);
+    if (runId === null) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let inFlight = false;
+    let timer: number | null = null;
+    setProcessOutputs((current) => ({
+      ...current,
+      [activeProcessSourceKey]: current[activeProcessSourceKey]?.status === "ready"
+        ? current[activeProcessSourceKey]!
+        : { status: "loading" },
+    }));
+    const refreshProcessOutput = async (): Promise<void> => {
+      if (inFlight) {
+        return;
+      }
+      inFlight = true;
+      let shouldContinue = false;
+      try {
+        const output = await loadProcessOutput({
+          apiBase,
+          sessionId: selection.sessionId,
+          runId,
+          fetch,
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) {
+          setProcessOutputs((current) => ({
+            ...current,
+            [activeProcessSourceKey]: { status: "ready", output },
+          }));
+        }
+        shouldContinue = output.status === "running";
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setProcessOutputs((current) => ({
+            ...current,
+            [activeProcessSourceKey]: { status: "error", message: formatError(error) },
+          }));
+          shouldContinue = true;
+        }
+      } finally {
+        inFlight = false;
+        if (!controller.signal.aborted && shouldContinue) {
+          timer = window.setTimeout(() => void refreshProcessOutput(), 1_000);
+        }
+      }
+    };
+    void refreshProcessOutput();
+    return () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      controller.abort("process-output-tab-changed");
+    };
+  }, [activeProcessSourceKey, apiBase, selection.sessionId]);
 
   const refresh = useCallback(async (
     targetSelection: ConsoleSelection,
@@ -1600,6 +1675,7 @@ function App(): JSX.Element {
       rightSidebarOpen={rightSidebarVisibilityPreference === "open"}
       rightSidebarWidth={rightSidebarWidth}
       rightSidebarTabs={rightSidebarTabs}
+      processOutputs={processOutputs}
       onRightSidebarOpenChange={setRightSidebarOpen}
       onRightSidebarWidthChange={changeRightSidebarWidth}
       onRightSidebarTabsChange={changeRightSidebarTabs}
