@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-07-23T07:08:43.041Z",
+  "prototype": "docs/product/pages/onboarding.prototype.html",
+  "sha256": "2ddf78758d3653298c1d4179c6e725005ad04cd1a586a6d2cbc0f2168ae47ad9",
+  "bytes": 319337,
+  "checks": [
+    "file-url-render",
+    "keyboard-step-1-to-2",
+    "relay-replay",
+    "complete-journey-with-team",
+    "missing-codex-hard-gate-and-recheck",
+    "reduced-motion-equivalent-relay"
+  ],
+  "externalRequests": [],
+  "screenshots": [
+    "relay-dark-wide.png",
+    "conversation-dark-wide.png",
+    "environment-missing-light.png",
+    "relay-reduced-narrow.png"
+  ]
+}

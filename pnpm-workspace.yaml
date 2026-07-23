@@ -2,6 +2,7 @@ packages:
   - "."
   - "desktop"
   - "packages/*"
+  - "prototypes"
 allowBuilds:
   electron: true
   electron-winstaller: true

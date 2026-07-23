@@ -63,6 +63,7 @@
 │   └── tests/                  # 桌面壳纯模块 Vitest
 ├── packages/
 │   └── console-ui/             # shadcn/Radix + Tailwind 的 React 对话操作台组件库与 Storybook
+├── prototypes/                 # 与生产代码双向隔离的 React + Motion 高保真原型沙盒，发布自包含单 HTML
 ├── seeds/
 │   └── teams/                  # 打包进桌面应用的只读内置团队种子
 ├── sites/                      # 面向公众的自包含静态营销站点（与产品运行时零耦合）
@@ -131,6 +132,10 @@
   - `@agent-moebius/console-ui` 被 desktop renderer 复用；renderer 入口需引入 `@agent-moebius/console-ui/globals.css`。desktop 的 `console.css` 只负责窗口/root 宿主约束，不得复制组件布局、按钮、输入框或卡片样式。
   - 用户与 Agent 正文统一由 `MarkdownMessage` / Streamdown 渲染：历史消息使用 static mode，活动 run 使用唯一 streaming 节点原地替换 `liveMarkdown`；系统事实继续使用结构化组件。支持 GFM、CJK、Shiki、KaTeX 和 Mermaid strict；链接仅允许 `http/https/mailto`，图片仅允许 `http/https`，确认后通过 desktop 单用途 IPC 交给系统浏览器。
   - 主时间线的会话 sticky 标题、历史消息正文与活动 run 的角色名/实时 Markdown 共用同一正文列；活动 run 操作贴住该列右边界。此对齐由 `OperatorConsole` 宿主负责，通用 `RunBlock` 保留独立的默认最大宽度。
+- 构建并验证 onboarding 高保真原型：`pnpm --filter @agent-moebius/prototypes check`
+  - `prototypes/` 是 private 的设计原型沙盒，不进入 desktop / console-ui 正式构建；双向禁止 import，完整规则见 `prototypes/AGENTS.md`。
+  - authoring 使用 React、Motion 与按 copy-source 方式采用的最小 beUI 动效原语，最终发布为可离线直接打开的 `docs/product/pages/onboarding.prototype.html`。
+  - 构建先写 `prototypes/dist/` 临时目录，发布门禁确认脚本、样式与图形资源全部内联后才原子更新目标 HTML；Playwright 用 `file://` 验证完整旅程、环境硬门、接力重播、最终团队传递和 reduced-motion。
 - T4 本地操作台验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t4.ts`
   - 会启动 fake local console server 和静态桌面 renderer，生成 `artifacts/acceptance/t4-live.png`、`artifacts/acceptance/t4-interrupted.png`、`artifacts/acceptance/t4-failed.png` 与 `artifacts/acceptance/t4-evidence.json`。
 - T4.5 本地接力循环验收脚本：`pnpm exec tsx scripts/acceptance/local-console-t45.ts`
