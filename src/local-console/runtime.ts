@@ -67,6 +67,7 @@ import {
 } from "./workspace-diff.js";
 import { resolveSessionWorkspaceContext } from "./workspace-resolution.js";
 import { nonContinuableSystemMessage, resolveLocalSessionContinuation } from "./session-status.js";
+import { ORPHAN_RUN_STUCK_REASON, identifyOrphanRuns } from "./orphan-runs.js";
 
 export interface LocalConsoleAgentFile {
   name: string;
@@ -198,12 +199,48 @@ export class LocalConsoleRuntime {
     const sessionIds = sessions.length === 0 ? [this.sessionId] : sessions.map((session) => session.sessionId);
     await Promise.all(sessionIds.map(async (sessionId) => {
       try {
+        await this.claimOrphanRuns(sessionId);
+      } catch (error) {
+        this.lastError = formatLocalError(error);
+        log({ event: "local-console-claim-orphan-runs-failed", sessionId, error: this.lastError });
+      }
+      try {
         await this.repairStaleRunning(sessionId);
       } catch (error) {
         this.lastError = formatLocalError(error);
         log({ event: "local-console-repair-stale-failed", sessionId, error: this.lastError });
       }
     }));
+  }
+
+  private async claimOrphanRuns(sessionId: string): Promise<void> {
+    const messages = await this.storeCall("local-console-store-list-messages", () =>
+      this.options.store.listMessages(sessionId),
+    );
+    const activeSessionIds = new Set(this.activeRuns.keys());
+    const orphans = identifyOrphanRuns({ sessionId, messages, activeSessionIds });
+    for (const orphan of orphans) {
+      try {
+        await this.storeCall("local-console-store-record-stuck", () =>
+          this.options.store.recordStuck({
+            userMessageId: orphan.userMessageId,
+            sessionId,
+            reason: ORPHAN_RUN_STUCK_REASON,
+            runId: orphan.runId,
+            runDir: orphan.runDir,
+            now: this.nowIso(),
+          }),
+        );
+      } catch (error) {
+        this.lastError = formatLocalError(error);
+        log({
+          event: "local-console-record-orphan-stuck-failed",
+          sessionId,
+          userMessageId: orphan.userMessageId,
+          error: this.lastError,
+        });
+      }
+    }
   }
 
   async close(): Promise<void> {
