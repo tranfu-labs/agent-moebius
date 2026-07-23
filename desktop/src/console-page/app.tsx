@@ -202,7 +202,7 @@ declare global {
   }
 }
 
-export function App(): JSX.Element {
+function App(): JSX.Element {
   const [apiBase, setApiBase] = useState<string | null>(readQueryApiBase());
   const [attachmentCapability, setAttachmentCapability] = useState<string | null>(null);
   const [initialSelectionPreference] = useState<ConsoleSelection | null>(() =>
@@ -1668,7 +1668,4 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const rootElement = document.getElementById("root");
-if (rootElement !== null) {
-  createRoot(rootElement).render(<App />);
-}
+createRoot(document.getElementById("root") as HTMLElement).render(<App />);

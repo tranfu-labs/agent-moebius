@@ -12,6 +12,7 @@ import {
   parseRightSidebarTabsState,
   selectRightSidebarTab,
   serializeRightSidebarTabsState,
+  type RightSidebarTabsState,
 } from "./right-sidebar-tabs";
 
 describe("right sidebar tab model", () => {
@@ -46,6 +47,33 @@ describe("right sidebar tab model", () => {
 
     expect(reopened.tabs.map((tab) => tab.id)).toEqual(["diff-1", "blank-1", "blank-2"]);
     expect(reopened.activeTabId).toBe("diff-1");
+  });
+
+  it("keeps new tab ids unique after restored tabs reuse the in-memory counter id", () => {
+    const restored: RightSidebarTabsState = {
+      tabs: [{
+        id: "right-sidebar-tab-1",
+        type: "project-files",
+        title: "项目文件",
+        sourceKey: null,
+        closable: true,
+      }],
+      activeTabId: "right-sidebar-tab-1",
+    };
+    const withBlank = addBlankRightSidebarTab(restored, "right-sidebar-tab-1");
+    const withSource = openRightSidebarSourceTab(withBlank, {
+      id: "right-sidebar-tab-1",
+      type: "workspace-diff",
+      title: "改动",
+      sourceKey: "workspace-diff:session-a",
+    });
+
+    expect(withSource.tabs.map((tab) => tab.id)).toEqual([
+      "right-sidebar-tab-1",
+      "right-sidebar-tab-1-2",
+      "right-sidebar-tab-1-3",
+    ]);
+    expect(new Set(withSource.tabs.map((tab) => tab.id))).toHaveLength(3);
   });
 
   it("keeps the sidebar state alive with a blank tab after the last tab closes", () => {

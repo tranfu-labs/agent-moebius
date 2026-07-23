@@ -54,7 +54,7 @@ export function addBlankRightSidebarTab(
   state: RightSidebarTabsState,
   id: string,
 ): RightSidebarTabsState {
-  const tab = createBlankRightSidebarTab(id);
+  const tab = createBlankRightSidebarTab(uniqueRightSidebarTabId(state, id));
   return {
     tabs: [...state.tabs, tab],
     activeTabId: tab.id,
@@ -100,6 +100,7 @@ export function openRightSidebarSourceTab(
   }
   const tab: RightSidebarTab = {
     ...source,
+    id: uniqueRightSidebarTabId(state, source.id),
     closable: true,
   };
   return {
@@ -191,6 +192,17 @@ export function serializeRightSidebarTabsState(state: RightSidebarTabsState): st
 
 function isRightSidebarTabType(value: unknown): value is RightSidebarTabType {
   return typeof value === "string" && RIGHT_SIDEBAR_TAB_TYPES.some((type) => type === value);
+}
+
+function uniqueRightSidebarTabId(state: RightSidebarTabsState, requestedId: string): string {
+  if (!state.tabs.some((tab) => tab.id === requestedId)) {
+    return requestedId;
+  }
+  let suffix = 2;
+  while (state.tabs.some((tab) => tab.id === `${requestedId}-${String(suffix)}`)) {
+    suffix += 1;
+  }
+  return `${requestedId}-${String(suffix)}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
