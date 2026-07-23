@@ -29,7 +29,9 @@ describe("desktop console interrupt adapter", () => {
   });
 
   it("treats a run that finished before the stop request as a refreshable race", async () => {
-    const fetch = vi.fn(async () => jsonResponse({ interrupted: false, error: "No active run matched" }, 409));
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ interrupted: false, error: "No active run matched" }, 409))
+      .mockResolvedValueOnce(jsonResponse({ activeRuns: [], activeRun: null }, 200));
     const refresh = vi.fn(async () => undefined);
 
     await expect(interruptLocalConsoleRun({
@@ -39,6 +41,25 @@ describe("desktop console interrupt adapter", () => {
       fetch,
       refresh,
     })).resolves.toBe("already-finished");
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a target mismatch when refresh still shows the requested run", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ interrupted: false, error: "No active run matched" }, 409))
+      .mockResolvedValueOnce(jsonResponse({
+        activeRuns: [{ sessionId: "session-a", runId: "run-still-active" }],
+      }, 200));
+    const refresh = vi.fn(async () => undefined);
+
+    await expect(interruptLocalConsoleRun({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session-a",
+      runId: "run-still-active",
+      fetch,
+      refresh,
+    })).rejects.toThrow("No active run matched");
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 

@@ -196,8 +196,10 @@ interface LocalConsoleState {
   selectedSessionId: string;
   selectedSession: OperatorSession | null;
   messages: OperatorMessage[];
+  pendingPrimaryMessages: OperatorMessage[];
   childSessions: OperatorChildSessionSummary[];
   activeRun: OperatorRunSnapshot | null;
+  activeRuns: OperatorRunSnapshot[];
   workspaceDiff: OperatorWorkspaceDiffSummary;
   sqlitePath: string;
   lastError: string | null;
@@ -1387,6 +1389,7 @@ export function App(): JSX.Element {
     ? ""
     : subSessionComposerValues[activeSubSessionId]
       ?? conversationDraftStoreRef.current.read(sessionDraftKey(activeSubSessionId));
+  const activeRuns = state?.activeRuns ?? (activeRun === null ? [] : [activeRun]);
   const sqlitePath = state?.sqlitePath;
   const projectListState = state !== null ? "ready" : clientError === null ? "loading" : "error";
 
@@ -1868,11 +1871,13 @@ export function App(): JSX.Element {
       selectedSessionId={selection.sessionId}
       selectedSession={selectedSession}
       messages={messagesWithPreviews}
+      pendingPrimaryMessages={state?.pendingPrimaryMessages ?? []}
       childSessions={state?.childSessions ?? []}
       subSessionViews={subSessionViewsWithPreviews}
       subSessionComposerValue={activeSubSessionComposerValue}
       subSessionComposerAttachments={managedSubSessionAttachments.attachments}
       activeRun={activeRun}
+      activeRuns={activeRuns}
       workspaceDiff={state?.workspaceDiff ?? { available: false, fileCount: null, reason: "unavailable" }}
       composerValue={composerValue}
       composerAttachments={managedAttachments.attachments}

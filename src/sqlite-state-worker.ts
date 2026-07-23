@@ -56,6 +56,7 @@ interface WorkerLocalMessage {
   sourceKind: string | null;
   sourceId: string | null;
   attachments?: unknown[];
+  activatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -143,6 +144,9 @@ function runCommand(input: WorkerInput): unknown {
       case "local-record-route-no-action":
       case "local-release-message-for-retry":
       case "local-record-agent-response":
+      case "local-record-detached-run-started":
+      case "local-record-detached-agent-response":
+      case "local-record-detached-run-terminal":
       case "local-record-system-and-complete":
       case "local-record-system":
       case "local-record-failure":
@@ -325,6 +329,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
       last_failure_reason TEXT,
       source_kind TEXT,
       source_id TEXT,
+      activated_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -456,6 +461,7 @@ function ensureSchema(database: SqliteDatabase, sqlitePath: string): void {
   migrateSessionEdgesHiddenKey(database);
   migrateLocalAcceptanceFactsHistory(database);
   migrateLocalMessageFailureMetadata(database);
+  migrateLocalMessageActivation(database);
   migrateLocalWorkspaceDiffMetadata(database);
   const now = new Date().toISOString();
   ensureLocalProjectSortOrderColumn(database);
@@ -665,6 +671,13 @@ function migrateLocalMessageFailureMetadata(database: SqliteDatabase): void {
   if (!tableHasColumn(database, "session_messages", "last_failure_reason")) {
     database.exec("ALTER TABLE session_messages ADD COLUMN last_failure_reason TEXT");
   }
+}
+
+function migrateLocalMessageActivation(database: SqliteDatabase): void {
+  if (!tableHasColumn(database, "session_messages", "activated_at")) {
+    database.exec("ALTER TABLE session_messages ADD COLUMN activated_at TEXT");
+  }
+  markSchemaMigration(database, "multi-agent-primary-control-lanes-message-activation");
 }
 
 function migrateLocalWorkspaceDiffMetadata(database: SqliteDatabase): void {
@@ -1127,8 +1140,8 @@ function rebuildSessionMessageIndex(database: SqliteDatabase, sessionId: string,
     const insert = database.prepare(
       `INSERT INTO session_messages
         (id, session_id, speaker, role, body, status, run_id, run_dir, error, system_event_kind,
-         failure_count, last_failure_reason, source_kind, source_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         failure_count, last_failure_reason, source_kind, source_id, activated_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          speaker = excluded.speaker,
          role = excluded.role,
@@ -1142,6 +1155,7 @@ function rebuildSessionMessageIndex(database: SqliteDatabase, sessionId: string,
          last_failure_reason = excluded.last_failure_reason,
          source_kind = excluded.source_kind,
          source_id = excluded.source_id,
+         activated_at = excluded.activated_at,
          created_at = excluded.created_at,
          updated_at = excluded.updated_at`,
     );
@@ -1161,6 +1175,7 @@ function rebuildSessionMessageIndex(database: SqliteDatabase, sessionId: string,
         message.lastFailureReason,
         message.sourceKind,
         message.sourceId,
+        message.activatedAt,
         message.createdAt,
         message.updatedAt,
       );
@@ -1271,6 +1286,9 @@ function executeSessionFactWrite(database: SqliteDatabase, command: SqliteStateC
     case "local-record-route-no-action": return recordLocalRouteNoAction(database, command);
     case "local-release-message-for-retry": return releaseMessageForRetry(database, command);
     case "local-record-agent-response": return recordAgentResponse(database, command);
+    case "local-record-detached-run-started": return recordDetachedRunStarted(database, command);
+    case "local-record-detached-agent-response": return recordDetachedAgentResponse(database, command);
+    case "local-record-detached-run-terminal": return recordDetachedRunTerminal(database, command);
     case "local-record-system-and-complete": return recordSystemAndComplete(database, command);
     case "local-record-system": return recordSystemMessage(database, command);
     case "local-record-failure": return recordFailure(database, command);
@@ -1307,6 +1325,7 @@ function readSessionFactMessage(value: unknown): WorkerLocalMessage {
     sourceKind: readNullableString(value.sourceKind, "sourceKind"),
     sourceId: readNullableString(value.sourceId, "sourceId"),
     attachments: Array.isArray(value.attachments) ? value.attachments : [],
+    activatedAt: "activatedAt" in value ? readNullableString(value.activatedAt, "activatedAt") : null,
     createdAt: readString(value.createdAt, "createdAt"),
     updatedAt: readString(value.updatedAt, "updatedAt"),
   };
@@ -2052,7 +2071,17 @@ function appendUserMessage(
 
 function listLocalMessages(database: SqliteDatabase, sessionId: string): unknown[] {
   return database
-    .prepare("SELECT * FROM session_messages WHERE session_id = ? ORDER BY id ASC")
+    .prepare(
+      `SELECT *
+       FROM session_messages
+       WHERE session_id = ?
+       ORDER BY
+         CASE
+           WHEN speaker = 'user' THEN COALESCE(activated_at, created_at)
+           ELSE created_at
+         END ASC,
+         id ASC`,
+    )
     .all(sessionId)
     .map((row) => withMessageAttachments(database, readLocalMessageRow(row)));
 }
@@ -2430,8 +2459,16 @@ function claimNextPendingMessage(
     }
     if (message.speaker === "user") {
       const result = database
-        .prepare("UPDATE session_messages SET status = 'running', run_id = ?, error = NULL, updated_at = ? WHERE id = ? AND status = 'pending'")
-        .run(input.runId, input.now, message.id);
+        .prepare(
+          `UPDATE session_messages
+           SET status = 'running',
+               run_id = ?,
+               error = NULL,
+               activated_at = COALESCE(activated_at, ?),
+               updated_at = ?
+           WHERE id = ? AND status = 'pending'`,
+        )
+        .run(input.runId, input.now, input.now, message.id);
       if (Number(result.changes ?? 0) !== 1) {
         return null;
       }
@@ -2467,6 +2504,93 @@ function recordAgentResponse(
     completeSourceMessage(database, source, "completed", null, input.runId, input.runDir, input.now);
     return null;
   });
+}
+
+function recordDetachedAgentResponse(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-detached-agent-response" }>,
+): null {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    completeDetachedRunPlaceholder(database, input.sessionId, input.runId, "completed", null, input.now);
+    database
+      .prepare(
+        `INSERT INTO session_messages
+          (session_id, speaker, role, body, status, run_id, run_dir, error, source_kind, source_id, created_at, updated_at)
+        VALUES (?, 'agent', ?, ?, 'displayed', ?, ?, NULL, 'local-message', NULL, ?, ?)`,
+      )
+      .run(input.sessionId, input.role, input.body, input.runId, input.runDir, input.now, input.now);
+    updateSessionAttentionAfterAgentResponse(database, input.sessionId, input.body, input.now);
+    return null;
+  });
+}
+
+function recordDetachedRunStarted(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-detached-run-started" }>,
+): null {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    database
+      .prepare(
+        `INSERT INTO session_messages
+          (session_id, speaker, role, body, status, run_id, run_dir, error, system_event_kind,
+           source_kind, source_id, created_at, updated_at)
+         VALUES (?, 'system', ?, '', 'running', ?, ?, NULL, 'other',
+           'local-worker-run', NULL, ?, ?)`,
+      )
+      .run(input.sessionId, input.role, input.runId, input.runDir, input.now, input.now);
+    return null;
+  });
+}
+
+function recordDetachedRunTerminal(
+  database: SqliteDatabase,
+  input: Extract<SqliteStateCommand, { kind: "local-record-detached-run-terminal" }>,
+): null {
+  return transaction(database, () => {
+    ensureSession(database, input.sessionId, input.now, undefined, LOCAL_CONSOLE_PROJECT_ID);
+    completeDetachedRunPlaceholder(
+      database,
+      input.sessionId,
+      input.runId,
+      input.status,
+      input.error,
+      input.now,
+    );
+    insertSystemMessage(
+      database,
+      input.sessionId,
+      input.body,
+      input.runId,
+      input.runDir,
+      input.error,
+      input.now,
+      input.status,
+      input.systemEventKind,
+    );
+    return null;
+  });
+}
+
+function completeDetachedRunPlaceholder(
+  database: SqliteDatabase,
+  sessionId: string,
+  runId: string,
+  status: "completed" | "failed" | "interrupted" | "stuck",
+  error: string | null,
+  now: string,
+): void {
+  database
+    .prepare(
+      `UPDATE session_messages
+       SET status = ?, error = ?, updated_at = ?
+       WHERE session_id = ?
+         AND run_id = ?
+         AND source_kind = 'local-worker-run'
+         AND status = 'running'`,
+    )
+    .run(status, error, now, sessionId, runId);
 }
 
 function recordMessageProcessed(
@@ -2738,6 +2862,21 @@ function recordStuck(database: SqliteDatabase, input: Extract<SqliteStateCommand
   return transaction(database, () => {
     ensureLocalCursor(database, input.sessionId, input.now);
     const source = requireLocalMessage(database, input.userMessageId, input.sessionId);
+    if (source.sourceKind === "local-worker-run") {
+      completeDetachedRunPlaceholder(database, input.sessionId, input.runId ?? source.runId ?? "", "stuck", input.reason, input.now);
+      insertSystemMessage(
+        database,
+        input.sessionId,
+        "这一步卡住了。你可以重试，或直接说话、换一个成员接手。",
+        input.runId,
+        input.runDir,
+        input.reason,
+        input.now,
+        "stuck",
+        "run-stuck",
+      );
+      return null;
+    }
     insertSystemMessage(
       database,
       input.sessionId,
@@ -2881,6 +3020,29 @@ function markStaleRunning(
       .map(readLocalMessageRow);
 
     for (const row of rows) {
+      if (row.sourceKind === "local-worker-run") {
+        completeDetachedRunPlaceholder(
+          database,
+          input.sessionId,
+          row.runId ?? "",
+          "stuck",
+          input.reason,
+          input.now,
+        );
+        insertSystemMessage(
+          database,
+          input.sessionId,
+          "这一步卡住了。你可以重试，或直接说话、换一个成员接手。",
+          row.runId,
+          row.runDir,
+          input.reason,
+          input.now,
+          "stuck",
+          "run-stuck",
+        );
+        count += 1;
+        continue;
+      }
       insertSystemMessage(
         database,
         input.sessionId,
@@ -3324,6 +3486,7 @@ function readLocalMessageRow(row: unknown): WorkerLocalMessage {
     lastFailureReason: "last_failure_reason" in row ? readNullableString(row.last_failure_reason, "last_failure_reason") : null,
     sourceKind: "source_kind" in row ? readNullableString(row.source_kind, "source_kind") : null,
     sourceId: "source_id" in row ? readNullableString(row.source_id, "source_id") : null,
+    activatedAt: "activated_at" in row ? readNullableString(row.activated_at, "activated_at") : null,
     createdAt: readString(row.created_at, "created_at"),
     updatedAt: readString(row.updated_at, "updated_at"),
   };

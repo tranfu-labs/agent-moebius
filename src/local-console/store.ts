@@ -336,6 +336,40 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     await this.runFact({ kind: "local-record-agent-response", ...input }, [input.sessionId]);
   }
 
+  async recordDetachedAgentResponse(input: {
+    sessionId: string;
+    role: string;
+    body: string;
+    runId: string;
+    runDir: string;
+    now: string;
+  }): Promise<void> {
+    await this.runFact({ kind: "local-record-detached-agent-response", ...input }, [input.sessionId]);
+  }
+
+  async recordDetachedRunStarted(input: {
+    sessionId: string;
+    role: string;
+    runId: string;
+    runDir: string;
+    now: string;
+  }): Promise<void> {
+    await this.runFact({ kind: "local-record-detached-run-started", ...input }, [input.sessionId]);
+  }
+
+  async recordDetachedRunTerminal(input: {
+    sessionId: string;
+    body: string;
+    systemEventKind: LocalConsoleSystemEventKind;
+    runId: string;
+    runDir: string | null;
+    error: string;
+    status: "failed" | "interrupted" | "stuck";
+    now: string;
+  }): Promise<void> {
+    await this.runFact({ kind: "local-record-detached-run-terminal", ...input }, [input.sessionId]);
+  }
+
   async recordSystemAndComplete(input: {
     userMessageId: number;
     sessionId: string;
@@ -354,7 +388,7 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
     runId: string | null;
     runDir: string | null;
     error: string | null;
-    status?: "displayed" | "failed" | "stuck";
+    status?: "displayed" | "failed" | "interrupted" | "stuck";
     systemEventKind?: LocalConsoleSystemEventKind;
     now: string;
   }): Promise<void> {
@@ -747,7 +781,15 @@ export class SqliteLocalConsoleStore implements LocalConsoleStore {
         messages.set(message.id, message);
       }
     }
-    return [...messages.values()].sort((left, right) => left.id - right.id);
+    return [...messages.values()].sort((left, right) => {
+      const leftTimelineAt = left.speaker === "user"
+        ? left.activatedAt ?? left.createdAt
+        : left.createdAt;
+      const rightTimelineAt = right.speaker === "user"
+        ? right.activatedAt ?? right.createdAt
+        : right.createdAt;
+      return leftTimelineAt.localeCompare(rightTimelineAt) || left.id - right.id;
+    });
   }
 
   private async appendFactEvent(sessionId: string, event: SessionFactEvent): Promise<void> {
@@ -1048,6 +1090,7 @@ function normalizeStoreRecordIfNeeded(value: unknown): unknown {
       attachments: "attachments" in value && Array.isArray(value.attachments)
         ? value.attachments.map(normalizeAttachment)
         : [],
+      activatedAt: "activatedAt" in value ? readNullableString(value.activatedAt, "activatedAt") : null,
       createdAt: readString(value.createdAt, "createdAt"),
       updatedAt: readString(value.updatedAt, "updatedAt"),
     } satisfies LocalConsoleMessage;

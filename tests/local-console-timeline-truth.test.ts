@@ -84,77 +84,115 @@ describe("main conversation timeline truth through the HTTP assembly", () => {
     }
   }, 20_000);
 
-  it("stops an explicitly mentioned active member and restarts it with the new instruction", async () => {
-    let callCount = 0;
+  it("lets the primary Agent redirect an active member after a user asks for a new instruction", async () => {
+    let managerCallCount = 0;
+    let devCallCount = 0;
+    const roles: string[] = [];
     const harness = await startHarness(async (options) => {
-      callCount += 1;
-      return callCount === 1 ? waitForAbort(options) : codexOk(options, "已按新指令重新开始");
+      const role = roleFromPrompt(options.prompt);
+      roles.push(role);
+      if (role === "manager") {
+        managerCallCount += 1;
+        return codexOk(
+          options,
+          managerCallCount === 1
+            ? "@dev 先做旧任务"
+            : managerCallCount === 2
+              ? "@dev 改按这条新指令做"
+              : "重新安排完成",
+        );
+      }
+      devCallCount += 1;
+      return devCallCount === 1 ? waitForAbort(options) : codexOk(options, "已按新指令重新开始");
     });
     try {
       const session = await createSession(harness.started.url, "redirect active", "system", "development");
       expect((await postMessage(harness.started.url, session.sessionId, "@dev 先做旧任务")).status).toBe(202);
-      await waitForState(harness.started.url, session.sessionId, (snapshot) => snapshot.activeRun?.role === "dev");
+      await waitForState(harness.started.url, session.sessionId, (snapshot) =>
+        snapshot.activeRun === null && snapshot.activeRuns.some((run) => run.role === "dev")
+      );
 
       expect((await postMessage(harness.started.url, session.sessionId, "@dev 改按这条新指令做")).status).toBe(202);
       const restarted = await waitForState(harness.started.url, session.sessionId, (snapshot) =>
-        snapshot.activeRun === null && snapshot.messages.some((message) => message.speaker === "agent" && message.body === "已按新指令重新开始"),
+        snapshot.activeRuns.length === 0
+        && snapshot.messages.some((message) => message.speaker === "agent" && message.body === "重新安排完成"),
       );
-      expect(callCount).toBe(2);
+      expect(roles).toEqual(["manager", "dev", "manager", "dev", "manager"]);
       expect(restarted.messages).toEqual(expect.arrayContaining([
         expect.objectContaining({
           speaker: "system",
           systemEventKind: "other",
-          body: expect.stringContaining("新的指令到了"),
+          body: expect.stringContaining("新的指令"),
         }),
       ]));
       expect(restarted.messages.some((message) => message.systemEventKind === "user-stopped")).toBe(false);
     } finally {
       await harness.started.close();
     }
-  }, 20_000);
+  }, 60_000);
 
-  it("accepts an unmentioned message through HTTP while a member is active without interrupting it", async () => {
-    let firstOptions: CodexRunOptions | undefined;
-    let finishFirst: ((result: CodexRunResult) => void) | undefined;
-    let callCount = 0;
+  it("runs the primary Agent beside an active member without interrupting the member", async () => {
+    let devOptions!: CodexRunOptions;
+    let finishDev!: (result: CodexRunResult) => void;
+    let managerOptions!: CodexRunOptions;
+    let finishManager!: (result: CodexRunResult) => void;
+    let managerCallCount = 0;
     const harness = await startHarness((options) => {
-      callCount += 1;
-      if (callCount === 1) {
-        firstOptions = options;
+      const role = roleFromPrompt(options.prompt);
+      if (role === "dev") {
+        devOptions = options;
         return new Promise<CodexRunResult>((resolve) => {
-          finishFirst = resolve;
+          finishDev = resolve;
         });
       }
-      return Promise.resolve(codexOk(options, "补充已送达主 Agent"));
+      managerCallCount += 1;
+      if (managerCallCount === 1) {
+        return Promise.resolve(codexOk(options, "@dev 先做旧任务"));
+      }
+      if (managerCallCount > 2) {
+        return Promise.resolve(codexOk(options, "主理人已接回执行结果"));
+      }
+      managerOptions = options;
+      return new Promise<CodexRunResult>((resolve) => {
+        finishManager = resolve;
+      });
     });
     try {
       const session = await createSession(harness.started.url, "supplement active run", "system", "development");
       expect((await postMessage(harness.started.url, session.sessionId, "@dev 先做旧任务")).status).toBe(202);
-      await waitForState(harness.started.url, session.sessionId, (snapshot) => snapshot.activeRun?.role === "dev");
+      await waitForState(harness.started.url, session.sessionId, (snapshot) =>
+        snapshot.activeRun === null && snapshot.activeRuns.some((run) => run.role === "dev")
+      );
 
       expect((await postMessage(harness.started.url, session.sessionId, "补一句话给主 Agent")).status).toBe(202);
-      const supplemented = await getState(harness.started.url, session.sessionId);
-      expect(supplemented.activeRun?.role).toBe("dev");
-      expect(firstOptions?.signal?.aborted).toBe(false);
+      const supplemented = await waitForState(harness.started.url, session.sessionId, (snapshot) =>
+        snapshot.activeRun?.role === "manager"
+        && snapshot.activeRuns.some((run) => run.role === "dev")
+      );
+      expect(devOptions.signal?.aborted).toBe(false);
+      expect(supplemented.pendingPrimaryMessages).toEqual([]);
       expect(supplemented.messages).toEqual(expect.arrayContaining([
-        expect.objectContaining({ speaker: "user", body: "补一句话给主 Agent", status: "pending" }),
+        expect.objectContaining({ speaker: "user", body: "补一句话给主 Agent", status: "running" }),
       ]));
 
-      if (firstOptions === undefined || finishFirst === undefined) {
-        throw new Error("active run was not captured");
-      }
-      finishFirst(codexOk(firstOptions, "旧步骤完成"));
+      finishManager(codexOk(managerOptions, "补充已送达主 Agent"));
+      await waitForState(harness.started.url, session.sessionId, (snapshot) =>
+        snapshot.activeRun === null && snapshot.activeRuns.some((run) => run.role === "dev")
+      );
+      expect(devOptions.signal?.aborted).toBe(false);
+      finishDev(codexOk(devOptions, "旧步骤完成"));
       const completed = await waitForState(harness.started.url, session.sessionId, (snapshot) =>
-        snapshot.messages.some((message) => message.speaker === "agent" && message.body === "补充已送达主 Agent"),
+        snapshot.activeRuns.length === 0
+        && snapshot.messages.some((message) => message.speaker === "agent" && message.body === "补充已送达主 Agent"),
       );
       expect(completed.messages).toEqual(expect.arrayContaining([
         expect.objectContaining({ speaker: "agent", role: "manager", body: "补充已送达主 Agent" }),
       ]));
-      expect(firstOptions.signal?.aborted).toBe(false);
+      expect(devOptions.signal?.aborted).toBe(false);
     } finally {
       await harness.started.close();
     }
-  }, 20_000);
+  }, 60_000);
 
   it("reports a deleted team as read-only, then recovers through the HTTP team switch without losing history", async () => {
     const harness = await startHarness(async (options) => codexOk(options, "新团队继续推进"));
@@ -403,6 +441,8 @@ async function switchTeam(url: string, sessionId: string, ownership: "system" | 
 interface StateResponse {
   selectedSession: LocalConsoleSessionSummary & { continuation: { canContinue: boolean; kind: string; recoveryAction: string | null } };
   messages: LocalConsoleMessage[];
+  pendingPrimaryMessages: LocalConsoleMessage[];
+  activeRuns: Array<{ role: string | null; runId: string }>;
   activeRun: { role: string | null } | null;
 }
 
@@ -415,7 +455,7 @@ async function getState(url: string, sessionId: string): Promise<StateResponse> 
 }
 
 async function waitForState(url: string, sessionId: string, predicate: (state: StateResponse) => boolean): Promise<StateResponse> {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 20_000;
   let latest: StateResponse | null = null;
   while (Date.now() < deadline) {
     latest = await getState(url, sessionId);
@@ -445,4 +485,13 @@ function waitForAbort(options: CodexRunOptions): Promise<CodexRunResult> {
     stdoutPath: path.join(options.runDir, "stdout.jsonl"),
     stderrPath: path.join(options.runDir, "stderr.log"),
   }), { once: true }));
+}
+
+function roleFromPrompt(prompt: string): string {
+  for (const role of ["manager", "dev"]) {
+    if (prompt.includes(`ROLE:${role}`)) {
+      return role;
+    }
+  }
+  throw new Error(`Unable to detect role from prompt: ${prompt.slice(0, 160)}`);
 }

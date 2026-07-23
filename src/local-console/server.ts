@@ -625,7 +625,12 @@ async function handleRequest(
       });
       sendJson(response, interrupted ? 202 : 409, {
         interrupted,
-        ...(interrupted ? {} : { error: "No active run matched the requested sessionId/runId" }),
+        ...(interrupted
+          ? {}
+          : {
+              code: "RUN_NOT_ACTIVE",
+              error: "No active run matched the requested sessionId/runId",
+            }),
       });
       return;
     }
