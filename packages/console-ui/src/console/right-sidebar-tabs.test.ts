@@ -7,8 +7,10 @@ import {
   addBlankRightSidebarTab,
   closeRightSidebarTab,
   convertBlankRightSidebarTab,
+  createRunOutputSourceKey,
   ensureRightSidebarTabsForOpen,
   openRightSidebarSourceTab,
+  parseRunOutputSourceKey,
   parseRightSidebarTabsState,
   selectRightSidebarTab,
   serializeRightSidebarTabsState,
@@ -139,7 +141,7 @@ describe("right sidebar tab model", () => {
     }).tabs[0]?.type).toBe("project-files");
   });
 
-  it("persists an independent process reading anchor only on the matching run tab", () => {
+  it("keeps a process reading anchor only while the run tab remains open in memory", () => {
     const state = openRightSidebarSourceTab(EMPTY_RIGHT_SIDEBAR_TABS, {
       id: "run-tab",
       type: "run-output",
@@ -151,21 +153,21 @@ describe("right sidebar tab model", () => {
       offsetPx: 18,
       followLatest: false,
     });
-    const restored = parseRightSidebarTabsState(JSON.parse(serializeRightSidebarTabsState(updated)));
-
-    expect(restored.tabs[0]?.processScroll).toEqual({
+    expect(updated.tabs[0]?.processScroll).toEqual({
       anchorEventKey: "run-a:event-42",
       offsetPx: 18,
       followLatest: false,
     });
-    expect(updateRightSidebarProcessScroll(restored, "missing", {
+    const restored = parseRightSidebarTabsState(JSON.parse(serializeRightSidebarTabsState(updated)));
+    expect(restored.tabs[0]?.processScroll).toBeUndefined();
+    expect(updateRightSidebarProcessScroll(updated, "missing", {
       anchorEventKey: null,
       offsetPx: 0,
       followLatest: true,
-    })).toEqual(restored);
+    })).toEqual(updated);
   });
 
-  it("restores a process anchor after that tab was closed and opened again", () => {
+  it("reopens a closed process tab at the latest output", () => {
     const source = {
       id: "run-tab",
       type: "run-output" as const,
@@ -182,10 +184,22 @@ describe("right sidebar tab model", () => {
     const restored = parseRightSidebarTabsState(JSON.parse(serializeRightSidebarTabsState(closed)));
     const reopened = openRightSidebarSourceTab(restored, { ...source, id: "run-tab-again" });
 
-    expect(reopened.tabs.at(-1)?.processScroll).toEqual({
-      anchorEventKey: "run-a:event-7",
-      offsetPx: 24,
-      followLatest: false,
+    expect(reopened.tabs.at(-1)?.processScroll).toBeUndefined();
+  });
+
+  it("round-trips child-session and run ids without delimiter ambiguity", () => {
+    const sourceKey = createRunOutputSourceKey(
+      "local:project/child-session",
+      "local-2026-07-23T02:03:04.000Z-run",
+    );
+
+    expect(parseRunOutputSourceKey(sourceKey)).toEqual({
+      sessionId: "local:project/child-session",
+      runId: "local-2026-07-23T02:03:04.000Z-run",
+    });
+    expect(parseRunOutputSourceKey("run-output:session-a:run:1", "session-a")).toEqual({
+      sessionId: "session-a",
+      runId: "run:1",
     });
   });
 });

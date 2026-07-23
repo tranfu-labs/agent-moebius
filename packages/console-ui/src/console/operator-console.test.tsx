@@ -1167,7 +1167,7 @@ describe("OperatorConsole", () => {
         body: "已完成第二次执行",
       })],
       processOutputs: {
-        "run-output:session-a:run-retry-2": {
+        "run-output-v2:session-a:run-retry-2": {
           status: "ready",
           output: {
             sessionId: "session-a",
@@ -1312,7 +1312,7 @@ describe("OperatorConsole", () => {
         body: "fallback result",
       })],
       processOutputs: {
-        "run-output:session-a:run-missing": {
+        "run-output-v2:session-a:run-missing": {
           status: "ready",
           output: {
             sessionId: "session-a",

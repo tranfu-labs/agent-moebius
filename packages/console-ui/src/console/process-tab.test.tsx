@@ -85,12 +85,40 @@ describe("ProcessTab", () => {
           key: "unsupported-1",
           kind: "unsupported",
           timestamp: null,
-          eventType: "event_msg.future_event",
         }}
       />,
     );
-    expect(screen.getByText(/暂不支持的过程事件/u)).toBeInTheDocument();
-    expect(screen.getByText("event_msg.future_event")).toBeInTheDocument();
+    expect(screen.getByText("其他执行活动")).toBeInTheDocument();
+    expect(screen.queryByText("event_msg.future_event")).not.toBeInTheDocument();
+  });
+
+  it("keeps long tool output complete but collapsed and hides machine-only details", () => {
+    const output = Array.from(
+      { length: 24 },
+      (_, index) => `第 ${String(index + 1)} 行 /Users/person/private/file.ts runId=secret-run`,
+    ).join("\n");
+    const { container } = render(
+      <ProcessEvent
+        memberName="开发"
+        event={{
+          key: "tool-long",
+          kind: "tool",
+          timestamp: null,
+          phase: "completed",
+          name: "inspect",
+          input: null,
+          output,
+          status: "completed",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("展开完整输出")).toBeInTheDocument();
+    expect(container.textContent).toContain("第 24 行");
+    expect(container.textContent).toContain("…/file.ts");
+    expect(container.textContent).toContain("内部标识已隐藏");
+    expect(container.textContent).not.toContain("/Users/person");
+    expect(container.textContent).not.toContain("secret-run");
   });
 
   it("keeps stable member labels and monotonic duplicate titles", () => {

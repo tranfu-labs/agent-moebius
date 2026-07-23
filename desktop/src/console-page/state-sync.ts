@@ -1,12 +1,13 @@
-import type {
-  OperatorEvidenceOpenIntent,
-  OperatorEvidenceView,
-  OperatorProcessAppendOutput,
-  OperatorProcessOutput,
-  OperatorSubSessionView,
-  ProjectFilesData,
-  WorkspaceDiffData,
-  WorkspaceFileContent,
+import {
+  parseRunOutputSourceKey,
+  type OperatorEvidenceOpenIntent,
+  type OperatorEvidenceView,
+  type OperatorProcessAppendOutput,
+  type OperatorProcessOutput,
+  type OperatorSubSessionView,
+  type ProjectFilesData,
+  type WorkspaceDiffData,
+  type WorkspaceFileContent,
 } from "@agent-moebius/console-ui";
 
 export interface ConsoleSelection {
@@ -260,47 +261,6 @@ export async function loadProcessOutput(options: {
   return body as OperatorProcessOutput;
 }
 
-export async function loadProcessOutputThroughAnchor(options: {
-  apiBase: string;
-  sessionId: string;
-  runId: string;
-  anchorEventKey: string | null;
-  fetch: FetchLike;
-  signal?: AbortSignal;
-}): Promise<OperatorProcessOutput> {
-  let output = await loadProcessOutput(options);
-  const anchorEventKey = options.anchorEventKey;
-  if (
-    anchorEventKey === null
-    || output.status === "unavailable"
-    || output.events.some((event) => event.key === anchorEventKey)
-  ) {
-    return output;
-  }
-
-  while (output.previousCursor !== null) {
-    const cursor = output.previousCursor;
-    const previous = await loadProcessOutput({ ...options, cursor });
-    output = {
-      ...output,
-      attempts: previous.attempts,
-      events: mergeProcessOutputEvents(previous.events, output.events),
-      previousCursor: previous.previousCursor,
-    };
-    if (output.events.some((event) => event.key === anchorEventKey)) {
-      break;
-    }
-    if (output.previousCursor === cursor) {
-      throw new ProcessOutputRequestError(
-        "process output cursor did not advance",
-        409,
-        "PROCESS_CURSOR_INVALID",
-      );
-    }
-  }
-  return output;
-}
-
 export async function loadProcessOutputAppend(options: {
   apiBase: string;
   sessionId: string;
@@ -401,12 +361,15 @@ export async function submitSessionMessage(options: {
 }
 
 export function processOutputRunId(sourceKey: string | null, sessionId: string): string | null {
-  if (sourceKey === null) {
-    return null;
-  }
-  const prefix = `run-output:${sessionId}:`;
-  const runId = sourceKey.startsWith(prefix) ? sourceKey.slice(prefix.length) : "";
-  return runId === "" ? null : runId;
+  const locator = processOutputLocator(sourceKey, sessionId);
+  return locator?.sessionId === sessionId ? locator.runId : null;
+}
+
+export function processOutputLocator(
+  sourceKey: string | null,
+  legacySessionId?: string,
+): { sessionId: string; runId: string } | null {
+  return parseRunOutputSourceKey(sourceKey, legacySessionId);
 }
 
 export async function loadWorkspaceDiff(options: {
@@ -470,20 +433,6 @@ async function loadWorkspaceJson<T>(
 function labeledOutput(label: string, value: string | null | undefined): string | null {
   const text = value?.trim();
   return text ? `${label}\n${text}` : null;
-}
-
-function mergeProcessOutputEvents<T extends { key: string }>(
-  before: readonly T[],
-  after: readonly T[],
-): T[] {
-  const seen = new Set<string>();
-  return [...before, ...after].filter((event) => {
-    if (seen.has(event.key)) {
-      return false;
-    }
-    seen.add(event.key);
-    return true;
-  });
 }
 
 function localizeRole(role: string | null): string {

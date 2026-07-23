@@ -12,6 +12,7 @@ import { RunBlock } from "@/console/run-block";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { StructuredAttachmentList, type ComposerAttachment } from "@/console/structured-attachments";
 import { cn } from "@/lib/utils";
+import { Button } from "@/ui/button";
 
 export type OperatorSubSessionViewState =
   | { status: "idle" | "loading" }
@@ -33,6 +34,12 @@ export interface SubtaskTabProps {
   onSend(): void;
   onRetry(role: string | null): void;
   onInterrupt(sessionId: string, runId: string): void;
+  onOpenOutput?(input: {
+    sessionId: string;
+    runId: string;
+    role: string | null;
+    fallbackOutput: string | null;
+  }): void;
   onOpenExternalLink?: (url: string) => void;
   className?: string;
 }
@@ -52,6 +59,7 @@ export function SubtaskTab({
   onSend,
   onRetry,
   onInterrupt,
+  onOpenOutput,
   onOpenExternalLink,
   className,
 }: SubtaskTabProps): JSX.Element {
@@ -98,6 +106,7 @@ export function SubtaskTab({
                 key={message.id}
                 message={message}
                 onRetry={onRetry}
+                onOpenOutput={onOpenOutput}
                 onOpenExternalLink={onOpenExternalLink}
               />
             ))}
@@ -109,6 +118,14 @@ export function SubtaskTab({
                   liveMarkdown={activeRun.liveMarkdown}
                   rawOutput={activeRun.stderrTail ?? activeRun.stdoutTail}
                   onOpenExternalLink={onOpenExternalLink}
+                  onOpenOutput={onOpenOutput === undefined
+                    ? undefined
+                    : (fallbackOutput) => onOpenOutput({
+                        sessionId: activeRun.sessionId,
+                        runId: activeRun.runId,
+                        role: activeRun.role,
+                        fallbackOutput,
+                      })}
                   className="max-w-none"
                 />
               </div>
@@ -150,10 +167,12 @@ export function SubtaskTab({
 function SubtaskTimelineEntry({
   message,
   onRetry,
+  onOpenOutput,
   onOpenExternalLink,
 }: {
   message: OperatorMessage;
   onRetry(role: string | null): void;
+  onOpenOutput?: SubtaskTabProps["onOpenOutput"];
   onOpenExternalLink?: (url: string) => void;
 }): JSX.Element {
   const outcome = terminalOutcome(message);
@@ -167,6 +186,14 @@ function SubtaskTimelineEntry({
         onRetry={outcome === "run-not-started" || outcome === "run-stuck"
           ? () => onRetry(message.role)
           : undefined}
+        onOpenOutput={message.runId === null || onOpenOutput === undefined
+          ? undefined
+          : (fallbackOutput) => onOpenOutput({
+              sessionId: message.sessionId,
+              runId: message.runId!,
+              role: message.role,
+              fallbackOutput,
+            })}
         className="py-4"
       />
     );
@@ -189,6 +216,22 @@ function SubtaskTimelineEntry({
             mode="message"
             className={message.body.trim() === "" ? "" : "mt-2"}
           />
+          {message.speaker === "agent" && message.runId !== null && onOpenOutput !== undefined ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={() => onOpenOutput({
+                sessionId: message.sessionId,
+                runId: message.runId!,
+                role: message.role,
+                fallbackOutput: message.body,
+              })}
+            >
+              完整输出
+            </Button>
+          ) : null}
         </>
       )}
     </article>

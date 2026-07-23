@@ -562,6 +562,31 @@ describe("Codex rollout projection", () => {
       expect.objectContaining({ kind: "tool", name: "exec", input: "pnpm test" }),
     ]);
 
+    const friendlyTool = projectCodexRolloutRecord({
+      timestamp: "2026-07-23T01:00:01.500Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "inspect",
+        arguments: JSON.stringify({
+          query: "检查实现",
+          path: "/Users/person/private/source.ts",
+          sessionId: "internal-session",
+          runId: "internal-run",
+        }),
+      },
+    }, { runId: "run-a", lineOffset: 81 });
+    expect(friendlyTool).toEqual([
+      expect.objectContaining({
+        kind: "tool",
+        input: expect.stringContaining("查询: 检查实现"),
+      }),
+    ]);
+    expect(JSON.stringify(friendlyTool)).toContain("source.ts");
+    expect(JSON.stringify(friendlyTool)).not.toMatch(
+      /internal-session|internal-run|\/Users\/person/u,
+    );
+
     expect(projectCodexRolloutRecord({
       timestamp: "2026-07-23T01:00:02.000Z",
       type: "event_msg",
@@ -594,8 +619,9 @@ describe("Codex rollout projection", () => {
       payload: { type: "future_event", secret: "must-not-leak" },
     }, { runId: "run-a", lineOffset: 1 });
     expect(projected).toEqual([
-      expect.objectContaining({ kind: "unsupported", eventType: "event_msg.future_event" }),
+      expect.objectContaining({ kind: "unsupported" }),
     ]);
+    expect(projected[0]).not.toHaveProperty("eventType");
     expect(JSON.stringify(projected)).not.toContain("must-not-leak");
     expect(malformedCodexRolloutEvent("run-a", 42)).toMatchObject({
       kind: "error",
@@ -688,6 +714,25 @@ describe("Codex rollout projection", () => {
     const fixture = await createRolloutFixture([
       assistantRecord("再次检查", "2026-07-23T01:00:01.000Z"),
       assistantRecord("再次检查", "2026-07-23T01:00:03.000Z"),
+    ]);
+    try {
+      const resolution = await resolveCodexRollout(fixture.threadId, {
+        sessionsRoot: fixture.sessionsRoot,
+      });
+      if (resolution.status !== "available") {
+        throw new Error("fixture rollout unavailable");
+      }
+      const page = await readCodexRolloutPage({ resolution, runId: "run-a" });
+      expect(page.events.filter((event) => event.kind === "agent-markdown")).toHaveLength(2);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("keeps repeated same-origin Agent messages even within the same second", async () => {
+    const fixture = await createRolloutFixture([
+      assistantRecord("仍在检查", "2026-07-23T01:00:01.000Z"),
+      assistantRecord("仍在检查", "2026-07-23T01:00:01.200Z"),
     ]);
     try {
       const resolution = await resolveCodexRollout(fixture.threadId, {

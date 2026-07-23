@@ -1358,6 +1358,13 @@ Source: docs/product/pages/main-right-sidebar.md#过程标签
 - THEN 该 run 仍能恢复唯一 threadId
 - AND 无需 run 成功或依赖 active-run 内存状态
 
+### Scenario: thread 关联持久化暂时失败
+- GIVEN Codex 已发出合法且不冲突的 `thread.started`
+- AND session fact 写漏斗暂时不可用
+- WHEN 当前 Agent run 继续产生正常输出并成功结束
+- THEN Agent run 的成功结果仍进入主对话
+- AND 诊断尾部记录关联不可用，之后打开完整输出时明确显示不可用
+
 ## Requirement: 过程读取唯一定位 Codex rollout，缺失时不伪造降级
 Source: docs/product/pages/main-right-sidebar.md#codex-过程记录可能不可用
 
@@ -1383,13 +1390,13 @@ Source: docs/product/pages/main-right-sidebar.md#过程标签
 ## Requirement: rollout 投影覆盖全部用户有意义事件
 Source: docs/product/pages/main-right-sidebar.md#过程标签
 
-系统 MUST 将 Codex rollout 中的 Agent Markdown、命令、工具 / 函数 / MCP、文件操作、错误与诊断映射为有序可见事件，并过滤系统 prompt、persona、协议生命周期、内部 id、token 统计与原始 reasoning；尚未支持且不属于明确协议噪音的事件 MUST 产生带 event type 的可见 unsupported 事件。系统 MUST NOT 静默丢弃未知过程事件或下发原始 rollout JSON。
+系统 MUST 将 Codex rollout 中的 Agent Markdown、命令、工具 / 函数 / MCP、文件操作、错误与诊断映射为有序可见事件，并过滤系统 prompt、persona、协议生命周期、内部 id、绝对路径、token 统计与原始 reasoning；结构化工具输入 MUST 使用可读字段展示，超长完整内容 MAY 默认折叠但不得截断。尚未支持且不属于明确协议噪音的事件 MUST 产生通用可见占位。系统 MUST NOT 静默丢弃未知过程事件、暴露内部 event type 或下发原始 rollout JSON。
 
 ### Scenario: 已知事件之间出现新类型
 - GIVEN rollout 在命令结果与 Agent 消息之间出现一个 projector 未识别的新事件类型
 - WHEN 客户端读取该页
 - THEN 响应按原顺序包含命令结果、unsupported 占位和 Agent 消息
-- AND 占位包含事件类型但不包含原始 JSON payload
+- AND 占位只表示存在其他执行活动，不包含事件类型或原始 JSON payload
 
 ## Requirement: 过程 API 跨 attempts 反向分页且不截断全程
 Source: docs/product/pages/main-right-sidebar.md#响应式与窗口行为

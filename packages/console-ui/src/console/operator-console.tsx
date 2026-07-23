@@ -61,6 +61,7 @@ import {
   clampRightSidebarWidth,
 } from "@/console/right-sidebar";
 import {
+  createRunOutputSourceKey,
   EMPTY_RIGHT_SIDEBAR_TABS,
   ensureRightSidebarTabsForOpen,
   openRightSidebarSourceTab,
@@ -647,7 +648,7 @@ export function OperatorConsole({
           id: createRightSidebarTabId(nextRightSidebarTabIdRef),
           type: "run-output",
           title: nextProcessTabTitle(effectiveRightSidebarTabs, intent.role),
-          sourceKey: `run-output:${intent.sessionId}:${intent.runId}`,
+          sourceKey: createRunOutputSourceKey(intent.sessionId, intent.runId),
         }));
     onOpenEvidence?.(intent);
   };
@@ -1265,6 +1266,10 @@ export function OperatorConsole({
                 onSend={() => onSubSessionSend?.(sessionId)}
                 onRetry={(role) => onSubSessionRetry?.(sessionId, role)}
                 onInterrupt={onSubSessionInterrupt ?? onInterrupt}
+                onOpenOutput={(input) => openEvidence({
+                  kind: "run-output",
+                  ...input,
+                })}
                 onOpenExternalLink={onOpenExternalLink}
               />
             );
