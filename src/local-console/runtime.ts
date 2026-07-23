@@ -1503,6 +1503,15 @@ export class LocalConsoleRuntime {
 
   private async readConversationWorkspaceDiff(sessionId: string): Promise<LocalConsoleWorkspaceDiffSummary> {
     try {
+      if (!this.conversationBaselineCommits.has(sessionId) && this.options.store.getSessionBaselineCommit !== undefined) {
+        const baselineCommit = await this.storeCall("local-console-store-session-baseline", () =>
+          this.options.store.getSessionBaselineCommit!(sessionId),
+        );
+        this.conversationBaselineCommits.set(sessionId, baselineCommit);
+      }
+      if (this.conversationBaselineCommits.get(sessionId) === null) {
+        return { available: false, fileCount: null, reason: "missing-baseline" };
+      }
       const context = await this.readConversationWorkspaceContext(sessionId);
       const diff = await readLocalConversationWorkspaceDiff({
         workspacePath: context.workspacePath,
