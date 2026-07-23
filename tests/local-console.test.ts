@@ -2354,7 +2354,123 @@ describe("local console", { timeout: 15_000 }, () => {
     expect(Date.now() - before).toBeLessThan(500);
     expect(tail.lastOutputSummary).toBe("line-199");
     expect(tail.tailDiagnostic).toContain("tail-truncated:stdout.jsonl");
+    expect(tail.stdoutTruncated).toBe(true);
+    expect(tail.stdoutState).toBe("available");
+    expect(tail.stderrState).toBe("missing");
     expect(tail.stdoutTail?.length).toBeLessThanOrEqual(256);
+  });
+
+  it("serves one process output with ordered retry attempts, raw errors, truncation, and restart fallback", async () => {
+    const root = await makeFixtureRoot();
+    const sqlitePath = path.join(root, ".state", "local-console.sqlite");
+    await writeAgent(root, "dev", "# Dev");
+    const runCodex = vi.fn<LocalRunCodex>(async (options) => {
+      await fs.mkdir(options.runDir, { recursive: true });
+      if (runCodex.mock.calls.length === 1) {
+        await fs.writeFile(
+          path.join(options.runDir, "stdout.jsonl"),
+          `${"x".repeat(70_000)}\nfirst-attempt-tail /tmp/project/src/index.ts\n`,
+          "utf8",
+        );
+        await fs.writeFile(
+          path.join(options.runDir, "stderr.log"),
+          "FAIL original stderr /tmp/project/tests/index.test.ts\n",
+          "utf8",
+        );
+        return {
+          ok: false,
+          reason: "exit:42",
+          runDir: options.runDir,
+          stdoutPath: path.join(options.runDir, "stdout.jsonl"),
+          stderrPath: path.join(options.runDir, "stderr.log"),
+        };
+      }
+      await fs.writeFile(
+        path.join(options.runDir, "stdout.jsonl"),
+        "second-attempt PASS /tmp/project/src/index.ts\n",
+        "utf8",
+      );
+      return codexOk(options, "retry finished");
+    });
+    const started = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `run-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+      failureRetryLimit: 3,
+    });
+    const session = await createSession(started.url, "process output");
+    let requestedRunId = "";
+    try {
+      await postSessionMessage(started.url, session.sessionId, "@dev retry this step");
+      await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "user" && entry.status === "pending" && entry.error === "exit:42"),
+      );
+      await started.runtime.processPending(session.sessionId);
+      const completed = await waitForState(started.url, session.sessionId, (data) =>
+        data.messages.some((entry) => entry.speaker === "agent" && entry.body === "retry finished"),
+      );
+      requestedRunId = completed.messages.find(
+        (entry) => entry.speaker === "agent" && entry.body === "retry finished",
+      )?.runId ?? "";
+
+      const response = await fetch(new URL(
+        `/api/local-console/sessions/${encodeURIComponent(session.sessionId)}/runs/${encodeURIComponent(requestedRunId)}/process-output`,
+        started.url,
+      ));
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        role: string | null;
+        attempts: Array<{
+          attempt: number;
+          stdout: string | null;
+          stderr: string | null;
+          availability: string;
+          stdoutTruncated: boolean;
+        }>;
+      };
+      expect(body.role).toBe("dev");
+      expect(body.attempts).toHaveLength(2);
+      expect(body.attempts.map((attempt) => attempt.attempt)).toEqual([1, 2]);
+      expect(body.attempts[0]).toEqual(expect.objectContaining({
+        availability: "available",
+        stdoutTruncated: true,
+        stderr: "FAIL original stderr /tmp/project/tests/index.test.ts\n",
+      }));
+      expect(body.attempts[0]?.stdout).toContain("first-attempt-tail /tmp/project/src/index.ts");
+      expect(body.attempts[1]?.stdout).toBe("second-attempt PASS /tmp/project/src/index.ts\n");
+    } finally {
+      await started.close();
+    }
+
+    await fs.rm(path.join(root, "runs"), { recursive: true, force: true });
+    const restarted = await startLocalConsoleServer({
+      projectRoot: root,
+      sqlitePath,
+      port: 0,
+      runCodex,
+      makeRunDir: (count) => path.join(root, "runs", `restart-${String(count)}`),
+      storeTimeoutMs: STANDARD_STORE_TIMEOUT_MS,
+      failureRetryLimit: 3,
+    });
+    try {
+      const response = await fetch(new URL(
+        `/api/local-console/sessions/${encodeURIComponent(session.sessionId)}/runs/${encodeURIComponent(requestedRunId)}/process-output`,
+        restarted.url,
+      ));
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        attempts: Array<{ availability: string; fallback: string | null }>;
+      };
+      expect(body.attempts).toHaveLength(2);
+      expect(body.attempts.map((attempt) => attempt.availability)).toEqual(["unavailable", "unavailable"]);
+      expect(body.attempts[0]?.fallback).toContain("exit:42");
+      expect(body.attempts[1]?.fallback).toBe("retry finished");
+    } finally {
+      await restarted.close();
+    }
   });
 
   it("accepts a second local message while a slow Codex run is active", async () => {
