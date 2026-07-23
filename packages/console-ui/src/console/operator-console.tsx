@@ -25,7 +25,16 @@ import {
 } from "@/console/agent-teams-page";
 import { ConversationEmptyState } from "@/console/conversation-empty-state";
 import { ComposerContext } from "@/console/composer-context";
+import { ChangeTab, type WorkspaceDiffData } from "@/console/change-tab";
+import type { WorkspaceFileContent } from "@/console/file-diff-view";
 import { NewConversationPage } from "@/console/new-conversation-page";
+import { ProjectFilesTab, type ProjectFilesData } from "@/console/project-files-tab";
+import {
+  ProcessTab,
+  nextProcessTabTitle,
+  resolveOperatorMemberName,
+  type OperatorProcessOutputState,
+} from "@/console/process-tab";
 import {
   ConversationSidebar,
   type ConversationSidebarProject,
@@ -44,6 +53,7 @@ import { RunBlock } from "@/console/run-block";
 import { MarkdownMessage } from "@/console/markdown-message";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { SubSessionCard, type SubSessionCardItem } from "@/console/sub-session-card";
+import { SubtaskTab, type OperatorSubSessionViewState } from "@/console/subtask-tab";
 import {
   DEFAULT_RIGHT_SIDEBAR_WIDTH_PX,
   RIGHT_SIDEBAR_OVERLAY_WIDTH_PX,
@@ -253,6 +263,9 @@ export interface OperatorConsoleProps {
   messages: OperatorMessage[];
   childSessions?: OperatorChildSessionSummary[];
   openedSubSession?: OperatorSubSessionView | null;
+  subSessionViews?: Readonly<Record<string, OperatorSubSessionViewState>>;
+  subSessionComposerValue?: string;
+  subSessionComposerAttachments?: readonly ComposerAttachment[];
   openedEvidence?: OperatorEvidenceView | null;
   activeRun: OperatorRunSnapshot | null;
   workspaceDiff?: OperatorWorkspaceDiffSummary;
@@ -287,8 +300,18 @@ export interface OperatorConsoleProps {
   onSelectSession(selection: { sessionId: string; projectId: string }): void;
   onOpenSubSession?: (sessionId: string) => void;
   onCloseSubSession?: () => void;
+  onSubSessionComposerChange?: (sessionId: string, value: string) => void;
+  onSubSessionComposerFilesAdded?: (files: File[]) => void;
+  onSubSessionComposerAttachmentRemove?: (clientId: string) => void;
+  onSubSessionComposerAttachmentRetry?: (clientId: string) => void;
+  onSubSessionSend?: (sessionId: string) => void;
+  onSubSessionRetry?: (sessionId: string, role: string | null) => void;
+  onSubSessionInterrupt?: (sessionId: string, runId: string) => void;
   onOpenEvidence?: (intent: OperatorEvidenceOpenIntent) => void;
   onCloseEvidence?: () => void;
+  onLoadWorkspaceDiff?: (sessionId: string) => Promise<WorkspaceDiffData>;
+  onLoadProjectFiles?: (sessionId: string) => Promise<ProjectFilesData>;
+  onLoadProjectFile?: (sessionId: string, filePath: string) => Promise<WorkspaceFileContent>;
   onChangeSessionProject?: (sessionId: string, projectId: string) => void;
   onShowProjectInFolder?: (folderPath: string) => void | Promise<void>;
   onRenameProject?: (projectId: string, title: string) => void | Promise<void>;
@@ -330,6 +353,7 @@ export interface OperatorConsoleProps {
   onTrashAgentTeamMember?: (teamKey: string, memberSlug: string) => void | Promise<void>;
   onTrashUserAgentTeam?: (teamKey: string) => void | Promise<void>;
   isSending?: boolean;
+  isSubSessionSending?: boolean;
   isSelectionMutationPending?: boolean;
   isSessionProjectUpdating?: boolean;
   isProjectMutationPending?: boolean;
@@ -339,6 +363,7 @@ export interface OperatorConsoleProps {
   rightSidebarOpen?: boolean;
   rightSidebarWidth?: number;
   rightSidebarTabs?: RightSidebarTabsState;
+  processOutputs?: Readonly<Record<string, OperatorProcessOutputState>>;
   onRightSidebarOpenChange?: (open: boolean) => void;
   onRightSidebarWidthChange?: (width: number) => void;
   onRightSidebarTabsChange?: (state: RightSidebarTabsState) => void;
@@ -353,6 +378,9 @@ export function OperatorConsole({
   selectedSession,
   messages,
   childSessions = [],
+  subSessionViews = {},
+  subSessionComposerValue = "",
+  subSessionComposerAttachments = [],
   activeRun,
   workspaceDiff = { available: false, fileCount: null, reason: "unavailable" },
   composerValue,
@@ -384,8 +412,18 @@ export function OperatorConsole({
   onSelectSession,
   onOpenSubSession,
   onCloseSubSession,
+  onSubSessionComposerChange,
+  onSubSessionComposerFilesAdded,
+  onSubSessionComposerAttachmentRemove,
+  onSubSessionComposerAttachmentRetry,
+  onSubSessionSend,
+  onSubSessionRetry,
+  onSubSessionInterrupt,
   onOpenEvidence,
   onCloseEvidence,
+  onLoadWorkspaceDiff = unavailableWorkspaceDiff,
+  onLoadProjectFiles = unavailableProjectFiles,
+  onLoadProjectFile = unavailableProjectFile,
   onChangeSessionProject,
   onShowProjectInFolder,
   onRenameProject,
@@ -427,6 +465,7 @@ export function OperatorConsole({
   onTrashAgentTeamMember,
   onTrashUserAgentTeam,
   isSending = false,
+  isSubSessionSending = false,
   isSelectionMutationPending = false,
   isSessionProjectUpdating = false,
   isProjectMutationPending = false,
@@ -436,6 +475,7 @@ export function OperatorConsole({
   rightSidebarOpen,
   rightSidebarWidth,
   rightSidebarTabs,
+  processOutputs = {},
   onRightSidebarOpenChange,
   onRightSidebarWidthChange,
   onRightSidebarTabsChange,
@@ -603,7 +643,7 @@ export function OperatorConsole({
       : {
           id: createRightSidebarTabId(nextRightSidebarTabIdRef),
           type: "run-output",
-          title: localizeTimelineRole(intent.role),
+          title: nextProcessTabTitle(effectiveRightSidebarTabs, intent.role),
           sourceKey: `run-output:${intent.sessionId}:${intent.runId}`,
         }));
     onOpenEvidence?.(intent);
@@ -1202,6 +1242,59 @@ export function OperatorConsole({
         onOpenChange={setRightSidebarOpen}
         onWidthChange={setRightSidebarWidth}
         createTabId={() => createRightSidebarTabId(nextRightSidebarTabIdRef)}
+        contentSlots={{
+          "sub-session": (tab) => {
+            const sessionId = tab.sourceKey?.replace(/^sub-session:/u, "") ?? "";
+            const summary = childSessions.find((candidate) => candidate.sessionId === sessionId) ?? null;
+            return (
+              <SubtaskTab
+                sessionId={sessionId}
+                summary={summary}
+                state={subSessionViews[sessionId] ?? { status: "idle" }}
+                composerValue={subSessionComposerValue}
+                composerAttachments={subSessionComposerAttachments}
+                roles={roleCompletionsForTeam(displayedConversationAgentTeam)}
+                sending={isSubSessionSending}
+                onComposerChange={(value) => onSubSessionComposerChange?.(sessionId, value)}
+                onComposerFilesAdded={onSubSessionComposerFilesAdded}
+                onComposerAttachmentRemove={onSubSessionComposerAttachmentRemove}
+                onComposerAttachmentRetry={onSubSessionComposerAttachmentRetry}
+                onSend={() => onSubSessionSend?.(sessionId)}
+                onRetry={(role) => onSubSessionRetry?.(sessionId, role)}
+                onInterrupt={onSubSessionInterrupt ?? onInterrupt}
+                onOpenExternalLink={onOpenExternalLink}
+              />
+            );
+          },
+          "run-output": (tab) => (
+            <ProcessTab
+              title={tab.title}
+              state={tab.sourceKey === null ? { status: "idle" } : processOutputs[tab.sourceKey] ?? { status: "idle" }}
+            />
+          ),
+          "workspace-diff": () => selectedSession === null ? null : (
+            <ChangeTab
+              sessionId={selectedSession.sessionId}
+              workspaceMode={selectedSession.workspaceMode}
+              conversationStarted={messages.length > 0}
+              isWorking={
+                activeRun !== null
+                || selectedSession.status === "running"
+                || selectedSession.runningCount > 0
+              }
+              loadDiff={onLoadWorkspaceDiff}
+              loadFile={onLoadProjectFile}
+            />
+          ),
+          "project-files": () => selectedSession === null ? null : (
+            <ProjectFilesTab
+              sessionId={selectedSession.sessionId}
+              workspaceMode={selectedSession.workspaceMode}
+              loadFiles={onLoadProjectFiles}
+              loadFile={onLoadProjectFile}
+            />
+          ),
+        }}
       />
       </div>
 
@@ -1726,7 +1819,7 @@ function TimelineEntry({
   return (
     <div className="group py-4 pl-10 text-sm">
       <div className="mb-1.5 flex items-center gap-2 text-xs text-sub">
-        <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : message.speaker === "agent" ? localizeTimelineRole(message.role) : "系统提示"}</span>
+        <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : message.speaker === "agent" ? resolveOperatorMemberName(message.role) : "系统提示"}</span>
         <span className="tnum text-hint opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">{formatTime(message.updatedAt)}</span>
       </div>
       {message.speaker === "system" ? (
@@ -1888,4 +1981,32 @@ function localizeTimelineRole(role: string | null): string {
     secretary: "秘书",
   };
   return role === null ? "团队成员" : labels[role] ?? "团队成员";
+}
+
+async function unavailableWorkspaceDiff(): Promise<WorkspaceDiffData> {
+  return {
+    available: false,
+    fileCount: null,
+    files: [],
+    reason: "workspace-unavailable",
+    workspaceMode: "direct",
+  };
+}
+
+async function unavailableProjectFiles(): Promise<ProjectFilesData> {
+  return {
+    available: false,
+    files: [],
+    reason: "workspace-unavailable",
+    workspaceMode: "direct",
+  };
+}
+
+async function unavailableProjectFile(_sessionId: string, filePath: string): Promise<WorkspaceFileContent> {
+  return {
+    available: false,
+    path: filePath,
+    lines: [],
+    reason: "workspace-unavailable",
+  };
 }

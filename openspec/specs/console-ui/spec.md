@@ -1172,3 +1172,168 @@ Source: docs/product/pages/main-right-sidebar.md#窄窗口
 - GIVEN 窄窗口中的会话区滚动位置为 320 像素
 - WHEN 用户打开右侧栏并使用覆盖层内的关闭操作
 - THEN 右侧栏消失且会话区滚动位置仍为 320 像素
+
+## Requirement: 验收 #12 — 过程标签呈现留存的原始输出、原始错误与截断状态
+Source: docs/product/pages/main-right-sidebar.md#过程标签
+
+系统 MUST 在用户从某成员步骤点击「完整输出」后打开过程标签，并逐字呈现接口返回的 stdout、stderr 与文件路径；任一输出发生留存截断时，系统 MUST 显示可见的「此处已截断」提示。系统 MUST NOT 使用 Markdown 渲染、`sanitizeMachineText` 或摘要替换过程输出。
+
+### Scenario: 查看包含错误且已截断的步骤输出
+- GIVEN 某成员步骤的过程输出包含 stderr、文件路径且 stderr 标记为已截断
+- WHEN 用户点击该步骤的「完整输出」
+- THEN 右侧过程标签显示原始 stderr、原始文件路径和「此处已截断」提示
+
+## Requirement: 验收 #13 — 过程标签标题只由成员名和同成员序号组成
+Source: docs/product/pages/main-right-sidebar.md#标签条
+
+系统 MUST 使用步骤意图的 role 到成员名映射作为过程标签标题，同一会话内同时打开的同成员第二个及以后过程标签 MUST 依次命名为「成员名 2」「成员名 3」；无法映射 role 时 MUST 使用「成员未知」，标签文字溢出时 MUST 截断显示并由 `title` 提供完整标题。系统 MUST NOT 从步骤正文、摘要或实时输出生成描述性标题。
+
+### Scenario: 同一成员打开两个不同步骤
+- GIVEN 同一会话中开发成员有两个不同 run 输出入口
+- WHEN 用户依次点击两个入口的「完整输出」
+- THEN 标签条同时出现「开发」与「开发 2」，且二者标题均不包含步骤正文
+
+## Requirement: 验收 #14 — 同一步骤的每次执行在一个过程标签内按序保留
+Source: docs/product/pages/main-right-sidebar.md#过程标签
+
+系统 MUST 在同一过程标签内按开始时间显示同一步骤的全部执行，并以「第 1 次执行」「第 2 次执行」连续编号；活动过程标签 MUST 持续轮询，因此某次执行已 settled、下一次 retry 尚未开始的间隙也不得停止更新，执行结束后的已有分段 MUST 继续可见。系统 MUST NOT 用后一次执行覆盖前一次执行。
+
+### Scenario: 失败后重试同一步骤
+- GIVEN 某步骤第一次执行失败并产生原始错误，第二次执行随后成功
+- WHEN 用户查看该步骤的过程标签
+- THEN 标签内先显示含原始错误的「第 1 次执行」，再显示「第 2 次执行」
+
+## Requirement: 验收 #22 — 过程标签为只读且原文可选择复制
+Source: docs/product/pages/main-right-sidebar.md#过程标签
+
+系统 MUST 以可选择的纯文本区域显示过程输出和文件路径，并在原始文件丢失与空输出时分别显示「原始输出已不可用」和「这一步没有产生输出」；过程标签 MUST NOT 提供文本框、编辑、提交或其他写操作。
+
+### Scenario: 原始文件在应用重启前后被清理
+- GIVEN 某次执行的 runDir 已不存在但会话事实保留 fallback
+- WHEN 用户在过程标签查看该次执行
+- THEN 标签显示「原始输出已不可用」及可选择的 fallback，且不显示任何编辑控件
+
+## Requirement: 验收 #3 结果卡片一步打开当前对话的改动标签
+Source: docs/product/pages/main-right-sidebar.md#入口与去向
+
+系统 MUST 让一轮结束结果卡片的「查看」动作直接打开右侧栏并聚焦当前对话唯一的来源改动标签。系统 MUST NOT 先显示类型选择，也 MUST NOT 为同一结果来源重复创建标签。
+
+### Scenario: 从一轮结果查看改动
+- GIVEN 当前对话一轮工作结束并显示含改动数量的结果卡片
+- WHEN 用户点击「查看」
+- THEN 右侧栏打开并聚焦该对话的改动标签，标签内容开始读取累计改动
+
+## Requirement: 验收 #4 改动标签展示对话全程累计改动
+Source: docs/product/pages/main-right-sidebar.md#改动标签
+
+系统 MUST 展示相对当前对话开始基线的累计改动。系统 MUST NOT 把最后一步或最后一轮的局部改动冒充为整段对话改动。
+
+### Scenario: 多轮工作后查看累计改动
+- GIVEN 同一对话先后两轮分别改动了不同文件
+- WHEN 用户在第二轮结束后打开改动标签
+- THEN 文件树同时包含两轮相对对话开始基线产生的改动文件
+
+## Requirement: 验收 #5 改动说明不归因于团队成员
+Source: docs/product/pages/main-right-sidebar.md#改动标签
+
+系统 MUST 以「这段对话期间，项目发生了这些改动」说明内容范围。系统 MUST NOT 声称这些改动由团队、成员或某个 Agent 造成。
+
+### Scenario: 查看有改动的文件清单
+- GIVEN 当前对话存在项目改动
+- WHEN 改动标签完成加载
+- THEN 顶部说明的主语为项目或这段对话，且说明中没有成员改动归因
+
+## Requirement: 验收 #6 改动标签明确当前工作空间
+Source: docs/product/pages/main-right-sidebar.md#改动标签
+
+系统 MUST 使用「项目文件夹」或「独立工作空间」说明正在读取的位置；独立工作空间还 MUST 说明改动位于隔离副本且项目文件夹没有被动过。系统 MUST NOT 显示磁盘路径、`direct`、`worktree` 或「默认工作空间」。
+
+### Scenario: 独立工作空间说明隔离后果
+- GIVEN 当前对话使用独立工作空间
+- WHEN 用户查看改动标签
+- THEN 页面显示「独立工作空间」并说明隔离副本中的改动没有动项目文件夹
+
+## Requirement: 验收 #8 文件内容逐行区分变化
+Source: docs/product/pages/main-right-sidebar.md#改动标签
+
+系统 MUST 为新增、删除与未改动行分别呈现可判定的行类型，并保留未改动上下文。系统 MUST NOT 把整个文件仅渲染为一段无变化标记的文本。
+
+### Scenario: 查看同时包含增删的文件
+- GIVEN 所选文件包含新增行、删除行与未改动上下文
+- WHEN 文件内容读取完成
+- THEN 三类行分别带 `addition`、`deletion`、`unchanged` 可观察标记并显示对应行号
+
+## Requirement: 验收 #9 改动与项目文件使用不同清单范围
+Source: docs/product/pages/main-right-sidebar.md#项目文件标签
+
+系统 MUST 让改动标签只列改动文件，并让项目文件标签列出包含未改动文件的完整项目树；项目文件中的改动文件 MUST 继续使用同一行级变化呈现。系统 MUST NOT 在改动标签混入未改动文件。
+
+### Scenario: 浏览未改动文件
+- GIVEN 项目包含一个改动文件和一个未改动文件
+- WHEN 用户分别打开改动标签与项目文件标签
+- THEN 改动标签只列改动文件，项目文件标签同时列出两个文件且可读取未改动文件内容
+
+## Requirement: 验收 #10 工作期间披露列表时点并允许手动刷新
+Source: docs/product/pages/main-right-sidebar.md#内容更新
+
+系统 MUST 在团队正在工作时说明改动列表截至上一轮结束并提供手动刷新。系统 MUST NOT 把活动运行输出更新当作改动列表的实时订阅。
+
+### Scenario: 团队工作时打开改动标签
+- GIVEN 当前对话有成员正在工作
+- WHEN 用户查看改动标签
+- THEN 页面显示「截至上一轮结束」说明和可用的「刷新」按钮
+
+## Requirement: 验收 #11 三种改动空态使用不同措辞
+Source: docs/product/pages/main-right-sidebar.md#改动为空
+
+系统 MUST 分别说明「对话还没有开始」「跑过但文件没有变化」「正在读取」三种状态。系统 MUST NOT 在读取中或对话未开始时下结论称没有改动。
+
+### Scenario: 三种状态依次出现
+- GIVEN 用户依次查看未开始的对话、正在读取的已开始对话、已完成且无文件变化的对话
+- WHEN 改动标签渲染各状态
+- THEN 三种状态的可见文本互不相同，只有最后一种说明文件没有变化
+
+## Requirement: 验收 #20 刷新保持文件阅读位置
+Source: docs/product/pages/main-right-sidebar.md#内容更新
+
+系统 MUST 在刷新发现新改动时保留当前选中文件与内容滚动位置，并先显示可点击的新改动提示，由用户决定何时应用。系统 MUST NOT 因刷新自动跳到其他文件、滚动到顶部或抢占当前标签。
+
+### Scenario: 阅读中刷新发现新改动
+- GIVEN 用户已选中一个文件并把内容滚动到中部
+- WHEN 手动刷新返回新改动
+- THEN 原文件与滚动位置保持不变并出现「有新改动」提示，点击提示后才更新内容
+
+## Requirement: 验收 #22 文件内容与路径可选择复制
+Source: docs/product/pages/main-right-sidebar.md#弹层与危险操作
+
+系统 MUST 让文件路径和文件内容保持可选择复制，并保持改动与项目文件标签只读。系统 MUST NOT 提供编辑、保存、撤销、回滚、还原或 git 操作控件与文案。
+
+### Scenario: 从文件视图复制证据
+- GIVEN 用户已在改动或项目文件标签打开一个文本文件
+- WHEN 用户选择路径或正文文本
+- THEN 浏览器允许文本选择，页面不存在任何文件写入、还原或 git 操作入口
+
+## Requirement: 验收 #21 子任务标签是右侧栏唯一可推进的对话标签
+Source: docs/product/pages/main-right-sidebar.md#弹层与危险操作
+
+系统 MUST 让从主对话区子会话卡片打开的每个子任务标签按子会话标识隔离显示子任务名称、负责成员、当前状态、消息与活动运行，并提供与主对话区相同的输入、成员提及、重试和停下操作；这些操作 MUST 作用于该标签对应的子会话，打开标签时对应卡片行 MUST 标记为正在查看。系统 MUST NOT 在子任务标签中显示改动视图、文件写入或 git 操作、新建 / 重命名 / 删除子任务操作，也 MUST NOT 在关闭标签时中断、删除或取消子任务；改动、项目文件与过程标签 MUST NOT 获得子任务推进控件。
+
+### Scenario: 同时打开并分别推进两个子任务
+- GIVEN 主对话区存在两个子会话卡片行，且两个子会话拥有不同的名称、成员、状态、消息与活动运行
+- WHEN 用户依次打开两个子任务标签、在其中一个标签输入含合法成员提及的消息并发送
+- THEN 标签条同时保留两个子任务标签，当前标签显示对应子会话的摘要与推进内容，主对话区只高亮当前正在查看的卡片行，消息请求携带当前标签对应的子会话标识
+
+### Scenario: 重试和停下命中当前子会话
+- GIVEN 当前子任务标签包含一条可重试的没跑起来记录和一个可中断的活动运行
+- WHEN 用户依次触发重试和输入框空草稿状态下的停下
+- THEN 重试消息与中断请求都携带该子会话标识，中断请求同时携带该活动运行标识，主会话不收到这两个请求
+
+### Scenario: 关闭子任务标签只关闭视图
+- GIVEN 某子任务标签已打开且对应卡片行标记为正在查看
+- WHEN 用户关闭该标签
+- THEN 子任务标签从标签条移除或由最后一个标签的空白兜底替代，对应卡片行不再标记为正在查看，且没有中断、删除或取消子任务请求发生
+
+### Scenario: 右侧栏其余内容保持只读
+- GIVEN 右侧栏存在子任务、改动、项目文件与过程标签
+- WHEN 用户查看各标签可用控件
+- THEN 只有子任务标签包含消息输入、成员提及、重试和停下入口，子任务标签不包含文件树、行级对比、文件写入、git 或子任务管理控件

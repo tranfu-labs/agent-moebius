@@ -153,6 +153,76 @@ export type LocalConsoleWorkspaceDiffSummary =
       reason: "missing-baseline" | "not-git-repository" | "workspace-unavailable" | "baseline-unavailable" | "no-session";
     };
 
+export interface LocalConsoleWorkspaceDiffFile {
+  path: string;
+  additions: number | null;
+  deletions: number | null;
+}
+
+export type LocalConsoleWorkspaceDiffDetail =
+  | {
+      available: true;
+      fileCount: number;
+      files: LocalConsoleWorkspaceDiffFile[];
+      reason: null;
+      workspaceMode: LocalConsoleWorkspaceMode;
+    }
+  | {
+      available: false;
+      fileCount: null;
+      files: [];
+      reason: Exclude<LocalConsoleWorkspaceDiffSummary, { available: true }>["reason"];
+      workspaceMode: LocalConsoleWorkspaceMode;
+    };
+
+export interface LocalConsoleFileLine {
+  kind: "addition" | "deletion" | "unchanged";
+  oldLineNumber: number | null;
+  newLineNumber: number | null;
+  text: string;
+}
+
+export type LocalConsoleFileContent =
+  | {
+      available: true;
+      path: string;
+      lines: LocalConsoleFileLine[];
+      reason: null;
+    }
+  | {
+      available: false;
+      path: string;
+      lines: [];
+      reason:
+        | "binary-file"
+        | "file-too-large"
+        | "not-found"
+        | "not-file"
+        | "outside-workspace"
+        | "workspace-unavailable";
+    };
+
+export interface LocalConsoleProjectFileEntry {
+  path: string;
+  additions: number | null;
+  deletions: number | null;
+  changed: boolean;
+}
+
+export type LocalConsoleProjectFiles =
+  | {
+      available: true;
+      files: LocalConsoleProjectFileEntry[];
+      reason: null;
+      workspaceMode: LocalConsoleWorkspaceMode;
+    }
+  | {
+      available: false;
+      files: [];
+      reason: "workspace-unavailable";
+      workspaceMode: LocalConsoleWorkspaceMode;
+    };
+
 export interface LocalConsoleRunOutput {
   sessionId: string;
   runId: string;
@@ -160,6 +230,29 @@ export interface LocalConsoleRunOutput {
   stdout: string | null;
   stderr: string | null;
   fallback: string | null;
+}
+
+export type LocalConsoleProcessOutputAvailability = "available" | "empty" | "unavailable";
+
+export interface LocalConsoleProcessOutputAttempt {
+  runId: string;
+  attempt: number;
+  startedAt: string;
+  status: "running" | "settled";
+  stdout: string | null;
+  stderr: string | null;
+  fallback: string | null;
+  availability: LocalConsoleProcessOutputAvailability;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+}
+
+export interface LocalConsoleProcessOutput {
+  sessionId: string;
+  requestedRunId: string;
+  role: string | null;
+  status: "running" | "settled";
+  attempts: LocalConsoleProcessOutputAttempt[];
 }
 
 export interface LocalConsoleSessionSummary {

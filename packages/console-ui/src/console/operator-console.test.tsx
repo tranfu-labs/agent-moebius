@@ -1033,6 +1033,82 @@ describe("OperatorConsole", () => {
     });
   });
 
+  it("drives the result-card entry through the console container into the loaded change tab", async () => {
+    const loadDiff = vi.fn(async () => ({
+      available: true as const,
+      fileCount: 1,
+      files: [{ path: "src/app.ts", additions: 2, deletions: 1 }],
+      reason: null,
+      workspaceMode: "worktree" as const,
+    }));
+    const loadFile = vi.fn(async () => ({
+      available: true as const,
+      path: "src/app.ts",
+      lines: [
+        { kind: "unchanged" as const, oldLineNumber: 1, newLineNumber: 1, text: "const before = true;" },
+        { kind: "deletion" as const, oldLineNumber: 2, newLineNumber: null, text: "const oldValue = 1;" },
+        { kind: "addition" as const, oldLineNumber: null, newLineNumber: 2, text: "const newValue = 2;" },
+      ],
+      reason: null,
+    }));
+    renderConsole({
+      selectedSession: { ...sessions[0], status: "idle", runningCount: 0, lastMessageMentionsAgent: false },
+      messages: [message({ id: 2, speaker: "agent", role: "dev", body: "完成实现" })],
+      workspaceDiff: { available: true, fileCount: 1, reason: null },
+      onLoadWorkspaceDiff: loadDiff,
+      onLoadProjectFile: loadFile,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "查看" }));
+
+    const panel = await screen.findByTestId("change-tab");
+    expect(within(panel).getByText("这段对话期间，项目发生了这些改动（独立工作空间）。")).toBeVisible();
+    expect(within(panel).getByText("这些改动在一份隔离副本里，你的项目文件夹没有被动过。")).toBeVisible();
+    expect(within(panel).getByTitle("src/app.ts")).toBeVisible();
+    expect(await within(panel).findByText("const newValue = 2;")).toHaveClass("whitespace-pre");
+    expect(loadDiff).toHaveBeenCalledWith("session-a");
+    expect(loadFile).toHaveBeenCalledWith("session-a", "src/app.ts");
+    expect(within(panel).queryByText(/成员改了|团队改了/u)).not.toBeInTheDocument();
+  });
+
+  it("drives a blank-tab project-files choice through the console container and includes unchanged files", async () => {
+    const loadFiles = vi.fn(async () => ({
+      available: true as const,
+      files: [
+        { path: "README.md", additions: null, deletions: null, changed: false },
+        { path: "src/app.ts", additions: 1, deletions: 0, changed: true },
+      ],
+      reason: null,
+      workspaceMode: "direct" as const,
+    }));
+    const loadFile = vi.fn(async (_sessionId: string, filePath: string) => ({
+      available: true as const,
+      path: filePath,
+      lines: [{ kind: "unchanged" as const, oldLineNumber: 1, newLineNumber: 1, text: "# Project" }],
+      reason: null,
+    }));
+    renderConsole({
+      rightSidebarOpen: true,
+      project: {
+        ...project,
+        isGitRepository: false,
+      },
+      selectedSession: {
+        ...sessions[0],
+        workspaceMode: "direct",
+      },
+      onLoadProjectFiles: loadFiles,
+      onLoadProjectFile: loadFile,
+    });
+
+    const panel = await screen.findByTestId("project-files-tab");
+    expect(within(panel).getByText("正在浏览完整项目树（项目文件夹）。")).toBeVisible();
+    expect(within(panel).getByTitle("README.md")).toBeVisible();
+    expect(await within(panel).findByText("# Project")).toBeVisible();
+    expect(loadFiles).toHaveBeenCalledWith("session-a");
+    expect(loadFile).toHaveBeenCalledWith("session-a", "README.md");
+  });
+
   it("keeps historical Streamdown Markdown and hides machine details beside the output outlet", () => {
     renderConsole({
       messages: [message({
@@ -1079,6 +1155,168 @@ describe("OperatorConsole", () => {
       role: "dev",
       fallbackOutput: "完成实现",
     });
+  });
+
+  it("renders ordered raw attempts from the complete-output entry without sanitizing paths or errors", () => {
+    renderConsole({
+      messages: [message({
+        id: 2,
+        speaker: "agent",
+        role: "dev",
+        runId: "run-retry-2",
+        body: "已完成第二次执行",
+      })],
+      processOutputs: {
+        "run-output:session-a:run-retry-2": {
+          status: "ready",
+          output: {
+            sessionId: "session-a",
+            requestedRunId: "run-retry-2",
+            role: "dev",
+            status: "settled",
+            attempts: [
+              {
+                runId: "run-retry-1",
+                attempt: 1,
+                startedAt: "2026-07-09T00:00:00.000Z",
+                status: "settled",
+                stdout: null,
+                stderr: "Error: failed at /Users/wing/private/source.ts\n**raw stderr**",
+                fallback: "first failure",
+                availability: "available",
+                stdoutTruncated: false,
+                stderrTruncated: true,
+              },
+              {
+                runId: "run-retry-2",
+                attempt: 2,
+                startedAt: "2026-07-09T00:01:00.000Z",
+                status: "settled",
+                stdout: "saved /Users/wing/private/result.txt",
+                stderr: null,
+                fallback: "second result",
+                availability: "available",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+
+    const content = screen.getByTestId("right-sidebar-content");
+    expect(within(content).getByText("开发 · 这一步的完整输出")).toBeVisible();
+    expect(within(content).getByText("第 1 次执行")).toBeVisible();
+    expect(within(content).getByText("第 2 次执行")).toBeVisible();
+    expect(within(content).getByRole("note")).toHaveTextContent("此处已截断");
+    expect(content).toHaveTextContent("Error: failed at /Users/wing/private/source.ts");
+    expect(content).toHaveTextContent("**raw stderr**");
+    expect(content).toHaveTextContent("saved /Users/wing/private/result.txt");
+    expect(content).not.toHaveTextContent("路径已隐藏");
+    expect(within(content).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(content).queryByRole("button")).not.toBeInTheDocument();
+    expect(content.querySelectorAll("pre.select-text")).toHaveLength(2);
+  });
+
+  it("numbers separate process tabs by member and never derives a title from step content", () => {
+    renderConsole({
+      messages: [
+        message({ id: 2, speaker: "agent", role: "dev", runId: "run-one", body: "实现上传协议" }),
+        message({ id: 3, speaker: "agent", role: "dev", runId: "run-two", body: "修复数据库迁移" }),
+      ],
+    });
+
+    const outputButtons = screen.getAllByRole("button", { name: "完整输出" });
+    fireEvent.click(outputButtons[0]!);
+    fireEvent.click(outputButtons[1]!);
+
+    const panel = screen.getByTestId("right-sidebar");
+    expect(within(panel).getByRole("tab", { name: "开发" })).toHaveAttribute("title", "开发");
+    expect(within(panel).getByRole("tab", { name: "开发 2" })).toHaveAttribute("title", "开发 2");
+    expect(within(panel).queryByRole("tab", { name: /上传协议|数据库迁移/u })).not.toBeInTheDocument();
+  });
+
+  it("reuses an available member ordinal without duplicating another open process tab", () => {
+    renderConsole({
+      messages: [
+        message({ id: 2, speaker: "agent", role: "dev", runId: "run-one", body: "one" }),
+        message({ id: 3, speaker: "agent", role: "dev", runId: "run-two", body: "two" }),
+        message({ id: 4, speaker: "agent", role: "dev", runId: "run-three", body: "three" }),
+        message({ id: 5, speaker: "agent", role: "dev", runId: "run-four", body: "four" }),
+      ],
+    });
+
+    const outputButtons = screen.getAllByRole("button", { name: "完整输出" });
+    fireEvent.click(outputButtons[0]!);
+    fireEvent.click(outputButtons[1]!);
+    fireEvent.click(outputButtons[2]!);
+    fireEvent.click(screen.getByRole("button", { name: "关闭标签：开发 2" }));
+    fireEvent.click(outputButtons[3]!);
+
+    const panel = screen.getByTestId("right-sidebar");
+    expect(within(panel).getAllByRole("tab", { name: "开发" })).toHaveLength(1);
+    expect(within(panel).getAllByRole("tab", { name: "开发 2" })).toHaveLength(1);
+    expect(within(panel).getAllByRole("tab", { name: "开发 3" })).toHaveLength(1);
+  });
+
+  it("distinguishes unavailable original output from an empty execution", () => {
+    renderConsole({
+      messages: [message({
+        id: 2,
+        speaker: "agent",
+        role: null,
+        runId: "run-missing",
+        body: "fallback result",
+      })],
+      processOutputs: {
+        "run-output:session-a:run-missing": {
+          status: "ready",
+          output: {
+            sessionId: "session-a",
+            requestedRunId: "run-missing",
+            role: null,
+            status: "settled",
+            attempts: [
+              {
+                runId: "run-missing",
+                attempt: 1,
+                startedAt: "2026-07-09T00:00:00.000Z",
+                status: "settled",
+                stdout: null,
+                stderr: null,
+                fallback: "fallback /tmp/run-missing",
+                availability: "unavailable",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              },
+              {
+                runId: "run-empty",
+                attempt: 2,
+                startedAt: "2026-07-09T00:01:00.000Z",
+                status: "settled",
+                stdout: null,
+                stderr: null,
+                fallback: null,
+                availability: "empty",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+
+    const panel = screen.getByTestId("right-sidebar");
+    expect(within(panel).getByRole("tab", { name: "成员未知" })).toHaveAttribute("title", "成员未知");
+    expect(within(panel).getByText("原始输出已不可用，以下为会话中保留的记录。")).toBeVisible();
+    expect(within(panel).getByText("这一步没有产生输出。")).toBeVisible();
+    expect(panel).toHaveTextContent("fallback /tmp/run-missing");
   });
 
   it("keeps terminal outcomes readable and gives every fact a complete-output outlet", () => {
@@ -1157,6 +1395,63 @@ describe("OperatorConsole", () => {
     expect(onOpenSubSession).toHaveBeenCalledWith(childSession.sessionId);
   });
 
+  it("keeps multiple subtask tabs and their conversation state isolated by session id", () => {
+    const firstSession = { ...sessions[1], sessionId: "child-a", parentSessionId: "session-a", title: "空状态验收" };
+    const secondSession = { ...sessions[1], sessionId: "child-b", parentSessionId: "session-a", title: "登录验收" };
+    renderConsole({
+      messages: [message({
+        id: 10,
+        speaker: "system",
+        sourceKind: "local-child-session-card",
+        body: JSON.stringify({ version: 1, childSessionIds: ["child-a", "child-b"] }),
+      })],
+      childSessions: [{
+        sessionId: "child-a",
+        title: "空状态验收",
+        memberName: "测试",
+        status: "waiting",
+        statusLabel: "等待中",
+      }, {
+        sessionId: "child-b",
+        title: "登录验收",
+        memberName: "开发",
+        status: "running",
+        statusLabel: "进行中",
+      }],
+      subSessionViews: {
+        "child-a": {
+          status: "ready",
+          view: {
+            session: firstSession,
+            messages: [message({ id: 11, sessionId: "child-a", role: "qa", speaker: "agent", body: "只属于空状态验收" })],
+            activeRun: null,
+          },
+        },
+        "child-b": {
+          status: "ready",
+          view: {
+            session: secondSession,
+            messages: [message({ id: 12, sessionId: "child-b", role: "dev", speaker: "agent", body: "只属于登录验收" })],
+            activeRun: null,
+          },
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /空状态验收，负责成员/u }));
+    fireEvent.click(screen.getByRole("button", { name: /登录验收，负责成员/u }));
+    expect(screen.getByRole("tab", { name: "空状态验收" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "登录验收" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("只属于登录验收")).toBeVisible();
+    expect(screen.queryByText("只属于空状态验收")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "空状态验收" }));
+    expect(screen.getByText("只属于空状态验收")).toBeVisible();
+    expect(screen.queryByText("只属于登录验收")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /空状态验收，负责成员/u })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /登录验收，负责成员/u })).toHaveAttribute("aria-pressed", "false");
+  });
+
   it("keeps the parent visible in a wide split, overlays narrow windows, and restores parent scroll after close", async () => {
     setWindowWidth(1200);
     const onOpenSubSession = vi.fn();
@@ -1191,7 +1486,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByTestId("right-sidebar")).toHaveAttribute("data-layout", "split");
     expect(screen.getByRole("tab", { name: "空状态验收" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "会话时间线" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox")).toBeEnabled();
+    expect(screen.getByPlaceholderText("描述你的目标，@ 一个角色开始…")).toBeEnabled();
     timeline.scrollTop = 700;
 
     setWindowWidth(700);

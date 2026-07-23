@@ -9,9 +9,15 @@ export interface LocalConsoleTailOptions {
 export interface LocalConsoleOutputTail {
   stdoutTail: string | null;
   stderrTail: string | null;
+  stdoutState: LocalConsoleOutputFileState;
+  stderrState: LocalConsoleOutputFileState;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
   lastOutputSummary: string;
   tailDiagnostic: string | null;
 }
+
+export type LocalConsoleOutputFileState = "available" | "empty" | "missing";
 
 const DEFAULT_MAX_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 250;
@@ -38,6 +44,10 @@ export async function readLocalConsoleOutputTail(
   return {
     stdoutTail: stdout.text,
     stderrTail: stderr.text,
+    stdoutState: stdout.state,
+    stderrState: stderr.state,
+    stdoutTruncated: stdout.truncated,
+    stderrTruncated: stderr.truncated,
     lastOutputSummary: summary,
     tailDiagnostic: diagnostics.length > 0 ? diagnostics.join("; ") : null,
   };
@@ -56,39 +66,62 @@ async function readTailBounded(
   filePath: string,
   maxBytes: number,
   timeoutMs: number,
-): Promise<{ text: string | null; diagnostic: string | null }> {
+): Promise<OutputFileTail> {
   return await withTimeout(readTail(filePath, maxBytes), timeoutMs, `tail-timeout:${path.basename(filePath)}`);
 }
 
-async function readTail(filePath: string, maxBytes: number): Promise<{ text: string | null; diagnostic: string | null }> {
+interface OutputFileTail {
+  text: string | null;
+  diagnostic: string | null;
+  state: LocalConsoleOutputFileState;
+  truncated: boolean;
+}
+
+async function readTail(filePath: string, maxBytes: number): Promise<OutputFileTail> {
   let handle: fs.FileHandle | null = null;
   try {
     handle = await fs.open(filePath, "r");
     const stat = await handle.stat();
     const length = Math.min(maxBytes, stat.size);
     if (length <= 0) {
-      return { text: null, diagnostic: null };
+      return { text: null, diagnostic: null, state: "empty", truncated: false };
     }
     const buffer = Buffer.alloc(length);
     await handle.read(buffer, 0, length, stat.size - length);
-    return { text: buffer.toString("utf8"), diagnostic: stat.size > maxBytes ? `tail-truncated:${path.basename(filePath)}` : null };
+    const truncated = stat.size > maxBytes;
+    return {
+      text: buffer.toString("utf8"),
+      diagnostic: truncated ? `tail-truncated:${path.basename(filePath)}` : null,
+      state: "available",
+      truncated,
+    };
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return { text: null, diagnostic: null };
+      return { text: null, diagnostic: null, state: "missing", truncated: false };
     }
-    return { text: null, diagnostic: `tail-read-failed:${path.basename(filePath)}:${formatError(error)}` };
+    return {
+      text: null,
+      diagnostic: `tail-read-failed:${path.basename(filePath)}:${formatError(error)}`,
+      state: "missing",
+      truncated: false,
+    };
   } finally {
     await handle?.close();
   }
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, diagnostic: string): Promise<T | { text: null; diagnostic: string }> {
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, diagnostic: string): Promise<T | OutputFileTail> {
   let timer: NodeJS.Timeout | null = null;
   try {
     return await Promise.race([
       promise,
-      new Promise<{ text: null; diagnostic: string }>((resolve) => {
-        timer = setTimeout(() => resolve({ text: null, diagnostic }), timeoutMs);
+      new Promise<OutputFileTail>((resolve) => {
+        timer = setTimeout(() => resolve({
+          text: null,
+          diagnostic,
+          state: "missing",
+          truncated: false,
+        }), timeoutMs);
         timer.unref();
       }),
     ]);
@@ -166,6 +199,10 @@ function fallbackTail(summary: string, diagnostic: string | null): LocalConsoleO
   return {
     stdoutTail: null,
     stderrTail: null,
+    stdoutState: "missing",
+    stderrState: "missing",
+    stdoutTruncated: false,
+    stderrTruncated: false,
     lastOutputSummary: summary,
     tailDiagnostic: diagnostic,
   };

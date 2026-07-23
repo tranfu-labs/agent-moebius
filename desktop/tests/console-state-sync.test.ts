@@ -4,7 +4,15 @@ import {
   ConsoleStateActions,
   ConsoleStateCoordinator,
   loadEvidenceView,
+  loadProcessOutput,
+  loadSubSessionView,
+  processOutputRunId,
+  loadProjectFile,
+  loadProjectFiles,
+  loadWorkspaceDiff,
   refreshConsoleState,
+  subSessionIdFromSourceKey,
+  submitSessionMessage,
   type ConsoleSelection,
   type SelectionMutationKind,
 } from "../src/console-page/state-sync.js";
@@ -90,6 +98,58 @@ describe("acknowledgeDisplayedResult", () => {
   });
 });
 
+describe("sub-session adapters", () => {
+  it("parses only a non-empty sub-session source key", () => {
+    expect(subSessionIdFromSourceKey("sub-session:child/a")).toBe("child/a");
+    expect(subSessionIdFromSourceKey("run-output:child/a")).toBeNull();
+    expect(subSessionIdFromSourceKey("sub-session:")).toBeNull();
+    expect(subSessionIdFromSourceKey(null)).toBeNull();
+  });
+
+  it("loads and advances the exact child session", async () => {
+    const view = {
+      session: { sessionId: "child/a" },
+      messages: [],
+      activeRun: null,
+    };
+    let requestCount = 0;
+    const fetch = vi.fn(function (this: unknown) {
+      expect(this).toBeUndefined();
+      requestCount += 1;
+      return Promise.resolve(requestCount === 1
+        ? jsonResponse(view)
+        : jsonResponse({ accepted: true }, 202));
+    });
+
+    await expect(loadSubSessionView({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "child/a",
+      fetch,
+    })).resolves.toEqual(view);
+    await expect(submitSessionMessage({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "child/a",
+      body: "@qa 继续验收",
+      attachmentIds: ["attachment-1"],
+      fetch,
+    })).resolves.toBeUndefined();
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      new URL("http://127.0.0.1:8787/api/local-console/sessions/child%2Fa/view"),
+      undefined,
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      new URL("http://127.0.0.1:8787/api/local-console/sessions/child%2Fa/messages"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ body: "@qa 继续验收", attachmentIds: ["attachment-1"] }),
+      }),
+    );
+  });
+});
+
 describe("loadEvidenceView", () => {
   it("builds the diff fallback without requesting a file list", async () => {
     const fetch = vi.fn();
@@ -132,6 +192,101 @@ describe("loadEvidenceView", () => {
       title: "开发 · 完整输出",
       content: "标准输出\ncomplete stdout\n\n错误输出\ncomplete stderr\n\n记录\nrecorded fallback",
     });
+  });
+});
+
+describe("loadProcessOutput", () => {
+  it("loads the active process tab through the aggregate HTTP endpoint", async () => {
+    const output = {
+      sessionId: "local:session/a",
+      requestedRunId: "run/2",
+      role: "dev",
+      status: "running" as const,
+      attempts: [{
+        runId: "run/2",
+        attempt: 1,
+        startedAt: "2026-07-09T00:00:00.000Z",
+        status: "running" as const,
+        stdout: "raw /tmp/output",
+        stderr: null,
+        fallback: null,
+        availability: "available" as const,
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      }],
+    };
+    const fetch = vi.fn(async (_input: string | URL | Request) => jsonResponse(output));
+
+    await expect(loadProcessOutput({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: output.sessionId,
+      runId: output.requestedRunId,
+      fetch,
+    })).resolves.toEqual(output);
+
+    expect(String(fetch.mock.calls[0]?.[0])).toContain(
+      "/sessions/local%3Asession%2Fa/runs/run%2F2/process-output",
+    );
+  });
+
+  it("resolves a persisted source key against the whole selected session id", () => {
+    expect(processOutputRunId(
+      "run-output:local:project:session-a:run:retry-2",
+      "local:project:session-a",
+    )).toBe("run:retry-2");
+    expect(processOutputRunId("run-output:other:run-1", "session-a")).toBeNull();
+  });
+});
+
+describe("workspace file readers", () => {
+  it("loads diff, project tree, and selected file through session-scoped read-only routes", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        available: true,
+        fileCount: 1,
+        files: [{ path: "src/app.ts", additions: 2, deletions: 1 }],
+        reason: null,
+        workspaceMode: "direct",
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        available: true,
+        files: [{ path: "README.md", additions: null, deletions: null, changed: false }],
+        reason: null,
+        workspaceMode: "direct",
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        available: true,
+        path: "README.md",
+        lines: [{ kind: "unchanged", oldLineNumber: 1, newLineNumber: 1, text: "# Project" }],
+        reason: null,
+      }));
+
+    await expect(loadWorkspaceDiff({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      fetch,
+    })).resolves.toMatchObject({ available: true, fileCount: 1 });
+    await expect(loadProjectFiles({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      fetch,
+    })).resolves.toMatchObject({ available: true, files: [expect.objectContaining({ path: "README.md" })] });
+    await expect(loadProjectFile({
+      apiBase: "http://127.0.0.1:8787/",
+      sessionId: "session/a",
+      filePath: "docs/中文 文件.md",
+      fetch,
+    })).resolves.toMatchObject({ available: true, path: "README.md" });
+
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "http://127.0.0.1:8787/api/local-console/sessions/session%2Fa/workspace-diff",
+    );
+    expect(String(fetch.mock.calls[1]?.[0])).toBe(
+      "http://127.0.0.1:8787/api/local-console/sessions/session%2Fa/files",
+    );
+    expect(String(fetch.mock.calls[2]?.[0])).toContain(
+      "/api/local-console/sessions/session%2Fa/files/content?path=docs%2F",
+    );
   });
 });
 

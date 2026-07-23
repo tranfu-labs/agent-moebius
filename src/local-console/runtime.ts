@@ -32,7 +32,11 @@ import {
   LocalConsoleBusyError,
   LocalConsoleProjectFolderError,
   LocalConsoleStoreTimeoutError,
+  type LocalConsoleFileContent,
   type LocalConsoleMessage,
+  type LocalConsoleProcessOutput,
+  type LocalConsoleProcessOutputAttempt,
+  type LocalConsoleProjectFiles,
   type LocalConsoleProjectSummary,
   type LocalConsoleProjectRemovalResult,
   LocalConsoleProjectRunningError,
@@ -49,6 +53,7 @@ import {
   type LocalConsoleSnapshot,
   type LocalConsoleStateSnapshot,
   type LocalConsoleSessionView,
+  type LocalConsoleWorkspaceDiffDetail,
   type LocalConsoleWorkspaceDiffSummary,
   type LocalConsoleStore,
 } from "./types.js";
@@ -63,8 +68,11 @@ import {
 } from "./workspace-source.js";
 import {
   readLocalConversationBaselineCommit,
+  readLocalConversationDiffFile,
   readLocalConversationWorkspaceDiff,
+  readLocalConversationWorkspaceDiffDetail,
 } from "./workspace-diff.js";
+import { listLocalWorkspaceFiles, readLocalWorkspaceTextFile } from "./file-read.js";
 import { resolveSessionWorkspaceContext } from "./workspace-resolution.js";
 import { nonContinuableSystemMessage, resolveLocalSessionContinuation } from "./session-status.js";
 import { ORPHAN_RUN_STUCK_REASON, identifyOrphanRuns } from "./orphan-runs.js";
@@ -771,6 +779,179 @@ export class LocalConsoleRuntime {
     };
   }
 
+  async processOutput(sessionId: string, runId: string): Promise<LocalConsoleProcessOutput> {
+    const messages = await this.storeCall("local-console-store-list-process-output", () =>
+      this.options.store.listMessages(sessionId),
+    );
+    const active = this.activeRuns.get(sessionId);
+    const factAttempts = await readProcessOutputAttemptFacts(
+      this.sessionFactStore().getSessionFactLogPath(sessionId),
+      sessionId,
+    );
+    const attemptsByRunId = new Map(factAttempts.map((attempt) => [attempt.runId, attempt]));
+
+    for (const message of messages) {
+      if (message.runId === null) {
+        continue;
+      }
+      mergeProcessOutputAttemptFact(attemptsByRunId, {
+        runId: message.runId,
+        sourceMessageId: message.speaker === "user" ? message.id : null,
+        runDir: message.runDir,
+        role: message.role,
+        fallback: message.speaker === "user"
+          ? null
+          : nonEmptyText(message.error) ?? nonEmptyText(message.body),
+        startedAt: message.updatedAt,
+      });
+    }
+    if (active !== undefined) {
+      mergeProcessOutputAttemptFact(attemptsByRunId, {
+        runId: active.runId,
+        sourceMessageId: active.userMessageId,
+        runDir: active.runDir,
+        role: active.role,
+        fallback: nonEmptyText(active.liveMarkdown),
+        startedAt: active.startedAt,
+      });
+    }
+
+    const anchor = attemptsByRunId.get(runId);
+    if (anchor === undefined) {
+      throw new Error(`local console run not found: ${sessionId}/${runId}`);
+    }
+    const grouped = [...attemptsByRunId.values()]
+      .filter((attempt) =>
+        anchor.sourceMessageId === null
+          ? attempt.runId === runId
+          : attempt.sourceMessageId === anchor.sourceMessageId)
+      .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.runId.localeCompare(right.runId));
+    const attempts = await Promise.all(grouped.map(async (attempt, index): Promise<LocalConsoleProcessOutputAttempt> => {
+      const isRunning = active?.runId === attempt.runId;
+      const output = attempt.runDir === null
+        ? null
+        : await readLocalConsoleOutputTail(attempt.runDir);
+      const availability = output === null
+        ? "unavailable" as const
+        : output.stdoutState === "available" || output.stderrState === "available"
+          ? "available" as const
+          : isRunning || output.stdoutState === "empty" || output.stderrState === "empty"
+            ? "empty" as const
+            : "unavailable" as const;
+      return {
+        runId: attempt.runId,
+        attempt: index + 1,
+        startedAt: attempt.startedAt,
+        status: isRunning ? "running" : "settled",
+        stdout: output?.stdoutTail ?? null,
+        stderr: output?.stderrTail ?? null,
+        fallback: attempt.fallback,
+        availability,
+        stdoutTruncated: output?.stdoutTruncated ?? false,
+        stderrTruncated: output?.stderrTruncated ?? false,
+      };
+    }));
+    const running = attempts.some((attempt) => attempt.status === "running");
+    return {
+      sessionId,
+      requestedRunId: runId,
+      role: active?.runId === runId
+        ? active.role
+        : grouped.find((attempt) => attempt.role !== null)?.role ?? null,
+      status: running ? "running" : "settled",
+      attempts,
+    };
+  }
+
+  async workspaceDiffDetail(sessionId: string): Promise<LocalConsoleWorkspaceDiffDetail> {
+    try {
+      const context = await this.readConversationWorkspaceContext(sessionId);
+      const diff = await readLocalConversationWorkspaceDiffDetail({
+        workspacePath: context.workspacePath,
+        baselineCommit: context.baselineCommit,
+        gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+      });
+      return { ...diff, workspaceMode: context.workspaceMode };
+    } catch (error) {
+      log({ event: "local-console-workspace-diff-detail-unavailable", sessionId, error: formatLocalError(error) });
+      return {
+        available: false,
+        fileCount: null,
+        files: [],
+        reason: "workspace-unavailable",
+        workspaceMode: await this.readWorkspaceModeBestEffort(sessionId),
+      };
+    }
+  }
+
+  async projectFiles(sessionId: string): Promise<LocalConsoleProjectFiles> {
+    try {
+      const context = await this.readConversationWorkspaceContext(sessionId);
+      const [filePaths, diff] = await Promise.all([
+        listLocalWorkspaceFiles(context.workspacePath),
+        readLocalConversationWorkspaceDiffDetail({
+          workspacePath: context.workspacePath,
+          baselineCommit: context.baselineCommit,
+          gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+        }),
+      ]);
+      const changes = new Map(diff.available ? diff.files.map((file) => [file.path, file]) : []);
+      return {
+        available: true,
+        files: filePaths.map((filePath) => {
+          const change = changes.get(filePath);
+          return {
+            path: filePath,
+            additions: change?.additions ?? null,
+            deletions: change?.deletions ?? null,
+            changed: change !== undefined,
+          };
+        }),
+        reason: null,
+        workspaceMode: context.workspaceMode,
+      };
+    } catch (error) {
+      log({ event: "local-console-project-files-unavailable", sessionId, error: formatLocalError(error) });
+      return {
+        available: false,
+        files: [],
+        reason: "workspace-unavailable",
+        workspaceMode: await this.readWorkspaceModeBestEffort(sessionId),
+      };
+    }
+  }
+
+  async projectFile(sessionId: string, filePath: string): Promise<LocalConsoleFileContent> {
+    try {
+      const context = await this.readConversationWorkspaceContext(sessionId);
+      const diff = await readLocalConversationWorkspaceDiffDetail({
+        workspacePath: context.workspacePath,
+        baselineCommit: context.baselineCommit,
+        gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+      });
+      if (diff.available && diff.files.some((file) => file.path === filePath)) {
+        return await readLocalConversationDiffFile({
+          workspacePath: context.workspacePath,
+          baselineCommit: context.baselineCommit,
+          filePath,
+          gitTimeoutMs: this.options.workspaceGitTimeoutMs,
+        });
+      }
+      return await readLocalWorkspaceTextFile({
+        workspacePath: context.workspacePath,
+        filePath,
+      });
+    } catch (error) {
+      log({ event: "local-console-project-file-unavailable", sessionId, filePath, error: formatLocalError(error) });
+      return {
+        available: false,
+        path: filePath,
+        lines: [],
+        reason: "workspace-unavailable",
+      };
+    }
+  }
+
   async childSessionSummaries(parentSessionId: string) {
     return await this.storeCall("local-console-store-list-child-sessions", () =>
       listLocalChildSessionSummaries({
@@ -1368,21 +1549,56 @@ export class LocalConsoleRuntime {
       if (this.conversationBaselineCommits.get(sessionId) === null) {
         return { available: false, fileCount: null, reason: "missing-baseline" };
       }
-      const source = await this.storeCall("local-console-store-session-workspace-diff", () =>
-        this.options.store.getSessionWorkspace(sessionId),
-      );
-      this.conversationBaselineCommits.set(sessionId, source.baselineCommit ?? null);
-      const workspacePath = source.workspaceMode === "worktree"
-        ? localSessionWorktreePath(this.options.workdirRoot, source.projectId, sessionId)
-        : source.folderPath;
-      return await readLocalConversationWorkspaceDiff({
-        workspacePath,
-        baselineCommit: source.baselineCommit ?? null,
+      const context = await this.readConversationWorkspaceContext(sessionId);
+      const diff = await readLocalConversationWorkspaceDiff({
+        workspacePath: context.workspacePath,
+        baselineCommit: context.baselineCommit,
         gitTimeoutMs: this.options.workspaceGitTimeoutMs,
       });
+      return diff.available
+        ? { available: true, fileCount: diff.fileCount, reason: null }
+        : { available: false, fileCount: null, reason: diff.reason };
     } catch (error) {
       log({ event: "local-console-workspace-diff-count-unavailable", sessionId, error: formatLocalError(error) });
       return { available: false, fileCount: null, reason: "workspace-unavailable" };
+    }
+  }
+
+  private async readConversationWorkspaceContext(sessionId: string): Promise<{
+    workspacePath: string;
+    workspaceMode: LocalConsoleWorkspaceMode;
+    baselineCommit: string | null;
+  }> {
+    if (!this.conversationBaselineCommits.has(sessionId) && this.options.store.getSessionBaselineCommit !== undefined) {
+      const baselineCommit = await this.storeCall("local-console-store-session-baseline", () =>
+        this.options.store.getSessionBaselineCommit!(sessionId),
+      );
+      this.conversationBaselineCommits.set(sessionId, baselineCommit);
+    }
+    const source = await this.storeCall("local-console-store-session-workspace-files", () =>
+      this.options.store.getSessionWorkspace(sessionId),
+    );
+    const baselineCommit = source.baselineCommit
+      ?? this.conversationBaselineCommits.get(sessionId)
+      ?? null;
+    this.conversationBaselineCommits.set(sessionId, baselineCommit);
+    return {
+      workspacePath: source.workspaceMode === "worktree"
+        ? localSessionWorktreePath(this.options.workdirRoot, source.projectId, sessionId)
+        : source.folderPath,
+      workspaceMode: source.workspaceMode,
+      baselineCommit,
+    };
+  }
+
+  private async readWorkspaceModeBestEffort(sessionId: string): Promise<LocalConsoleWorkspaceMode> {
+    try {
+      const source = await this.storeCall("local-console-store-session-workspace-mode", () =>
+        this.options.store.getSessionWorkspace(sessionId),
+      );
+      return source.workspaceMode;
+    } catch {
+      return "direct";
     }
   }
 
@@ -1795,6 +2011,121 @@ async function readOptionalTextFile(filePath: string): Promise<string | null> {
     }
     throw error;
   }
+}
+
+interface ProcessOutputAttemptFact {
+  runId: string;
+  sourceMessageId: number | null;
+  runDir: string | null;
+  role: string | null;
+  fallback: string | null;
+  startedAt: string;
+}
+
+async function readProcessOutputAttemptFacts(
+  logPath: string,
+  sessionId: string,
+): Promise<ProcessOutputAttemptFact[]> {
+  let content: string;
+  try {
+    content = await fs.readFile(logPath, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+  const completeLength = content.endsWith("\n")
+    ? content.length
+    : Math.max(0, content.lastIndexOf("\n") + 1);
+  const attempts = new Map<string, ProcessOutputAttemptFact>();
+  for (const line of content.slice(0, completeLength).split("\n")) {
+    if (line.trim() === "") {
+      continue;
+    }
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isPlainObject(event) || event["sessionId"] !== sessionId) {
+      continue;
+    }
+    const payload = isPlainObject(event["payload"]) ? event["payload"] : {};
+    const recordedAt = typeof event["recordedAt"] === "string" ? event["recordedAt"] : "";
+    const payloadRunId = nonEmptyText(typeof payload["runId"] === "string" ? payload["runId"] : null);
+    const payloadSourceMessageId = typeof payload["userMessageId"] === "number"
+      ? payload["userMessageId"]
+      : null;
+    if (payloadRunId !== null) {
+      mergeProcessOutputAttemptFact(attempts, {
+        runId: payloadRunId,
+        sourceMessageId: payloadSourceMessageId,
+        runDir: nonEmptyText(typeof payload["runDir"] === "string" ? payload["runDir"] : null),
+        role: nonEmptyText(typeof payload["role"] === "string" ? payload["role"] : null),
+        fallback: nonEmptyText(typeof payload["error"] === "string" ? payload["error"] : null),
+        startedAt: recordedAt,
+      });
+    }
+    const messageUpserts = Array.isArray(event["messageUpserts"]) ? event["messageUpserts"] : [];
+    for (const value of messageUpserts) {
+      if (!isPlainObject(value) || typeof value["runId"] !== "string") {
+        continue;
+      }
+      const speaker = typeof value["speaker"] === "string" ? value["speaker"] : null;
+      const error = nonEmptyText(typeof value["error"] === "string" ? value["error"] : null);
+      const body = nonEmptyText(typeof value["body"] === "string" ? value["body"] : null);
+      const messageRunId = value["runId"];
+      mergeProcessOutputAttemptFact(attempts, {
+        runId: messageRunId,
+        sourceMessageId: speaker === "user" && typeof value["id"] === "number"
+          ? value["id"]
+          : messageRunId === payloadRunId
+            ? payloadSourceMessageId
+            : null,
+        runDir: nonEmptyText(typeof value["runDir"] === "string" ? value["runDir"] : null),
+        role: nonEmptyText(typeof value["role"] === "string" ? value["role"] : null),
+        fallback: speaker === "user" ? null : error ?? body,
+        startedAt: recordedAt,
+      });
+    }
+    if (event["type"] === "agent_progress" && typeof payload["runId"] === "string") {
+      mergeProcessOutputAttemptFact(attempts, {
+        runId: payload["runId"],
+        sourceMessageId: payloadSourceMessageId,
+        runDir: null,
+        role: nonEmptyText(typeof payload["role"] === "string" ? payload["role"] : null),
+        fallback: nonEmptyText(typeof payload["body"] === "string" ? payload["body"] : null),
+        startedAt: recordedAt,
+      });
+    }
+  }
+  return [...attempts.values()];
+}
+
+function mergeProcessOutputAttemptFact(
+  attempts: Map<string, ProcessOutputAttemptFact>,
+  incoming: ProcessOutputAttemptFact,
+): void {
+  const current = attempts.get(incoming.runId);
+  if (current === undefined) {
+    attempts.set(incoming.runId, incoming);
+    return;
+  }
+  attempts.set(incoming.runId, {
+    runId: incoming.runId,
+    sourceMessageId: incoming.sourceMessageId ?? current.sourceMessageId,
+    runDir: incoming.runDir ?? current.runDir,
+    role: incoming.role ?? current.role,
+    fallback: incoming.fallback ?? current.fallback,
+    startedAt: current.startedAt || incoming.startedAt,
+  });
+}
+
+function nonEmptyText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? value ?? null : null;
 }
 
 function normalizeTitle(title: string | undefined): string {
