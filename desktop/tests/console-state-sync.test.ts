@@ -112,9 +112,14 @@ describe("sub-session adapters", () => {
       messages: [],
       activeRun: null,
     };
-    const fetch = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(view))
-      .mockResolvedValueOnce(jsonResponse({ accepted: true }, 202));
+    let requestCount = 0;
+    const fetch = vi.fn(function (this: unknown) {
+      expect(this).toBeUndefined();
+      requestCount += 1;
+      return Promise.resolve(requestCount === 1
+        ? jsonResponse(view)
+        : jsonResponse({ accepted: true }, 202));
+    });
 
     await expect(loadSubSessionView({
       apiBase: "http://127.0.0.1:8787/",

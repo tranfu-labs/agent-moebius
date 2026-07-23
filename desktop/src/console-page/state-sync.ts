@@ -265,7 +265,8 @@ export async function loadSubSessionView(options: {
   fetch: FetchLike;
   signal?: AbortSignal;
 }): Promise<OperatorSubSessionView> {
-  const response = await options.fetch(
+  const fetch = options.fetch;
+  const response = await fetch(
     endpoint(
       options.apiBase,
       `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/view`,
@@ -289,7 +290,8 @@ export async function submitSessionMessage(options: {
   fetch: FetchLike;
 }): Promise<void> {
   const attachmentIds = options.attachmentIds ?? [];
-  const response = await options.fetch(
+  const fetch = options.fetch;
+  const response = await fetch(
     endpoint(
       options.apiBase,
       `/api/local-console/sessions/${encodeURIComponent(options.sessionId)}/messages`,
