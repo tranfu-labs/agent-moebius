@@ -14,6 +14,14 @@ import type {
 } from "./types.js";
 
 export type LocalConversationWorkspaceDiff =
+  | { available: true; fileCount: number; reason: null }
+  | {
+      available: false;
+      fileCount: null;
+      reason: "missing-baseline" | "not-git-repository" | "workspace-unavailable" | "baseline-unavailable";
+    };
+
+export type LocalConversationWorkspaceDiffDetail =
   | { available: true; fileCount: number; files: LocalConsoleWorkspaceDiffFile[]; reason: null }
   | {
       available: false;
@@ -77,7 +85,7 @@ export async function readLocalConversationWorkspaceDiff(input: {
 
   const [tracked, untracked] = await Promise.all([
     runGit(
-      ["-C", input.workspacePath, "diff", "--numstat", "--no-renames", "-z", input.baselineCommit, "--", "."],
+      ["-C", input.workspacePath, "diff", "--name-only", "-z", input.baselineCommit, "--", "."],
       timeoutMs,
       input.signal,
     ),
@@ -89,6 +97,56 @@ export async function readLocalConversationWorkspaceDiff(input: {
   ]);
   if (tracked.code !== 0 || untracked.code !== 0) {
     return unavailable("workspace-unavailable");
+  }
+
+  const files = new Set([...splitNul(tracked.stdout), ...splitNul(untracked.stdout)]);
+  return { available: true, fileCount: files.size, reason: null };
+}
+
+export async function readLocalConversationWorkspaceDiffDetail(input: {
+  workspacePath: string;
+  baselineCommit: string | null;
+  gitTimeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<LocalConversationWorkspaceDiffDetail> {
+  if (input.baselineCommit === null) {
+    return unavailableDetail("missing-baseline");
+  }
+  const timeoutMs = input.gitTimeoutMs ?? WORKTREE_GIT_TIMEOUT_MS;
+  const repository = await runGit(
+    ["-C", input.workspacePath, "rev-parse", "--is-inside-work-tree"],
+    timeoutMs,
+    input.signal,
+  );
+  if (repository.code !== 0) {
+    return unavailableDetail(repository.stderr.toString("utf8").includes("not a git repository")
+      ? "not-git-repository"
+      : "workspace-unavailable");
+  }
+
+  const baseline = await runGit(
+    ["-C", input.workspacePath, "cat-file", "-e", `${input.baselineCommit}^{commit}`],
+    timeoutMs,
+    input.signal,
+  );
+  if (baseline.code !== 0) {
+    return unavailableDetail("baseline-unavailable");
+  }
+
+  const [tracked, untracked] = await Promise.all([
+    runGit(
+      ["-C", input.workspacePath, "diff", "--numstat", "--no-renames", "-z", input.baselineCommit, "--", "."],
+      timeoutMs,
+      input.signal,
+    ),
+    runGit(
+      ["-C", input.workspacePath, "ls-files", "--others", "--exclude-standard", "-z", "--", "."],
+      timeoutMs,
+      input.signal,
+    ),
+  ]);
+  if (tracked.code !== 0 || untracked.code !== 0) {
+    return unavailableDetail("workspace-unavailable");
   }
 
   const files = new Map(parseNumstat(tracked.stdout).map((entry) => [entry.path, entry]));
@@ -198,6 +256,12 @@ export async function readLocalConversationDiffFile(input: {
 }
 
 function unavailable(reason: Exclude<LocalConversationWorkspaceDiff, { available: true }>["reason"]): LocalConversationWorkspaceDiff {
+  return { available: false, fileCount: null, reason };
+}
+
+function unavailableDetail(
+  reason: Exclude<LocalConversationWorkspaceDiffDetail, { available: true }>["reason"],
+): LocalConversationWorkspaceDiffDetail {
   return { available: false, fileCount: null, files: [], reason };
 }
 

@@ -70,6 +70,7 @@ import {
   readLocalConversationBaselineCommit,
   readLocalConversationDiffFile,
   readLocalConversationWorkspaceDiff,
+  readLocalConversationWorkspaceDiffDetail,
 } from "./workspace-diff.js";
 import { listLocalWorkspaceFiles, readLocalWorkspaceTextFile } from "./file-read.js";
 import { resolveSessionWorkspaceContext } from "./workspace-resolution.js";
@@ -828,7 +829,7 @@ export class LocalConsoleRuntime {
   async workspaceDiffDetail(sessionId: string): Promise<LocalConsoleWorkspaceDiffDetail> {
     try {
       const context = await this.readConversationWorkspaceContext(sessionId);
-      const diff = await readLocalConversationWorkspaceDiff({
+      const diff = await readLocalConversationWorkspaceDiffDetail({
         workspacePath: context.workspacePath,
         baselineCommit: context.baselineCommit,
         gitTimeoutMs: this.options.workspaceGitTimeoutMs,
@@ -851,7 +852,7 @@ export class LocalConsoleRuntime {
       const context = await this.readConversationWorkspaceContext(sessionId);
       const [filePaths, diff] = await Promise.all([
         listLocalWorkspaceFiles(context.workspacePath),
-        readLocalConversationWorkspaceDiff({
+        readLocalConversationWorkspaceDiffDetail({
           workspacePath: context.workspacePath,
           baselineCommit: context.baselineCommit,
           gitTimeoutMs: this.options.workspaceGitTimeoutMs,
@@ -886,7 +887,7 @@ export class LocalConsoleRuntime {
   async projectFile(sessionId: string, filePath: string): Promise<LocalConsoleFileContent> {
     try {
       const context = await this.readConversationWorkspaceContext(sessionId);
-      const diff = await readLocalConversationWorkspaceDiff({
+      const diff = await readLocalConversationWorkspaceDiffDetail({
         workspacePath: context.workspacePath,
         baselineCommit: context.baselineCommit,
         gitTimeoutMs: this.options.workspaceGitTimeoutMs,
