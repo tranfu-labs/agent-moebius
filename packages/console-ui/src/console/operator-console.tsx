@@ -4,6 +4,8 @@ import {
   Diamond,
   PanelLeft,
   PanelLeftClose,
+  PanelRight,
+  PanelRightClose,
   Plus,
   Search,
   Settings,
@@ -42,7 +44,18 @@ import { RunBlock } from "@/console/run-block";
 import { MarkdownMessage } from "@/console/markdown-message";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { SubSessionCard, type SubSessionCardItem } from "@/console/sub-session-card";
-import { SubSessionPanel } from "@/console/sub-session-panel";
+import {
+  DEFAULT_RIGHT_SIDEBAR_WIDTH_PX,
+  RIGHT_SIDEBAR_OVERLAY_WIDTH_PX,
+  RightSidebar,
+  clampRightSidebarWidth,
+} from "@/console/right-sidebar";
+import {
+  EMPTY_RIGHT_SIDEBAR_TABS,
+  ensureRightSidebarTabsForOpen,
+  openRightSidebarSourceTab,
+  type RightSidebarTabsState,
+} from "@/console/right-sidebar-tabs";
 import { containsMachineText, sanitizeMachineText } from "@/console/machine-text";
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/button";
@@ -323,6 +336,12 @@ export interface OperatorConsoleProps {
   sidebarOpen?: boolean;
   isFirstRunOnboarding?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
+  rightSidebarOpen?: boolean;
+  rightSidebarWidth?: number;
+  rightSidebarTabs?: RightSidebarTabsState;
+  onRightSidebarOpenChange?: (open: boolean) => void;
+  onRightSidebarWidthChange?: (width: number) => void;
+  onRightSidebarTabsChange?: (state: RightSidebarTabsState) => void;
   className?: string;
 }
 
@@ -334,8 +353,6 @@ export function OperatorConsole({
   selectedSession,
   messages,
   childSessions = [],
-  openedSubSession = null,
-  openedEvidence = null,
   activeRun,
   workspaceDiff = { available: false, fileCount: null, reason: "unavailable" },
   composerValue,
@@ -416,13 +433,26 @@ export function OperatorConsole({
   sidebarOpen,
   isFirstRunOnboarding = false,
   onSidebarOpenChange,
+  rightSidebarOpen,
+  rightSidebarWidth,
+  rightSidebarTabs,
+  onRightSidebarOpenChange,
+  onRightSidebarWidthChange,
+  onRightSidebarTabsChange,
   className,
 }: OperatorConsoleProps): JSX.Element {
   const [uncontrolledSidebarOpen, setUncontrolledSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH_PX);
+  const [uncontrolledRightSidebarOpen, setUncontrolledRightSidebarOpen] = useState(false);
+  const [uncontrolledRightSidebarWidth, setUncontrolledRightSidebarWidth] = useState(DEFAULT_RIGHT_SIDEBAR_WIDTH_PX);
+  const [uncontrolledRightSidebarTabs, setUncontrolledRightSidebarTabs] = useState<RightSidebarTabsState>(
+    EMPTY_RIGHT_SIDEBAR_TABS,
+  );
   const [isNarrowWindow, setIsNarrowWindow] = useState(() => viewportIsNarrow());
+  const [rightSidebarOverlay, setRightSidebarOverlay] = useState(() => viewportUsesRightSidebarOverlay());
   const [useStackedTeamRows, setUseStackedTeamRows] = useState(() => viewportUsesStackedTeamRows());
   const sidebarResizeGestureRef = useRef<SidebarResizeGesture | null>(null);
+  const nextRightSidebarTabIdRef = useRef(1);
   const timelineScrollRef = useRef<HTMLElement | null>(null);
   const followTimelineRef = useRef(true);
   const parentScrollTopRef = useRef(0);
@@ -489,19 +519,51 @@ export function OperatorConsole({
     hasCompletedStep: messages.some((message) => message.speaker === "agent" || terminalOutcome(message) !== null),
     hasPendingWork: messages.some((message) => message.status === "pending" || message.status === "running"),
   });
-  const evidencePanelOpen = openedEvidence !== null || openedSubSession !== null;
   const requestedSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
   const sidebarAutoCollapsed = !isFirstRunOnboarding && requestedSidebarOpen && isNarrowWindow;
   const effectiveSidebarOpen = isFirstRunOnboarding || (requestedSidebarOpen && !isNarrowWindow);
+  const requestedRightSidebarOpen = rightSidebarOpen ?? uncontrolledRightSidebarOpen;
+  const effectiveRightSidebarOpen = applicationView === "conversation" && requestedRightSidebarOpen;
+  const effectiveRightSidebarWidth = clampRightSidebarWidth(
+    rightSidebarWidth ?? uncontrolledRightSidebarWidth,
+  );
+  const effectiveRightSidebarTabs = rightSidebarTabs ?? uncontrolledRightSidebarTabs;
+  const activeRightSidebarTab = effectiveRightSidebarTabs.tabs.find(
+    (tab) => tab.id === effectiveRightSidebarTabs.activeTabId,
+  ) ?? null;
+  const openedSubSessionId = activeRightSidebarTab?.type === "sub-session"
+    ? activeRightSidebarTab.sourceKey?.replace(/^sub-session:/u, "") ?? null
+    : null;
 
   useEffect(() => {
     const updateResponsiveLayout = () => {
       setIsNarrowWindow(viewportIsNarrow());
+      setRightSidebarOverlay(viewportUsesRightSidebarOverlay());
       setUseStackedTeamRows(viewportUsesStackedTeamRows());
     };
     window.addEventListener("resize", updateResponsiveLayout);
     return () => window.removeEventListener("resize", updateResponsiveLayout);
   }, []);
+
+  useEffect(() => {
+    if (!effectiveRightSidebarOpen || effectiveRightSidebarTabs.tabs.length > 0) {
+      return;
+    }
+    const nextState = ensureRightSidebarTabsForOpen(effectiveRightSidebarTabs, {
+      id: createRightSidebarTabId(nextRightSidebarTabIdRef),
+      isGitRepository: activeProject.isGitRepository === true,
+    });
+    if (rightSidebarTabs === undefined) {
+      setUncontrolledRightSidebarTabs(nextState);
+    }
+    onRightSidebarTabsChange?.(nextState);
+  }, [
+    activeProject.isGitRepository,
+    effectiveRightSidebarOpen,
+    effectiveRightSidebarTabs,
+    onRightSidebarTabsChange,
+    rightSidebarTabs,
+  ]);
 
   useEffect(() => {
     followTimelineRef.current = true;
@@ -517,22 +579,34 @@ export function OperatorConsole({
 
   const openSubSession = (sessionId: string) => {
     parentScrollTopRef.current = timelineScrollRef.current?.scrollTop ?? 0;
+    const childSession = childSessions.find((session) => session.sessionId === sessionId);
+    setRightSidebarOpen(true, { ensureTabs: false });
+    updateRightSidebarTabs(openRightSidebarSourceTab(effectiveRightSidebarTabs, {
+      id: createRightSidebarTabId(nextRightSidebarTabIdRef),
+      type: "sub-session",
+      title: childSession?.title ?? "子任务",
+      sourceKey: `sub-session:${sessionId}`,
+    }));
     onOpenSubSession?.(sessionId);
   };
 
   const openEvidence = (intent: OperatorEvidenceOpenIntent) => {
     parentScrollTopRef.current = timelineScrollRef.current?.scrollTop ?? 0;
+    setRightSidebarOpen(true, { ensureTabs: false });
+    updateRightSidebarTabs(openRightSidebarSourceTab(effectiveRightSidebarTabs, intent.kind === "workspace-diff"
+      ? {
+          id: createRightSidebarTabId(nextRightSidebarTabIdRef),
+          type: "workspace-diff",
+          title: "改动",
+          sourceKey: `workspace-diff:${intent.sessionId}`,
+        }
+      : {
+          id: createRightSidebarTabId(nextRightSidebarTabIdRef),
+          type: "run-output",
+          title: localizeTimelineRole(intent.role),
+          sourceKey: `run-output:${intent.sessionId}:${intent.runId}`,
+        }));
     onOpenEvidence?.(intent);
-  };
-
-  const closeSubSession = () => {
-    onCloseSubSession?.();
-    restoreTimelineScroll(timelineScrollRef, parentScrollTopRef.current);
-  };
-
-  const closeEvidence = () => {
-    onCloseEvidence?.();
-    restoreTimelineScroll(timelineScrollRef, parentScrollTopRef.current);
   };
 
   const setSidebarOpen = (open: boolean) => {
@@ -544,6 +618,41 @@ export function OperatorConsole({
     }
     onSidebarOpenChange?.(open);
   };
+
+  function updateRightSidebarTabs(nextState: RightSidebarTabsState): void {
+    if (rightSidebarTabs === undefined) {
+      setUncontrolledRightSidebarTabs(nextState);
+    }
+    onRightSidebarTabsChange?.(nextState);
+  }
+
+  function setRightSidebarOpen(open: boolean, options: { ensureTabs?: boolean } = {}): void {
+    if (open) {
+      parentScrollTopRef.current = timelineScrollRef.current?.scrollTop ?? 0;
+      if (options.ensureTabs !== false && effectiveRightSidebarTabs.tabs.length === 0) {
+        updateRightSidebarTabs(ensureRightSidebarTabsForOpen(effectiveRightSidebarTabs, {
+          id: createRightSidebarTabId(nextRightSidebarTabIdRef),
+          isGitRepository: activeProject.isGitRepository === true,
+        }));
+      }
+    } else {
+      restoreTimelineScroll(timelineScrollRef, parentScrollTopRef.current);
+      onCloseEvidence?.();
+      onCloseSubSession?.();
+    }
+    if (rightSidebarOpen === undefined) {
+      setUncontrolledRightSidebarOpen(open);
+    }
+    onRightSidebarOpenChange?.(open);
+  }
+
+  function setRightSidebarWidth(width: number): void {
+    const clamped = clampRightSidebarWidth(width);
+    if (rightSidebarWidth === undefined) {
+      setUncontrolledRightSidebarWidth(clamped);
+    }
+    onRightSidebarWidthChange?.(clamped);
+  }
 
   const submitComposer = () => {
     if (canSend) {
@@ -790,6 +899,7 @@ export function OperatorConsole({
         </div>
       </aside>
 
+      <div className="relative flex min-w-0 flex-1" data-testid="operator-content-shell">
       <main
         className="relative flex min-w-0 flex-1 flex-col bg-canvas"
         data-testid="operator-main"
@@ -811,6 +921,20 @@ export function OperatorConsole({
               <PanelLeft className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
             </button>
           ) : null}
+          <button
+            type="button"
+            className="window-no-drag z-20 ml-auto mr-3 flex h-7 w-7 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
+            aria-label={requestedRightSidebarOpen ? "隐藏右侧栏" : "显示右侧栏"}
+            title={requestedRightSidebarOpen ? "隐藏右侧栏" : "显示右侧栏"}
+            aria-pressed={requestedRightSidebarOpen}
+            onClick={() => setRightSidebarOpen(!requestedRightSidebarOpen)}
+          >
+            {requestedRightSidebarOpen ? (
+              <PanelRightClose className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+            ) : (
+              <PanelRight className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+            )}
+          </button>
         </div>
 
         {applicationView === "agent-teams" ? (
@@ -888,10 +1012,7 @@ export function OperatorConsole({
         ) : (
           <>
             <div
-              className={cn(
-                "relative flex min-h-0 flex-1 flex-col",
-                evidencePanelOpen && !isNarrowWindow && "mr-[50%]",
-              )}
+              className="relative flex min-h-0 flex-1 flex-col"
               data-testid="parent-conversation-pane"
             >
             <section
@@ -932,7 +1053,7 @@ export function OperatorConsole({
                           key={message.id}
                           message={message}
                           childSessions={childSessions}
-                          openedSubSessionId={openedSubSession?.session.sessionId ?? null}
+                          openedSubSessionId={openedSubSessionId}
                           onOpenSubSession={openSubSession}
                           onEditAndResend={onEditAndResend}
                           onOpenDiagnostics={onOpenDiagnostics}
@@ -1068,58 +1189,21 @@ export function OperatorConsole({
                 />
             </div>
             </div>
-
-            {openedEvidence ? (
-              <SubSessionPanel
-                title={openedEvidence.title}
-                narrow={isNarrowWindow}
-                onClose={closeEvidence}
-                ariaLabel={openedEvidence.title}
-                closeLabel="关闭证据内容"
-              >
-                <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-ink" data-testid="evidence-panel-content">
-                  {openedEvidence.content}
-                </pre>
-              </SubSessionPanel>
-            ) : openedSubSession ? (
-              <SubSessionPanel
-                title={openedSubSession.session.title}
-                narrow={isNarrowWindow}
-                onClose={closeSubSession}
-              >
-                <div className="divide-y divide-line">
-                  {openedSubSession.messages.map((message) => (
-                    <TimelineEntry
-                      key={message.id}
-                      message={message}
-                      onOpenDiagnostics={onOpenDiagnostics}
-                      onOpenExternalLink={onOpenExternalLink}
-                      onOpenEvidence={openEvidence}
-                    />
-                  ))}
-                  {openedSubSession.activeRun ? (
-                    <RunBlock
-                      role={openedSubSession.activeRun.role ?? "dev"}
-                      summary={safeRunSummary(openedSubSession.activeRun.lastOutputSummary)}
-                      liveMarkdown={openedSubSession.activeRun.liveMarkdown}
-                      rawOutput={runRawOutput(openedSubSession.activeRun)}
-                      onOpenExternalLink={onOpenExternalLink}
-                      onOpenOutput={(fallbackOutput) => openEvidence({
-                        kind: "run-output",
-                        sessionId: openedSubSession.activeRun!.sessionId,
-                        runId: openedSubSession.activeRun!.runId,
-                        role: openedSubSession.activeRun!.role,
-                        fallbackOutput,
-                      })}
-                      className="my-3"
-                    />
-                  ) : null}
-                </div>
-              </SubSessionPanel>
-            ) : null}
           </>
         )}
       </main>
+      <RightSidebar
+        open={effectiveRightSidebarOpen}
+        width={effectiveRightSidebarWidth}
+        narrow={rightSidebarOverlay}
+        isGitRepository={activeProject.isGitRepository === true}
+        state={effectiveRightSidebarTabs}
+        onStateChange={updateRightSidebarTabs}
+        onOpenChange={setRightSidebarOpen}
+        onWidthChange={setRightSidebarWidth}
+        createTabId={() => createRightSidebarTabId(nextRightSidebarTabIdRef)}
+      />
+      </div>
 
       {applicationOverlay ? (
         <ApplicationPlaceholder overlay={applicationOverlay} onClose={() => setApplicationOverlay(null)} />
@@ -1324,12 +1408,22 @@ function viewportIsNarrow(): boolean {
   return typeof window !== "undefined" && window.innerWidth < NARROW_WINDOW_WIDTH_PX;
 }
 
+function viewportUsesRightSidebarOverlay(): boolean {
+  return typeof window !== "undefined" && window.innerWidth < RIGHT_SIDEBAR_OVERLAY_WIDTH_PX;
+}
+
 function viewportUsesStackedTeamRows(): boolean {
   return typeof window !== "undefined" && window.innerWidth < STACKED_TEAM_ROW_WINDOW_WIDTH_PX;
 }
 
 function clampSidebarWidth(width: number): number {
   return Math.min(MAX_SIDEBAR_WIDTH_PX, Math.max(MIN_SIDEBAR_WIDTH_PX, width));
+}
+
+function createRightSidebarTabId(counter: { current: number }): string {
+  const id = `right-sidebar-tab-${String(counter.current)}`;
+  counter.current += 1;
+  return id;
 }
 
 function ProjectActionDialog({

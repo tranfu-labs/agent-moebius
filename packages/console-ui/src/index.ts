@@ -10,6 +10,8 @@ export * from "./console/new-conversation-page";
 export * from "./console/operator-console";
 export * from "./console/role-composer";
 export * from "./console/result-card";
+export * from "./console/right-sidebar";
+export * from "./console/right-sidebar-tabs";
 export * from "./console/structured-attachments";
 export * from "./console/run-block";
 export * from "./console/run-outcome";

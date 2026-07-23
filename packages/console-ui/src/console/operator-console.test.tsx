@@ -1051,25 +1051,34 @@ describe("OperatorConsole", () => {
     expect(screen.queryByText(/\/tmp\/private-run|run-secret/u)).not.toBeInTheDocument();
   });
 
-  it("uses the existing single-content panel for evidence without tabs or type controls", () => {
-    const onCloseEvidence = vi.fn();
+  it("routes a complete-output entry into the multi-tab right sidebar shell", () => {
+    const onOpenEvidence = vi.fn();
     renderConsole({
-      openedEvidence: {
-        kind: "run-output",
-        title: "开发 · 完整输出",
-        content: "标准输出\nfull raw output /tmp/run",
-      },
-      onCloseEvidence,
+      messages: [message({
+        id: 2,
+        speaker: "agent",
+        role: "dev",
+        runId: "run-finished",
+        body: "完成实现",
+      })],
+      onOpenEvidence,
     });
 
-    const panel = screen.getByTestId("sub-session-panel");
+    expect(screen.queryByTestId("right-sidebar")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "完整输出" }));
+
+    const panel = screen.getByTestId("right-sidebar");
     expect(panel).toBeVisible();
-    expect(screen.getByTestId("evidence-panel-content")).toHaveTextContent("full raw output /tmp/run");
-    expect(within(panel).queryByRole("tablist")).not.toBeInTheDocument();
-    expect(within(panel).queryByText(/新建标签|类型选择|文件树|加号新建/u)).not.toBeInTheDocument();
-    expect(within(panel).queryByRole("button", { name: /新建|添加/u })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "关闭证据内容" }));
-    expect(onCloseEvidence).toHaveBeenCalledTimes(1);
+    expect(within(panel).getByRole("tablist", { name: "右侧栏标签" })).toBeVisible();
+    expect(within(panel).getByRole("tab", { name: "开发" })).toHaveAttribute("aria-selected", "true");
+    expect(within(panel).getByRole("button", { name: "新建空白标签" })).toBeVisible();
+    expect(onOpenEvidence).toHaveBeenCalledWith({
+      kind: "run-output",
+      sessionId: "session-a",
+      runId: "run-finished",
+      role: "dev",
+      fallbackOutput: "完成实现",
+    });
   });
 
   it("keeps terminal outcomes readable and gives every fact a complete-output outlet", () => {
@@ -1171,7 +1180,7 @@ describe("OperatorConsole", () => {
       onOpenSubSession,
       onCloseSubSession,
     };
-    const { rerender } = renderConsole(overrides);
+    renderConsole(overrides);
     const timeline = screen.getByRole("region", { name: "会话时间线" });
     Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 1_200 });
     Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 500 });
@@ -1179,25 +1188,15 @@ describe("OperatorConsole", () => {
     fireEvent.scroll(timeline);
     fireEvent.click(screen.getByRole("button", { name: /空状态验收，负责成员/u }));
 
-    rerender(<OperatorConsole {...baseProps({
-      ...overrides,
-      messages: [cardMessage, message({ id: 11, body: "父会话新消息" })],
-      openedSubSession: {
-        session: childSession,
-        messages: [message({ id: 20, sessionId: childSession.sessionId, body: "子会话内容" })],
-        activeRun: null,
-      },
-    })} />);
-    expect(screen.getByTestId("sub-session-panel")).toHaveAttribute("data-layout", "split");
-    expect(screen.getByTestId("parent-conversation-pane")).toHaveClass("mr-[50%]");
+    expect(screen.getByTestId("right-sidebar")).toHaveAttribute("data-layout", "split");
+    expect(screen.getByRole("tab", { name: "空状态验收" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "会话时间线" })).toBeInTheDocument();
     expect(screen.getByRole("textbox")).toBeEnabled();
     timeline.scrollTop = 700;
 
     setWindowWidth(700);
-    expect(screen.getByTestId("sub-session-panel")).toHaveAttribute("data-layout", "overlay");
-    expect(screen.getByTestId("parent-conversation-pane")).not.toHaveClass("mr-[50%]");
-    fireEvent.click(screen.getByRole("button", { name: "关闭子会话" }));
+    expect(screen.getByTestId("right-sidebar")).toHaveAttribute("data-layout", "overlay");
+    fireEvent.click(screen.getByRole("button", { name: "关闭右侧栏并回到会话区" }));
     expect(onCloseSubSession).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(timeline.scrollTop).toBe(240));
   });
