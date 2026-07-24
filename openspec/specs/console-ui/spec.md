@@ -1481,15 +1481,15 @@ Source: docs/product/pages/main-right-sidebar.md#弹层与危险操作
 - WHEN 用户查看各标签可用控件
 - THEN 只有子任务标签包含消息输入、成员提及、重试和停下入口，子任务标签不包含文件树、行级对比、文件写入、git 或子任务管理控件
 
-## Requirement: 验收 #8 — 第 3 步播放所选团队的元数据接力
+## Requirement: 验收 #8 — 第 3 步播放所选团队的独立引导编排
 
 Source: docs/product/pages/onboarding.md#第-3-步--团队接力演示
 
-系统 MUST 把第 3 步作为首次引导的必经步骤，并在标准动态效果下按接力拍数计算 8–12 秒的总播放时长。系统 MUST 从第 2 步所选团队的 `relayBeats: Array<{ speakerSlug, message }>` 元数据读取播放内容；内置开发团队 MUST 提供经理拆解、开发执行、测试指出问题、开发修正、测试复核通过、经理带证据收尾共 6 拍，AI 团队 MUST 使用创建方案随团队目录写入的 `relayBeats`。系统 MUST NOT 按 `team.id` 选择硬编码接力脚本或用开发团队内容替代 AI 团队内容；任一 `speakerSlug` 不在 `team.members` 时 MUST 抛出错误而不是静默降级。
+系统 MUST 把第 3 步作为首次引导的必经步骤，并在标准动态效果下按接力拍数计算 8–12 秒的总播放时长。系统 MUST 从第 2 步所选团队独立编排投影中的 `relayBeats: Array<{ speakerSlug, message }>` 读取播放内容；内置开发团队 MUST 提供经理拆解、开发执行、测试指出问题、开发修正、测试复核通过、经理带证据收尾共 6 拍，AI 团队 MUST 使用确认创建时写入独立编排文件的 `relayBeats`。系统 MUST NOT 按 `team.id` 选择硬编码接力脚本或用开发团队内容替代 AI 团队内容。编排 missing、invalid、空数组或引用非成员 slug 时 MUST 只在演示区显示「暂无可播放的协作示例」和「不影响这支团队的实际使用」，MUST NOT 显示重播按钮、抛出页面级错误或阻止「继续」。
 
 ### Scenario: AI 团队使用自身接力方案
 
-- **GIVEN** 用户在第 2 步创建并选中一支 AI 团队，且其团队元数据含已验证的两拍接力
+- **GIVEN** 用户在第 2 步创建并选中一支 AI 团队，且其独立引导编排含已验证的两拍接力
 - **WHEN** 用户进入第 3 步
 - **THEN** 页面显示这支 AI 团队的两条 `message` 及对应成员
 - **AND** 页面不出现内置开发团队的 6 拍文案。
@@ -1498,8 +1498,17 @@ Source: docs/product/pages/onboarding.md#第-3-步--团队接力演示
 
 - **GIVEN** 所选团队某一拍的 `speakerSlug` 不在 `team.members`
 - **WHEN** 第 3 步读取接力元数据
-- **THEN** 组件抛出明确错误
-- **AND** 不替换 speaker、不跳过该拍、不加载默认团队脚本。
+- **THEN** 演示区显示局部不可用空态
+- **AND** 不替换 speaker、不跳过该拍、不加载默认团队脚本
+- **AND** 用户仍可点击「继续」进入下一步。
+
+### Scenario: 团队没有引导编排
+
+- **GIVEN** 所选团队核心与成员完整，但没有 `onboarding-orchestration.json`
+- **WHEN** 用户进入第 3 步
+- **THEN** 演示区显示「暂无可播放的协作示例」和「不影响这支团队的实际使用」
+- **AND** 页面不显示「重新播放」
+- **AND** 「继续」保持可用。
 
 ## Requirement: 验收 #16 — 接力可重播、可跳过且减少动态效果信息等价
 

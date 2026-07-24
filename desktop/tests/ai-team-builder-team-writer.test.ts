@@ -90,6 +90,9 @@ describe("AiTeamWriter", () => {
       definition: {
         primaryAgentSlug: "launch-lead",
         memberOrder: ["launch-lead", "content-planner"],
+      },
+      onboardingOrchestration: {
+        status: "ready",
         relayBeats: proposal.relayBeats,
       },
       members: [
@@ -101,6 +104,14 @@ describe("AiTeamWriter", () => {
       expect.stringContaining("统筹发布并收尾"),
       expect.stringContaining("准备发布内容"),
     ]);
+    expect(JSON.parse(await fs.readFile(
+      path.join(dataRoot, "teams", created.teamId, "team.json"),
+      "utf8",
+    ))).not.toHaveProperty("relayBeats");
+    expect(JSON.parse(await fs.readFile(
+      path.join(dataRoot, "teams", created.teamId, "onboarding-orchestration.json"),
+      "utf8",
+    ))).toEqual({ version: 1, relayBeats: proposal.relayBeats });
     expect(await fs.readFile(lastUsedPath, "utf8")).toBe('{"teamId":"development"}\n');
     expect(await listDirectories(path.join(dataRoot, ".state", "ai-team-builder-staging"))).toEqual([]);
   });
@@ -165,6 +176,9 @@ async function makeDataRootWithBuiltInTeam(): Promise<string> {
     description: "负责软件开发",
     primaryAgentSlug: "manager",
     memberOrder: ["manager"],
+  }, null, 2)}\n`, "utf8");
+  await fs.writeFile(path.join(builtIn, "onboarding-orchestration.json"), `${JSON.stringify({
+    version: 1,
     relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
   }, null, 2)}\n`, "utf8");
   await fs.writeFile(

@@ -12,17 +12,11 @@ export type TeamOwnership = "system" | "user";
 // commit lifecycle belong to ai-team-builder/AiTeamBuilderPhase and must stay separate.
 export type TeamStatus = "usable" | "unfinished-draft" | "needs-repair";
 
-export interface TeamRelayBeat {
-  speakerSlug: string;
-  message: string;
-}
-
 export interface TeamDefinition {
   name: string;
   description: string;
   primaryAgentSlug: string | null;
   memberOrder: string[];
-  relayBeats: TeamRelayBeat[];
 }
 
 export interface AgentMarkdownIdentity {
@@ -98,53 +92,11 @@ export function parseTeamDefinitionJson(source: string): TeamDefinition {
   if (!Array.isArray(value.memberOrder)) {
     throw new TeamDefinitionError("team.json memberOrder must be an array");
   }
-  const memberOrder = value.memberOrder;
-  if (!Array.isArray(value.relayBeats)) {
-    throw new TeamDefinitionError("team.json relayBeats must be an array");
-  }
-
-  const relayBeats = value.relayBeats.map((candidate, index) => {
-    if (!isPlainObject(candidate)) {
-      throw new TeamDefinitionError(`team.json relayBeats[${String(index)}] must be an object`);
-    }
-    const unexpectedRelayKey = Object.keys(candidate)
-      .find((key) => key !== "speakerSlug" && key !== "message");
-    if (unexpectedRelayKey !== undefined) {
-      throw new TeamDefinitionError(
-        `team.json relayBeats[${String(index)}] contains unsupported field: ${unexpectedRelayKey}`,
-      );
-    }
-    if (
-      typeof candidate.speakerSlug !== "string"
-      || candidate.speakerSlug.trim().length === 0
-      || candidate.speakerSlug.trim() !== candidate.speakerSlug
-    ) {
-      throw new TeamDefinitionError(
-        `team.json relayBeats[${String(index)}].speakerSlug must be a non-empty member slug`,
-      );
-    }
-    if (typeof candidate.message !== "string" || candidate.message.trim().length === 0) {
-      throw new TeamDefinitionError(
-        `team.json relayBeats[${String(index)}].message must be a non-empty string`,
-      );
-    }
-    if (!memberOrder.includes(candidate.speakerSlug)) {
-      throw new TeamDefinitionError(
-        `team.json relayBeats[${String(index)}].speakerSlug is not a current team member: ${candidate.speakerSlug}`,
-      );
-    }
-    return {
-      speakerSlug: candidate.speakerSlug,
-      message: candidate.message,
-    };
-  });
-
   return {
     name: value.name,
     description: value.description,
     primaryAgentSlug: primaryAgentSlug === null || primaryAgentSlug.trim().length === 0 ? null : primaryAgentSlug,
-    memberOrder: [...memberOrder] as string[],
-    relayBeats,
+    memberOrder: [...value.memberOrder] as string[],
   };
 }
 
@@ -155,7 +107,6 @@ export function serializeTeamDefinition(definition: TeamDefinition): string {
       description: definition.description,
       primaryAgentSlug: definition.primaryAgentSlug,
       memberOrder: definition.memberOrder,
-      relayBeats: definition.relayBeats,
     },
     null,
     2,

@@ -77,7 +77,6 @@ describe("Agent team file manager", () => {
       description: "负责开发",
       primaryAgentSlug: "manager",
       memberOrder: ["manager"],
-      relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
     }), "utf8");
     await fs.writeFile(path.join(agentDirectory, "AGENT.md"), "# 开发经理\n\n负责开发\n", "utf8");
     await listRecordedUserTeamSnapshots(dataRoot);

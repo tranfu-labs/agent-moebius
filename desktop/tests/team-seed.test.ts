@@ -9,6 +9,7 @@ import {
   computeTeamSeedFingerprint,
   seedBuiltInTeams,
 } from "../src/team-seed.js";
+import { readTeamOnboardingOrchestration } from "../src/team-onboarding-orchestration.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const packagedSeedRoot = path.join(repositoryRoot, "seeds", "teams");
@@ -38,6 +39,16 @@ describe("built-in team seed", () => {
         description: "负责软件方案、实现、测试、复核和主理收尾",
         primaryAgentSlug: "dev-manager",
         memberOrder: ["dev-manager", "dev", "qa"],
+      },
+    });
+    await expect(readTeamOnboardingOrchestration({
+      directory: snapshot.location.directory,
+      memberOrder: snapshot.definition?.memberOrder ?? [],
+    })).resolves.toMatchObject({
+      status: "ready",
+      source: "independent",
+      orchestration: {
+        version: 1,
         relayBeats: [
           { speakerSlug: "dev-manager" },
           { speakerSlug: "dev" },

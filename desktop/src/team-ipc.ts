@@ -7,6 +7,10 @@ import type {
   TeamStatus,
 } from "./team-model.js";
 import {
+  readTeamOnboardingOrchestration,
+  type TeamRelayBeat,
+} from "./team-onboarding-orchestration.js";
+import {
   forgetTrashedUserTeamRecord,
   listRecordedUserTeamSnapshots,
   registerUserTeamSnapshot,
@@ -61,6 +65,9 @@ export interface AgentTeamListItem {
   status: TeamStatus;
   canCreateConversation: boolean;
   issues: Array<{ code: TeamRepairIssueCode; slug?: string }>;
+  onboardingOrchestration?:
+    | { status: "ready"; relayBeats: TeamRelayBeat[] }
+    | { status: "unavailable" };
 }
 
 export type AgentTeamListResponse =
@@ -152,12 +159,13 @@ export async function listAgentTeams(input: {
 
   return {
     status: "ready",
-    teams: [
-      ...systemSnapshots.map((snapshot) => toListItem(snapshot)),
-      ...recordedUserTeams.map(({ record, snapshot }) => toListItem(snapshot, {
-        definition: record.lastKnownDefinition,
-      })),
-    ],
+    teams: await Promise.all([
+      ...systemSnapshots.map((snapshot) => toListItemWithOnboardingOrchestration(snapshot)),
+      ...recordedUserTeams.map(({ record, snapshot }) =>
+        toListItemWithOnboardingOrchestration(snapshot, {
+          definition: record.lastKnownDefinition,
+        })),
+    ]),
   };
 }
 
@@ -287,6 +295,7 @@ export async function trashUserAgentTeam(
 export function toListItem(
   snapshot: TeamSnapshot,
   fallback?: { definition: TeamDefinition | null },
+  onboardingOrchestration?: AgentTeamListItem["onboardingOrchestration"],
 ): AgentTeamListItem {
   const definition = snapshot.definition ?? fallback?.definition ?? null;
   const orderedSlugs = definition?.memberOrder.filter(
@@ -313,7 +322,28 @@ export function toListItem(
     status: snapshot.status,
     canCreateConversation: snapshot.canCreateConversation,
     issues: snapshot.issues.map(({ code, slug }) => ({ code, ...(slug === undefined ? {} : { slug }) })),
+    ...(onboardingOrchestration === undefined ? {} : { onboardingOrchestration }),
   };
+}
+
+async function toListItemWithOnboardingOrchestration(
+  snapshot: TeamSnapshot,
+  fallback?: { definition: TeamDefinition | null },
+): Promise<AgentTeamListItem> {
+  const definition = snapshot.definition ?? fallback?.definition ?? null;
+  if (definition === null) {
+    return toListItem(snapshot, fallback, { status: "unavailable" });
+  }
+  const orchestration = await readTeamOnboardingOrchestration({
+    directory: snapshot.location.directory,
+    memberOrder: definition.memberOrder,
+  });
+  return toListItem(snapshot, fallback, orchestration.status === "ready"
+    ? {
+        status: "ready",
+        relayBeats: orchestration.orchestration.relayBeats.map((beat) => ({ ...beat })),
+      }
+    : { status: "unavailable" });
 }
 
 async function resolveAgentTeamLocation(
