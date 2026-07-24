@@ -7,7 +7,6 @@ import {
   Copy,
   CornerUpLeft,
   FolderPlus,
-  Info,
   MessageSquarePlus,
   Moon,
   RefreshCw,
@@ -56,7 +55,7 @@ import "./styles.css";
 
 /*
  * 第 3 步接力故事线（PRD 固定 6 拍，参照真实本地会话案例口吻）：
- * 经理拆解派工 → 开发执行 → 测试打回 → 开发修正 → 测试复核通过 → 经理带证据收尾。
+ * 开发经理安排 → 开发执行 → 测试退回修改 → 开发修改 → 测试通过 → 开发经理交付。
  * member 索引对应 MEMBERS：0 开发经理 / 1 开发 / 2 测试。
  */
 const DEVELOPMENT_MEMBERS = [
@@ -68,16 +67,17 @@ const DEVELOPMENT_MEMBERS = [
 const CREATED_TEAM: TeamChoice = {
   id: "product-launch",
   name: "产品发布团队",
-  primaryAgent: "发布负责人",
-  members: ["内容策划", "渠道运营"]
+  primaryAgent: "策略负责人",
+  members: ["研究员", "内容作者", "品牌审校"]
 };
 
 function membersForTeam(team: TeamChoice) {
   if (team.id === CREATED_TEAM.id) {
     return [
-      { name: "发布负责人", initial: "发", duty: "主 Agent" },
-      { name: "内容策划", initial: "内", duty: "内容" },
-      { name: "渠道运营", initial: "渠", duty: "渠道" }
+      { name: "策略负责人", initial: "策", duty: "主 Agent" },
+      { name: "研究员", initial: "研", duty: "研究" },
+      { name: "内容作者", initial: "写", duty: "写作" },
+      { name: "品牌审校", initial: "审", duty: "审校" }
     ];
   }
 
@@ -91,88 +91,94 @@ interface RelayBeat {
   tag: string;
   body: string;
   pill?: { tone: PillTone; label: string };
-  handoff?: { kind: "交棒" | "打回"; to: number };
+  handoff?: { kind: "交给" | "退回修改"; to: number };
 }
 
 const DEVELOPMENT_RELAY_BEATS: RelayBeat[] = [
   {
     member: 0,
-    tag: "拆解派工",
-    body: "运行时长统计对不上？这单我接了。先查是断线时间被持续累计，还是并行会话重复计时，确认根因再动手。",
-    handoff: { kind: "交棒", to: 1 }
+    tag: "安排工作",
+    body: "我来负责这个问题。开发先定位统计口径和异常条件，完成修复后交由测试独立验证。",
+    handoff: { kind: "交给", to: 1 }
   },
   {
     member: 1,
-    tag: "排查修复",
-    body: "确认了，是缺陷：断线后的时间被持续累计。我按 180 秒心跳断档重新切段，改完跑全量测试。",
-    handoff: { kind: "交棒", to: 2 }
+    tag: "定位并修复",
+    body: "问题出在断线后的时间仍被累计。我已按心跳断档重新切分时段，并补充回归测试。",
+    handoff: { kind: "交给", to: 2 }
   },
   {
     member: 2,
-    tag: "独立复核",
-    pill: { tone: "danger", label: "复核不通过" },
-    body: "复核不通过：pending 心跳的断档还有两处一致性缺陷，直接收尾会留坑。",
-    handoff: { kind: "打回", to: 1 }
+    tag: "独立测试",
+    pill: { tone: "danger", label: "测试未通过" },
+    body: "断线边界已经修复，但 pending 状态下仍有两处统计不一致，暂不能通过。",
+    handoff: { kind: "退回修改", to: 1 }
   },
   {
     member: 1,
-    tag: "修正",
-    body: "收到。断档边界补齐：pending 心跳先固化再开新段，新增的回归测试全部通过。",
-    handoff: { kind: "交棒", to: 2 }
+    tag: "修改",
+    body: "已补齐 pending 状态的断档处理，新增用例全部通过，重新提交测试。",
+    handoff: { kind: "交给", to: 2 }
   },
   {
     member: 2,
-    tag: "再次复核",
-    pill: { tone: "success", label: "复核通过" },
-    body: "复核通过：边界用例都盖住了，379 项测试全绿。证据留在上面，可以收尾。",
-    handoff: { kind: "交棒", to: 0 }
+    tag: "再次测试",
+    pill: { tone: "success", label: "测试通过" },
+    body: "边界用例和回归测试均已通过，共 379 项测试通过，可以交付。",
+    handoff: { kind: "交给", to: 0 }
   },
   {
     member: 0,
-    tag: "带证据收尾",
-    pill: { tone: "success", label: "已收尾" },
-    body: "收尾：时长口径已修复，测试复核两轮、第二轮通过。过程和证据都在上面，这个目标完成。"
+    tag: "交付结果",
+    pill: { tone: "success", label: "已完成" },
+    body: "运行时长统计已修复并通过两轮测试。修改内容、测试结果和审查记录都在这里。"
   }
 ];
 
 const PRODUCT_LAUNCH_RELAY_BEATS: RelayBeat[] = [
   {
     member: 0,
-    tag: "收束目标",
-    body: "这次发布我来统筹。先锁定受众、时间点和成功口径，再把内容与渠道两条工作线并行推进。",
-    handoff: { kind: "交棒", to: 1 }
+    tag: "安排工作",
+    body: "我来负责这次发布。先核对资料，再起草内容并完成审校；未通过的内容会退回修改。",
+    handoff: { kind: "交给", to: 1 }
   },
   {
     member: 1,
-    tag: "组织内容",
-    body: "核心叙事已整理成公告、演示和渠道素材，所有待确认事实都已标出，交给渠道校验节奏。",
-    handoff: { kind: "交棒", to: 2 }
+    tag: "整理资料",
+    body: "功能变化、发布时间和适用范围已核对，待确认信息已单独标出。",
+    handoff: { kind: "交给", to: 2 }
   },
   {
     member: 2,
-    tag: "渠道校验",
-    pill: { tone: "danger", label: "发现冲突" },
-    body: "主站公告与社区预热撞在同一时间，入口还指向旧版本。按当前排期直接发布会让用户看到不一致信息。",
-    handoff: { kind: "打回", to: 0 }
+    tag: "起草内容",
+    body: "公告、更新说明和渠道文案已完成初稿，提交审校。",
+    handoff: { kind: "交给", to: 3 }
   },
   {
-    member: 0,
-    tag: "协调修正",
-    body: "收到。先预热、后公告，主站入口随正式版本切换；新边界已同步给内容与渠道。",
-    handoff: { kind: "交棒", to: 2 }
+    member: 3,
+    tag: "审校",
+    pill: { tone: "danger", label: "审校未通过" },
+    body: "两处功能表述与产品资料不一致，主标题也不符合品牌语气。请修改后再次提交。",
+    handoff: { kind: "退回修改", to: 2 }
   },
   {
     member: 2,
-    tag: "最终复核",
-    pill: { tone: "success", label: "复核通过" },
-    body: "素材、渠道、入口和发布时间已经一致，关键检查项全部通过，可以收尾。",
-    handoff: { kind: "交棒", to: 0 }
+    tag: "修改",
+    body: "已修正功能表述和主标题，并补充来源说明，重新提交审校。",
+    handoff: { kind: "交给", to: 3 }
+  },
+  {
+    member: 3,
+    tag: "再次审校",
+    pill: { tone: "success", label: "审校通过" },
+    body: "事实、表达和品牌语气均已通过，可以交付。",
+    handoff: { kind: "交给", to: 0 }
   },
   {
     member: 0,
-    tag: "带证据收尾",
-    pill: { tone: "success", label: "已收尾" },
-    body: "发布包、排期与检查清单都已汇总，过程和证据留在上面，这次发布准备完成。"
+    tag: "交付结果",
+    pill: { tone: "success", label: "已完成" },
+    body: "发布内容已完成并通过审校。最终版本、修改记录和检查结果都在这里。"
   }
 ];
 
@@ -223,7 +229,7 @@ function App() {
     dispatch({ type: "set-environment", value: "checking" });
     window.setTimeout(() => {
       dispatch({ type: "set-environment", value: "ready" });
-    }, 780);
+    }, 1500);
   }, []);
 
   const copyInstallCommand = useCallback(async () => {
@@ -267,7 +273,7 @@ function App() {
             step={state.view}
             titleRef={titleRef}
             title={stepTitle(state.view)}
-            subtitle={stepSubtitle(state.view)}
+            subtitle={stepSubtitle(state.view, state.selectedTeam)}
             wide={state.view === 3}
             primaryLabel={state.view === 4 ? "开始使用" : "继续"}
             primaryDisabled={!canContinue(state) || teamBuilderOpen}
@@ -334,24 +340,26 @@ function App() {
 function stepTitle(step: OnboardingStep): string {
   switch (step) {
     case 1:
-      return "环境准备";
+      return "设置 Codex";
     case 2:
-      return "选择一支团队";
+      return "选择团队";
     case 3:
-      return "看看团队如何完成一次接力";
+      return "团队会这样完成你的目标";
     case 4:
       return "准备就绪";
   }
 }
 
-function stepSubtitle(step: OnboardingStep): string {
+function stepSubtitle(step: OnboardingStep, team: TeamChoice): string {
   switch (step) {
     case 1:
-      return "agent-moebius 用 codex 来运行每一位团队成员";
+      return "Agent 团队通过 Codex 在这台电脑上运行";
     case 2:
-      return "先选一支最接近你当前工作的团队，之后随时可以切换";
+      return "选择最适合你工作的团队，稍后可以更改";
     case 3:
-      return "每一次交接都会留下过程、结论和复核证据";
+      return team.id === CREATED_TEAM.id
+        ? "主 Agent 负责安排与交付，成员完成研究、撰写和审校"
+        : "主 Agent 负责安排与交付，成员完成开发、测试和修改";
     case 4:
       return "团队已经就位，说出你的目标就能开工";
   }
@@ -510,18 +518,14 @@ function EnvironmentStep({
       >
         <StatusRow
           icon={<Check size={15} />}
-          label="codex 已安装"
-          meta="已在本机找到命令"
+          label="Codex 已安装"
+          meta="已在这台电脑上找到"
         />
         <StatusRow
           icon={<Check size={15} />}
-          label="codex 可以运行"
-          meta="团队成员已经可以开始工作"
+          label="Codex 可以运行"
+          meta="Agent 团队可以正常启动"
         />
-        <div className="ready-note">
-          <Info size={13} />
-          只检查运行团队所需的 codex，不检查其他工具。
-        </div>
       </motion.div>
     );
   }
@@ -538,8 +542,8 @@ function EnvironmentStep({
           <X size={15} />
         </span>
         <div>
-          <strong>没有找到 codex</strong>
-          <p>先在终端里安装，完成后回到这里重新检查。</p>
+          <strong>未找到 Codex</strong>
+          <p>在终端运行以下命令，然后重新检查</p>
         </div>
       </div>
 
@@ -556,16 +560,25 @@ function EnvironmentStep({
         </button>
       </div>
 
-      <div className="missing-foot">
-        {environment === "checking" ? (
+      {environment === "checking" ? (
+        <div className="missing-foot">
           <>
             <span className="checking-pulse" />
-            正在重新确认本机环境…
+            正在检查 Codex…
           </>
-        ) : (
-          "环境通过前不会进入下一步"
-        )}
-      </div>
+        </div>
+      ) : null}
+
+      {environment === "checking" ? (
+        <div
+          className="checking-progress"
+          role="progressbar"
+          aria-label="正在检查 Codex"
+          data-testid="checking-progress"
+        >
+          <span />
+        </div>
+      ) : null}
     </motion.div>
   );
 }
@@ -606,24 +619,34 @@ function TeamStep({
 }: TeamStepProps) {
   const reduceMotion = useReducedMotion();
   const [builderOpen, setBuilderOpen] = useState(false);
-  const [phase, setPhase] = useState<"goal" | "clarify" | "proposal">("goal");
+  const [phase, setPhase] = useState<"goal" | "proposal">("goal");
   const [goalDraft, setGoalDraft] = useState(
-    "希望每次产品发布时，有人统筹内容、渠道和排期。"
+    "帮我持续做产品发布，从资料研究、内容撰写到上线前复核。"
   );
   const [goal, setGoal] = useState("");
   const [adjustment, setAdjustment] = useState("");
   const [adjustedNote, setAdjustedNote] = useState("");
+  const [aiPending, setAiPending] = useState(false);
+  const [proposalLocked, setProposalLocked] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
+  const adjustmentRef = useRef<HTMLTextAreaElement>(null);
+  const aiTurnTimerRef = useRef<number | null>(null);
 
   useEffect(
     () => () => onSubflowChange(false),
     [onSubflowChange]
   );
 
+  useEffect(
+    () => () => {
+      if (aiTurnTimerRef.current !== null) {
+        window.clearTimeout(aiTurnTimerRef.current);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
-    if (phase !== "proposal") {
-      return;
-    }
     const frame = window.requestAnimationFrame(() => {
       const thread = threadRef.current;
       if (thread) {
@@ -631,26 +654,54 @@ function TeamStep({
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [phase, adjustedNote]);
+  }, [phase, goal, adjustedNote, aiPending]);
+
+  /*
+   * 模拟 AI 处理一轮消息：先露出「正在输入」气泡，短暂延迟后再落地回复。
+   * 减少动态效果时仍保留处理节奏，只缩短等待。
+   */
+  const runAiTurn = (apply: () => void) => {
+    setAiPending(true);
+    aiTurnTimerRef.current = window.setTimeout(
+      () => {
+        aiTurnTimerRef.current = null;
+        apply();
+        setAiPending(false);
+      },
+      reduceMotion ? 300 : 950
+    );
+  };
 
   const submitGoal = (event: React.FormEvent) => {
     event.preventDefault();
     const nextGoal = goalDraft.trim();
-    if (!nextGoal) {
+    if (!nextGoal || aiPending) {
       return;
     }
     setGoal(nextGoal);
-    setPhase("clarify");
+    runAiTurn(() => setPhase("proposal"));
   };
 
   const submitAdjustment = (event: React.FormEvent) => {
     event.preventDefault();
     const nextAdjustment = adjustment.trim();
-    if (!nextAdjustment) {
+    if (!nextAdjustment || aiPending) {
       return;
     }
-    setAdjustedNote(`已调整：${nextAdjustment}`);
     setAdjustment("");
+    runAiTurn(() => {
+      setAdjustedNote(`已调整：${nextAdjustment}`);
+      setProposalLocked(false);
+    });
+  };
+
+  const startAdjustment = () => {
+    setProposalLocked(true);
+    const textarea = adjustmentRef.current;
+    if (textarea) {
+      textarea.focus();
+      textarea.scrollIntoView({ block: "nearest" });
+    }
   };
 
   const openBuilder = () => {
@@ -682,96 +733,74 @@ function TeamStep({
             <ArrowLeft size={14} />
           </button>
           <div>
-            <strong>AI 团队设计器</strong>
-            <span>
-              <i />
-              本地确定性演示
-            </span>
+            <strong>创建团队</strong>
           </div>
-          <Pill tone="neutral">仍在第 2 步</Pill>
         </div>
 
         <div className="builder-thread" aria-live="polite" ref={threadRef}>
           <BuilderMessage>
-            <p>你希望这支团队长期替你完成什么工作？</p>
-            <small>先说目标就好，不需要想好角色和分工。</small>
+            <p>你想让这支团队负责什么工作？</p>
+            <small>描述目标即可，不需要预先安排成员和分工</small>
           </BuilderMessage>
 
-          {phase !== "goal" ? (
+          {goal ? (
             <BuilderMessage from="user">
               <p>{goal}</p>
-            </BuilderMessage>
-          ) : null}
-
-          {phase === "clarify" || phase === "proposal" ? (
-            <BuilderMessage>
-              <p>这类工作更接近持续负责，还是一次性完成一个明确项目？</p>
-              {phase === "clarify" ? (
-                <div className="builder-quick-replies">
-                  <button
-                    type="button"
-                    onClick={() => setPhase("proposal")}
-                    data-testid="builder-clarify"
-                  >
-                    持续负责同类工作
-                  </button>
-                  <button type="button" onClick={() => setPhase("proposal")}>
-                    先完成一次发布
-                  </button>
-                </div>
-              ) : null}
             </BuilderMessage>
           ) : null}
 
           {phase === "proposal" ? (
             <>
               <BuilderMessage>
-                <p>明白了。我先按长期协作来组队，这支团队应该够精简：</p>
+                <p>根据你的目标，建议组建一支由 4 名成员组成的产品发布团队</p>
               </BuilderMessage>
               <section
-                className="team-proposal"
+                className={`team-proposal ${proposalLocked ? "team-proposal--readonly" : ""}`}
                 aria-label="AI 生成的团队提案"
                 data-testid="team-proposal"
               >
                 <div className="team-proposal__head">
                   <div>
-                    <span>团队提案 · 3 名成员</span>
+                    <span>团队方案 · 4 名成员</span>
                     <strong>{CREATED_TEAM.name}</strong>
-                    <p>持续统筹产品发布的内容、渠道与关键排期。</p>
+                    <p>从资料研究到上线前复核，交付可直接发布的产品内容</p>
                   </div>
                   <Pill tone="info">
                     <Sparkles size={11} />
-                    AI 生成
+                    草稿
                   </Pill>
                 </div>
 
                 <div className="proposal-members">
                   <ProposalMember
-                    name="发布负责人"
-                    slug="@launch-lead"
-                    duty="收束目标、分派工作、处理冲突并最终收尾"
+                    name="策略负责人"
+                    duty="明确发布目标，安排工作并确认最终版本"
                     primary
                   />
                   <ProposalMember
-                    name="内容策划"
-                    slug="@content-planner"
-                    duty="提炼发布叙事，产出公告、演示和渠道素材"
+                    name="研究员"
+                    duty="收集资料，核对产品信息和关键事实"
                   />
                   <ProposalMember
-                    name="渠道运营"
-                    slug="@channel-operator"
-                    duty="编排发布节奏，检查入口、排期与效果反馈"
+                    name="内容作者"
+                    duty="撰写发布内容，并根据审校意见修改"
+                  />
+                  <ProposalMember
+                    name="品牌审校"
+                    duty="检查事实、表达和品牌一致性"
                   />
                 </div>
 
-                <div className="proposal-handoff" aria-label="团队接力关系">
-                  <span>你</span>
-                  <ArrowRight size={11} />
-                  <strong>发布负责人</strong>
-                  <ArrowRight size={11} />
-                  <span>内容 / 渠道</span>
-                  <ArrowRight size={11} />
-                  <strong>负责人收尾</strong>
+                <div
+                  className="proposal-collaboration"
+                  aria-label="团队协作示例"
+                >
+                  <span>协作示例</span>
+                  <p>
+                    你提出目标 → 策略负责人安排 → 研究员提供资料 →
+                    内容作者起草 ⇄ 品牌审校复核 → 策略负责人交付
+                  </p>
+                  <small>未通过时，内容作者修改后再次提交审校</small>
                 </div>
 
                 {adjustedNote ? (
@@ -781,27 +810,50 @@ function TeamStep({
                   </div>
                 ) : null}
 
-                <div className="proposal-actions">
-                  <PrototypeButton
-                    variant="secondary"
-                    onClick={closeBuilder}
-                  >
-                    暂不创建
-                  </PrototypeButton>
-                  <PrototypeButton
-                    ripple
-                    onClick={() => {
-                      onSelect(CREATED_TEAM);
-                      closeBuilder();
-                    }}
-                    data-testid="confirm-created-team"
-                  >
-                    <Check size={14} />
-                    创建并选中
-                  </PrototypeButton>
-                </div>
+                {proposalLocked ? null : (
+                  <div className="proposal-actions">
+                    <PrototypeButton
+                      variant="secondary"
+                      onClick={startAdjustment}
+                      data-testid="adjust-proposal"
+                    >
+                      <MessageSquarePlus size={14} />
+                      调整方案
+                    </PrototypeButton>
+                    <PrototypeButton
+                      ripple
+                      onClick={() => {
+                        onSelect(CREATED_TEAM);
+                        closeBuilder();
+                      }}
+                      data-testid="confirm-created-team"
+                    >
+                      <Check size={14} />
+                      创建团队
+                    </PrototypeButton>
+                  </div>
+                )}
               </section>
             </>
+          ) : null}
+
+          {aiPending ? (
+            <motion.div
+              className="builder-message builder-message--ai"
+              initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={reduceMotion ? { duration: 0.12 } : SPRING_LAYOUT}
+              role="status"
+              aria-label="AI 正在处理"
+              data-testid="builder-typing"
+            >
+              <span className="builder-avatar">
+                <Sparkles size={13} />
+              </span>
+              <div>
+                <LoaderDots size={14} />
+              </div>
+            </motion.div>
           ) : null}
         </div>
 
@@ -817,7 +869,7 @@ function TeamStep({
             <button
               type="submit"
               aria-label="发送目标"
-              disabled={!goalDraft.trim()}
+              disabled={!goalDraft.trim() || aiPending}
             >
               <Send size={15} />
             </button>
@@ -827,16 +879,17 @@ function TeamStep({
         {phase === "proposal" ? (
           <form className="builder-composer" onSubmit={submitAdjustment}>
             <textarea
+              ref={adjustmentRef}
               value={adjustment}
               onChange={(event) => setAdjustment(event.target.value)}
-              placeholder="继续聊着调整，比如“让负责人最后给我一份发布清单”…"
+              placeholder="例如：让策略负责人最后提供一份发布清单"
               aria-label="调整团队提案"
               rows={2}
             />
             <button
               type="submit"
               aria-label="发送调整"
-              disabled={!adjustment.trim()}
+              disabled={!adjustment.trim() || aiPending}
             >
               <Send size={15} />
             </button>
@@ -874,7 +927,7 @@ function TeamStep({
             </span>
             <div>
               <strong>开发团队</strong>
-              <span>软件内置</span>
+              <span>规划、开发、审查与验收软件项目</span>
             </div>
           </div>
           {!selectedIsCreated ? (
@@ -886,22 +939,19 @@ function TeamStep({
         </div>
 
         {!selectedIsCreated ? (
-          <>
-            <div className="team-members">
-              {selectedMembers.map(({ name, initial, duty }) => (
-                <div className="member-chip" key={name}>
-                  <span className="member-avatar" aria-hidden>
-                    {initial}
-                  </span>
-                  <span>
-                    <strong>{name}</strong>
-                    <small>{duty}</small>
-                  </span>
-                </div>
-              ))}
-            </div>
-            <p>适合方案、实现、审查和验收类任务。</p>
-          </>
+          <div className="team-members">
+            {selectedMembers.map(({ name, initial, duty }) => (
+              <div className="member-chip" key={name}>
+                <span className="member-avatar" aria-hidden>
+                  {initial}
+                </span>
+                <span>
+                  <strong>{name}</strong>
+                  <small>{duty}</small>
+                </span>
+              </div>
+            ))}
+          </div>
         ) : null}
       </motion.button>
 
@@ -920,7 +970,9 @@ function TeamStep({
               </span>
               <div>
                 <strong>{CREATED_TEAM.name}</strong>
-                <span>你和 AI 创建的团队</span>
+                <span>
+                  从资料研究到上线前复核，交付可直接发布的产品内容
+                </span>
               </div>
             </div>
             <Pill tone="neutral">
@@ -942,7 +994,6 @@ function TeamStep({
             ))}
           </div>
           <div className="created-team-card__foot">
-            <p>持续统筹产品发布的内容、渠道与关键排期。</p>
             <button type="button" onClick={openBuilder}>
               继续调整
             </button>
@@ -962,12 +1013,12 @@ function TeamStep({
             <MessageSquarePlus size={16} />
           </span>
           <span>
-            <strong>跟 AI 聊出一支新团队</strong>
-            <small>只说目标，AI 会追问、组队并说明怎么接力</small>
+            <strong>使用 AI 创建团队</strong>
+            <small>描述工作目标，获得成员和分工建议</small>
           </span>
           <Pill tone="info">
             <Sparkles size={10} />
-            开始对话
+            开始创建
           </Pill>
         </motion.button>
       )}
@@ -996,12 +1047,10 @@ function BuilderMessage({
 
 function ProposalMember({
   name,
-  slug,
   duty,
   primary = false
 }: {
   name: string;
-  slug: string;
   duty: string;
   primary?: boolean;
 }) {
@@ -1015,7 +1064,6 @@ function ProposalMember({
           {name}
           {primary ? <small>主 Agent</small> : null}
         </strong>
-        <code>{slug}</code>
         <p>{duty}</p>
       </div>
     </div>
@@ -1083,14 +1131,21 @@ function RelayStep({
       : beatIndex >= 0
         ? relayBeats[beatIndex].member
         : -1;
+  const graphWidth = members.length * 100;
+  const relayStyle = {
+    "--graph-width": `calc(var(--graph-column-width) * ${members.length})`
+  } as CSSProperties;
+  const roleColumnsStyle = {
+    gridTemplateColumns: `repeat(${members.length}, var(--graph-column-width))`
+  };
 
   return (
-    <div className="relay-card">
+    <div className="relay-card" style={relayStyle}>
       <div className="relay-topline">
         <div>
           <span className="live-indicator">
             <span />
-            接力演示
+            协作示例
           </span>
           <strong>{team.name}</strong>
         </div>
@@ -1106,7 +1161,11 @@ function RelayStep({
       </div>
 
       <div className="relay-grid-heading">
-        <div className="relay-role-columns" aria-label="接力角色位置">
+        <div
+          className="relay-role-columns"
+          style={roleColumnsStyle}
+          aria-label="团队成员"
+        >
           {members.map(({ name, initial }, index) => (
             <span className={index === holder ? "is-holder" : ""} key={name}>
               <b aria-hidden>{initial}</b>
@@ -1133,7 +1192,7 @@ function RelayStep({
             </span>
           ))}
         </div>
-        <span>对话记录</span>
+        <span>工作记录</span>
       </div>
 
       <div className="relay-timeline" ref={timelineRef}>
@@ -1146,15 +1205,15 @@ function RelayStep({
             </div>
             <p className="relay-msg__text">
               {team.id === CREATED_TEAM.id
-                ? "准备下一次产品发布，帮我统筹内容、渠道和排期。"
-                : "排查一下：运行时长统计好像不太对。"}
+                ? "为下周的产品更新准备一套可直接发布的内容。"
+                : "运行时长统计不准确，请找出原因并修复。"}
             </p>
           </div>
         </div>
 
         <ol
           className="relay-history"
-          aria-label="接力记录"
+          aria-label="协作记录"
           aria-live="polite"
           data-testid="relay-stage"
         >
@@ -1213,7 +1272,7 @@ function RelayStep({
                     {previousMember !== null ? (
                       <svg
                         className="relay-graph-svg"
-                        viewBox="0 0 300 31"
+                        viewBox={`0 0 ${graphWidth} 31`}
                         preserveAspectRatio="none"
                         aria-hidden
                       >
@@ -1269,20 +1328,20 @@ function RelayStep({
                         <span
                           className={[
                             "relay-handoff",
-                            beat.handoff.kind === "打回"
+                            beat.handoff.kind === "退回修改"
                               ? "relay-handoff--back"
                               : ""
                           ]
                             .filter(Boolean)
                             .join(" ")}
                         >
-                          {beat.handoff.kind === "打回" ? (
+                          {beat.handoff.kind === "退回修改" ? (
                             <CornerUpLeft size={11} aria-hidden />
                           ) : (
                             <ArrowRight size={11} aria-hidden />
                           )}
                           {beat.handoff.kind}{" "}
-                          <b>@{members[beat.handoff.to].name}</b>
+                          <b>{members[beat.handoff.to].name}</b>
                         </span>
                       </div>
                     ) : null}
@@ -1319,7 +1378,9 @@ function RelayStep({
 
       <div className="relay-caption">
         <Users size={12} />
-        动画不会拦住你；看懂以后可以随时继续。
+        {team.id === CREATED_TEAM.id
+          ? "工作过程、修改记录和审校结果都会保留在对话中"
+          : "工作过程、修改记录和测试结果都会保留在对话中"}
       </div>
     </div>
   );

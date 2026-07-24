@@ -92,18 +92,45 @@ try {
     throw new Error("Main onboarding continue must pause during AI team design.");
   }
   await desktopPage.getByTestId("builder-goal").fill(
-    "希望每次产品发布时，有人统筹内容、渠道和排期。"
+    "帮我持续做产品发布，从资料研究、内容撰写到上线前复核。"
   );
   await desktopPage.getByLabel("发送目标").click();
-  await desktopPage.getByTestId("builder-clarify").click();
+  await desktopPage.getByTestId("builder-typing").waitFor();
+  checks.push("ai-team-builder-processing-indicator");
   await desktopPage.getByTestId("team-proposal").waitFor();
   await desktopPage.waitForTimeout(350);
+  const proposalMemberCount = await desktopPage
+    .locator(".proposal-member")
+    .count();
+  if (proposalMemberCount !== 4) {
+    throw new Error(
+      `Expected a four-member AI team proposal, found ${proposalMemberCount}.`
+    );
+  }
+  if ((await desktopPage.locator(".proposal-member code").count()) !== 0) {
+    throw new Error("The onboarding proposal must not expose Agent slugs.");
+  }
   checks.push("ai-team-builder-proposal");
   await desktopPage.screenshot({
     path: resolve(artifactDir, "team-builder-proposal-dark-wide.png"),
     fullPage: true
   });
 
+  await desktopPage.getByTestId("adjust-proposal").click();
+  if ((await desktopPage.locator(".proposal-actions").count()) !== 0) {
+    throw new Error(
+      "Chatting to adjust must turn the proposal card read-only (no action buttons)."
+    );
+  }
+  const lockedProposalClass = await desktopPage
+    .getByTestId("team-proposal")
+    .getAttribute("class");
+  if (!lockedProposalClass?.includes("team-proposal--readonly")) {
+    throw new Error(
+      "Read-only proposal card must drop the accent highlight while adjusting."
+    );
+  }
+  checks.push("adjust-proposal-locks-card");
   await desktopPage
     .getByLabel("调整团队提案")
     .fill("让负责人最后给我一份可复核的发布清单");
@@ -119,11 +146,11 @@ try {
   await expectStableStep(desktopPage, 3);
   await desktopPage
     .getByTestId("relay-stage")
-    .getByText("素材、渠道、入口和发布时间已经一致")
+    .getByText("事实、表达和品牌语气均已通过")
     .waitFor();
   await desktopPage
     .getByTestId("relay-stage")
-    .getByText("这次发布准备完成")
+    .getByText("发布内容已完成并通过审校")
     .waitFor();
   const completedRelayItems = await desktopPage
     .locator(".relay-history li.is-complete")
@@ -137,12 +164,13 @@ try {
     .getByTestId("relay-beat")
     .evaluateAll((beats) => beats.map((beat) => beat.getAttribute("data-member")));
   const expectedGraphMembers = [
-    "发布负责人",
-    "内容策划",
-    "渠道运营",
-    "发布负责人",
-    "渠道运营",
-    "发布负责人"
+    "策略负责人",
+    "研究员",
+    "内容作者",
+    "品牌审校",
+    "内容作者",
+    "品牌审校",
+    "策略负责人"
   ];
   if (JSON.stringify(graphMembers) !== JSON.stringify(expectedGraphMembers)) {
     throw new Error(
@@ -167,7 +195,7 @@ try {
   await desktopPage.getByTestId("replay-relay").click();
   await desktopPage
     .getByTestId("relay-stage")
-    .getByText("这次发布我来统筹")
+    .getByText("我来负责这次发布")
     .waitFor();
   checks.push("relay-replay");
 
@@ -231,6 +259,32 @@ try {
     fullPage: true
   });
   checks.push("missing-codex-hard-gate-and-recheck");
+  await missingPage.getByTestId("primary-action").click();
+  await expectStableStep(missingPage, 3);
+  await missingPage
+    .getByTestId("relay-stage")
+    .getByText("运行时长统计已修复并通过两轮测试")
+    .waitFor();
+  const developmentMembers = await missingPage
+    .getByTestId("relay-beat")
+    .evaluateAll((beats) => beats.map((beat) => beat.getAttribute("data-member")));
+  const expectedDevelopmentMembers = [
+    "开发经理",
+    "开发",
+    "测试",
+    "开发",
+    "测试",
+    "开发经理"
+  ];
+  if (
+    JSON.stringify(developmentMembers) !==
+    JSON.stringify(expectedDevelopmentMembers)
+  ) {
+    throw new Error(
+      `Development relay does not match the approved workflow: ${developmentMembers.join(" -> ")}`
+    );
+  }
+  checks.push("development-team-review-revision-loop");
   await missingContext.close();
 
   const reducedContext = await browser.newContext({
@@ -244,7 +298,6 @@ try {
   await reducedPage.getByTestId("primary-action").click();
   await reducedPage.getByTestId("open-team-builder").click();
   await reducedPage.getByLabel("发送目标").click();
-  await reducedPage.getByTestId("builder-clarify").click();
   await reducedPage.getByTestId("team-proposal").waitFor();
   await reducedPage.waitForTimeout(250);
   await reducedPage.screenshot({
@@ -263,12 +316,12 @@ try {
   }
   await reducedPage
     .getByTestId("relay-stage")
-    .getByText("这次发布准备完成")
+    .getByText("发布内容已完成并通过审校")
     .waitFor();
   const historyCount = await reducedPage.locator(".relay-history li").count();
-  if (historyCount !== 6) {
+  if (historyCount !== 7) {
     throw new Error(
-      `Expected persistent relay history with 6 role beats, found ${historyCount} items.`
+      `Expected persistent relay history with 7 role beats, found ${historyCount} items.`
     );
   }
   checks.push("reduced-motion-equivalent-relay");

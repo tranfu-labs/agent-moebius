@@ -438,16 +438,6 @@ button:focus-visible,
   line-height: 1.45;
 }
 
-.ready-note {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border-top: 1px solid var(--border);
-  color: var(--faint);
-  font-size: 11px;
-  padding: 11px 12px 5px;
-}
-
 .environment-card--error {
   padding: 20px;
 }
@@ -523,6 +513,52 @@ button:focus-visible,
   height: 6px;
   border-radius: 999px;
   background: var(--amber);
+  animation: checking-blink 900ms ease-in-out infinite;
+}
+
+@keyframes checking-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.checking-progress {
+  overflow: hidden;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  margin-top: 12px;
+}
+
+.checking-progress > span {
+  display: block;
+  width: 32%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--amber);
+  animation: checking-slide 1.05s ease-in-out infinite;
+}
+
+@keyframes checking-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(330%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checking-progress > span {
+    width: 56%;
+    transform: translateX(40%);
+  }
 }
 
 .is-spinning {
@@ -666,12 +702,6 @@ button:focus-visible,
   font-size: 10px;
 }
 
-.team-card > p {
-  margin: 12px 0 0 30px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .create-team-card {
   gap: 12px;
   border-style: dashed;
@@ -730,13 +760,16 @@ button:focus-visible,
 
 .team-builder {
   display: flex;
-  height: min(470px, calc(100dvh - 250px));
-  min-height: 390px;
+  width: min(780px, calc(100vw - 48px));
+  height: min(620px, calc(100dvh - 210px));
+  min-height: 460px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--surface);
   flex-direction: column;
+  /* 设计器比 .stage-content（560px）宽，用负 margin 在父容器内保持居中 */
+  margin-left: calc((100% - min(780px, calc(100vw - 48px))) / 2);
 }
 
 .team-builder__header {
@@ -935,6 +968,12 @@ button:focus-visible,
   border: 1px solid var(--accent);
   border-radius: 14px;
   background: var(--surface);
+  transition: border-color 0.25s ease;
+}
+
+/* 「调整方案」后当前方案转为只读快照：回到中性描边，操作按钮随之移除 */
+.team-proposal--readonly {
+  border-color: var(--border);
 }
 
 .team-proposal__head {
@@ -1004,7 +1043,7 @@ button:focus-visible,
 .proposal-member > div {
   display: grid;
   min-width: 0;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 1fr;
   align-items: baseline;
   gap: 7px;
 }
@@ -1024,34 +1063,38 @@ button:focus-visible,
   padding: 3px 5px;
 }
 
-.proposal-member code {
-  color: var(--faint);
-  font-family: var(--font-mono);
-  font-size: 8px;
-}
-
 .proposal-member p {
-  grid-column: 1 / -1;
   margin: 2px 0 0;
   color: var(--muted);
   font-size: 8px;
   line-height: 1.45;
 }
 
-.proposal-handoff {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
+.proposal-collaboration {
   border-top: 1px solid var(--border);
   background: var(--raised);
-  color: var(--faint);
-  font-size: 8px;
-  padding: 9px;
+  padding: 11px 13px;
 }
 
-.proposal-handoff strong {
+.proposal-collaboration > span {
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.proposal-collaboration > p {
+  margin: 7px 0 0;
   color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.proposal-collaboration > small {
+  display: block;
+  margin-top: 5px;
+  color: var(--faint);
+  font-size: 8px;
 }
 
 .proposal-adjusted {
@@ -1085,15 +1128,9 @@ button:focus-visible,
 .created-team-card__foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   margin: 12px 0 0 30px;
-}
-
-.created-team-card__foot p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .created-team-card__foot button {
@@ -1897,10 +1934,6 @@ button:focus-visible,
 
   .team-proposal {
     margin-left: 0;
-  }
-
-  .proposal-handoff {
-    flex-wrap: wrap;
   }
 
   .proposal-actions {
