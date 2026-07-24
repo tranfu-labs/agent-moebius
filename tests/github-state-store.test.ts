@@ -51,7 +51,7 @@ describe("GitHub runner state store isolation", () => {
       sqlitePath: legacyPath,
       command: {
         kind: "save-role-threads",
-        store: { "tranfu-labs/agent-moebius#129": { dev: { threadId: "thread-129", lastSeenIndex: 22 } } },
+        store: { "tranfu-labs/moebius#129": { dev: { threadId: "thread-129", lastSeenIndex: 22 } } },
       },
     });
     await runSqliteStateCommand({
@@ -59,11 +59,11 @@ describe("GitHub runner state store isolation", () => {
       command: {
         kind: "save-agent-contexts",
         store: {
-          "tranfu-labs/agent-moebius#129": {
+          "tranfu-labs/moebius#129": {
             dev: {
               preScript: "workspaceAccess:issue-worktree",
               owner: "tranfu-labs",
-              repo: "agent-moebius",
+              repo: "moebius",
               issueNumber: 129,
               worktreePath: "/tmp/issue-129",
               preparedFromMessageIndex: 22,
@@ -80,10 +80,10 @@ describe("GitHub runner state store isolation", () => {
 
     await expect(loadGitHubResponseIntakeState(intakePath)).resolves.toEqual(representative);
     await expect(loadRoleThreadStateStore(rolePath)).resolves.toMatchObject({
-      "tranfu-labs/agent-moebius#129": { dev: { threadId: "thread-129", lastSeenIndex: 22 } },
+      "tranfu-labs/moebius#129": { dev: { threadId: "thread-129", lastSeenIndex: 22 } },
     });
     await expect(loadAgentContextStateStore(contextPath)).resolves.toHaveProperty(
-      "tranfu-labs/agent-moebius#129.dev.issueNumber",
+      "tranfu-labs/moebius#129.dev.issueNumber",
       129,
     );
     await expect(loadGoalLedgerState(ledgerPath)).resolves.toEqual(createEmptyGoalLedgerState());
@@ -166,12 +166,12 @@ async function seedLocalMessage(sqlitePath: string): Promise<void> {
 function representativeIntake(label: string): GitHubResponseIntakeState {
   return {
     repositories: {
-      "tranfu-labs/agent-moebius": { lastIdleScanAt: `2026-07-11T00:00:0${label.length}.000Z` },
+      "tranfu-labs/moebius": { lastIdleScanAt: `2026-07-11T00:00:0${label.length}.000Z` },
     },
     issues: {
-      "tranfu-labs/agent-moebius#129": {
+      "tranfu-labs/moebius#129": {
         owner: "tranfu-labs",
-        repo: "agent-moebius",
+        repo: "moebius",
         issueNumber: 129,
         updatedAt: `2026-07-11T00:01:0${label.length}.000Z`,
         mode: "active",
@@ -194,5 +194,5 @@ function countRows(sqlitePath: string, table: string): number {
 }
 
 async function makeTempDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-github-state-store-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-github-state-store-"));
 }

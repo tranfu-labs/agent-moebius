@@ -1,6 +1,6 @@
 import type { ConsoleSelection } from "./state-sync.js";
 
-export const CONSOLE_SELECTION_STORAGE_KEY = "agent-moebius.console.selection";
+export const CONSOLE_SELECTION_STORAGE_KEY = "moebius.console.selection";
 
 interface ConsoleSelectionStorage {
   getItem(key: string): string | null;

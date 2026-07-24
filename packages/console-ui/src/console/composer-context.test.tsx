@@ -9,7 +9,7 @@ describe("ComposerContext", () => {
   it("renders project, workspace, real branch, and team in fixed order", () => {
     const { container } = renderContext();
     const text = container.textContent ?? "";
-    expect(text.indexOf("agent-moebius")).toBeLessThan(text.indexOf("独立工作空间"));
+    expect(text.indexOf("moebius")).toBeLessThan(text.indexOf("独立工作空间"));
     expect(text.indexOf("独立工作空间")).toBeLessThan(text.indexOf("feat/context"));
     expect(text.indexOf("feat/context")).toBeLessThan(text.indexOf("开发团队"));
     expect(screen.getByLabelText("分支：feat/context")).toBeVisible();
@@ -130,8 +130,8 @@ const session: OperatorSession = {
 const project: OperatorProject = {
   projectId: "project-a",
   sourceType: "local-folder",
-  title: "agent-moebius",
-  folderPath: "/workspace/agent-moebius",
+  title: "moebius",
+  folderPath: "/workspace/moebius",
   worktreeMode: false,
   workspaceCwd: null,
   workspaceMode: null,

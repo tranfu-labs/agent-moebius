@@ -3,7 +3,7 @@ import { resolveCeoLedgerPromptContext } from "../src/agent-prescripts/ceo-ledge
 import { createEmptyGoalLedgerState, withGoalLedgerEntry, type GoalLedgerState } from "../src/goal-ledger.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
-const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 77 });
+const source = makeIssueSource({ owner: "tranfu-labs", repo: "moebius", issueNumber: 77 });
 
 describe("CEO ledger context prescript", () => {
   it("returns bootstrap context that allows default plan-chain routing for a loadable issue with no active ledger owner", () => {

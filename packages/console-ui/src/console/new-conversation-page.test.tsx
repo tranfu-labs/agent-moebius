@@ -27,7 +27,7 @@ describe("NewConversationPage", () => {
     const onAddProject = vi.fn();
     renderPage({ onSelectProject, onAddProject });
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "项目：agent-moebius，点击切换" }), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "项目：moebius，点击切换" }), { key: "ArrowDown" });
     const menu = await screen.findByRole("menu");
     expect(menu.querySelectorAll('[role="menuitemcheckbox"]')).toHaveLength(2);
     expect(menu.querySelector('[role="separator"]')).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe("NewConversationPage", () => {
 });
 
 const projects = [
-  { projectId: "a", title: "agent-moebius", available: true, independentWorkspaceAvailable: true, branchLabel: "main" },
+  { projectId: "a", title: "moebius", available: true, independentWorkspaceAvailable: true, branchLabel: "main" },
   { projectId: "b", title: "marketing-site", available: true, independentWorkspaceAvailable: false, branchLabel: "main" },
 ];
 

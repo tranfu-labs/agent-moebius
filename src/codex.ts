@@ -233,7 +233,7 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   const stderrFile = createWriteStream(stderrPath, { flags: "a" });
   const streamFramer = createCodexJsonlFramer({
     onDiagnostic: (message) => {
-      stderrFile.write(`[agent-moebius] ${message}\n`);
+      stderrFile.write(`[moebius] ${message}\n`);
     },
   });
 
@@ -339,7 +339,7 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
     try {
       options.onVisibleAgentMarkdown(markdown);
     } catch (error) {
-      stderrFile.write(`[agent-moebius] codex-visible-markdown-callback-failed:${formatUnknownError(error)}\n`);
+      stderrFile.write(`[moebius] codex-visible-markdown-callback-failed:${formatUnknownError(error)}\n`);
     }
   };
   const handleVisibleStdout = (chunk: Buffer) => {
@@ -387,7 +387,7 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
   if (threadStartedCallbackError !== null) {
     await fs.appendFile(
       stderrPath,
-      `[agent-moebius] codex-thread-link-unavailable:${threadStartedCallbackError}\n`,
+      `[moebius] codex-thread-link-unavailable:${threadStartedCallbackError}\n`,
       "utf8",
     );
   }

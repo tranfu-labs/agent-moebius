@@ -26,7 +26,7 @@ interface Evidence {
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const artifactDir = path.join(projectRoot, "artifacts", "acceptance");
-const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-t4-acceptance-"));
+const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-t4-acceptance-"));
 const sqlitePath = path.join(runtimeRoot, ".state", "local-console.sqlite");
 const distPage = path.join(projectRoot, "desktop", "dist", "console-page", "index.html");
 

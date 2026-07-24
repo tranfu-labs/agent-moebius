@@ -26,7 +26,7 @@
 - [x] 桌面 runner child 装配
   - [x] 将 `desktop/src/runner-child.ts` 或 supervisor fork argv 显式改为 GitHub mode。
   - [x] 保留桌面主进程拥有唯一 local console server。
-  - [x] 不再把 `AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE` 作为公开启动形态事实源。
+  - [x] 不再把 `MOEBIUS_DISABLE_LOCAL_CONSOLE` 作为公开启动形态事实源。
 - [x] 测试与验收覆盖
   - [x] 覆盖 startup parser：缺省 local、exact `--github-mode`、unknown / typo / duplicate fail fast。
   - [x] 覆盖默认 local 不加载 GitHub intake、不扫描 issue、不调用 GitHub issue 读取 adapter。

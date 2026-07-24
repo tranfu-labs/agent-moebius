@@ -8,7 +8,7 @@ accepted
 
 关键事实：
 
-- `desktop/src/main.ts` 现有 IPC 面很小（7 个 handler + 1 个 status push），preload 只暴露 `window.agentMoebius` 一个面。
+- `desktop/src/main.ts` 现有 IPC 面很小（7 个 handler + 1 个 status push），preload 只暴露 `window.moebius` 一个面。
 - 已有 ADR-0001 承诺主进程为 Node 运行时，业务逻辑与桌面壳解耦仍未完成。
 - 生态里有多个专用 Electron MCP server 可选：Playwright 派（`electron-driver` / `playwright-mcp-electron`）要求 MCP 自己 `start_app`，无法 attach 用户手动启动的窗口；CDP 派（`@laststance/electron-mcp-server`）走 `--remote-debugging-port` 端口 attach 已运行进程。
 - 用户实际调试场景是「自己 `pnpm desktop` 起窗口 + AI 陪调同一个窗口」，与 Playwright 派的会话所有权模型硬冲突。
@@ -44,13 +44,13 @@ accepted
 
 用裸 CDP 直连（不经 `@laststance/electron-mcp-server`）对已运行的 `pnpm desktop` 主窗口逐项验证，7 项全通：
 
-- **Attach**：从 `http://localhost:9222/json` 找到 target（`page | agent-moebius | file:///.../console-page/index.html`）并挂 WebSocket。
-- **Runtime.evaluate**：一次读回 URL / UA（`Electron/38.8.6 Chrome/140`）/ React 根挂载 = true / DOM 节点数 / `window.agentMoebius` bridge 类型，全部正常。
-- **Preload 桥面枚举**：`Object.keys(window.agentMoebius)` 一句返回 `onStatus, getLocalConsoleUrl, openObserver, openStatusPage, openDataRoot, checkUpdates, selectProjectFolder`——把 preload 契约反查出来，agent 不用去翻源码。
+- **Attach**：从 `http://localhost:9222/json` 找到 target（`page | moebius | file:///.../console-page/index.html`）并挂 WebSocket。
+- **Runtime.evaluate**：一次读回 URL / UA（`Electron/38.8.6 Chrome/140`）/ React 根挂载 = true / DOM 节点数 / `window.moebius` bridge 类型，全部正常。
+- **Preload 桥面枚举**：`Object.keys(window.moebius)` 一句返回 `onStatus, getLocalConsoleUrl, openObserver, openStatusPage, openDataRoot, checkUpdates, selectProjectFolder`——把 preload 契约反查出来，agent 不用去翻源码。
 - **Console 抓取**：`Runtime.consoleAPICalled` 订阅到 4 条（含 React DevTools 提示与 Electron CSP 警告），renderer 里 fire 的 `console.log('CDP-DEMO ...')` 也在其中。
 - **Network 抓取**：renderer 里 fire 的 `fetch('/does-not-exist-...')`，`Network.requestWillBeSent` 立刻收到 GET，method / URL / type 全在。
 - **截屏**：`Page.captureScreenshot` 拿到 77 KB PNG，界面（Projects / runner 运行中 / 默认会话 / composer）正常渲染。
-- **点击面枚举**：`querySelectorAll('button,[role=button],a')` 一次抓 7 个可点元素（agent-moebius 项目、默认会话、诊断、发送 等）。
+- **点击面枚举**：`querySelectorAll('button,[role=button],a')` 一次抓 7 个可点元素（moebius 项目、默认会话、诊断、发送 等）。
 
 ### 实证边界：当前只覆盖渲染进程一路
 

@@ -23,7 +23,7 @@
 自动解析规则保持窄而确定：
 
 - 结论：读取 `## 结论` 标题之后、下一个二级标题之前的首个非空内容段；
-- stage：读取末尾合法 `agent-moebius:stage=...` marker，仅把 `in-progress`、`plan-written`、`code-verified` 映射为「进行中」「方案已写好」「代码已验证」；
+- stage：读取末尾合法 `moebius:stage=...` marker，仅把 `in-progress`、`plan-written`、`code-verified` 映射为「进行中」「方案已写好」「代码已验证」；
 - 交棒：读取 `## 下一步` 段中的合法 `交棒：...` 或 `等待真人：...` 行，在折叠态把合法角色句柄映射为中文角色名；
 - 不完整或未知原文不抛错，折叠态使用中性降级，展开层仍完整保留原文供查证。
 

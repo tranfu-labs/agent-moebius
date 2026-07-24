@@ -1297,7 +1297,7 @@ describe("local console", { timeout: 15_000 }, () => {
           provenance: "local test",
         },
       ],
-    })}\n\n<!-- agent-moebius:stage=in-progress -->`;
+    })}\n\n<!-- moebius:stage=in-progress -->`;
     const runCodex = vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => codexOk(options, ceoOutput));
     let started = await startLocalConsoleServer({
       projectRoot: root,
@@ -1472,7 +1472,7 @@ describe("local console", { timeout: 15_000 }, () => {
         throw new Error("codex cwd is required");
       }
       await fs.writeFile(path.join(options.cwd, "local-output.txt"), "changed", "utf8");
-      return codexOk(options, "done in worktree\n\n<!-- agent-moebius:stage=code-verified -->");
+      return codexOk(options, "done in worktree\n\n<!-- moebius:stage=code-verified -->");
     });
     const started = await startLocalConsoleServer({
       projectRoot: root,
@@ -1519,7 +1519,7 @@ describe("local console", { timeout: 15_000 }, () => {
         throw new Error("codex cwd is required");
       }
       await fs.writeFile(path.join(options.cwd, "plan-output.txt"), "draft", "utf8");
-      return codexOk(options, "plan only\n\n<!-- agent-moebius:stage=plan-written -->");
+      return codexOk(options, "plan only\n\n<!-- moebius:stage=plan-written -->");
     });
     const started = await startLocalConsoleServer({
       projectRoot: root,
@@ -2767,7 +2767,7 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
 }
 
 async function makeFixtureRoot(): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-local-console-"));
+  return await fs.mkdtemp(path.join(os.tmpdir(), "moebius-local-console-"));
 }
 
 async function createGitRepo(folderPath: string): Promise<void> {
@@ -3129,7 +3129,7 @@ function buildProjectSummary(
   return {
     projectId: LOCAL_CONSOLE_PROJECT_ID,
     sourceType: "local-folder",
-    title: "agent-moebius",
+    title: "moebius",
     folderPath: input.folderPath ?? process.cwd(),
     worktreeMode: input.worktreeMode ?? false,
     workspaceCwd: input.folderPath ?? process.cwd(),
@@ -3148,7 +3148,7 @@ function buildProjectSummary(
 function buildWorkspaceSource(worktreeMode = false): LocalConsoleSessionWorkspaceSource {
   return {
     projectId: LOCAL_CONSOLE_PROJECT_ID,
-    title: "agent-moebius",
+    title: "moebius",
     folderPath: process.cwd(),
     workspaceMode: worktreeMode ? "worktree" : "direct",
     workspacePendingMode: null,

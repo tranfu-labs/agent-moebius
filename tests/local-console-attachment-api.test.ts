@@ -6,6 +6,7 @@ import type { CodexRunOptions, CodexRunResult } from "../src/codex.js";
 import { startLocalConsoleServer } from "../src/local-console/server.js";
 
 const roots: string[] = [];
+const LEGACY_ATTACHMENT_CAPABILITY_HEADER = ["x", "agent", "moebius", "attachment", "capability"].join("-");
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
@@ -13,7 +14,7 @@ afterEach(async () => {
 
 describe("local attachment HTTP boundary", () => {
   it("guards attachment IO with a capability and sends only images through Codex imagePaths", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-attachment-api-"));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-attachment-api-"));
     roots.push(root);
     await fs.mkdir(path.join(root, "agents"), { recursive: true });
     await fs.writeFile(path.join(root, "agents", "dev.md"), "# Dev\n\nReply briefly.\n");
@@ -38,8 +39,13 @@ describe("local attachment HTTP boundary", () => {
     try {
       const forbidden = await fetch(new URL("api/local-console/attachments?draftKey=draft%3Anew", started.url));
       expect(forbidden.status).toBe(403);
+      const legacyHeaderResponse = await fetch(
+        new URL("api/local-console/attachments?draftKey=draft%3Anew", started.url),
+        { headers: { [LEGACY_ATTACHMENT_CAPABILITY_HEADER]: capability } },
+      );
+      expect(legacyHeaderResponse.status).toBe(403);
       const preflight = await fetch(new URL("api/local-console/attachments", started.url), { method: "OPTIONS" });
-      expect(preflight.headers.get("access-control-allow-headers")).toContain("x-agent-moebius-attachment-capability");
+      expect(preflight.headers.get("access-control-allow-headers")).toContain("x-moebius-attachment-capability");
 
       const missingPreview = await fetch(
         new URL("api/local-console/attachments/uploads/00000000-0000-4000-8000-000000000000/preview?draftKey=draft%3Anew", started.url),
@@ -161,7 +167,7 @@ async function upload(
 
 function capabilityHeaders(capability: string, contentType?: string): Record<string, string> {
   return {
-    "x-agent-moebius-attachment-capability": capability,
+    "x-moebius-attachment-capability": capability,
     ...(contentType === undefined ? {} : { "content-type": contentType }),
   };
 }

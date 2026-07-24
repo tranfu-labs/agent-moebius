@@ -15,7 +15,7 @@ accepted
 - Tauri 的真实优势为安装包体积（约 10-20MB 对约 100-150MB）与常驻内存（几十 MB 对 200-400MB）。
 
 ## 决策
-选 Electron 作为桌面应用壳：新增 `desktop/` 包，主进程装配现有 runner（utilityProcess 子进程）与 observer（进程内只读启动），业务逻辑保持在现有模块，壳层只做装配、监管、自检与更新提示。数据根采用 `~/.agent-moebius`（对齐 codex CLI 的 `~/.codex` 习惯）。无证书期间更新策略：Windows/Linux 全自动，macOS 检查后跳转下载页。
+选 Electron 作为桌面应用壳：新增 `desktop/` 包，主进程装配现有 runner（utilityProcess 子进程）与 observer（进程内只读启动），业务逻辑保持在现有模块，壳层只做装配、监管、自检与更新提示。数据根采用 `~/.moebius`（对齐 codex CLI 的 `~/.codex` 习惯）。无证书期间更新策略：Windows/Linux 全自动，macOS 检查后跳转下载页。
 
 ## 后果
 - runner / observer 代码零重写，桌面形态与终端形态共用同一套实现，行为一致。

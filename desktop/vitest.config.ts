@@ -8,11 +8,11 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: "@agent-moebius/console-ui/globals.css",
+        find: "@moebius/console-ui/globals.css",
         replacement: resolve(here, "../packages/console-ui/src/styles/globals.css"),
       },
       {
-        find: "@agent-moebius/console-ui",
+        find: "@moebius/console-ui",
         replacement: resolve(here, "../packages/console-ui/src/index.ts"),
       },
       {

@@ -2041,7 +2041,7 @@ ${issueLines}
 冲突分组：
 ${groupLines}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function formatCeoRoundtableFailureBody(input: { reason: string }): string {
@@ -2049,7 +2049,7 @@ function formatCeoRoundtableFailureBody(input: { reason: string }): string {
 
 本轮不会继续推进圆桌，也不会更新 ceo role thread。若已有 child issue 或父 issue 可见结果，下一轮会先按 hidden key 查找并恢复，避免重复创建或重复回流。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function appendPromptContext(prompt: string, promptContext: string | undefined): string {
@@ -2342,7 +2342,7 @@ export async function start(options: StartOptions = {}): Promise<StartedRuntime>
 
 export function makeRunDir(count: number, now = new Date()): string {
   runDirSequence += 1;
-  return path.join(TMP_ROOT, `agent-moebius-${now.toISOString()}-c${count}-r${runDirSequence}`);
+  return path.join(TMP_ROOT, `moebius-${now.toISOString()}-c${count}-r${runDirSequence}`);
 }
 
 async function listAgentFiles(dir = AGENTS_DIR): Promise<AgentFile[]> {
@@ -2371,7 +2371,7 @@ export function formatDeadLetterComment(input: {
   failureCount: number;
 }): string {
   const reason = truncateForComment(input.reason.trim() === "" ? "unknown failure" : input.reason.trim(), 2_000);
-  return `Agent Moebius dead letter
+  return `Moebius dead letter
 
 Target agent: ${input.agent}
 Failure reason: ${reason}
@@ -2379,9 +2379,9 @@ Failure count: ${String(input.failureCount)}
 
 Recovery: fix the underlying problem, then add any new comment to this issue to trigger processing again.
 
-<!-- agent-moebius:dead-letter -->
+<!-- moebius:dead-letter -->
 
-<!-- agent-moebius:ceo-reviewed action=not_applicable reason=dead-letter -->`;
+<!-- moebius:ceo-reviewed action=not_applicable reason=dead-letter -->`;
 }
 
 function startAgentRunInterruptMonitor(input: {

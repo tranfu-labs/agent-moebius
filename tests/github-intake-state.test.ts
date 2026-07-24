@@ -16,14 +16,14 @@ describe("github response intake state store", () => {
     const filePath = path.join(await makeTempDir(), ".state", "github-response-intake.json");
     const state: GitHubResponseIntakeState = {
       repositories: {
-        "tranfu-labs/agent-moebius": {
+        "tranfu-labs/moebius": {
           lastIdleScanAt: "2026-06-28T00:00:00.000Z",
         },
       },
       issues: {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 4,
           updatedAt: "2026-06-28T00:01:00.000Z",
           mode: "active",
@@ -45,9 +45,9 @@ describe("github response intake state store", () => {
     const state: GitHubResponseIntakeState = {
       repositories: {},
       issues: {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 4,
           updatedAt: "2026-06-28T00:01:00.000Z",
           mode: "active",
@@ -72,5 +72,5 @@ describe("github response intake state store", () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-github-intake-state-test-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-github-intake-state-test-"));
 }

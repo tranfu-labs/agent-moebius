@@ -3678,15 +3678,15 @@ function assertTargetEmptyForImport(database: SqliteDatabase, source: SqliteStat
 
 function transaction<T>(database: SqliteDatabase, body: () => T): T {
   if (database.isTransaction) {
-    database.exec("SAVEPOINT agent_moebius_nested_transaction");
+    database.exec("SAVEPOINT moebius_nested_transaction");
     try {
       const result = body();
-      database.exec("RELEASE SAVEPOINT agent_moebius_nested_transaction");
+      database.exec("RELEASE SAVEPOINT moebius_nested_transaction");
       return result;
     } catch (error) {
       try {
-        database.exec("ROLLBACK TO SAVEPOINT agent_moebius_nested_transaction");
-        database.exec("RELEASE SAVEPOINT agent_moebius_nested_transaction");
+        database.exec("ROLLBACK TO SAVEPOINT moebius_nested_transaction");
+        database.exec("RELEASE SAVEPOINT moebius_nested_transaction");
       } catch {
         // Keep the original error.
       }

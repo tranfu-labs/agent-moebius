@@ -4,15 +4,15 @@
 
 ## pages/marketeam-landing.md（追加：首屏下方正文）
 
-首屏 hero 之下的同页长滚动正文，如实介绍 agent-moebius。每段滚入视口时淡入（IntersectionObserver）。
+首屏 hero 之下的同页长滚动正文，如实介绍 moebius。每段滚入视口时淡入（IntersectionObserver）。
 
 ```text
 ┌ 首屏 hero(已完成，本期不动)───────────────┐
 └─────────────────────────────────────────────┘ ↓ 滚动淡入
 
-① What is agent-moebius
+① What is moebius
 ┌─────────────────────────────────────────────┐
-│  Meet agent-moebius                          │
+│  Meet moebius                          │
 │  An AI team that ships from your own machine.│
 │  It watches your GitHub issues. @mention a   │
 │  role and it runs Codex locally …            │
@@ -45,8 +45,8 @@
 │  [plan-written→code-verified][acceptance gates][local]│
 │           [ Get started → ]  (复用按钮)       │
 │  ─────────────────────────────────────────── │
-│  ◆agent-moebius   Product  Docs  GitHub      │
-│                     © 2026 agent-moebius     │
+│  ◆moebius   Product  Docs  GitHub      │
+│                     © 2026 moebius     │
 └─────────────────────────────────────────────┘
 ```
 

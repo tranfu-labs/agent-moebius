@@ -12,7 +12,7 @@ const agentMarkdown = [
   "## 下一步",
   "交棒：@qa 请按验收场景走查",
   "",
-  "<!-- agent-moebius:stage=code-verified -->",
+  "<!-- moebius:stage=code-verified -->",
 ].join("\n");
 
 const sessions: OperatorConsoleProps["project"]["sessions"] = [
@@ -75,8 +75,8 @@ const sample: OperatorConsoleProps = {
   project: {
     projectId: "local",
     sourceType: "local-folder",
-    title: "agent-moebius",
-    folderPath: "/Users/example/agent-moebius",
+    title: "moebius",
+    folderPath: "/Users/example/moebius",
     worktreeMode: true,
     workspaceCwd: "/tmp/t65-cwd-sentinel",
     workspaceMode: "worktree",

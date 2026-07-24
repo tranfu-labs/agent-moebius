@@ -22,7 +22,7 @@
 
 - MUST 在 intake issue 状态中维护可选字段 `failureCount`（缺省 0）与 `lastFailureReason`；`triggered-success` / `no-trigger` / `dead-lettered` MUST 清零这两个字段。存量状态文件（无新字段）MUST 可直接加载。
 - MUST 在处理失败且折叠后 `failureCount` 将达到 `FAILURE_RETRY_LIMIT` 时，于同轮先完成本次真实处理尝试、确认仍失败后，向该 issue 发布死信评论；死信评论发布成功 MUST 折叠为 `dead-lettered`（推进 `updatedAt`、`mode = idle`、清零计数、`nextPollAt = null`），发布失败 MUST 保持 `failed` 并在后续轮次继续「先处理、后死信」。MUST NOT 在本轮处理成功时发布死信。
-- MUST 让死信评论：以系统身份发布、不包含任何 agent mention、携带机器可识别标记 `<!-- agent-moebius:dead-letter -->`，并包含目标 agent 名、`lastFailureReason`、累计失败次数与恢复提示（在 issue 发表任意新评论即可重新触发）。
+- MUST 让死信评论：以系统身份发布、不包含任何 agent mention、携带机器可识别标记 `<!-- moebius:dead-letter -->`，并包含目标 agent 名、`lastFailureReason`、累计失败次数与恢复提示（在 issue 发表任意新评论即可重新触发）。
 - MUST 在死信评论被后续扫描读到时按 `no-trigger` 吸收，MUST NOT 形成自触发循环。
 - MUST 记录结构化日志：失败重试 `event = "issue-retry-scheduled"`（含 `issueKey`、`failureCount`、失败原因），死信发布成功 `event = "dead-letter-posted"`，死信发布失败 `event = "dead-letter-post-failed"`。
 - MUST 把 `FAILURE_RETRY_LIMIT` 写入启动日志 `CONFIG_LOG_FIELDS`。

@@ -14,7 +14,7 @@
 - 脚本提供故障注入命令，用于验证页面无法 ready 时会在 timeout 内失败并完成清理。
 - 脚本完成后必须检查 `scripts/spike-preview-oracle/` 下只存在验收所需的 1 张 PNG 媒体产物，避免重复 #38 的媒体放大事故。
 - 新增 `docs/roadmap/spike-preview-oracle.md`，记录跑通和未覆盖环节，写明截图 artifact 的证据位置，并给出明确建议：默认优先本地 worktree 起服务 + 截图 + artifact；只有遇到公网回调、跨设备协作、第三方 OAuth、真实域名/CORS、长期共享预览等场景，才把 PR 预览基建放入后续里程碑候选。
-- 实现验证通过后，在 `code-verified` 回复中明确引用生成的 PNG 路径，让 runner 自动发布到 `agent-moebius-artifacts` release；探针脚本不手动调用 `gh release upload`，也不 import `src/github.ts`。
+- 实现验证通过后，在 `code-verified` 回复中明确引用生成的 PNG 路径，让 runner 自动发布到 `moebius-artifacts` release；探针脚本不手动调用 `gh release upload`，也不 import `src/github.ts`。
 
 ## 影响
 - 影响 `scripts/spike-preview-oracle/`、`docs/roadmap/spike-preview-oracle.md`、`package.json` 与 `pnpm-lock.yaml`。

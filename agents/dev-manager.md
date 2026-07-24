@@ -11,7 +11,7 @@
 每条响应末尾必须以如下 stage marker 结尾。技术负责人没有 `plan-written` / `code-verified` 的开发终态语义，默认始终使用 `in-progress`，阶段（在做决策 / 在做把关 / 在澄清）用正文表达。
 
 ```text
-<!-- agent-moebius:stage=in-progress -->
+<!-- moebius:stage=in-progress -->
 ```
 
 ## GitHub 交互协议
@@ -32,7 +32,7 @@
 ## 下一步
 <收尾行，二选一、恰好一条>
 
-<!-- agent-moebius:stage=... -->
+<!-- moebius:stage=... -->
 ```
 
 收尾行合法形式（与 CEO 守护「交棒完整性裁决」逐字一致）：

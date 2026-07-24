@@ -16,7 +16,7 @@
 - MUST discover supported SVG, image, and video artifacts produced by Codex before publishing the agent comment.
 - MUST NOT commit generated output artifacts to the source repository merely to make them visible in GitHub comments.
 - MUST publish generated output artifacts through an artifact publisher boundary that returns GitHub-comment-viewable Markdown references.
-- MUST use the same repository's GitHub release tag `agent-moebius-artifacts` as the default artifact publisher storage, without committing generated files to the repository worktree or source branch.
+- MUST use the same repository's GitHub release tag `moebius-artifacts` as the default artifact publisher storage, without committing generated files to the repository worktree or source branch.
 - MUST append published artifact previews to the agent final response before CEO guardrail sees `latestResponse`.
 - MUST post a visible error comment when generated artifacts cannot be published, and MUST NOT claim artifact delivery succeeded.
 - MUST NOT update the role thread state until the agent comment and any required artifact publication have succeeded.

@@ -65,7 +65,7 @@ describe("triggers", () => {
   it("does not post a hook when an agent emits plan-written without a mention", () => {
     const timeline = buildTimeline(
       "initial",
-      [{ body: "&lt;dev&gt;:\n方案已写完\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=dev -->" }],
+      [{ body: "&lt;dev&gt;:\n方案已写完\n<!-- moebius:stage=plan-written -->\n\n<!-- moebius:role=dev -->" }],
       agents,
     );
 
@@ -80,7 +80,7 @@ describe("triggers", () => {
       "initial",
       [
         {
-          body: "&lt;dev&gt;:\n@product-manager FYI\n<!-- agent-moebius:stage=code-verified -->\n\n<!-- agent-moebius:role=dev -->",
+          body: "&lt;dev&gt;:\n@product-manager FYI\n<!-- moebius:stage=code-verified -->\n\n<!-- moebius:role=dev -->",
         },
       ],
       agents,
@@ -96,7 +96,7 @@ describe("triggers", () => {
   it("ignores unsupported stages when there is no mention", () => {
     const timeline = buildTimeline(
       "initial",
-      [{ body: "&lt;dev&gt;:\n旧阶段\n<!-- agent-moebius:stage=plan-confirmed -->\n\n<!-- agent-moebius:role=dev -->" }],
+      [{ body: "&lt;dev&gt;:\n旧阶段\n<!-- moebius:stage=plan-confirmed -->\n\n<!-- moebius:role=dev -->" }],
       agents,
     );
 

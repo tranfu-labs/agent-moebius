@@ -19,7 +19,7 @@ describe("role thread state store", () => {
 
   it("saves and loads role thread state", async () => {
     const filePath = path.join(await makeTempDir(), ".state", "role-threads.json");
-    const store = withRoleThreadState({}, "tranfu-labs/agent-moebius#3", "product-manager", {
+    const store = withRoleThreadState({}, "tranfu-labs/moebius#3", "product-manager", {
       threadId: "thread-1",
       lastSeenIndex: 4,
     });
@@ -27,11 +27,11 @@ describe("role thread state store", () => {
     await saveRoleThreadStateStore(store, filePath);
 
     await expect(loadRoleThreadStateStore(filePath)).resolves.toEqual(store);
-    expect(getRoleThreadState(store, "tranfu-labs/agent-moebius#3", "product-manager")).toEqual({
+    expect(getRoleThreadState(store, "tranfu-labs/moebius#3", "product-manager")).toEqual({
       threadId: "thread-1",
       lastSeenIndex: 4,
     });
-    expect(getRoleThreadState(store, "tranfu-labs/agent-moebius#3", "hermes-user")).toBeNull();
+    expect(getRoleThreadState(store, "tranfu-labs/moebius#3", "hermes-user")).toBeNull();
   });
 
   it("fails safely on invalid state shape", async () => {
@@ -47,13 +47,13 @@ describe("role thread state store", () => {
 
     await Promise.all([
       saveRoleThreadStateEntry(
-        "tranfu-labs/agent-moebius#3",
+        "tranfu-labs/moebius#3",
         "dev",
         { threadId: "thread-dev", lastSeenIndex: 2 },
         filePath,
       ),
       saveRoleThreadStateEntry(
-        "tranfu-labs/agent-moebius#4",
+        "tranfu-labs/moebius#4",
         "product-manager",
         { threadId: "thread-pm", lastSeenIndex: 5 },
         filePath,
@@ -61,10 +61,10 @@ describe("role thread state store", () => {
     ]);
 
     await expect(loadRoleThreadStateStore(filePath)).resolves.toEqual({
-      "tranfu-labs/agent-moebius#3": {
+      "tranfu-labs/moebius#3": {
         dev: { threadId: "thread-dev", lastSeenIndex: 2 },
       },
-      "tranfu-labs/agent-moebius#4": {
+      "tranfu-labs/moebius#4": {
         "product-manager": { threadId: "thread-pm", lastSeenIndex: 5 },
       },
     });
@@ -73,10 +73,10 @@ describe("role thread state store", () => {
   it("migrates legacy issue role threads without sharing thread ids across issues", async () => {
     const filePath = path.join(await makeTempDir(), ".state", "role-threads.json");
     const legacyStore = {
-      "tranfu-labs/agent-moebius#101": {
+      "tranfu-labs/moebius#101": {
         dev: { threadId: "thread-101", lastSeenIndex: 7 },
       },
-      "tranfu-labs/agent-moebius#102": {
+      "tranfu-labs/moebius#102": {
         dev: { threadId: "thread-102", lastSeenIndex: 3 },
       },
     };
@@ -85,28 +85,28 @@ describe("role thread state store", () => {
 
     const loaded = await loadRoleThreadStateStore(filePath);
 
-    expect(getRoleThreadState(loaded, "tranfu-labs/agent-moebius#101", "dev")).toEqual({
+    expect(getRoleThreadState(loaded, "tranfu-labs/moebius#101", "dev")).toEqual({
       threadId: "thread-101",
       lastSeenIndex: 7,
     });
-    expect(getRoleThreadState(loaded, "tranfu-labs/agent-moebius#102", "dev")).toEqual({
+    expect(getRoleThreadState(loaded, "tranfu-labs/moebius#102", "dev")).toEqual({
       threadId: "thread-102",
       lastSeenIndex: 3,
     });
 
     await saveRoleThreadStateEntry(
-      "tranfu-labs/agent-moebius#101",
+      "tranfu-labs/moebius#101",
       "dev",
       { threadId: "thread-101-resumed", lastSeenIndex: 8 },
       filePath,
     );
     const reloaded = await loadRoleThreadStateStore(filePath);
 
-    expect(getRoleThreadState(reloaded, "tranfu-labs/agent-moebius#101", "dev")).toEqual({
+    expect(getRoleThreadState(reloaded, "tranfu-labs/moebius#101", "dev")).toEqual({
       threadId: "thread-101-resumed",
       lastSeenIndex: 8,
     });
-    expect(getRoleThreadState(reloaded, "tranfu-labs/agent-moebius#102", "dev")).toEqual({
+    expect(getRoleThreadState(reloaded, "tranfu-labs/moebius#102", "dev")).toEqual({
       threadId: "thread-102",
       lastSeenIndex: 3,
     });
@@ -115,5 +115,5 @@ describe("role thread state store", () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-state-test-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-state-test-"));
 }

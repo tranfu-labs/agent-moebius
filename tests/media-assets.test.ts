@@ -12,7 +12,7 @@ import type { IssueMediaReference } from "../src/issue-media.js";
 
 describe("media assets", () => {
   it("downloads and validates images and videos into the run directory", async () => {
-    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-media-test-"));
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-media-test-"));
     const references: IssueMediaReference[] = [
       makeReference("image", "https://example.test/image.png", 1),
       makeReference("video", "https://example.test/video.mp4", 2),
@@ -42,9 +42,9 @@ describe("media assets", () => {
   });
 
   it("downloads GitHub release assets through the authenticated gh downloader instead of anonymous fetch", async () => {
-    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-media-test-"));
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-media-test-"));
     const url =
-      "https://github.com/tranfu-labs/tranfucom/releases/download/agent-moebius-artifacts/home-375-86e2556573.png";
+      "https://github.com/tranfu-labs/tranfucom/releases/download/moebius-artifacts/home-375-86e2556573.png";
     const downloadedAssets: Array<{ owner: string; repo: string; tag: string; assetName: string }> = [];
 
     const result = await prepareIssueMedia({
@@ -68,7 +68,7 @@ describe("media assets", () => {
       {
         owner: "tranfu-labs",
         repo: "tranfucom",
-        tag: "agent-moebius-artifacts",
+        tag: "moebius-artifacts",
         assetName: "home-375-86e2556573.png",
       },
     ]);
@@ -80,8 +80,8 @@ describe("media assets", () => {
   });
 
   it("still enforces size limits for GitHub release assets", async () => {
-    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-media-test-"));
-    const url = "https://github.com/tranfu-labs/tranfucom/releases/download/agent-moebius-artifacts/huge.png";
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-media-test-"));
+    const url = "https://github.com/tranfu-labs/tranfucom/releases/download/moebius-artifacts/huge.png";
 
     const result = await prepareIssueMedia({
       references: [makeReference("image", url, 1)],
@@ -101,8 +101,8 @@ describe("media assets", () => {
   });
 
   it("reports gh download failures for GitHub release assets", async () => {
-    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-media-test-"));
-    const url = "https://github.com/tranfu-labs/tranfucom/releases/download/agent-moebius-artifacts/missing.png";
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-media-test-"));
+    const url = "https://github.com/tranfu-labs/tranfucom/releases/download/moebius-artifacts/missing.png";
 
     const result = await prepareIssueMedia({
       references: [makeReference("image", url, 1)],
@@ -120,7 +120,7 @@ describe("media assets", () => {
   });
 
   it("reports media preparation failures instead of silently dropping bad media", async () => {
-    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-media-test-"));
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-media-test-"));
     const result = await prepareIssueMedia({
       references: [makeReference("unknown", "https://example.test/page", 1)],
       runDir,
@@ -139,8 +139,8 @@ describe("media assets", () => {
   });
 
   it("discovers explicitly referenced worktree artifacts and formats preview markdown", async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-artifact-cwd-"));
-    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-artifact-run-"));
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-artifact-cwd-"));
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-artifact-run-"));
     await fs.mkdir(path.join(cwd, "artifacts", "acceptance"), { recursive: true });
     const pngPath = path.join(cwd, "artifacts", "acceptance", "t3.png");
     await fs.writeFile(pngPath, "png", "utf8");
@@ -166,8 +166,8 @@ describe("media assets", () => {
   });
 
   it("does not publish unreferenced worktree artifacts", async () => {
-    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-artifact-cwd-"));
-    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-artifact-run-"));
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-artifact-cwd-"));
+    const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-artifact-run-"));
     await fs.mkdir(path.join(cwd, "artifacts", "acceptance"), { recursive: true });
     await fs.writeFile(path.join(cwd, "artifacts", "acceptance", "t3.png"), "png", "utf8");
 
@@ -182,7 +182,7 @@ describe("media assets", () => {
   });
 
   it("rejects absolute and escaping artifact references", async () => {
-    const parent = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-artifact-parent-"));
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-artifact-parent-"));
     const cwd = path.join(parent, "cwd");
     const runDir = path.join(parent, "run");
     await fs.mkdir(cwd, { recursive: true });

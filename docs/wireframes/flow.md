@@ -12,9 +12,9 @@ The desktop operator console is the default local experience. Its auxiliary stat
   │
   ├─ 主进程启动序列
   │    ├─ 解析数据根
-  │    │    ├─ 打包态默认 ~/.agent-moebius
+  │    │    ├─ 打包态默认 ~/.moebius
   │    │    ├─ 开发态默认仓库根
-  │    │    └─ AGENT_MOEBIUS_DATA_ROOT 覆盖
+  │    │    └─ MOEBIUS_DATA_ROOT 覆盖
   │    ├─ macOS 图形进程 PATH 修复
   │    ├─ 首启种子拷贝 agents/ + config.toml
   │    ├─ 环境自检 codex / gh / gh auth
@@ -67,7 +67,7 @@ The desktop operator console is the default local experience. Its auxiliary stat
   └─ 关闭窗口 → 停 runner → 关 local console server → 关 observer → 应用退出
 ```
 
-## Landing（agent-moebius）
+## Landing（moebius）
 
 ```text
 部署 sites/marketeam/ → 打开唯一入口 index.html（Moebius 品牌）

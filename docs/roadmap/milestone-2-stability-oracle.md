@@ -51,7 +51,7 @@
 
 ### - [x] T2 · 全局 GitHub 交互协议
 
-**目标**：制定单一事实源的 GitHub 交互协议并让所有角色遵守，CEO 发布前兜底。协议至少覆盖：**`@` 语义 = 移交控制权**——每条消息最多一个 `@`，只在明确移交下一步时使用，纯提及一律裸写角色名（触发器只认最新消息第一个合法 mention，误 `@` 会真实移交控制权并占用 driver 名额）；**`#数字` 只用于真实引用 issue / PR**——GitHub 把一切 `#N` 渲染为 issue/PR 链接并在被引用 issue 生成反向引用，因此任何非 issue/PR 编号都禁止写成 `#N`：任务编号用 `T3` 类前缀；时间线评论指代用完整评论 URL 或「第 N 条评论」文字形式；验收语句编号用「验收语句 N」文字形式（实测案例，T2 实施期间发现：issue 45 的 qa 审查评论用 `#6` 指代第 6 条评论、`#1`/`#3`/`#4` 指代验收语句编号，评论 id 4880506810——该评论恰是 T2 方案的审查评论，违反了它正在审查的规则）；**发言者身份约束**——role envelope（`<role>:` 前缀 + `<!-- agent-moebius:role=... -->` metadata）为 runner 发布专属，loop watcher / 真人补发评论必须以自己身份平文发言、不得伪装 agent 格式（所有评论出自同一 gh 账号，metadata 是时间线 speaker 归一化的唯一依据，伪装会污染各 role thread 的对话事实）；**带路由意图的人工评论必须显式带一个 `@`**，否则触发器不会唤醒任何角色（见 T8 死锁背景）；每条规则附正例与反例。各 persona 同步该协议；`agents/ceo.md` 增加违规纠正规则（用 append 要求改正，或经方案论证后启用 replace 直接纠正——执行方决策并记录理由）。
+**目标**：制定单一事实源的 GitHub 交互协议并让所有角色遵守，CEO 发布前兜底。协议至少覆盖：**`@` 语义 = 移交控制权**——每条消息最多一个 `@`，只在明确移交下一步时使用，纯提及一律裸写角色名（触发器只认最新消息第一个合法 mention，误 `@` 会真实移交控制权并占用 driver 名额）；**`#数字` 只用于真实引用 issue / PR**——GitHub 把一切 `#N` 渲染为 issue/PR 链接并在被引用 issue 生成反向引用，因此任何非 issue/PR 编号都禁止写成 `#N`：任务编号用 `T3` 类前缀；时间线评论指代用完整评论 URL 或「第 N 条评论」文字形式；验收语句编号用「验收语句 N」文字形式（实测案例，T2 实施期间发现：issue 45 的 qa 审查评论用 `#6` 指代第 6 条评论、`#1`/`#3`/`#4` 指代验收语句编号，评论 id 4880506810——该评论恰是 T2 方案的审查评论，违反了它正在审查的规则）；**发言者身份约束**——role envelope（`<role>:` 前缀 + `<!-- moebius:role=... -->` metadata）为 runner 发布专属，loop watcher / 真人补发评论必须以自己身份平文发言、不得伪装 agent 格式（所有评论出自同一 gh 账号，metadata 是时间线 speaker 归一化的唯一依据，伪装会污染各 role thread 的对话事实）；**带路由意图的人工评论必须显式带一个 `@`**，否则触发器不会唤醒任何角色（见 T8 死锁背景）；每条规则附正例与反例。各 persona 同步该协议；`agents/ceo.md` 增加违规纠正规则（用 append 要求改正，或经方案论证后启用 replace 直接纠正——执行方决策并记录理由）。
 
 **范围**：新增 `docs/protocols/github-interaction.md`；`agents/*.md` 同步；可选运行时加固：mention 解析忽略反引号 / 代码块内的 `@`（`src/conversation.ts` + 测试），做不做由方案阶段论证。
 
@@ -168,12 +168,12 @@
 **依赖**：T1、T2、T3、T4。
 
 **阶段证据（2026-07-04，T7 演练已执行）**：
-- 主演练对象：当前 T7 issue `https://github.com/tranfu-labs/agent-moebius/issues/56`。issue 48 仅作为历史协同证据引用，不作为本轮主验收线程。
+- 主演练对象：当前 T7 issue `https://github.com/tranfu-labs/moebius/issues/56`。issue 48 仅作为历史协同证据引用，不作为本轮主验收线程。
 - OpenSpec：本次演练方案已归档到 `openspec/changes/archive/2026-07-04-e2e-milestone-2-t7/`；无行为 spec delta、无线框或架构图回流。
-- 截图 artifact：worktree 内已生成并刷新 `artifacts/acceptance/m2-t7-observer.png`，用于最终 `code-verified` 评论的「验收证据」引用。新版截图来自本地 `pnpm observer`，展示临时本机白名单 `tranfu-labs/agent-moebius` 下的 issue 56：issue 左栏 latest run 为后续 product-manager `in-progress`，Runs 区域明确包含 dev `code-verified` run（completed `2026-07-04T07:28:57.398Z`）与发布后的截图 artifact 链接 `https://github.com/tranfu-labs/agent-moebius/releases/download/agent-moebius-artifacts/m2-t7-observer-845e8357a5.png`。
+- 截图 artifact：worktree 内已生成并刷新 `artifacts/acceptance/m2-t7-observer.png`，用于最终 `code-verified` 评论的「验收证据」引用。新版截图来自本地 `pnpm observer`，展示临时本机白名单 `tranfu-labs/moebius` 下的 issue 56：issue 左栏 latest run 为后续 product-manager `in-progress`，Runs 区域明确包含 dev `code-verified` run（completed `2026-07-04T07:28:57.398Z`）与发布后的截图 artifact 链接 `https://github.com/tranfu-labs/moebius/releases/download/moebius-artifacts/m2-t7-observer-845e8357a5.png`。
 - 故障注入（快速失败）：临时 PATH mask 下的 fake `gh` 在 repo scan 阶段返回 `EOF`，runner 记录 4 次 `gh-retry-attempt` 后记录 `repo-scan-failed`；此阶段未生成 `.state/github-response-intake.json` 或 `.state/run-manifests.jsonl`，未进入 Codex，也没有半成品 agent 评论。
 - 故障注入（issue 级快速失败）：在已有 baseline state 上，fake `gh issue list` 返回 issue 56 的较新 `updatedAt`，fake `gh issue view` 返回 `EOF`。runner 记录 `repo-scanned`（`changedIssueCount = 1`）、4 次 `gh-retry-attempt`、`issue-fetch-failed` 与 `issue-retry-scheduled`；本地 intake 中 issue 56 的 `updatedAt` 保持旧值 `2026-07-04T07:19:54Z`，`failureCount = 1`，未生成 role thread 或 run manifest，说明未推进游标、未发布半成品 agent 评论。
-- Dead-letter：按 product-manager 第 17 条指示，本轮已走放弃路径。预置本地 active state 至 failureCount 4 后，fake `gh issue view` 继续返回 `EOF`，`gh issue comment` 透传真实 CLI；runner 记录 4 次 `gh-retry-attempt`、`active-issue-fetch-failed`，随后在 issue 56 时间线发布无 agent mention 的 dead-letter 评论（`https://github.com/tranfu-labs/agent-moebius/issues/56#issuecomment-4881150003`，created `2026-07-04T07:34:13Z`），日志记录 `dead-letter-posted` 且 failureCount = 5。
+- Dead-letter：按 product-manager 第 17 条指示，本轮已走放弃路径。预置本地 active state 至 failureCount 4 后，fake `gh issue view` 继续返回 `EOF`，`gh issue comment` 透传真实 CLI；runner 记录 4 次 `gh-retry-attempt`、`active-issue-fetch-failed`，随后在 issue 56 时间线发布无 agent mention 的 dead-letter 评论（`https://github.com/tranfu-labs/moebius/issues/56#issuecomment-4881150003`，created `2026-07-04T07:34:13Z`），日志记录 `dead-letter-posted` 且 failureCount = 5。
 - 非阻断观察项：QA 增补 1（永久挂起 fake `gh`）本轮未执行。当前 `gh` 单次调用 timeout 预算为 120 秒，低收益且会显著拉长人工演练；记录为 M3 候选，不阻止 T7。
 - 验证：`git diff --check` 通过（exit 0）；`pnpm test` 通过（24 files / 216 tests，exit 0）；`pnpm typecheck` 通过（exit 0）。
 - 卡点清单：

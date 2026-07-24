@@ -8,14 +8,14 @@
   - `post-comment`：runner 直接发表评论。
   - `skip`：无触发。
 - `mention-trigger.ts` 封装现有 `@agent` 选择逻辑。
-- `reflector-stage-trigger.ts` 解析 `<!-- agent-moebius:stage=<stage> -->`，白名单为 `plan-confirmed`、`code-complete`。
+- `reflector-stage-trigger.ts` 解析 `<!-- moebius:stage=<stage> -->`，白名单为 `plan-confirmed`、`code-complete`。
 - `index.ts` 按固定优先级组合触发器：stage trigger 优先于 mention trigger。
 
 reflector stage trigger 只在最新消息满足下面条件时触发：
 
 1. 最新消息 speaker 是已知 agent，且不是 `user` / `reflector`。
 2. 最新消息包含白名单 stage metadata。
-3. 共享时间线里还没有针对同一 `sourceIndex + sourceRole + stage` 的 `agent-moebius:stage-hook` metadata。
+3. 共享时间线里还没有针对同一 `sourceIndex + sourceRole + stage` 的 `moebius:stage-hook` metadata。
 
 触发后直接生成评论：
 
@@ -23,8 +23,8 @@ reflector stage trigger 只在最新消息满足下面条件时触发：
 &lt;reflector&gt;:
 @<sourceRole> 请针对「<stage>」做一次反思。
 
-<!-- agent-moebius:role=reflector -->
-<!-- agent-moebius:stage-hook source=<sourceRole> stage=<stage> sourceIndex=<index> -->
+<!-- moebius:role=reflector -->
+<!-- moebius:stage-hook source=<sourceRole> stage=<stage> sourceIndex=<index> -->
 ```
 
 `runner.ts` 只消费触发结果：

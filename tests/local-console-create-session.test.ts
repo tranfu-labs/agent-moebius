@@ -104,7 +104,7 @@ describe("POST /api/local-console/sessions with initialMessage", () => {
 });
 
 async function startFixtureServer(): Promise<StartedLocalConsoleServer> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-create-session-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-create-session-"));
   fixtureRoots.push(root);
   const started = await startLocalConsoleServer({
     projectRoot: root,

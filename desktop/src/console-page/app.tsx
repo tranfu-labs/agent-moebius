@@ -1,4 +1,4 @@
-import "@agent-moebius/console-ui/globals.css";
+import "@moebius/console-ui/globals.css";
 
 import {
   OperatorConsole,
@@ -25,7 +25,7 @@ import {
   hasBlockingComposerAttachment,
   readyComposerAttachmentIds,
   type OperatorWorkspaceDiffSummary,
-} from "@agent-moebius/console-ui";
+} from "@moebius/console-ui";
 import type {
   AgentTeamDuplicateBuiltInRequest,
   AgentTeamDuplicateUserRequest,
@@ -250,12 +250,12 @@ interface AgentTeamPrimaryAgentChangeState {
   error: string | null;
 }
 
-const AGENT_TEAM_BUILDER_DRAFT_STORAGE_KEY = "agent-moebius.agent-teams.ai-builder-draft";
+const AGENT_TEAM_BUILDER_DRAFT_STORAGE_KEY = "moebius.agent-teams.ai-builder-draft";
 
 declare global {
   interface Window {
-    agentMoebius?: DesktopApi;
-    AGENT_MOEBIUS_LOCAL_CONSOLE_URL?: string;
+    moebius?: DesktopApi;
+    MOEBIUS_LOCAL_CONSOLE_URL?: string;
   }
 }
 
@@ -274,14 +274,14 @@ function DesktopRoutes(): JSX.Element {
   useEffect(() => {
     let active = true;
     const readStatus = async () => {
-      if (window.agentMoebius?.getOnboardingStatus === undefined) {
+      if (window.moebius?.getOnboardingStatus === undefined) {
         if (active) {
           setOnboardingCompleted(true);
         }
         return;
       }
       try {
-        const result = await window.agentMoebius.getOnboardingStatus();
+        const result = await window.moebius.getOnboardingStatus();
         if (active) {
           setOnboardingCompleted(result.completed);
         }
@@ -302,7 +302,7 @@ function DesktopRoutes(): JSX.Element {
   }
 
   const completeOnboarding = async (pendingAgentTeamKey: string) => {
-    const result = await window.agentMoebius?.completeOnboarding?.();
+    const result = await window.moebius?.completeOnboarding?.();
     if (result?.completed !== true) {
       throw new Error("无法保存引导完成状态。");
     }
@@ -458,7 +458,7 @@ export function OperatorConsoleApp({
     let loadingTimer: number | undefined;
 
     async function loadTeams(): Promise<void> {
-      const listTeams = window.agentMoebius?.listAgentTeams;
+      const listTeams = window.moebius?.listAgentTeams;
       if (listTeams === undefined) {
         if (!cancelled) {
           setAgentTeamsState({ status: "error" });
@@ -469,7 +469,7 @@ export function OperatorConsoleApp({
       try {
         const [result, lastUsedTeam] = await Promise.all([
           listTeams(),
-          window.agentMoebius?.readLastUsedAgentTeam?.().catch(() => null) ?? Promise.resolve(null),
+          window.moebius?.readLastUsedAgentTeam?.().catch(() => null) ?? Promise.resolve(null),
         ]);
         if (cancelled) {
           return;
@@ -514,7 +514,7 @@ export function OperatorConsoleApp({
     commitAgentTeamDraftState(startAgentTeamMemberLoad(agentTeamDraftStateRef.current, teamKey, memberSlug));
     try {
       const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-      const readMember = window.agentMoebius?.readAgentTeamMember;
+      const readMember = window.moebius?.readAgentTeamMember;
       if (team === undefined || readMember === undefined) {
         throw new Error("当前无法读取 Agent 内容，请稍后重试。");
       }
@@ -558,7 +558,7 @@ export function OperatorConsoleApp({
   const checkAgentTeamMemberExternalChange = useCallback(async (teamKey: string, memberSlug: string): Promise<void> => {
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
     const current = getAgentTeamMemberDraft(agentTeamDraftStateRef.current, teamKey, memberSlug);
-    const checkExternalChange = window.agentMoebius?.checkAgentTeamMemberExternalChange;
+    const checkExternalChange = window.moebius?.checkAgentTeamMemberExternalChange;
     if (
       team?.ownership !== "user"
       || current?.loadStatus !== "ready"
@@ -621,7 +621,7 @@ export function OperatorConsoleApp({
     agentMarkdown: string,
   ): Promise<AgentTeamMemberDocument> => {
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const writeMember = window.agentMoebius?.writeAgentTeamMember;
+    const writeMember = window.moebius?.writeAgentTeamMember;
     if (team === undefined || writeMember === undefined) {
       throw new Error("当前无法保存 Agent 内容，请稍后重试。");
     }
@@ -766,7 +766,7 @@ export function OperatorConsoleApp({
 
   const changeAgentTeamPrimaryAgent = useCallback(async (teamKey: string, memberSlug: string): Promise<void> => {
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const setPrimaryAgent = window.agentMoebius?.setAgentTeamPrimaryAgent;
+    const setPrimaryAgent = window.moebius?.setAgentTeamPrimaryAgent;
     if (team === undefined || team.ownership !== "user" || setPrimaryAgent === undefined) {
       return;
     }
@@ -816,7 +816,7 @@ export function OperatorConsoleApp({
         memberSlug,
       ));
       try {
-        const document = await window.agentMoebius?.readAgentTeamMember?.({
+        const document = await window.moebius?.readAgentTeamMember?.({
           teamId: copiedTeam.id,
           ownership: copiedTeam.ownership,
           memberSlug,
@@ -882,7 +882,7 @@ export function OperatorConsoleApp({
   }, [failAgentTeamBuilder]);
 
   const activateAiBuiltAgentTeam = useCallback(async (teamId: string): Promise<OperatorAgentTeam> => {
-    const listTeams = window.agentMoebius?.listAgentTeams;
+    const listTeams = window.moebius?.listAgentTeams;
     if (listTeams === undefined) {
       throw new Error("团队已经创建，但暂时无法打开详情。请重试。");
     }
@@ -923,7 +923,7 @@ export function OperatorConsoleApp({
   }, [activateAiBuiltAgentTeam, failAgentTeamBuilder]);
 
   const startAgentTeamBuilder = useCallback(async (): Promise<OperatorAgentTeam | null> => {
-    const start = window.agentMoebius?.startAiTeamBuilder;
+    const start = window.moebius?.startAiTeamBuilder;
     if (start === undefined) {
       failAgentTeamBuilder({
         code: "temporarily-unavailable",
@@ -952,7 +952,7 @@ export function OperatorConsoleApp({
   ]);
 
   const submitAgentTeamBuilder = useCallback(async (text: string): Promise<void> => {
-    const submit = window.agentMoebius?.submitAiTeamBuilder;
+    const submit = window.moebius?.submitAiTeamBuilder;
     if (submit === undefined) {
       failAgentTeamBuilder({
         code: "temporarily-unavailable",
@@ -976,7 +976,7 @@ export function OperatorConsoleApp({
   }, [acceptAgentTeamBuilderResponse, failAgentTeamBuilder, getAgentTeamBuilderDraftId]);
 
   const adjustAgentTeamBuilder = useCallback(async (text: string): Promise<void> => {
-    const adjust = window.agentMoebius?.adjustAiTeamBuilder;
+    const adjust = window.moebius?.adjustAiTeamBuilder;
     if (adjust === undefined) {
       failAgentTeamBuilder({
         code: "temporarily-unavailable",
@@ -1003,7 +1003,7 @@ export function OperatorConsoleApp({
     if (!agentTeamBuilderStartedRef.current) {
       return startAgentTeamBuilder();
     }
-    const retry = window.agentMoebius?.retryAiTeamBuilder;
+    const retry = window.moebius?.retryAiTeamBuilder;
     if (retry === undefined) {
       failAgentTeamBuilder({
         code: "temporarily-unavailable",
@@ -1042,7 +1042,7 @@ export function OperatorConsoleApp({
   const commitAgentTeamBuilder = useCallback(async (
     proposalRevision: number,
   ): Promise<OperatorAgentTeam | null> => {
-    const commit = window.agentMoebius?.commitAiTeamBuilder;
+    const commit = window.moebius?.commitAiTeamBuilder;
     if (commit === undefined) {
       failAgentTeamBuilder({
         code: "temporarily-unavailable",
@@ -1076,7 +1076,7 @@ export function OperatorConsoleApp({
 
   const duplicateBuiltInAgentTeam = useCallback(async (teamKey: string): Promise<string> => {
     const source = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const duplicateTeam = window.agentMoebius?.duplicateBuiltInAgentTeam;
+    const duplicateTeam = window.moebius?.duplicateBuiltInAgentTeam;
     if (source === undefined || source.ownership !== "system" || duplicateTeam === undefined) {
       throw new Error("当前无法复制这支内置团队，请稍后重试。");
     }
@@ -1094,7 +1094,7 @@ export function OperatorConsoleApp({
   const duplicateUserAgentTeam = useCallback(async (teamKey: string): Promise<string> => {
     assertAgentTeamDraftsResolved(teamKey);
     const source = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const duplicateTeam = window.agentMoebius?.duplicateUserAgentTeam;
+    const duplicateTeam = window.moebius?.duplicateUserAgentTeam;
     if (source === undefined || source.ownership !== "user" || duplicateTeam === undefined) {
       throw new Error("当前无法复制这支用户团队，请稍后重试。");
     }
@@ -1105,7 +1105,7 @@ export function OperatorConsoleApp({
   const duplicateAgentTeamMember = useCallback(async (teamKey: string, memberSlug: string): Promise<void> => {
     assertAgentTeamDraftsResolved(teamKey);
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const duplicateMember = window.agentMoebius?.duplicateAgentTeamMember;
+    const duplicateMember = window.moebius?.duplicateAgentTeamMember;
     if (team === undefined || team.ownership !== "user" || duplicateMember === undefined) {
       throw new Error("当前无法复制这个 Agent，请稍后重试。");
     }
@@ -1134,7 +1134,7 @@ export function OperatorConsoleApp({
   const trashAgentTeamMember = useCallback(async (teamKey: string, memberSlug: string): Promise<void> => {
     assertAgentTeamDraftsResolved(teamKey);
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const trashMember = window.agentMoebius?.trashAgentTeamMember;
+    const trashMember = window.moebius?.trashAgentTeamMember;
     if (team === undefined || team.ownership !== "user" || trashMember === undefined) {
       throw new Error("当前无法删除这个 Agent，请稍后重试。");
     }
@@ -1168,7 +1168,7 @@ export function OperatorConsoleApp({
   const trashUserAgentTeam = useCallback(async (teamKey: string): Promise<void> => {
     assertAgentTeamDraftsResolved(teamKey);
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const trashTeam = window.agentMoebius?.trashUserAgentTeam;
+    const trashTeam = window.moebius?.trashUserAgentTeam;
     if (team === undefined || team.ownership !== "user" || trashTeam === undefined) {
       throw new Error("当前无法把这支团队移到系统废纸篓，请稍后重试。");
     }
@@ -1196,7 +1196,7 @@ export function OperatorConsoleApp({
   const createAgentTeam = useCallback(async (
     information: AgentTeamInformationInput,
   ): Promise<OperatorAgentTeam> => {
-    const createTeam = window.agentMoebius?.createAgentTeam;
+    const createTeam = window.moebius?.createAgentTeam;
     if (createTeam === undefined) {
       throw new Error("当前无法创建团队，请稍后重试。");
     }
@@ -1213,7 +1213,7 @@ export function OperatorConsoleApp({
 
   const addAgentTeamMember = useCallback(async (teamKey: string): Promise<void> => {
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const addMember = window.agentMoebius?.addAgentTeamMember;
+    const addMember = window.moebius?.addAgentTeamMember;
     if (team === undefined || addMember === undefined) {
       throw new Error("当前无法添加 Agent，请稍后重试。");
     }
@@ -1240,7 +1240,7 @@ export function OperatorConsoleApp({
     information: AgentTeamInformationInput,
   ): Promise<void> => {
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const updateInformation = window.agentMoebius?.updateAgentTeamInformation;
+    const updateInformation = window.moebius?.updateAgentTeamInformation;
     if (team === undefined || updateInformation === undefined) {
       throw new Error("当前无法修改团队信息，请稍后重试。");
     }
@@ -1259,7 +1259,7 @@ export function OperatorConsoleApp({
 
   const openAgentTeamLocation = useCallback(async (teamKey: string, memberSlug?: string): Promise<void> => {
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const openLocation = window.agentMoebius?.openAgentTeamLocation;
+    const openLocation = window.moebius?.openAgentTeamLocation;
     if (team === undefined || openLocation === undefined) {
       throw new Error("暂时无法打开这个位置，请稍后重试。");
     }
@@ -1272,8 +1272,8 @@ export function OperatorConsoleApp({
 
   const relocateAgentTeam = useCallback(async (teamKey: string): Promise<void> => {
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const selectFolder = window.agentMoebius?.selectAgentTeamRelocationFolder;
-    const relocateRecord = window.agentMoebius?.relocateAgentTeamRecord;
+    const selectFolder = window.moebius?.selectAgentTeamRelocationFolder;
+    const relocateRecord = window.moebius?.relocateAgentTeamRecord;
     if (team === undefined || team.ownership !== "user" || selectFolder === undefined || relocateRecord === undefined) {
       throw new Error("当前无法重新定位这支团队，请稍后重试。");
     }
@@ -1296,7 +1296,7 @@ export function OperatorConsoleApp({
 
   const removeAgentTeamRecord = useCallback(async (teamKey: string): Promise<void> => {
     const team = findOperatorAgentTeam(agentTeamsState, teamKey);
-    const removeRecord = window.agentMoebius?.removeAgentTeamRecord;
+    const removeRecord = window.moebius?.removeAgentTeamRecord;
     if (team === undefined || team.ownership !== "user" || removeRecord === undefined) {
       throw new Error("当前无法移除这条团队记录，请稍后重试。");
     }
@@ -1373,12 +1373,12 @@ export function OperatorConsoleApp({
       if (apiBase !== null) {
         return;
       }
-      const fromWindow = window.AGENT_MOEBIUS_LOCAL_CONSOLE_URL;
+      const fromWindow = window.MOEBIUS_LOCAL_CONSOLE_URL;
       if (fromWindow) {
         setApiBase(fromWindow);
         return;
       }
-      const fromPreload = await window.agentMoebius?.getLocalConsoleUrl?.();
+      const fromPreload = await window.moebius?.getLocalConsoleUrl?.();
       if (!cancelled && fromPreload) {
         setApiBase(fromPreload);
       }
@@ -1391,7 +1391,7 @@ export function OperatorConsoleApp({
 
   useEffect(() => {
     let cancelled = false;
-    void window.agentMoebius?.getLocalConsoleAttachmentCapability?.().then((capability) => {
+    void window.moebius?.getLocalConsoleAttachmentCapability?.().then((capability) => {
       if (!cancelled) setAttachmentCapability(capability);
     });
     return () => {
@@ -1400,7 +1400,7 @@ export function OperatorConsoleApp({
   }, [apiBase]);
 
   useEffect(() => {
-    return window.agentMoebius?.onStatus?.((snapshot) => {
+    return window.moebius?.onStatus?.((snapshot) => {
       setRunnerStatus(snapshot.runner.status);
       if (snapshot.localConsole?.url) {
         setApiBase(snapshot.localConsole.url);
@@ -1799,9 +1799,9 @@ export function OperatorConsoleApp({
     setMutationKind: setSelectionMutationKind,
     setSending: setIsSending,
     setError: setClientError,
-    selectProjectFolder: window.agentMoebius?.selectProjectFolder === undefined
+    selectProjectFolder: window.moebius?.selectProjectFolder === undefined
       ? undefined
-      : () => window.agentMoebius!.selectProjectFolder!(),
+      : () => window.moebius!.selectProjectFolder!(),
   }), [apiBase, commitSelection, composerValue, managedAttachments, refresh]);
 
   const editAndResend = useCallback((target: OperatorEditAndResendTarget) => {
@@ -1909,7 +1909,7 @@ export function OperatorConsoleApp({
     }
 
     dispatchNewConversation({ type: "submit-started" });
-    const recordSuccessfulTeam = window.agentMoebius?.recordSuccessfulConversationAgentTeam;
+    const recordSuccessfulTeam = window.moebius?.recordSuccessfulConversationAgentTeam;
     const result = await submitNewConversation({
       projectId,
       workspaceMode: newConversation.workspaceMode,
@@ -1948,10 +1948,10 @@ export function OperatorConsoleApp({
 
   const showProjectInFolder = useCallback(async (folderPath: string) => {
     try {
-      if (window.agentMoebius?.showInFolder === undefined) {
+      if (window.moebius?.showInFolder === undefined) {
         throw new Error("desktop file manager unavailable");
       }
-      await window.agentMoebius.showInFolder(folderPath);
+      await window.moebius.showInFolder(folderPath);
       setClientError(null);
     } catch (error) {
       setClientError(formatError(error));
@@ -2017,10 +2017,10 @@ export function OperatorConsoleApp({
   }, [apiBase, forgetPersistedSelection, refresh, startNewConversation]);
 
   const selectFolderForRepair = useCallback(async (projectId: string): Promise<string | null> => {
-    if (window.agentMoebius?.selectFolderForRepair === undefined) {
+    if (window.moebius?.selectFolderForRepair === undefined) {
       throw new Error("desktop repair folder picker unavailable");
     }
-    return window.agentMoebius.selectFolderForRepair(projectId);
+    return window.moebius.selectFolderForRepair(projectId);
   }, []);
 
   const repairProjectFolder = useCallback(async (projectId: string, folderPath: string) => {
@@ -2156,11 +2156,11 @@ export function OperatorConsoleApp({
   }, [apiBase, refresh, refreshSubSessionNow]);
 
   const openDiagnostics = useMemo(() => {
-    if (window.agentMoebius?.openStatusPage === undefined) {
+    if (window.moebius?.openStatusPage === undefined) {
       return undefined;
     }
     return () => {
-      void window.agentMoebius?.openStatusPage?.();
+      void window.moebius?.openStatusPage?.();
     };
   }, []);
 
@@ -2392,7 +2392,7 @@ export function OperatorConsoleApp({
       onRepairProjectFolder={repairProjectFolder}
       onArchiveSession={actions.archiveSession}
       onCopySessionLogPath={async (sessionId) => {
-        const copySessionLogPath = window.agentMoebius?.copySessionLogPath;
+        const copySessionLogPath = window.moebius?.copySessionLogPath;
         if (copySessionLogPath === undefined) {
           return { ok: false, reason: "service-unavailable" };
         }
@@ -2404,10 +2404,10 @@ export function OperatorConsoleApp({
       }}
       onEditAndResend={editAndResend}
       onOpenDiagnostics={openDiagnostics}
-      onOpenExternalLink={window.agentMoebius?.openExternalLink === undefined
+      onOpenExternalLink={window.moebius?.openExternalLink === undefined
         ? undefined
         : (url) => {
-          void window.agentMoebius?.openExternalLink?.(url).catch((error: unknown) => {
+          void window.moebius?.openExternalLink?.(url).catch((error: unknown) => {
             setClientError(error instanceof Error ? error.message : String(error));
           });
         }}
@@ -2458,7 +2458,7 @@ export function OperatorConsoleApp({
       onRecheckAgentTeam={() => setAgentTeamsRefreshNonce((current) => current + 1)}
       onRelocateAgentTeam={relocateAgentTeam}
       onRemoveAgentTeamRecord={removeAgentTeamRecord}
-      agentTeamFileManagerLabel={window.agentMoebius?.agentTeamFileManagerLabel ?? "在文件管理器中打开"}
+      agentTeamFileManagerLabel={window.moebius?.agentTeamFileManagerLabel ?? "在文件管理器中打开"}
       onOpenAgentTeamLocation={openAgentTeamLocation}
       onDuplicateUserAgentTeam={duplicateUserAgentTeam}
       onDuplicateAgentTeamMember={duplicateAgentTeamMember}
@@ -2553,7 +2553,7 @@ function isSafeAiTeamBuilderDraftId(value: string): boolean {
 const emptyProject: OperatorProject = {
   projectId: "local",
   sourceType: "local-folder",
-  title: "agent-moebius",
+  title: "moebius",
   folderPath: "",
   worktreeMode: false,
   workspaceCwd: null,

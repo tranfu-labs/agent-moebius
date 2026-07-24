@@ -1,6 +1,6 @@
 # 任务：role-badges-rack
 
-- [ ] 抽出可复用的「员工工牌」组件样式（打孔/卡槽 + 头像缩写色卡 + 姓名 + charter + agent-moebius 公司标 + 条形码），全息档
+- [ ] 抽出可复用的「员工工牌」组件样式（打孔/卡槽 + 头像缩写色卡 + 姓名 + charter + moebius 公司标 + 条形码），全息档
 - [ ] 全息交互：JS 写 `--mx/--my` → ±6° tilt + 光泽扫过 + foil（mix-blend color-dodge，mask 流动），prefers-reduced-motion 降级
 - [ ] ③「Your AI team」7 卡 → 完整工牌网格（charter 并入工牌展示）
 - [ ] 首屏圆环 7 节点 → 简化版工牌（缩写色卡+卡槽，小体积不过重），中心 CEO 放大版；hover 仍出 charter

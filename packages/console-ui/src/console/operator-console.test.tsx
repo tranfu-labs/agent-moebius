@@ -89,9 +89,9 @@ describe("OperatorConsole", () => {
       "新建对话",
       "搜索",
       "Agent 团队",
-      "agent-moebius 项目，已展开",
-      "在 agent-moebius 中新建会话",
-      "agent-moebius 项目菜单",
+      "moebius 项目，已展开",
+      "在 moebius 中新建会话",
+      "moebius 项目菜单",
       "默认会话，正在运行",
       "默认会话 对话菜单",
       "验收会话，需要你处理",
@@ -144,8 +144,8 @@ describe("OperatorConsole", () => {
     });
 
     expect(screen.getByRole("button", { name: "新建对话" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "agent-moebius 项目菜单" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "在 moebius 中新建会话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "moebius 项目菜单" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "搜索" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Agent 团队" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "设置" })).toBeEnabled();
@@ -154,7 +154,7 @@ describe("OperatorConsole", () => {
     fireEvent.click(screen.getByRole("button", { name: "验收会话，需要你处理" }));
     expect(onSelectSession).toHaveBeenCalledWith({ sessionId: "session-b", projectId: "local" });
 
-    const projectToggle = screen.getByRole("button", { name: "agent-moebius 项目，已展开" });
+    const projectToggle = screen.getByRole("button", { name: "moebius 项目，已展开" });
     fireEvent.keyDown(projectToggle, { key: "Enter" });
     expect(projectToggle).toHaveAttribute("aria-expanded", "false");
   });
@@ -264,7 +264,7 @@ describe("OperatorConsole", () => {
       },
     });
 
-    const projectNewConversation = screen.getByRole("button", { name: "在 agent-moebius 中新建会话" });
+    const projectNewConversation = screen.getByRole("button", { name: "在 moebius 中新建会话" });
     expect(projectNewConversation).toBeDisabled();
     expect(projectNewConversation).toHaveAttribute("title", "当前项目本地文件夹不可用，无法新建对话");
     fireEvent.click(projectNewConversation);
@@ -399,7 +399,7 @@ describe("OperatorConsole", () => {
     renderConsole({ project: { ...project, runningCount: 0 }, onRemoveProject });
     fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
 
-    await openProjectMenu("agent-moebius");
+    await openProjectMenu("moebius");
     fireEvent.click(screen.getByRole("menuitem", { name: "移除项目" }));
     fireEvent.click(screen.getByRole("button", { name: "移除项目" }));
 
@@ -935,9 +935,9 @@ describe("OperatorConsole", () => {
     const timeline = screen.getByRole("region", { name: "会话时间线" });
     expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toHaveAttribute("aria-current", "page");
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "agent-moebius 项目，已展开" }), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "moebius 项目，已展开" }), { key: "Enter" });
 
-    expect(screen.getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "moebius 项目，已折叠，需要你处理" })).toHaveAttribute(
       "data-status-dot",
       "red",
     );
@@ -945,7 +945,7 @@ describe("OperatorConsole", () => {
     expect(screen.getByRole("region", { name: "会话时间线" })).toBe(timeline);
     expect(onSelectSession).not.toHaveBeenCalled();
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" }), {
+    fireEvent.keyDown(screen.getByRole("button", { name: "moebius 项目，已折叠，需要你处理" }), {
       key: "Enter",
     });
 
@@ -971,7 +971,7 @@ describe("OperatorConsole", () => {
     renderConsole({ activeRun: runSnapshot, composerValue: "", onInterrupt });
 
     expect(screen.getByText("Moebius")).toBeVisible();
-    expect(screen.getAllByText("agent-moebius").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("moebius").length).toBeGreaterThan(0);
     expect(screen.getAllByText("默认会话").length).toBeGreaterThan(0);
     expect(screen.getByText("验收会话")).toBeVisible();
     expect(screen.getByText("开发")).toBeVisible();
@@ -1625,7 +1625,7 @@ describe("OperatorConsole", () => {
           systemEventKind: "retry-exhausted",
           body: "dead-letter body handoff runDir",
           error: "cwd=/tmp/project runDir=/tmp/run direct worktree",
-          runDir: "/tmp/agent-moebius-run",
+          runDir: "/tmp/moebius-run",
         }),
       ],
       activeRun: {
@@ -1636,7 +1636,7 @@ describe("OperatorConsole", () => {
 
     expect(screen.getByText("正在推进这一步…")).toBeVisible();
     expect(screen.getByText("这一步反复没跑起来，已经不再重试")).toBeVisible();
-    expect(screen.queryByText(/\/tmp\/agent-moebius-run/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/tmp\/moebius-run/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/cwd=\/tmp/u)).not.toBeInTheDocument();
     expect(screen.queryByText("查看详情")).not.toBeInTheDocument();
   });
@@ -1688,7 +1688,7 @@ describe("OperatorConsole", () => {
       onChangeSessionProject,
     });
 
-    const trigger = screen.getByRole("button", { name: "项目：agent-moebius，点击切换" });
+    const trigger = screen.getByRole("button", { name: "项目：moebius，点击切换" });
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
     const target = await screen.findByRole("menuitemcheckbox", { name: "project-b" });
     fireEvent.click(target);
@@ -1697,7 +1697,7 @@ describe("OperatorConsole", () => {
 
   it("keeps project context locked when the session has history or lineage", () => {
     const { rerender } = renderConsole({ onChangeSessionProject: vi.fn() });
-    expect(screen.getByLabelText("项目：agent-moebius，已锁定")).toBeVisible();
+    expect(screen.getByLabelText("项目：moebius，已锁定")).toBeVisible();
     expect(screen.queryByRole("button", { name: /点击切换/u })).not.toBeInTheDocument();
 
     const props = baseProps({
@@ -1706,14 +1706,14 @@ describe("OperatorConsole", () => {
       onChangeSessionProject: vi.fn(),
     });
     rerender(<OperatorConsole {...props} />);
-    expect(screen.getByLabelText("项目：agent-moebius，已锁定")).toBeVisible();
+    expect(screen.getByLabelText("项目：moebius，已锁定")).toBeVisible();
 
     rerender(<OperatorConsole {...baseProps({
       messages: [],
       selectedSession: { ...sessions[0], childCount: 1 },
       onChangeSessionProject: vi.fn(),
     })} />);
-    expect(screen.getByLabelText("项目：agent-moebius，已锁定")).toBeVisible();
+    expect(screen.getByLabelText("项目：moebius，已锁定")).toBeVisible();
   });
 
   it("blocks every selection entry while pending and additionally blocks send during rebind", () => {
@@ -1728,11 +1728,11 @@ describe("OperatorConsole", () => {
       isSessionProjectUpdating: true,
     });
 
-    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" }))
+    expect(screen.getByRole("button", { name: "在 moebius 中新建会话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "在 moebius 中新建会话" }))
       .toHaveAttribute("title", "项目正在变更，请稍后再试");
     expect(screen.getByRole("button", { name: "默认会话，正在运行" })).toBeDisabled();
-    expect(screen.getByLabelText("项目：agent-moebius，点击切换")).toBeDisabled();
+    expect(screen.getByLabelText("项目：moebius，点击切换")).toBeDisabled();
     const composer = screen.getByRole("textbox");
     expect(composer).toBeDisabled();
     fireEvent.keyDown(composer, { key: "Enter" });
@@ -1751,7 +1751,7 @@ describe("OperatorConsole", () => {
       onRemoveProject,
     });
 
-    await openProjectMenu("agent-moebius");
+    await openProjectMenu("moebius");
     expect(screen.getByRole("menu")).toBeVisible();
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
       "在文件管理器中显示",
@@ -1759,9 +1759,9 @@ describe("OperatorConsole", () => {
       "移除项目",
     ]);
     fireEvent.click(screen.getByRole("menuitem", { name: "在文件管理器中显示" }));
-    expect(onShowProjectInFolder).toHaveBeenCalledWith("/Users/example/agent-moebius");
+    expect(onShowProjectInFolder).toHaveBeenCalledWith("/Users/example/moebius");
 
-    await openProjectMenu("agent-moebius");
+    await openProjectMenu("moebius");
     fireEvent.click(screen.getByRole("menuitem", { name: "修改显示名称" }));
     const renameDialog = screen.getByRole("dialog", { name: "修改显示名称" });
     expect(renameDialog).toHaveTextContent("不会重命名磁盘文件夹");
@@ -1770,11 +1770,11 @@ describe("OperatorConsole", () => {
     await waitFor(() => expect(onRenameProject).toHaveBeenCalledWith("local", ""));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "修改显示名称" })).not.toBeInTheDocument());
 
-    await openProjectMenu("agent-moebius");
+    await openProjectMenu("moebius");
     fireEvent.click(screen.getByRole("menuitem", { name: "移除项目" }));
     const removeDialog = screen.getByRole("dialog", { name: "移除项目？" });
     expect(removeDialog).toHaveTextContent("绝不会删除或修改磁盘上的项目文件夹");
-    expect(removeDialog).toHaveTextContent("/Users/example/agent-moebius");
+    expect(removeDialog).toHaveTextContent("/Users/example/moebius");
     fireEvent.click(screen.getByRole("button", { name: "移除项目" }));
     await waitFor(() => expect(onRemoveProject).toHaveBeenCalledWith("local", false));
   });
@@ -1783,7 +1783,7 @@ describe("OperatorConsole", () => {
     const onRemoveProject = vi.fn().mockResolvedValue(undefined);
     renderConsole({ onRemoveProject });
 
-    await openProjectMenu("agent-moebius");
+    await openProjectMenu("moebius");
     fireEvent.click(screen.getByRole("menuitem", { name: "移除项目" }));
     const warning = screen.getByRole("dialog", { name: "项目中仍有 Agent 正在运行" });
     expect(warning).toHaveTextContent("可以取消");
@@ -1800,7 +1800,7 @@ describe("OperatorConsole", () => {
   it("keeps history readable while blocking work and confirms folder repair with both paths", async () => {
     const onSelectSession = vi.fn();
     const onSend = vi.fn();
-    const onSelectFolderForRepair = vi.fn().mockResolvedValue("/Users/example/moved-agent-moebius");
+    const onSelectFolderForRepair = vi.fn().mockResolvedValue("/Users/example/moved-moebius");
     const onRepairProjectFolder = vi.fn().mockResolvedValue(undefined);
     renderConsole({
       project: {
@@ -1819,7 +1819,7 @@ describe("OperatorConsole", () => {
 
     expect(screen.getByRole("button", { name: "新建对话" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Agent 团队" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "在 moebius 中新建会话" })).toBeDisabled();
     expect(screen.getByRole("textbox")).toBeDisabled();
     expect(screen.getByText("历史对话只读；修复文件夹后可继续")).toBeVisible();
     expect(screen.getByLabelText("工作空间：独立工作空间，已锁定")).toBeVisible();
@@ -1828,15 +1828,15 @@ describe("OperatorConsole", () => {
     expect(onSelectSession).toHaveBeenCalledWith({ sessionId: "session-a", projectId: "local" });
     expect(onSend).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "修复 agent-moebius 项目文件夹" }));
+    fireEvent.click(screen.getByRole("button", { name: "修复 moebius 项目文件夹" }));
     expect(onSelectFolderForRepair).toHaveBeenCalledWith("local");
     const dialog = await screen.findByRole("dialog", { name: "修复项目文件夹" });
     expect(dialog).toHaveTextContent("不会移动、复制或重命名任何磁盘文件");
-    expect(screen.getByTestId("repair-original-folder")).toHaveTextContent("/Users/example/agent-moebius");
-    expect(screen.getByTestId("repair-new-folder")).toHaveTextContent("/Users/example/moved-agent-moebius");
+    expect(screen.getByTestId("repair-original-folder")).toHaveTextContent("/Users/example/moebius");
+    expect(screen.getByTestId("repair-new-folder")).toHaveTextContent("/Users/example/moved-moebius");
 
     fireEvent.click(screen.getByRole("button", { name: "确认新位置" }));
-    await waitFor(() => expect(onRepairProjectFolder).toHaveBeenCalledWith("local", "/Users/example/moved-agent-moebius"));
+    await waitFor(() => expect(onRepairProjectFolder).toHaveBeenCalledWith("local", "/Users/example/moved-moebius"));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "修复项目文件夹" })).not.toBeInTheDocument());
 
   });
@@ -1957,12 +1957,12 @@ const sessions: OperatorSession[] = [
 const project: OperatorProject = {
   projectId: "local",
   sourceType: "local-folder",
-  title: "agent-moebius",
-  folderPath: "/Users/example/agent-moebius",
+  title: "moebius",
+  folderPath: "/Users/example/moebius",
   worktreeMode: true,
-  workspaceCwd: "/tmp/agent-moebius-local-worktree",
+  workspaceCwd: "/tmp/moebius-local-worktree",
   workspaceMode: "worktree",
-  worktreePath: "/tmp/agent-moebius-local-worktree",
+  worktreePath: "/tmp/moebius-local-worktree",
   worktreeUnavailableReason: null,
   workspaceUpdatedAt: "2026-07-09T00:00:01.000Z",
   branchName: "main",
@@ -2056,8 +2056,8 @@ const runSnapshot: OperatorRunSnapshot = {
   status: "running",
   startedAt: "2026-07-09T00:00:00.000Z",
   elapsedMs: 12_000,
-  runDir: "/tmp/agent-moebius-run",
-  cwd: "/tmp/agent-moebius-local-worktree",
+  runDir: "/tmp/moebius-run",
+  cwd: "/tmp/moebius-local-worktree",
   workspaceMode: "worktree",
   worktreeUnavailableReason: null,
   stdoutTail: "live tail from codex",

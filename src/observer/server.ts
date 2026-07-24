@@ -112,7 +112,7 @@ if (isDirectRun()) {
     port: parseObserverPort(process.env.OBSERVER_PORT),
   })
     .then(({ url }) => {
-      console.log(`Agent Moebius Observer listening on ${url}`);
+      console.log(`Moebius Observer listening on ${url}`);
     })
     .catch((error) => {
       console.error(error instanceof Error ? error.message : String(error));

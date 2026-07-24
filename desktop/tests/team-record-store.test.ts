@@ -154,7 +154,7 @@ describe("user team application records", () => {
 });
 
 async function makeDataRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-record-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-team-record-"));
   temporaryRoots.push(root);
   return root;
 }

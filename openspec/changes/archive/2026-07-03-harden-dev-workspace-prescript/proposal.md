@@ -2,7 +2,7 @@
 
 ## 背景
 
-2026-07-03 一次心跳同时对 `tranfu-labs/agent-moebius` 派发了 #28 与 #29 两个 dev job（同毫秒触发）。#29 成功、#28 失败并被日志记为 `agent-prescript-failed:git failed with exit-code-1`。复盘定位到 `src/agent-prescripts/dev-workspace.ts` 里两个独立缺陷：
+2026-07-03 一次心跳同时对 `tranfu-labs/moebius` 派发了 #28 与 #29 两个 dev job（同毫秒触发）。#29 成功、#28 失败并被日志记为 `agent-prescript-failed:git failed with exit-code-1`。复盘定位到 `src/agent-prescripts/dev-workspace.ts` 里两个独立缺陷：
 
 1. **同 bare repo 并发 race**。所有指向同一个 GitHub repository 的 dev worktree 共享一份 bare cache `repos/<owner>__<repo>.git`。首建路径与 stale 重建路径都会连续跑 `git clone --bare`（若缺失）、`git fetch --prune`、`git worktree add` 三段命令，且都写共享 git ref（`refs/remotes/origin/main`、`worktrees/<name>/HEAD`）。同心跳内对同 repo 派发的两个 prescript 并发进入这三段时，输者拿不到 `refs/remotes/origin/main.lock`，git 直接以 exit code 1 退出。runner 层没有按 repo 聚合派发，prescript 内部也没有针对 bare repo 的临界区。
 

@@ -1,10 +1,10 @@
 # 提案：marketeam-landing-sections
 
 ## 背景
-落地页 `sites/marketeam/index.html` 目前只有首屏（借用的 Marketeam 营销壳）。首屏之下需要一条正文叙事，**如实介绍本项目 agent-moebius**（而非虚构的营销人才平台）。内容 MUST 来自真实事实源（AGENTS.md 项目概览、docs/roadmap、agents/*.md、goal-ledger.ts），NEVER 套用通用 SaaS 漏斗模板。定位仍是调试样例，文案够意思即可。
+落地页 `sites/marketeam/index.html` 目前只有首屏（借用的 Marketeam 营销壳）。首屏之下需要一条正文叙事，**如实介绍本项目 moebius**（而非虚构的营销人才平台）。内容 MUST 来自真实事实源（AGENTS.md 项目概览、docs/roadmap、agents/*.md、goal-ledger.ts），NEVER 套用通用 SaaS 漏斗模板。定位仍是调试样例，文案够意思即可。
 
 ## 提案
-在同一个 `sites/marketeam/index.html` 里、首屏下方追加**一条长滚动正文（先搭主脊 4 节）**，如实介绍 agent-moebius：
+在同一个 `sites/marketeam/index.html` 里、首屏下方追加**一条长滚动正文（先搭主脊 4 节）**，如实介绍 moebius：
 
 1. **是什么**：一句话定位 + 三个概念芯片（本机运行 codex/gh · GitHub issue 驱动 · 一支 AI 角色团队 + CEO 把关）。
 2. **怎么跑**：真实运行闭环（扫描 issue → 归一化时间线 → @mention 触发本机 codex → CEO guardrail 校正 → 交棒 plan-written→code-verified → 目标账本到验收回流）。
@@ -20,5 +20,5 @@
 - 复用既有设计系统（药丸按钮+旋转描边、紫 mesh/光晕、hairline 卡、count-up、头像卡+hover），不新造视觉语言、不引第三方图片、不加构建依赖。
 
 ## 存在的已知取舍
-- 首屏是 Marketeam 营销壳、正文讲 agent-moebius，**存在品牌错位**；本期作为调试样例接受此错位，先不动首屏。
+- 首屏是 Marketeam 营销壳、正文讲 moebius，**存在品牌错位**；本期作为调试样例接受此错位，先不动首屏。
 - 正文文案用英文（与首屏同语言），但内容忠于中文事实源。

@@ -2,7 +2,7 @@
 
 ## 方案
 1. `console-ui` 从独立 package style entry 引入现有 `src/styles/globals.css`，让既有 Vite/PostCSS/Tailwind 构建链在 `dist/style.css` 生成已经展开 base/components/utilities 与 `@apply` 的样式。
-2. package export `@agent-moebius/console-ui/globals.css` 指向 `dist/style.css`。Storybook 仍直接使用源码样式，由其 Vite/PostCSS 链处理。
+2. package export `@moebius/console-ui/globals.css` 指向 `dist/style.css`。Storybook 仍直接使用源码样式，由其 Vite/PostCSS 链处理。
 3. desktop 的 `build` script 先运行 `console-ui build`，随后执行现有 esbuild renderer bundling；renderer 源码和 import 写法保持不变。
 4. renderer 构建后读取 `dist/console-page/app.css`，通过可单测的契约函数拒绝残留 `@tailwind` / `@apply`，并要求存在代表组件库的 `.flex`、`.grid`、`.bg-canvas`、`.text-ink` utility。
 5. `console.css` 只保留 `html/body/#root` 的窗口高度、外边距和 overflow 宿主约束，组件布局与视觉完全交还 `console-ui`。

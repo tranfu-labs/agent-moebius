@@ -35,7 +35,7 @@
 1. 打开包含两个项目的桌面操作台 → 点击第二个项目文件夹行右侧的新会话按钮 → 应在第二个项目下创建并选中一个空白新会话，且第一个项目不新增会话。
 2. 打开一个没有消息和运行记录的新会话 → 点击 composer 上方文件夹并在下拉菜单选择另一项目 → 应看到当前会话保持选中、项目名称切换到目标项目、输入草稿不丢失且该会话移动到目标项目分组。
 3. 打开已有消息、运行记录或父子关系的会话 → 查看 composer 上方文件夹上下文 → 应看到项目名称保持可见但没有项目切换菜单，直接调用重绑 API 应失败且原项目、消息与关系不变。
-4. 跑 `pnpm --filter @agent-moebius/console-ui test` → 应退出码为 0，并覆盖项目行按钮、项目下拉选择与锁定态。
+4. 跑 `pnpm --filter @moebius/console-ui test` → 应退出码为 0，并覆盖项目行按钮、项目下拉选择与锁定态。
 5. 跑 local console 相关 Vitest → 应退出码为 0，并覆盖目标项目不存在、空白会话成功重绑、已有消息/父子关系拒绝重绑及事务无部分写入。
-6. 跑 `pnpm typecheck` 与 `pnpm --filter @agent-moebius/desktop build` → 两条命令都应退出码为 0。
+6. 跑 `pnpm typecheck` 与 `pnpm --filter @moebius/desktop build` → 两条命令都应退出码为 0。
 7. 跑 `pnpm test` → 应退出码为 0，且 selection mutation deferred 并发用例证明 pending 期间侧栏选择、项目行新建、打开项目和项目菜单不会造成 selection 回跳或重复 mutation。

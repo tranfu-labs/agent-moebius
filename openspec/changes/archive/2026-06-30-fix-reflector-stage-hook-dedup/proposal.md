@@ -6,7 +6,7 @@
 
 issue #57 的实际表现：
 
-- dev 发 `<!-- agent-moebius:stage=plan-written -->` (idx=3) → reflector 触发，post `stage-hook source=dev stage=plan-written sourceIndex=3`。
+- dev 发 `<!-- moebius:stage=plan-written -->` (idx=3) → reflector 触发，post `stage-hook source=dev stage=plan-written sourceIndex=3`。
 - dev 收到反思请求，反思后仍处于 plan-written 阶段，又写一次同 stage marker (idx=5) → reflector 查 `(dev, plan-written, 5)` 没有 → 再次触发。
 - 跨 active poll 循环不止。
 

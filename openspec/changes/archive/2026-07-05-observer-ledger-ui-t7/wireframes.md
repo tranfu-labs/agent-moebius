@@ -8,7 +8,7 @@ Desktop:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ Agent Moebius Observer                                      read on load   │
+│ Moebius Observer                                      read on load   │
 ├──────────────────────────────┬─────────────────────────────────────────────┤
 │ Goals                         │ Diagnostics                                 │
 │                              │  goal-ledger.json          ok                │
@@ -20,8 +20,8 @@ Desktop:
 │  Unlinked local runs 3       │  quality data-correct                         │
 │                              │  active phase: Build observable orchestration │
 │ Legacy issue records         │  gate: waiting product-manager integration    │
-│  tranfu-labs/agent-moebius   │   basis: integration event requested          │
-│   issue 75 latest plan       │   next: tranfu-labs/agent-moebius issue 75    │
+│  tranfu-labs/moebius   │   basis: integration event requested          │
+│   issue 75 latest plan       │   next: tranfu-labs/moebius issue 75    │
 │                              │                                             │
 │                              │  Milestone: orchestration runtime             │
 │                              │   active phase: child execution               │
@@ -50,13 +50,13 @@ Ledger read failure fallback:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ Agent Moebius Observer                                      read on load   │
+│ Moebius Observer                                      read on load   │
 ├──────────────────────────────┬─────────────────────────────────────────────┤
 │ Goals                         │ Diagnostics                                 │
 │  ledger unavailable           │  goal-ledger.json          error             │
 │                              │   unsupported schemaVersion                  │
 │ Legacy issue records         │                                             │
-│  tranfu-labs/agent-moebius   │ Ledger tree                                  │
+│  tranfu-labs/moebius   │ Ledger tree                                  │
 │   issue 75 latest run        │  账本读取失败，树视图暂不可用。                │
 │                              │                                             │
 │                              │ Legacy issue/run records                     │
@@ -70,7 +70,7 @@ Mobile / narrow viewport:
 
 ```text
 ┌────────────────────────────────────┐
-│ Agent Moebius Observer             │
+│ Moebius Observer             │
 │ read on load                       │
 ├────────────────────────────────────┤
 │ Diagnostics                        │

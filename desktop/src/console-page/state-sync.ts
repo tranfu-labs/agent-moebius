@@ -8,7 +8,7 @@ import {
   type ProjectFilesData,
   type WorkspaceDiffData,
   type WorkspaceFileContent,
-} from "@agent-moebius/console-ui";
+} from "@moebius/console-ui";
 
 export interface ConsoleSelection {
   projectId: string;

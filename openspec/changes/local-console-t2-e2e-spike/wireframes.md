@@ -8,7 +8,7 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Agent Moebius Local Spike        http://127.0.0.1:<port>      │
+│ Moebius Local Spike        http://127.0.0.1:<port>      │
 ├──────────────────────────────────────────────────────────────┤
 │ SQLite: .state/local-console.sqlite                          │
 │ Session: default                    Status: idle/running      │
@@ -39,7 +39,7 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Agent Moebius Local Spike                         running     │
+│ Moebius Local Spike                         running     │
 ├──────────────────────────────────────────────────────────────┤
 │ You · running                                                │
 │ @dev 帮我写个 hello                                           │
@@ -60,7 +60,7 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Agent Moebius Local Spike                          failed     │
+│ Moebius Local Spike                          failed     │
 ├──────────────────────────────────────────────────────────────┤
 │ You · failed                                                 │
 │ @dev 帮我写个 hello                                           │
@@ -79,7 +79,7 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Agent Moebius Local Spike                     store error     │
+│ Moebius Local Spike                     store error     │
 ├──────────────────────────────────────────────────────────────┤
 │ system · displayed                                           │
 │ SQLite write failed: SQLITE_BUSY after 2000ms                 │

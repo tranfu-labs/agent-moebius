@@ -20,15 +20,15 @@
 - MUST render `闸口不可定位：ledger 缺 parent/child issue reference` when a gate cannot identify the next GitHub issue from ledger parent/child issue references.
 - MUST use only `TaskRecord.runManifestRefs` explicit references as task evidence.
 - MUST place run manifest records not explicitly referenced by a task into an `Unlinked local runs` or equivalent legacy diagnostics section; observer MUST NOT count inferred child-issue runs as task evidence.
-- MUST detect T6 roundtable child references from bounded child ref notes only when the note contains an exact `agent-moebius-roundtable-key:[a-f0-9]{32}` key shape, show a `roundtable child` badge, and MUST NOT reveal the hidden roundtable key.
+- MUST detect T6 roundtable child references from bounded child ref notes only when the note contains an exact `moebius-roundtable-key:[a-f0-9]{32}` key shape, show a `roundtable child` badge, and MUST NOT reveal the hidden roundtable key.
 - MUST NOT show a roundtable badge for ordinary provenance text or near-miss text that resembles but does not match the exact roundtable key shape.
 - MUST NOT treat roundtable completion as child acceptance pass or integration acceptance pass.
 - MUST keep the existing observer diagnostics for config, intake state, role threads, agent contexts, run manifests, artifact publish links, unpublished artifact paths, missing files, malformed JSON, malformed JSONL lines, and fake `gh` / `codex` zero invocation.
 
 ## 新增场景
 ### 场景 T7.1：目标树展示 watched goal
-Given `.state/goal-ledger.json` contains a goal whose task child issue reference points to `tranfu-labs/agent-moebius`
-And `config.local.toml` watches `tranfu-labs/agent-moebius`
+Given `.state/goal-ledger.json` contains a goal whose task child issue reference points to `tranfu-labs/moebius`
+And `config.local.toml` watches `tranfu-labs/moebius`
 When the observer page renders
 Then the primary view shows that goal as a goal -> milestone -> task tree
 And diagnostics do not classify that goal as filtered out

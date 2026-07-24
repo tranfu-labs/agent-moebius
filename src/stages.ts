@@ -4,11 +4,11 @@ export const ALL_STAGES = ["plan-written", "code-verified", "in-progress"] as co
 
 const METADATA_NAME = "[a-z0-9]+(?:-[a-z0-9]+)*";
 const STAGE_MARKER_PATTERN = new RegExp(
-  `<!--\\s*agent-moebius\\s*:\\s*stage\\s*=\\s*(${METADATA_NAME})\\s*-->`,
+  `<!--\\s*moebius\\s*:\\s*stage\\s*=\\s*(${METADATA_NAME})\\s*-->`,
   "gi",
 );
 const TRAILING_STAGE_MARKER_PATTERN = new RegExp(
-  `<!--\\s*agent-moebius\\s*:\\s*stage\\s*=\\s*(${METADATA_NAME})\\s*-->\\s*$`,
+  `<!--\\s*moebius\\s*:\\s*stage\\s*=\\s*(${METADATA_NAME})\\s*-->\\s*$`,
   "i",
 );
 

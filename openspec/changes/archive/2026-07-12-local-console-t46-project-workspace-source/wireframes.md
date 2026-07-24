@@ -11,7 +11,7 @@ Baseline: `docs/wireframes/pages/console.md`.
 │ Moebius                       1 运行中 · 0 等你       [打开文件夹] [诊断] │
 ├──────────────────────┬──────────────────────────────────────┬──────────────┤
 │ Projects             │ 会话: T4.6 worktree 验收            运行中│ 运行详情     │
-│ ▾ agent-moebius      │                                      │ cwd          │
+│ ▾ moebius      │                                      │ cwd          │
 │   /Users/.../moebius │ ┌ 你 · 14:02 ─────────────────────┐ │ /tmp/...wt  │
 │   worktree 开        │ │ @dev 写入 marker                 │ │              │
 │  »  T4.6 worktree    │ └──────────────────────────────────┘ │ runDir       │
@@ -37,7 +37,7 @@ Requirements:
 ### Direct mode
 
 ```text
-│ ▾ agent-moebius      │ 会话: 原地修改验证                  空闲│ 运行详情     │
+│ ▾ moebius      │ 会话: 原地修改验证                  空闲│ 运行详情     │
 │   /Users/.../moebius │                                      │ cwd          │
 │   worktree 关        │ ┌ 开发 · 已完成 ──────────────────┐ │ /Users/...   │
 │  »  原地修改验证     │ │ 已在原目录写入 marker            │ │ workspace    │

@@ -13,7 +13,7 @@
 - [ ] `tests/dev-workspace.test.ts`：新增 `serializes calls sharing the same repo cache key` —— 用 gate Promise 让 fake runGit 的第 1 次 `worktree add` 挂起；同一 repoKey 的两个 prescript 并发发起；断言第 2 次的 `fetch` 未在第 1 次 `worktree add` resolve 前开始，且最终两次都完成。
 - [ ] `tests/dev-workspace.test.ts`：新增 `runs different repo cache keys in parallel` —— 两个不同 owner/repo 的 input 并发跑；不用 gate，只断言两次 prescript 各自的 `clone` / `fetch` / `worktree add` 都被调用、总调用次数正确。
 - [ ] `tests/dev-workspace.test.ts`：新增 `releases the repo lock when the critical section throws` —— fake runGit 让第 1 次的 `refreshRemoteMain` 抛错；第 2 次同 repoKey 仍能被 withRepoLock 派到并正常完成（不 hang、不继承前者的 error）。
-- [ ] `tests/dev-workspace.test.ts`：新增 `worktree add uses -B and the derived local branch name on first-time build` —— 断言首建路径 runGit 命令序列中的 `worktree add` 参数是 `["--git-dir", <bare>, "worktree", "add", "-B", "agent/dev/tranfu-labs__agent-moebius__4", <worktreePath>, REMOTE_MAIN_REF]`。
+- [ ] `tests/dev-workspace.test.ts`：新增 `worktree add uses -B and the derived local branch name on first-time build` —— 断言首建路径 runGit 命令序列中的 `worktree add` 参数是 `["--git-dir", <bare>, "worktree", "add", "-B", "agent/dev/tranfu-labs__moebius__4", <worktreePath>, REMOTE_MAIN_REF]`。
 - [ ] `tests/dev-workspace.test.ts`：新增 `worktree add uses -B on stale rebuild` —— 用 stale worktree 的既有测试骨架，让 `isGitAncestor` 返回 false，断言重建时 `worktree add` 参数也带 `-B <localBranch>`。
 - [ ] `tests/dev-workspace.test.ts`：回归——把现有 `creates a repo cache and issue-specific worktree on first run` / `reuses an existing context after confirming it contains latest main` / stale 重建 / context-mismatch 等所有断言 `worktree add` 参数的用例，同步补上 `-B <localBranch>`。
 

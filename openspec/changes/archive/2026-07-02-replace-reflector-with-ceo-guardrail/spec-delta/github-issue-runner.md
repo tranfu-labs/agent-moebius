@@ -7,7 +7,7 @@
   - 不再要求 `@reflector` 普通 mention 被特殊跳过；删除 reflector 后它只是未知 mention。
   - 不再支持 reflector stage trigger。
   - 不再定义 `ReflectorStages`。
-  - 不再发布 `<!-- agent-moebius:role=reflector -->` 与 `<!-- agent-moebius:stage-hook ... -->` 的确定性 hook 评论。
+  - 不再发布 `<!-- moebius:role=reflector -->` 与 `<!-- moebius:stage-hook ... -->` 的确定性 hook 评论。
   - 不再维护同一 `(source, stage)` 的 `MAX_SELF_REFLECT` 计数、最终收敛指令和自反日志。
   - 不再要求 agent comment post 后同轮 self-reflect。
 
@@ -44,7 +44,7 @@
 ### 场景：CEO guardrail — plan-written 强制 append
 
 Given 最新消息包含 `@dev`
-And dev Codex 本轮返回的 `${LAST_RESPONSE}` 末尾为 `<!-- agent-moebius:stage=plan-written -->`
+And dev Codex 本轮返回的 `${LAST_RESPONSE}` 末尾为 `<!-- moebius:stage=plan-written -->`
 When runner 在 `postComment` 前调用 CEO guardrail
 Then `agents/ceo.md` 要求 CEO 返回 `{"action":"append","as":"ceo","body":"..."}`
 And body 应说明这是 `plan-written` 阶段反思或推进裁决，并按上下文 `@dev`
@@ -55,7 +55,7 @@ And runner 不记录 `self-reflect-hook-commented`
 ### 场景：CEO guardrail — code-verified 强制 append
 
 Given 最新消息包含 `@dev`
-And dev Codex 本轮返回的 `${LAST_RESPONSE}` 末尾为 `<!-- agent-moebius:stage=code-verified -->`
+And dev Codex 本轮返回的 `${LAST_RESPONSE}` 末尾为 `<!-- moebius:stage=code-verified -->`
 When runner 调用 CEO guardrail
 Then `agents/ceo.md` 要求 CEO 返回 `{"action":"append","as":"ceo","body":"..."}`
 And body 应要求最终交付检查、PR/规范纠偏或明确下一步

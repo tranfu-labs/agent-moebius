@@ -132,12 +132,12 @@ QA 指出当前 `src/github-intake-state.ts`、`src/state.ts`、`src/agent-conte
 - Migration failure：注入迁移失败或超时；GitHub mode 在扫描前可见失败，不 silent rebaseline，不推进 intake cursor，不启动 local runtime。
 - Migration idempotency：迁移成功后再次 GitHub mode 启动，不重复导入、不覆盖较新的 GitHub-mode state。
 - Desktop child：断言 child 使用 `{ mode: "github" }` 或 fork argv 含 `--github-mode`。
-- Regression：`pnpm test`、`pnpm typecheck`、`git diff --check`；如触碰 desktop，跑 `pnpm --filter @agent-moebius/desktop build`。
+- Regression：`pnpm test`、`pnpm typecheck`、`git diff --check`；如触碰 desktop，跑 `pnpm --filter @moebius/desktop build`。
 
 ## 权衡
 
 - 不把 unknown flag 当 local：会让 typo 早失败，避免 babysit runner 静默停扫。
-- 不用 `AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE` 做公开契约：终端运维命令必须是 `pnpm start -- --github-mode`，桌面 child 则通过共享常量显式选择 GitHub mode。
+- 不用 `MOEBIUS_DISABLE_LOCAL_CONSOLE` 做公开契约：终端运维命令必须是 `pnpm start -- --github-mode`，桌面 child 则通过共享常量显式选择 GitHub mode。
 - 不要求同一数据根历史文件互斥不存在：需求同时要求两模式各写代表数据，所以物理文件可共存；真正要保证的是当前 mode 不读/写/镜像另一个 mode 的 runtime 数据。
 - 把 GitHub state store 隔离纳入本 change：这比单纯改启动 flag 多一点，但它是验收语句 3 的必要条件，否则 GitHub runner state 与 local SQLite 会话链路会在同一 SQLite 文件里混淆。
 

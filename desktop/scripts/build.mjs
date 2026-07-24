@@ -83,7 +83,7 @@ await build({
   platform: "browser",
   target: "chrome120",
   alias: {
-    "@agent-moebius/console-ui/globals.css": path.join(root, "../packages/console-ui/dist/style.css"),
+    "@moebius/console-ui/globals.css": path.join(root, "../packages/console-ui/dist/style.css"),
   },
   sourcemap: true,
   entryPoints: [path.join(root, "src/console-page/app.tsx")],

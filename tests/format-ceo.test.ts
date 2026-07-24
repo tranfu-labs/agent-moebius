@@ -208,7 +208,7 @@ describe("formatCeoComment", () => {
 
 我已完成验证，测试通过。
 
-<!-- agent-moebius:stage=code-verified -->`;
+<!-- moebius:stage=code-verified -->`;
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
       finalText: JSON.stringify({ action: "replace", body: repairedBody }),
@@ -229,7 +229,7 @@ describe("formatCeoComment", () => {
     expect(result.action).toBe("REPLACE");
     expect(result.body).toContain("我已完成验证，测试通过。");
     expect(result.body).toContain("> CEO guardrail:");
-    expect(result.body).toContain("<!-- agent-moebius:stage=code-verified -->");
+    expect(result.body).toContain("<!-- moebius:stage=code-verified -->");
     expect(result.body.endsWith(CEO_CORRECTED_METADATA)).toBe(true);
   });
 
@@ -295,7 +295,7 @@ describe("formatCeoComment", () => {
   it("returns APPEND when CEO corrects GitHub interaction protocol violations", async () => {
     const latestResponse = `我同意 @dev 的说法，请完成 #3。另见 #6 评论里的 #1 验收项。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
     const appendBody =
       "@dev 你的最新回复把纯提及写成了 `@dev`，并把任务编号写成了 `#3`。按 GitHub 交互协议，任务编号应写成 `T3`，评论位置应写成「第 6 条评论」，验收编号应写成「验收语句 1」；请重新输出合规评论。";
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
@@ -338,7 +338,7 @@ describe("formatCeoComment", () => {
 ## 验收语句
 1. 跑 pnpm test -- tests/format-ceo.test.ts → 应退出码 0。
 
-<!-- agent-moebius:stage=plan-written -->`;
+<!-- moebius:stage=plan-written -->`;
     const appendBody = makePlanReviewAppendBody();
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
@@ -353,7 +353,7 @@ describe("formatCeoComment", () => {
     const result = await formatCeoComment({
       ...baseInput,
       issueContext: {
-        issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/34",
+        issueUrl: "https://github.com/tranfu-labs/moebius/issues/34",
         issueBody: "需求持有者是 product-manager。\n@dev 请实现验收回流路由。",
         comments: [],
       },
@@ -375,7 +375,7 @@ describe("formatCeoComment", () => {
     }
     const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
     expect(prompt).toContain("需求持有者是 product-manager");
-    expect(prompt).toContain("<!-- agent-moebius:stage=plan-written -->");
+    expect(prompt).toContain("<!-- moebius:stage=plan-written -->");
     expect(prompt).toContain("## 验收语句");
     expect(prompt).toContain("请按你的测试设计流程审查并给出结论");
     expectItemsInOrder(appendBody, PLAN_REVIEW_TEMPLATE_ITEMS);
@@ -384,7 +384,7 @@ describe("formatCeoComment", () => {
   it("returns APPEND with the post-implementation retro template to the requester for code-verified", async () => {
     const latestResponse = `实现已完成，测试通过。
 
-<!-- agent-moebius:stage=code-verified -->`;
+<!-- moebius:stage=code-verified -->`;
     const appendBody = makeCodeVerifiedRetroAppendBody("product-manager");
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
@@ -399,7 +399,7 @@ describe("formatCeoComment", () => {
     const result = await formatCeoComment({
       ...baseInput,
       issueContext: {
-        issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/61",
+        issueUrl: "https://github.com/tranfu-labs/moebius/issues/61",
         issueBody: "需求持有者是 product-manager。\n@dev 请实现 T9。",
         comments: [
           {
@@ -409,8 +409,8 @@ describe("formatCeoComment", () => {
 ## 验收语句
 1. 打开 agents/ceo.md → 应看到固定模板。
 
-<!-- agent-moebius:stage=plan-written -->
-<!-- agent-moebius:role=dev -->`,
+<!-- moebius:stage=plan-written -->
+<!-- moebius:role=dev -->`,
           },
         ],
       },
@@ -433,7 +433,7 @@ describe("formatCeoComment", () => {
     }
     const prompt = runCodex.mock.calls[0]?.[0].prompt ?? "";
     expect(prompt).toContain("需求持有者是 product-manager");
-    expect(prompt).toContain("<!-- agent-moebius:stage=code-verified -->");
+    expect(prompt).toContain("<!-- moebius:stage=code-verified -->");
     expect(prompt).toContain("请按已确认「验收语句」逐条验收实现证据");
     expectItemsInOrder(appendBody, CODE_VERIFIED_RETRO_TEMPLATE_ITEMS);
   });
@@ -442,7 +442,7 @@ describe("formatCeoComment", () => {
     const agentsDir = await makeAgentsDir();
     const latestResponse = `方案已落盘，但这里只写了泛泛说明。
 
-<!-- agent-moebius:stage=plan-written -->`;
+<!-- moebius:stage=plan-written -->`;
     const appendBody =
       "@dev 当前 `plan-written` 缺少可逐条核查的「验收语句」清单，请先补齐验收语句后再回流给验收角色。";
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
@@ -480,7 +480,7 @@ describe("formatCeoComment", () => {
 
 我按 change/foo 分支方案自行推进 plan-written。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
       finalText: JSON.stringify({ action: "append", as: "dev", body: appendBody }),
@@ -498,7 +498,7 @@ describe("formatCeoComment", () => {
       as: "dev",
     });
     if (result.action === "APPEND") {
-      expect(result.body).toContain("<!-- agent-moebius:stage=in-progress -->");
+      expect(result.body).toContain("<!-- moebius:stage=in-progress -->");
     }
   });
 
@@ -508,7 +508,7 @@ describe("formatCeoComment", () => {
 
 我确认当前架构决策并要求写码方按质量门推进。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
       finalText: JSON.stringify({ action: "append", as: "dev-manager", body: appendBody }),
@@ -533,7 +533,7 @@ describe("formatCeoComment", () => {
 
 我会采访并维护 CEO guardrail 规则。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
       finalText: JSON.stringify({ action: "append", as: "secretary", body: appendBody }),
@@ -623,12 +623,12 @@ describe("formatCeoComment", () => {
     await formatCeoComment({
       ...baseInput,
       issueContext: {
-        issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/20",
+        issueUrl: "https://github.com/tranfu-labs/moebius/issues/20",
         issueBody: "全局流程：先采访再方案",
         comments: [
           { body: "临时修改：本次不需要额外 token 统计" },
           {
-            body: "&lt;reflector&gt;:\n@dev 请反思\n<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=7 -->",
+            body: "&lt;reflector&gt;:\n@dev 请反思\n<!-- moebius:stage-hook source=dev stage=plan-written sourceIndex=7 -->",
           },
         ],
       },
@@ -641,7 +641,7 @@ describe("formatCeoComment", () => {
     expect(prompt).toContain("完整公开 issue 上下文");
     expect(prompt).toContain("latestResponse 是本轮唯一待发布的 agent 响应");
     expect(prompt).toContain("issueContext.issueUrl:");
-    expect(prompt).toContain("https://github.com/tranfu-labs/agent-moebius/issues/20");
+    expect(prompt).toContain("https://github.com/tranfu-labs/moebius/issues/20");
     expect(prompt).toContain("issueContext.issueBody:");
     expect(prompt).toContain("全局流程：先采访再方案");
     expect(prompt).toContain("#1 comment:");
@@ -776,7 +776,7 @@ ${CEO_CORRECTED_METADATA}`;
     const agentsDir = await makeAgentsDir();
     const runCodex = vi.fn(async (options: Parameters<NonNullable<FormatCeoInput["runCodex"]>>[0]) => ({
       ok: true as const,
-      finalText: '{"action":"replace","body":"修正版\\n<!-- agent-moebius:stage=done -->"}',
+      finalText: '{"action":"replace","body":"修正版\\n<!-- moebius:stage=done -->"}',
       threadId: "ceo-thread",
       cachedInputTokens: null,
       runDir: options.runDir,
@@ -849,27 +849,27 @@ ${CEO_CORRECTED_METADATA}`;
 const baseInput: Omit<FormatCeoInput, "agentsDir" | "runCodex"> = {
   agent: "dev",
   issueContext: {
-    issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+    issueUrl: "https://github.com/tranfu-labs/moebius/issues/4",
     issueBody: "@dev please fix",
     comments: [],
   },
-  latestResponse: "done\n<!-- agent-moebius:stage=in-progress -->",
-  runDir: path.join(os.tmpdir(), "agent-moebius-ceo-test"),
+  latestResponse: "done\n<!-- moebius:stage=in-progress -->",
+  runDir: path.join(os.tmpdir(), "moebius-ceo-test"),
 };
 
 const routeBaseInput: Omit<FormatExternalCommentRouteInput, "agentsDir" | "runCodex"> = {
   issueContext: {
-    issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+    issueUrl: "https://github.com/tranfu-labs/moebius/issues/4",
     issueBody: "@dev please fix",
     comments: [{ body: "验收通过，请继续实现。" }],
   },
   latestComment: "验收通过，请继续实现。",
   availableAgentNames: ["dev", "product-manager", "ceo"],
-  runDir: path.join(os.tmpdir(), "agent-moebius-external-route-test"),
+  runDir: path.join(os.tmpdir(), "moebius-external-route-test"),
 };
 
 async function makeAgentsDir(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-agents-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-agents-"));
   await fs.writeFile(path.join(dir, "ceo.md"), "CEO persona", "utf8");
   return dir;
 }

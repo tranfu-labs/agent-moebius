@@ -7,7 +7,7 @@
 - [x] `src/config.ts`：新增 `FAILURE_RETRY_LIMIT = 5` 并写入 `CONFIG_LOG_FIELDS`。
 - [x] `src/runner.ts`：job catch 去掉 `isTransientGitHubCliError` 分支，统一返回携带原因的 `failed`；`processIssueSource` 增加 `published` 发布边界标志并确认 role-thread 状态保存在首条评论成功之后；显式失败出口附带 reason。
 - [x] `src/runner.ts`：失败达 `FAILURE_RETRY_LIMIT` 时同轮尝试发死信评论，成功改判 `dead-lettered`、失败保持 `failed`；新增 `issue-retry-scheduled` / `dead-letter-posted` / `dead-letter-post-failed` 结构化日志。`src/issue-dispatcher.ts` 保持只做派发与纯折叠。
-- [x] 死信评论格式化：系统身份、无 agent mention、`<!-- agent-moebius:dead-letter -->` 标记、含 agent 名 / 失败原因 / 失败次数 / 恢复提示。
+- [x] 死信评论格式化：系统身份、无 agent mention、`<!-- moebius:dead-letter -->` 标记、含 agent 名 / 失败原因 / 失败次数 / 恢复提示。
 - [x] `src/agent-prescripts/dev-workspace.ts`：`runGit` 捕获 stderr 并入错误信息。
 - [x] `src/github.ts`：确认 `isTransientGitHubCliError` 无引用后删除导出（`classifyGhError` / `withRetry` 保留）。
 

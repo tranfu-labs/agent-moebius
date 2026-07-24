@@ -66,7 +66,7 @@ ${LAST_RESPONSE}
 <role>:
 ${LAST_RESPONSE}
 
-<!-- agent-moebius:role=<role> -->
+<!-- moebius:role=<role> -->
 ```
 
 业务上必须保证可见 `<role>:` 前缀存在；隐藏 metadata 只作为可信度增强。读取历史 comment 时，带 metadata 且 role 存在于本地 agents 的评论归类为该 role；没有 metadata 但以 `<known-role>:` 起始的评论按 legacy agent comment 兼容；其他评论都归为 `user`。
@@ -75,8 +75,8 @@ ${LAST_RESPONSE}
 同一个 issue 中，多个 agent 不共享同一条 Codex session。每个 role 独立维护：
 
 ```text
-tranfu-labs/agent-moebius#3 + product-manager -> PM_THREAD_ID, lastSeenIndex
-tranfu-labs/agent-moebius#3 + hermes-user     -> HU_THREAD_ID, lastSeenIndex
+tranfu-labs/moebius#3 + product-manager -> PM_THREAD_ID, lastSeenIndex
+tranfu-labs/moebius#3 + hermes-user     -> HU_THREAD_ID, lastSeenIndex
 ```
 
 这样做的语义是：每个 role 都有自己的长期记忆与上下文连续性。`product-manager` 不会把 `hermes-user` 的内部 thread 当作自己的历史；它只通过共享 issue 时间线看到 `hermes-user` 已经公开说过的话。
@@ -88,7 +88,7 @@ tranfu-labs/agent-moebius#3 + hermes-user     -> HU_THREAD_ID, lastSeenIndex
 
 ```json
 {
-  "tranfu-labs/agent-moebius#3": {
+  "tranfu-labs/moebius#3": {
     "product-manager": {
       "threadId": "00000000-0000-0000-0000-000000000000",
       "lastSeenIndex": 4

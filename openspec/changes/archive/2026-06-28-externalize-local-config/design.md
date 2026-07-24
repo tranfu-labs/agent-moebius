@@ -12,7 +12,7 @@ repo = "tranfu-agents-app"
 
 [[watchRepositories]]
 owner = "tranfu-labs"
-repo = "agent-moebius"
+repo = "moebius"
 ```
 
 ### 配置模块

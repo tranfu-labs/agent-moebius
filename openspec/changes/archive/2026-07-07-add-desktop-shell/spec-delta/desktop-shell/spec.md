@@ -13,9 +13,9 @@
 - MUST 让环境自检失败（codex 缺失、gh 未登录等）只体现在状态页，NEVER 阻断应用启动。
 
 ### 数据根
-- MUST 打包态数据根默认为 `~/.agent-moebius`，开发态默认为仓库根；`AGENT_MOEBIUS_DATA_ROOT` 环境变量为最高优先级覆盖。
+- MUST 打包态数据根默认为 `~/.moebius`，开发态默认为仓库根；`MOEBIUS_DATA_ROOT` 环境变量为最高优先级覆盖。
 - MUST 把 runner 子进程工作目录设为数据根，使 `.state/` 等相对路径状态文件落在数据根下。
-- MUST 在打包态为 runner 子进程注入 `AGENT_MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`，NEVER 让 workdir 按默认规则落在应用包附近。
+- MUST 在打包态为 runner 子进程注入 `MOEBIUS_WORKDIR_ROOT=<数据根>/workdir`，NEVER 让 workdir 按默认规则落在应用包附近。
 - MUST 首启把 `agents/`（含 `ceo-scripts/`）与示例 `config.toml` 种子拷贝到数据根；已存在的文件 NEVER 覆盖。
 - MUST 保持 `src/config.ts` 在未设置数据根环境变量时行为与终端形态完全一致。
 

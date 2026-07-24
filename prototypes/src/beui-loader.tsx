@@ -1,5 +1,5 @@
 /**
- * Adapted for the isolated agent-moebius design prototype from:
+ * Adapted for the isolated moebius design prototype from:
  * https://beui.dev/components/motion/loader (variant: "dots")
  * Upstream project: https://github.com/starc007/ui-components
  * License: MIT

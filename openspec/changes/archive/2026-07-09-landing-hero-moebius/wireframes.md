@@ -1,12 +1,12 @@
-# Wireframes：landing-hero-agent-moebius
+# Wireframes：landing-hero-moebius
 
-> 基线：`docs/wireframes/pages/marketeam-landing.md`（现有首屏 = Marketeam 壳）。本 change 把首屏改造为 agent-moebius，归档时替换该页「桌面态/堆叠态/9 头像速查」为下列内容；正文 4 节小节保持不动。
+> 基线：`docs/wireframes/pages/marketeam-landing.md`（现有首屏 = Marketeam 壳）。本 change 把首屏改造为 moebius，归档时替换该页「桌面态/堆叠态/9 头像速查」为下列内容；正文 4 节小节保持不动。
 
 ## pages/marketeam-landing.md（首屏改造后）
 
 ```text
 ┌────────────────────────────────────────────────────────────┐
-│ ◆agent-moebius  Overview How it works Docs GitHub  GitHub [Get started]│ header
+│ ◆moebius  Overview How it works Docs GitHub  GitHub [Get started]│ header
 │  ┌────────────────────────┐        ╭──── 6 角色绕轨 ────╮     │
 │  │ @mention a role.       │       ╭ DEV  QA   PM  ... ╮ │     │ 打字机:
 │  │ Your AI team ships it. │      │    ╭─────────╮      │ │     │ 「@mention a role.」深
@@ -50,7 +50,7 @@
 ## 流转（回流 flow.md 用，替换 Marketeam Landing 段首屏部分）
 
 ```text
-打开 sites/marketeam/index.html（agent-moebius 品牌）
+打开 sites/marketeam/index.html（moebius 品牌）
   │
   ├─ 背景 CSS mesh 渐变 + 入场动画错峰（header/hero左/圆环/ticker）
   ├─ 400ms 起 打字机 "@mention a role. Your AI team ships it."（首句深/次句白 + 紫光标）
@@ -59,5 +59,5 @@
   │     └─ hover 角色 → charter 弹框（复用 tooltip,无复制）
   ├─ 底部 ticker: Node.js·TypeScript·Codex·gh·Electron 无缝左滚 20s,两端渐隐
   ├─ 断点 1280/1024/768/480:逐档缩,≤1024 堆叠,≤768 隐藏 nav,无横滚
-  └─ 继续向下 → 正文 4 节（不变，如实介绍 agent-moebius）
+  └─ 继续向下 → 正文 4 节（不变，如实介绍 moebius）
 ```

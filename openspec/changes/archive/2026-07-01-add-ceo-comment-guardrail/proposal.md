@@ -4,7 +4,7 @@
 
 当前 agent 通过本机 Codex 生成的评论内容存在两类可观察到的稳定性问题，都会让 stage 接力链路失效或流程卡住：
 
-**事故 1 — 漏发 stage marker。** dev agent 完成 `code-verified` 反思，正文明显对应终态阶段，但末尾漏发 `<!-- agent-moebius:stage=code-verified -->` marker，仅保留 `<!-- agent-moebius:role=dev -->`。结果 `resolveReflectorStageTrigger` 无法识别 stage，reflector 接力直接断链。参见 [tranfu-labs/agent-moebius#10 comment 4851370207](https://github.com/tranfu-labs/agent-moebius/issues/10#issuecomment-4851370207)。
+**事故 1 — 漏发 stage marker。** dev agent 完成 `code-verified` 反思，正文明显对应终态阶段，但末尾漏发 `<!-- moebius:stage=code-verified -->` marker，仅保留 `<!-- moebius:role=dev -->`。结果 `resolveReflectorStageTrigger` 无法识别 stage，reflector 接力直接断链。参见 [tranfu-labs/moebius#10 comment 4851370207](https://github.com/tranfu-labs/moebius/issues/10#issuecomment-4851370207)。
 
 **事故 2 — 收到收敛指令后消极响应。** dev agent 收到同一 `(source, stage)` 的最后一次自动反思 hook（含 `[MAX_REFLECT]` 收敛指令），期望是「无新问题则不再输出同一 stage marker、直接按推进计划进入后续步骤」；实际 dev 只回复"看过没问题"，没有按推进计划执行下一步动作（归档、提交、开 PR 等），流程停滞。
 

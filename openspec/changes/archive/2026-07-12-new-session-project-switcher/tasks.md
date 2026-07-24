@@ -22,10 +22,10 @@
   - [x] 实现前确认 T4.6 多 project 基座仍存在且接口未漂移。
   - [x] 归档时优先复核 T4.6 已回流；若仍未回流，按本 change delta 替换 local-console/console-ui 的单 project 冲突规则。
 - [x] 完成验证
-  - [x] 运行 `pnpm --filter @agent-moebius/console-ui test`。
+  - [x] 运行 `pnpm --filter @moebius/console-ui test`。
   - [x] 运行 local console 相关 Vitest。
   - [x] 运行全量 `pnpm test`。
   - [x] 运行 `pnpm typecheck`。
-  - [x] 运行 `pnpm --filter @agent-moebius/desktop build`。
+  - [x] 运行 `pnpm --filter @moebius/desktop build`。
   - [x] 运行可见交互验收并生成项目行新建、项目下拉和锁定态截图。
   - [x] 运行 `git diff --check`。

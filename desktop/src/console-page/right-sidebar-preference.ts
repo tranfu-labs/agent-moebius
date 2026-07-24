@@ -1,5 +1,5 @@
-export const RIGHT_SIDEBAR_VISIBILITY_STORAGE_KEY = "agent-moebius.right-sidebar.visibility";
-export const RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "agent-moebius.right-sidebar.width";
+export const RIGHT_SIDEBAR_VISIBILITY_STORAGE_KEY = "moebius.right-sidebar.visibility";
+export const RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "moebius.right-sidebar.width";
 export const DEFAULT_RIGHT_SIDEBAR_WIDTH_PREFERENCE_PX = 420;
 export const MIN_RIGHT_SIDEBAR_WIDTH_PREFERENCE_PX = 320;
 export const MAX_RIGHT_SIDEBAR_WIDTH_PREFERENCE_PX = 640;

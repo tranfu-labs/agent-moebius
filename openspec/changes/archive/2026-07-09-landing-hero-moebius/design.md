@@ -1,4 +1,4 @@
-# 设计：landing-hero-agent-moebius
+# 设计：landing-hero-moebius
 
 ## 方案
 
@@ -9,7 +9,7 @@
 ### 逐元素改造（内容逐字，subagent 照用）
 
 **Header**
-- Logo：`agent-moebius`（复用页脚的 ◆ 菱形标 + 文字标，高 32px）。
+- Logo：`moebius`（复用页脚的 ◆ 菱形标 + 文字标，高 32px）。
 - Nav：`Overview` / `How it works` / `Docs` / `GitHub`。`Overview` 锚到正文①区、`How it works` 锚到正文②区（平滑滚动）；`Docs` / `GitHub` 用 `#` 占位。
 - 右侧：`GitHub`（白字，同款下划线 hover）+ `Get started`（黑药丸 + 旋转描边 + 左滑紫填充，样式同原 Join Now）。
 

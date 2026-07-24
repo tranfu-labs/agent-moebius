@@ -16,7 +16,7 @@ The `Badge` component MUST NOT retain `neutral`, `selected`, `accent`, `pass`, o
 The `Badge` component MUST reserve pass/fail verdict coloring for acceptance verdict surfaces rather than mapping ordinary completed or displayed runtime states to verdict semantics.
 
 #### Scenario: Storybook shows flat primitives
-Given a developer runs `pnpm --filter @agent-moebius/console-ui storybook`
+Given a developer runs `pnpm --filter @moebius/console-ui storybook`
 When the Card and Badge stories render
 Then Card appears as a flat thin-border surface
 And Badge stories use status semantic variants

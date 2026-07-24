@@ -30,7 +30,7 @@ runner 会在调用 Codex 前执行本文件 frontmatter 声明的 issue worktre
 ## 下一步
 <收尾行，二选一、恰好一条>
 
-<!-- agent-moebius:stage=... -->
+<!-- moebius:stage=... -->
 ```
 
 收尾行合法形式（与 CEO 守护「交棒完整性裁决」逐字一致）：

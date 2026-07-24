@@ -103,7 +103,7 @@ async function buildStorybook(): Promise<void> {
   await fs.rm(storybookStatic, { recursive: true, force: true });
   await execFileAsync(
     "pnpm",
-    ["--filter", "@agent-moebius/console-ui", "exec", "storybook", "build", "--output-dir", "../../artifacts/acceptance/t6-storybook-static"],
+    ["--filter", "@moebius/console-ui", "exec", "storybook", "build", "--output-dir", "../../artifacts/acceptance/t6-storybook-static"],
     { cwd: projectRoot, maxBuffer: 10 * 1024 * 1024 },
   );
 }
@@ -205,12 +205,12 @@ function buildState() {
   const project = {
     projectId: "local",
     sourceType: "local-folder",
-    title: "agent-moebius",
+    title: "moebius",
     folderPath: projectRoot,
     worktreeMode: true,
-    workspaceCwd: "/tmp/agent-moebius-local-worktree",
+    workspaceCwd: "/tmp/moebius-local-worktree",
     workspaceMode: "worktree",
-    worktreePath: "/tmp/agent-moebius-local-worktree",
+    worktreePath: "/tmp/moebius-local-worktree",
     worktreeUnavailableReason: null,
     workspaceUpdatedAt: "2026-07-10T15:00:00.000Z",
     sessions,
@@ -241,8 +241,8 @@ function buildState() {
       status: "running",
       startedAt: "2026-07-10T15:00:00.000Z",
       elapsedMs: 43_000,
-      runDir: "/tmp/agent-moebius-t6-run",
-      cwd: "/tmp/agent-moebius-local-worktree",
+      runDir: "/tmp/moebius-t6-run",
+      cwd: "/tmp/moebius-local-worktree",
       workspaceMode: "worktree",
       worktreeUnavailableReason: null,
       stdoutTail: "live tail from codex",
@@ -251,7 +251,7 @@ function buildState() {
       tailDiagnostic: null,
       interruptible: true,
     },
-    sqlitePath: "/tmp/agent-moebius-t6.sqlite",
+    sqlitePath: "/tmp/moebius-t6.sqlite",
     lastError: null,
   };
 }
@@ -297,7 +297,7 @@ function message(
     body,
     status,
     runId: `run-${id}`,
-    runDir: `/tmp/agent-moebius-t6-run-${id}`,
+    runDir: `/tmp/moebius-t6-run-${id}`,
     error,
     createdAt: "2026-07-10T15:00:00.000Z",
     updatedAt: "2026-07-10T15:01:00.000Z",

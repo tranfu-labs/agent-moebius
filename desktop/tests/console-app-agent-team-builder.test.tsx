@@ -15,7 +15,7 @@ describe("desktop App Agent Teams AI builder wiring", () => {
   beforeEach(() => {
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-moebius.console.selection",
+      "moebius.console.selection",
       JSON.stringify({ projectId: "local", sessionId: "session-a" }),
     );
     window.history.replaceState({}, "", "/?api=http://127.0.0.1:8787/");
@@ -73,7 +73,7 @@ describe("desktop App Agent Teams AI builder wiring", () => {
       agentMarkdown: "# 发布负责人\n\n统筹发布并收尾\n",
     }));
 
-    Object.defineProperty(window, "agentMoebius", {
+    Object.defineProperty(window, "moebius", {
       configurable: true,
       value: {
         getLocalConsoleAttachmentCapability: async () => null,
@@ -115,7 +115,7 @@ describe("desktop App Agent Teams AI builder wiring", () => {
       memberSlug: "launch-lead",
     });
     expect(recordSuccessfulConversationAgentTeam).not.toHaveBeenCalled();
-    expect(window.localStorage.getItem("agent-moebius.agent-teams.ai-builder-draft")).toBeNull();
+    expect(window.localStorage.getItem("moebius.agent-teams.ai-builder-draft")).toBeNull();
 
     await act(async () => (await findButton("新建对话")).click());
     const teamSelector = await findElement<HTMLSelectElement>('select[aria-label="Agent 团队"]');
@@ -277,10 +277,10 @@ const session = {
 const project = {
   projectId: "local",
   sourceType: "local-folder",
-  title: "agent-moebius",
-  folderPath: "/tmp/agent-moebius",
+  title: "moebius",
+  folderPath: "/tmp/moebius",
   worktreeMode: false,
-  workspaceCwd: "/tmp/agent-moebius",
+  workspaceCwd: "/tmp/moebius",
   workspaceMode: "direct",
   worktreePath: null,
   worktreeUnavailableReason: null,

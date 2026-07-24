@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-export const DESKTOP_DATA_ROOT_ENV = "AGENT_MOEBIUS_DATA_ROOT";
+export const DESKTOP_DATA_ROOT_ENV = "MOEBIUS_DATA_ROOT";
 
 export interface ResolveDesktopDataRootInput {
   env?: NodeJS.ProcessEnv;
@@ -33,7 +33,7 @@ export function resolveDesktopDataRoot(input: ResolveDesktopDataRootInput): stri
   }
 
   if (input.isPackaged) {
-    return path.join(input.homeDir ?? os.homedir(), ".agent-moebius");
+    return path.join(input.homeDir ?? os.homedir(), ".moebius");
   }
 
   return path.resolve(input.projectRoot);

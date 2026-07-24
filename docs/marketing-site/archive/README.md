@@ -4,7 +4,7 @@
 
 ## 文件
 
-- `legacy-index.html`：来自 `/Users/wing/Develop/agent-moebius-www/index.html` 的旧官网废案。
+- `legacy-index.html`：来自 `/Users/wing/Develop/moebius-www/index.html` 的旧官网废案。
 - `website-style-decision-v2.0.md`：已明确废弃的风格决策稿。
 - `website-narrative-spec-v1.6.3.md`：被 `../website-narrative-spec-v1.6.5.md` 取代的旧叙事规格。
 

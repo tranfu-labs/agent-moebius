@@ -9,7 +9,7 @@ import {
 import type { AgentPreScriptInput } from "../src/agent-prescripts/types.js";
 
 describe("current repo workspace pre script", () => {
-  it("returns the agent-moebius repository root as Codex cwd", async () => {
+  it("returns the moebius repository root as Codex cwd", async () => {
     const expectedRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
     await expect(runCurrentRepoWorkspacePreScript(makeInput())).resolves.toEqual({
@@ -32,10 +32,10 @@ function makeInput(): AgentPreScriptInput {
     latestIndex: 3,
     issueSource: {
       owner: "tranfu-labs",
-      repo: "agent-moebius",
+      repo: "moebius",
       issueNumber: 4,
-      issueKey: "tranfu-labs/agent-moebius#4",
-      cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+      issueKey: "tranfu-labs/moebius#4",
+      cloneUrl: "https://github.com/tranfu-labs/moebius.git",
     },
     workdirRoot: "/tmp/unused",
     contextStatePath: "/tmp/unused/.state/agent-contexts.json",

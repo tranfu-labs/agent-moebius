@@ -4,7 +4,7 @@
 
 ### Requirement: Compiled global-style package boundary
 
-The `console-ui` package MUST compile its Tailwind directives and `@apply` rules during package build and MUST expose the compiled stylesheet as `@agent-moebius/console-ui/globals.css`.
+The `console-ui` package MUST compile its Tailwind directives and `@apply` rules during package build and MUST expose the compiled stylesheet as `@moebius/console-ui/globals.css`.
 
 The desktop renderer MUST consume the compiled package stylesheet and MUST NOT rely on Chromium to interpret Tailwind build directives.
 
@@ -14,7 +14,7 @@ The desktop build MUST fail when its emitted renderer stylesheet still contains 
 
 #### Scenario: Desktop renderer receives compiled component styles
 
-- **GIVEN** the desktop renderer imports `@agent-moebius/console-ui/globals.css`
+- **GIVEN** the desktop renderer imports `@moebius/console-ui/globals.css`
 - **WHEN** the desktop application is built
 - **THEN** the emitted renderer stylesheet contains the component library token and utility styles
 - **AND** it contains no `@tailwind` or `@apply` build directives.

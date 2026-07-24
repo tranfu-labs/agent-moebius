@@ -86,8 +86,8 @@
   - [x] 使用 fake `gh` 前置 PATH 跑 T5 全量本地 acceptance，确认 fake `gh` 调用次数为 0。
   - [x] 运行 `pnpm test`，确认 GitHub 模式相关测试无回归。
   - [x] 运行 `pnpm typecheck`。
-  - [x] 运行 `pnpm --filter @agent-moebius/desktop build`。
-  - [x] 运行 `pnpm --filter @agent-moebius/console-ui test`。
+  - [x] 运行 `pnpm --filter @moebius/desktop build`。
+  - [x] 运行 `pnpm --filter @moebius/console-ui test`。
   - [x] 运行 `git diff --check`。
   - [x] 更新 `docs/roadmap/milestone-4-local-console.md`，勾选 T5 `[x]`，记录全量验收证据、MUST 矩阵路径、测试/typecheck 退出码，并明确 T6 flag 与 M3 A-K 不在 T5。
   - [x] 生成 PR body draft，内容包含 `Closes #109`、`Closes #116`、T5 evidence 路径、MUST 矩阵路径和测试/typecheck 结果摘要，并用 `pr-evidence` case 校验 draft。

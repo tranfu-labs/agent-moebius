@@ -7,15 +7,15 @@
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ Agent Moebius Observer                                      read on load   │
+│ Moebius Observer                                      read on load   │
 ├──────────────────────────────┬─────────────────────────────────────────────┤
 │ Whitelisted repositories      │ Diagnostics                                 │
 │                              │  config.local.toml        ok                 │
-│ tranfu-labs/agent-moebius    │  github-response-intake   ok                 │
+│ tranfu-labs/moebius    │  github-response-intake   ok                 │
 │  issue 50                    │  run-manifests.jsonl      partial            │
 │   latest run: plan-written   │   line 7 skipped: invalid JSON               │
 │   intake: active             │                                             │
-│  issue 48                    │ Issue tranfu-labs/agent-moebius#50           │
+│  issue 48                    │ Issue tranfu-labs/moebius#50           │
 │   latest run: code-verified  │  latest run stage: plan-written (manifest)   │
 │                              │  intake: active, failures 0                  │
 │ tranfu-labs/empty-repo       │  role threads                                │
@@ -38,14 +38,14 @@ Mobile / narrow viewport collapses to a single column:
 
 ```text
 ┌────────────────────────────────────┐
-│ Agent Moebius Observer             │
+│ Moebius Observer             │
 │ read on load                       │
 ├────────────────────────────────────┤
 │ Diagnostics                        │
 │ run-manifests.jsonl partial        │
 ├────────────────────────────────────┤
 │ Whitelisted repositories           │
-│ tranfu-labs/agent-moebius          │
+│ tranfu-labs/moebius          │
 │  issue 50 latest plan-written      │
 │ tranfu-labs/empty-repo             │
 │  no issue records                  │

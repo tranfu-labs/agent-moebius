@@ -26,10 +26,10 @@ const session = {
 const project = {
   projectId: "project-a",
   sourceType: "local-folder" as const,
-  title: "agent-moebius",
-  folderPath: "/workspace/agent-moebius",
+  title: "moebius",
+  folderPath: "/workspace/moebius",
   worktreeMode: false,
-  workspaceCwd: "/workspace/agent-moebius",
+  workspaceCwd: "/workspace/moebius",
   workspaceMode: "direct" as const,
   worktreePath: null,
   worktreeUnavailableReason: null,

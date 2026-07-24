@@ -4,7 +4,7 @@
 
 - **规则 14**:execution profile 只读 sandbox 常态 —— `src/config.ts:218-226` resume 分支修补
 
-审计发现原文(from `~/dev-loops/agent-moebius/onboarding/audit-findings.md`):
+审计发现原文(from `~/dev-loops/moebius/onboarding/audit-findings.md`):
 
 > 违反: `src/config.ts:218-226` 与 `tests/codex.test.ts:483-485` — 只有 `mode="full"` 时才注入 `--sandbox read-only` 与 `--cd <isolatedCwd>`;`mode="resume"` 分支仅保留 `--skip-git-repo-check`,且单测明确断言 `expect(resume).not.toContain("--sandbox") / .not.toContain("--cd")`。
 

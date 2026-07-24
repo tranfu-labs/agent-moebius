@@ -211,9 +211,9 @@ interface IssueAccumulator {
   runs: ObserverRunManifestRecord[];
 }
 
-const ROUNDTABLE_KEY_PATTERN = /agent-moebius-roundtable-key:[a-f0-9]{32}/u;
+const ROUNDTABLE_KEY_PATTERN = /moebius-roundtable-key:[a-f0-9]{32}/u;
 const HIDDEN_KEY_PATTERN =
-  /agent-moebius-(?:orchestration|roundtable|roundtable-completion|integration-acceptance)-key:[a-f0-9]{32}/gu;
+  /moebius-(?:orchestration|roundtable|roundtable-completion|integration-acceptance)-key:[a-f0-9]{32}/gu;
 
 export function buildObserverModel(snapshot: ObserverStateSnapshot, now = new Date()): ObserverModel {
   const repositoryMaps = new Map<string, Map<string, IssueAccumulator>>();

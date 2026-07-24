@@ -62,7 +62,7 @@ describe("managed attachment client", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          "x-agent-moebius-attachment-capability": "test-capability",
+          "x-moebius-attachment-capability": "test-capability",
         }),
         body: JSON.stringify({
           sessionId: "session-a",

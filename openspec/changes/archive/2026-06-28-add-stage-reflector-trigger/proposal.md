@@ -19,7 +19,7 @@
 agent 到达阶段时输出 HTML comment metadata：
 
 ```md
-<!-- agent-moebius:stage=plan-confirmed -->
+<!-- moebius:stage=plan-confirmed -->
 ```
 
 reflector stage trigger 写死支持这些 stage，并生成带 `@<source-agent>` 的 reflector 评论，让现有 mention trigger 在下一轮触发源 agent 继续反思。

@@ -179,7 +179,7 @@ function source(overrides: Partial<ChildSessionSummarySource>): ChildSessionSumm
 }
 
 async function startFixtureServer(): Promise<StartedLocalConsoleServer> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-child-summary-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-child-summary-"));
   roots.push(root);
   const started = await startLocalConsoleServer({
     projectRoot: root,
@@ -190,7 +190,7 @@ async function startFixtureServer(): Promise<StartedLocalConsoleServer> {
     }),
     runCodex: vi.fn(async (options: CodexRunOptions): Promise<CodexRunResult> => ({
       ok: true,
-      finalText: "完成\n\n<!-- agent-moebius:stage=in-progress -->",
+      finalText: "完成\n\n<!-- moebius:stage=in-progress -->",
       threadId: null,
       cachedInputTokens: null,
       runDir: options.runDir,

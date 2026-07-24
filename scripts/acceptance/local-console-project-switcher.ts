@@ -9,7 +9,7 @@ import { startLocalConsoleServer } from "../../src/local-console/server.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const artifactDir = path.join(projectRoot, "artifacts", "acceptance");
-const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-project-switcher-"));
+const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-project-switcher-"));
 const alphaFolder = path.join(runtimeRoot, "project-alpha");
 const betaFolder = path.join(runtimeRoot, "project-beta");
 await fs.mkdir(path.join(runtimeRoot, "agents"), { recursive: true });
@@ -151,7 +151,7 @@ async function fakeCodex(options: CodexRunOptions): Promise<CodexRunResult> {
       "## 下一步",
       "等待真人：查看锁定态",
       "",
-      "<!-- agent-moebius:stage=in-progress -->",
+      "<!-- moebius:stage=in-progress -->",
     ].join("\n"),
     threadId: null,
     cachedInputTokens: null,

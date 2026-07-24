@@ -17,7 +17,7 @@ import {
 import type { CeoScript } from "../src/ceo-scripts.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
-const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 67 });
+const source = makeIssueSource({ owner: "tranfu-labs", repo: "moebius", issueNumber: 67 });
 const scripts: CeoScript[] = [
   { id: "default-plan-chain", action: "route", body: "default plan chain", fileName: "default-plan-chain.md" },
   { id: "plan-review", action: "route", body: "route", fileName: "plan-review.md" },
@@ -65,7 +65,7 @@ ${JSON.stringify({
 })}
 \`\`\`
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 
     expect(
       parseCeoOrchestrationOutput({
@@ -93,7 +93,7 @@ ${JSON.stringify({
     const withoutChecks = { ...descriptor, acceptanceStatements: undefined };
     const parse = (issue: unknown, childTaskCheckPolicy?: "local-optional") =>
       parseCeoOrchestrationOutput({
-        output: `${JSON.stringify({ ...base, issues: [issue] })}\n\n<!-- agent-moebius:stage=in-progress -->`,
+        output: `${JSON.stringify({ ...base, issues: [issue] })}\n\n<!-- moebius:stage=in-progress -->`,
         scripts,
         availableAgentNames: ["dev"],
         visibleTaskIds: ["task-1"],
@@ -121,7 +121,7 @@ ${JSON.stringify({
   it("rejects invalid JSON and does not produce descriptors", () => {
     expect(
       parseCeoOrchestrationOutput({
-        output: "not json\n\n<!-- agent-moebius:stage=in-progress -->",
+        output: "not json\n\n<!-- moebius:stage=in-progress -->",
         scripts,
         availableAgentNames: ["dev"],
         visibleTaskIds: ["task-1"],
@@ -136,7 +136,7 @@ ${JSON.stringify({
       body: "@dev 请按 OpenSpec 流程先采访再写方案。",
     })}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 
     expect(
       parseCeoOrchestrationOutput({
@@ -164,7 +164,7 @@ ${JSON.stringify({
     };
     const parse = (payload: unknown) =>
       parseCeoOrchestrationOutput({
-        output: `${JSON.stringify(payload)}\n\n<!-- agent-moebius:stage=in-progress -->`,
+        output: `${JSON.stringify(payload)}\n\n<!-- moebius:stage=in-progress -->`,
         scripts,
         availableAgentNames: ["dev"],
         visibleTaskIds: ["task-1"],
@@ -198,14 +198,14 @@ ${JSON.stringify({
     const key = buildCeoOrchestrationKey({ source, workflowId: "milestone-spawn-child-issues", ledgerTaskId: "task-1" });
     const body = renderCeoChildIssueBody({
       source,
-      parentIssueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/67",
+      parentIssueUrl: "https://github.com/tranfu-labs/moebius/issues/67",
       workflowId: "milestone-spawn-child-issues",
       group,
       descriptor,
       orchestrationKey: key,
     });
 
-    expect(body).toContain("Parent issue: https://github.com/tranfu-labs/agent-moebius/issues/67");
+    expect(body).toContain("Parent issue: https://github.com/tranfu-labs/moebius/issues/67");
     expect(body).toContain("Ledger task id: task-1");
     expect(body).toContain("Quality baseline: data-correct");
     expect(body).toContain("跑 pnpm test → 应退出码 0");
@@ -218,7 +218,7 @@ ${JSON.stringify({
     const participants = ["qa", "dev-manager", "hermes-user"];
     const parse = (payload: unknown) =>
       parseCeoOrchestrationOutput({
-        output: `${JSON.stringify(payload)}\n\n<!-- agent-moebius:stage=in-progress -->`,
+        output: `${JSON.stringify(payload)}\n\n<!-- moebius:stage=in-progress -->`,
         scripts,
         availableAgentNames: ["ceo", "qa", "dev-manager", "hermes-user"],
         visibleTaskIds: ["task-1"],
@@ -246,7 +246,7 @@ ${JSON.stringify({
         action: "roundtable",
         workflowId: "roundtable-plan-review",
         mode: "route",
-        roundtableKey: "agent-moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        roundtableKey: "moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         participants,
         nextRole: "dev-manager",
         body: "@dev-manager 请发言。",
@@ -258,7 +258,7 @@ ${JSON.stringify({
         action: "roundtable",
         workflowId: "roundtable-plan-review",
         mode: "complete",
-        roundtableKey: "agent-moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        roundtableKey: "moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         participants,
         summary: "完成",
         contributions: participants.map((role) => ({
@@ -277,7 +277,7 @@ ${JSON.stringify({
     const participants = ["qa", "dev-manager", "hermes-user"];
     const parse = (payload: unknown, availableAgentNames = ["ceo", "qa", "dev-manager", "hermes-user"]) =>
       parseCeoOrchestrationOutput({
-        output: `${JSON.stringify(payload)}\n\n<!-- agent-moebius:stage=in-progress -->`,
+        output: `${JSON.stringify(payload)}\n\n<!-- moebius:stage=in-progress -->`,
         scripts,
         availableAgentNames,
         visibleTaskIds: ["task-1"],
@@ -311,7 +311,7 @@ ${JSON.stringify({
         action: "roundtable",
         workflowId: "roundtable-plan-review",
         mode: "route",
-        roundtableKey: "agent-moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        roundtableKey: "moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         participants,
         nextRole: "dev-manager",
         body: "@dev-manager @qa 请发言。",
@@ -323,7 +323,7 @@ ${JSON.stringify({
         action: "roundtable",
         workflowId: "roundtable-plan-review",
         mode: "complete",
-        roundtableKey: "agent-moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        roundtableKey: "moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         participants,
         summary: "完成",
         contributions: [
@@ -339,7 +339,7 @@ ${JSON.stringify({
   it("parses goal-intake interview, propose, and confirm payloads", () => {
     const parse = (payload: unknown) =>
       parseCeoOrchestrationOutput({
-        output: `${JSON.stringify(payload)}\n\n<!-- agent-moebius:stage=in-progress -->`,
+        output: `${JSON.stringify(payload)}\n\n<!-- moebius:stage=in-progress -->`,
         scripts,
         availableAgentNames: ["ceo", "dev", "qa", "product-manager"],
         visibleTaskIds: [],
@@ -384,7 +384,7 @@ ${JSON.stringify({
   it("rejects unbounded goal-intake interviews, oversized task acceptance, and missing payment disclaimers", () => {
     const parse = (payload: unknown) =>
       parseCeoOrchestrationOutput({
-        output: `${JSON.stringify(payload)}\n\n<!-- agent-moebius:stage=in-progress -->`,
+        output: `${JSON.stringify(payload)}\n\n<!-- moebius:stage=in-progress -->`,
         scripts,
         availableAgentNames: ["ceo", "dev", "qa", "product-manager"],
         visibleTaskIds: [],
@@ -423,7 +423,7 @@ ${JSON.stringify({
     const participants = ["qa", "dev-manager", "hermes-user"];
     const roundtableKey = buildCeoRoundtableKey({ source, workflowId: "roundtable-plan-review", roundtableId: "rt-1" });
     const childBody = renderCeoRoundtableChildIssueBody({
-      parentIssueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/67",
+      parentIssueUrl: "https://github.com/tranfu-labs/moebius/issues/67",
       workflowId: "roundtable-plan-review",
       ledgerTaskId: "task-1",
       roundtableKey,
@@ -436,7 +436,7 @@ ${JSON.stringify({
       provenance: "parent issue",
     });
 
-    expect(childBody).toContain("Parent issue: https://github.com/tranfu-labs/agent-moebius/issues/67");
+    expect(childBody).toContain("Parent issue: https://github.com/tranfu-labs/moebius/issues/67");
     expect(childBody).toContain("Workflow id: roundtable-plan-review");
     expect(childBody).toContain("Ledger task id: task-1");
     expect(childBody).toContain(roundtableKey);
@@ -463,7 +463,7 @@ ${JSON.stringify({
     expect(firstCompletionKey).toBe(secondCompletionKey);
 
     const summary = renderCeoRoundtableParentSummaryBody({
-      childIssueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+      childIssueUrl: "https://github.com/tranfu-labs/moebius/issues/101",
       topic: "Review topic",
       summary: "Consensus with caveats",
       contributions: participants.map((role) => ({

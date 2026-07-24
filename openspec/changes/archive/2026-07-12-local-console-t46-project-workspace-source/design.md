@@ -112,7 +112,7 @@ git 判定：
 worktree 开启：
 
 - worktree root 使用数据根下的有界目录，例如 `<dataRoot>/workdir/local-worktrees/<safeProjectId>/<safeSessionId>`。
-- 基于本地 `HEAD` 创建本地分支，例如 `agent-moebius/local/<safeProjectId>__<safeSessionId>`。
+- 基于本地 `HEAD` 创建本地分支，例如 `moebius/local/<safeProjectId>__<safeSessionId>`。
 - 使用有界 git 调用：`git -C <repoRoot> worktree add -B <branch> <worktreePath> HEAD`。
 - 已存在 worktree 时复用；复用前校验路径可访问且 `git -C <worktreePath> rev-parse --is-inside-work-tree` 成功。
 - 已存在 path 但不是合法 worktree、branch 冲突、`worktree add` 超时或失败时，返回 deterministic local error；不删除用户原目录，不伪装成原地成功。

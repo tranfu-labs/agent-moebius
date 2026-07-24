@@ -467,7 +467,7 @@ function PrototypeChrome() {
         <span className="brand-glyph" aria-hidden>
           M
         </span>
-        <span>agent-moebius</span>
+        <span>moebius</span>
       </div>
       <span className="prototype-label">交互原型</span>
     </header>

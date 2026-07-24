@@ -37,8 +37,8 @@
   - [x] 运行 `pnpm exec tsx scripts/acceptance/local-console-t46.ts`。
   - [x] 运行 `pnpm test`。
   - [x] 运行 `pnpm typecheck`。
-  - [x] 运行 `pnpm --filter @agent-moebius/desktop build`。
-  - [x] 运行 `pnpm --filter @agent-moebius/console-ui test`。
+  - [x] 运行 `pnpm --filter @moebius/desktop build`。
+  - [x] 运行 `pnpm --filter @moebius/console-ui test`。
   - [x] 运行 `git diff --check`。
   - [x] 将 T4.6 验收证据追记到 `docs/roadmap/milestone-4-local-console.md` 并勾选。
 - [x] 发布收尾

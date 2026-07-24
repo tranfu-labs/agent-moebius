@@ -36,4 +36,4 @@
 
 ## 缘由锚
 
-- 审计发现:`~/dev-loops/agent-moebius/onboarding/audit-findings.md#规则-238`(引句 + 落点 `agent-initial-avatar.tsx:34-37` + 3 消费点)
+- 审计发现:`~/dev-loops/moebius/onboarding/audit-findings.md#规则-238`(引句 + 落点 `agent-initial-avatar.tsx:34-37` + 3 消费点)

@@ -13,10 +13,10 @@ import {
 
 describe("ConversationSidebar", () => {
   it("uses a display name when present and otherwise derives the project name from the directory path", () => {
-    expect(projectDirectoryName({ path: "/Users/example/agent-moebius/" })).toBe("agent-moebius");
+    expect(projectDirectoryName({ path: "/Users/example/moebius/" })).toBe("moebius");
     expect(projectDirectoryName({ path: "C:\\Users\\example\\tranfu-site" })).toBe("tranfu-site");
-    expect(projectDirectoryName({ path: "/Users/example/agent-moebius/", label: "  展示名称  " })).toBe("展示名称");
-    expect(projectDirectoryName({ path: "/Users/example/agent-moebius/", label: "   " })).toBe("agent-moebius");
+    expect(projectDirectoryName({ path: "/Users/example/moebius/", label: "  展示名称  " })).toBe("展示名称");
+    expect(projectDirectoryName({ path: "/Users/example/moebius/", label: "   " })).toBe("moebius");
   });
 
   it("orders sessions by createdAt descending without mutating input and preserves ties", () => {
@@ -76,10 +76,10 @@ describe("ConversationSidebar", () => {
   it("renders every session in createdAt descending order without a completed group", () => {
     render(<ConversationSidebar projects={[project]} selectedSessionId="idle-refactor" />);
 
-    expect(screen.getByText("agent-moebius")).toBeInTheDocument();
+    expect(screen.getByText("moebius")).toBeInTheDocument();
     expect(screen.queryByText(/已完成/u)).not.toBeInTheDocument();
 
-    const conversationList = screen.getByRole("list", { name: "agent-moebius 对话" });
+    const conversationList = screen.getByRole("list", { name: "moebius 对话" });
     expect(within(conversationList).getAllByTestId("conversation-sidebar-session").map((row) => row.dataset.sessionId)).toEqual([
       "running-progress",
       "waiting-summary",
@@ -133,7 +133,7 @@ describe("ConversationSidebar", () => {
 
     expect(screen.getByRole("button", { name: "导出功能重构" })).toHaveAttribute("aria-current", "page");
     fireEvent.click(screen.getByRole("button", { name: "进度提示，正在运行" }));
-    expect(onSelectSession).toHaveBeenCalledWith("running-progress", "agent-moebius");
+    expect(onSelectSession).toHaveBeenCalledWith("running-progress", "moebius");
   });
 
   it("exposes red, blue, blinking, and no-dot meanings without relying on color", () => {
@@ -165,7 +165,7 @@ describe("ConversationSidebar", () => {
     render(<ConversationSidebar projects={[project, secondProject]} selectedSessionId="idle-refactor" />);
 
     const [firstRow] = screen.getAllByTestId("conversation-sidebar-project");
-    const firstToggle = screen.getByRole("button", { name: "agent-moebius 项目，已展开" });
+    const firstToggle = screen.getByRole("button", { name: "moebius 项目，已展开" });
     const secondToggle = screen.getByRole("button", { name: "second-project 项目，已展开" });
     expect(firstToggle).toHaveAttribute("aria-expanded", "true");
     expect(firstToggle).toHaveAttribute("data-status-dot", "none");
@@ -174,17 +174,17 @@ describe("ConversationSidebar", () => {
     firePointer(firstRow!, "pointerdown", { pointerId: 10, button: 0, clientX: 10, clientY: 10 });
     firePointer(firstRow!, "pointerup", { pointerId: 10, button: 0, clientX: 10, clientY: 10 });
 
-    const collapsedToggle = screen.getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" });
+    const collapsedToggle = screen.getByRole("button", { name: "moebius 项目，已折叠，需要你处理" });
     expect(collapsedToggle).toHaveAttribute("aria-expanded", "false");
     expect(collapsedToggle).toHaveAttribute("data-status-dot", "red");
-    expect(screen.queryByRole("list", { name: "agent-moebius 对话" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "moebius 对话" })).not.toBeInTheDocument();
     expect(screen.getByRole("list", { name: "second-project 对话" })).toBeVisible();
     expect(secondToggle).toHaveAttribute("aria-expanded", "true");
 
     firePointer(collapsedToggle, "pointerdown", { pointerId: 11, button: 0, clientX: 10, clientY: 10 });
     firePointer(collapsedToggle, "pointerup", { pointerId: 11, button: 0, clientX: 10, clientY: 10 });
 
-    expect(screen.getByRole("button", { name: "agent-moebius 项目，已展开" })).toHaveAttribute("data-status-dot", "none");
+    expect(screen.getByRole("button", { name: "moebius 项目，已展开" })).toHaveAttribute("data-status-dot", "none");
     expect(screen.getByRole("button", { name: "导出功能重构" })).toHaveAttribute("aria-current", "page");
   });
 
@@ -202,12 +202,12 @@ describe("ConversationSidebar", () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" }));
-    fireEvent.click(screen.getByRole("button", { name: "agent-moebius 项目菜单" }));
+    fireEvent.click(screen.getByRole("button", { name: "在 moebius 中新建会话" }));
+    fireEvent.click(screen.getByRole("button", { name: "moebius 项目菜单" }));
 
-    expect(onNewConversation).toHaveBeenCalledWith("agent-moebius");
+    expect(onNewConversation).toHaveBeenCalledWith("moebius");
     expect(onOuterClick).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "agent-moebius 项目，已展开" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "moebius 项目，已展开" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("offers only archive and copy-path actions from a focusable hover menu and reports copy success", async () => {
@@ -231,7 +231,7 @@ describe("ConversationSidebar", () => {
     expect(screen.getAllByRole("menuitem")).toHaveLength(2);
     fireEvent.click(copyItem);
 
-    expect(onCopySessionLogPath).toHaveBeenCalledWith("idle-refactor", "agent-moebius");
+    expect(onCopySessionLogPath).toHaveBeenCalledWith("idle-refactor", "moebius");
     expect(await screen.findByRole("status")).toHaveTextContent("路径已复制");
     expect(document.body.textContent).not.toContain("/sessions/");
 
@@ -239,7 +239,7 @@ describe("ConversationSidebar", () => {
     const reopenedArchiveItem = await screen.findByRole("menuitem", { name: "归档" });
     fireEvent.click(reopenedArchiveItem);
 
-    expect(onArchiveSession).toHaveBeenCalledWith("idle-refactor", "agent-moebius");
+    expect(onArchiveSession).toHaveBeenCalledWith("idle-refactor", "moebius");
   });
 
   it("reports a copy failure without rendering an error detail or path", async () => {
@@ -288,7 +288,7 @@ describe("ConversationSidebar", () => {
     await act(async () => {
       fireEvent.click(copyItem);
     });
-    expect(onCopySessionLogPath).toHaveBeenCalledWith("running-progress", "agent-moebius");
+    expect(onCopySessionLogPath).toHaveBeenCalledWith("running-progress", "moebius");
     fireEvent.click(archiveItem);
     expect(onArchiveSession).not.toHaveBeenCalled();
   });
@@ -322,7 +322,7 @@ describe("ConversationSidebar", () => {
 
     expect(screen.getByLabelText("项目正在加载")).toHaveAttribute("aria-busy", "true");
     expect(screen.getByTestId("conversation-sidebar-loading").children).toHaveLength(3);
-    expect(screen.queryByText("agent-moebius")).not.toBeInTheDocument();
+    expect(screen.queryByText("moebius")).not.toBeInTheDocument();
   });
 
   it("renders a short load failure with a working retry action", () => {
@@ -330,7 +330,7 @@ describe("ConversationSidebar", () => {
     render(<ConversationSidebar projects={[project]} dataState="error" onRetry={onRetry} />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("项目加载失败");
-    expect(screen.queryByText("agent-moebius")).not.toBeInTheDocument();
+    expect(screen.queryByText("moebius")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
@@ -339,14 +339,14 @@ describe("ConversationSidebar", () => {
     const onNewConversation = vi.fn();
     render(<ConversationSidebar projects={[project]} onNewConversation={onNewConversation} />);
     const projectRow = screen.getByTestId("conversation-sidebar-project");
-    const projectToggle = screen.getByRole("button", { name: "agent-moebius 项目，已展开" });
+    const projectToggle = screen.getByRole("button", { name: "moebius 项目，已展开" });
 
     firePointer(projectRow, "pointerdown", { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
     firePointer(projectRow, "pointerup", { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
     expect(projectToggle).toHaveAttribute("aria-expanded", "false");
 
-    fireEvent.click(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" }));
-    expect(onNewConversation).toHaveBeenCalledWith("agent-moebius");
+    fireEvent.click(screen.getByRole("button", { name: "在 moebius 中新建会话" }));
+    expect(onNewConversation).toHaveBeenCalledWith("moebius");
     expect(projectToggle).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -354,8 +354,8 @@ describe("ConversationSidebar", () => {
     const onShowProjectInFolder = vi.fn();
     render(<ConversationSidebar projects={[project]} onShowProjectInFolder={onShowProjectInFolder} />);
     const projectRow = screen.getByTestId("conversation-sidebar-project");
-    const projectToggle = screen.getByRole("button", { name: "agent-moebius 项目，已展开" });
-    const menuTrigger = screen.getByRole("button", { name: "agent-moebius 项目菜单" });
+    const projectToggle = screen.getByRole("button", { name: "moebius 项目，已展开" });
+    const menuTrigger = screen.getByRole("button", { name: "moebius 项目菜单" });
 
     firePointer(menuTrigger, "pointerdown", { pointerId: 4, button: 0, clientX: 190, clientY: 10 });
     firePointer(menuTrigger, "pointerup", { pointerId: 4, button: 0, clientX: 190, clientY: 10 });
@@ -393,8 +393,8 @@ describe("ConversationSidebar", () => {
       act(() => vi.advanceTimersByTime(1));
       firePointer(firstRow!, "pointerup", { pointerId: 2, button: 0, clientX: 10, clientY: 90 });
 
-      expect(onReorderProjects).toHaveBeenCalledWith(["second-project", "agent-moebius"]);
-      const projectToggle = within(firstRow!).getByRole("button", { name: "agent-moebius 项目，已展开" });
+      expect(onReorderProjects).toHaveBeenCalledWith(["second-project", "moebius"]);
+      const projectToggle = within(firstRow!).getByRole("button", { name: "moebius 项目，已展开" });
       expect(projectToggle).toHaveAttribute(
         "aria-expanded",
         "true",
@@ -404,7 +404,7 @@ describe("ConversationSidebar", () => {
       firePointer(projectToggle, "pointerdown", { pointerId: 5, button: 0, clientX: 10, clientY: 10 });
       firePointer(projectToggle, "pointerup", { pointerId: 5, button: 0, clientX: 10, clientY: 10 });
       expect(
-        within(firstRow!).getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" }),
+        within(firstRow!).getByRole("button", { name: "moebius 项目，已折叠，需要你处理" }),
       ).toHaveAttribute("aria-expanded", "false");
     } finally {
       vi.useRealTimers();
@@ -425,9 +425,9 @@ describe("ConversationSidebar", () => {
     rerender(<ConversationSidebar projects={[newProject, project]} />);
 
     const rows = screen.getAllByTestId("conversation-sidebar-project");
-    expect(rows.map((row) => row.dataset.projectId)).toEqual(["new-top-project", "agent-moebius"]);
+    expect(rows.map((row) => row.dataset.projectId)).toEqual(["new-top-project", "moebius"]);
     expect(screen.getByRole("button", { name: "new-top-project 项目，已展开" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("button", { name: "agent-moebius 项目，已折叠，需要你处理" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "moebius 项目，已折叠，需要你处理" })).toHaveAttribute(
       "aria-expanded",
       "false",
     );
@@ -446,7 +446,7 @@ describe("ConversationSidebar", () => {
       />,
     );
 
-    const createButton = screen.getByRole("button", { name: "在 agent-moebius 中新建会话" });
+    const createButton = screen.getByRole("button", { name: "在 moebius 中新建会话" });
     const sessionButton = screen.getByRole("button", { name: "导出功能重构" });
     expect(createButton).toBeDisabled();
     expect(createButton).toHaveAttribute("title", "项目正在变更，请稍后再试");
@@ -471,12 +471,12 @@ describe("ConversationSidebar", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "在 agent-moebius 中新建会话" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "agent-moebius 项目菜单" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "在 moebius 中新建会话" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "moebius 项目菜单" })).toBeDisabled();
     const session = screen.getByRole("button", { name: "导出功能重构" });
     expect(session).toBeEnabled();
     fireEvent.click(session);
-    expect(onSelectSession).toHaveBeenCalledWith("idle-refactor", "agent-moebius");
+    expect(onSelectSession).toHaveBeenCalledWith("idle-refactor", "moebius");
   });
 
   it("explains why a project with an unavailable directory cannot start a conversation", () => {
@@ -491,7 +491,7 @@ describe("ConversationSidebar", () => {
       />,
     );
 
-    const createButton = screen.getByRole("button", { name: "在 agent-moebius 中新建会话" });
+    const createButton = screen.getByRole("button", { name: "在 moebius 中新建会话" });
     expect(createButton).toBeDisabled();
     expect(createButton).toHaveAttribute("title", "当前项目本地文件夹不可用，无法新建对话");
     expect(createButton).toHaveAttribute("aria-description", "当前项目本地文件夹不可用，无法新建对话");
@@ -515,13 +515,13 @@ describe("ConversationSidebar", () => {
       />,
     );
 
-    const repair = screen.getByRole("button", { name: "修复 agent-moebius 项目文件夹" });
+    const repair = screen.getByRole("button", { name: "修复 moebius 项目文件夹" });
     expect(repair).toHaveClass("text-danger");
     expect(repair).toHaveAttribute("title", "当前项目本地文件夹未找到，可以指定新的文件夹");
     fireEvent.click(repair);
-    expect(onRepairProject).toHaveBeenCalledWith(expect.objectContaining({ id: "agent-moebius" }));
+    expect(onRepairProject).toHaveBeenCalledWith(expect.objectContaining({ id: "moebius" }));
 
-    const menuTrigger = screen.getByRole("button", { name: "agent-moebius 项目菜单" });
+    const menuTrigger = screen.getByRole("button", { name: "moebius 项目菜单" });
     fireEvent.keyDown(menuTrigger, { key: "ArrowDown" });
     const menu = await screen.findByRole("menu");
     expect(within(menu).queryByText(/修复/u)).not.toBeInTheDocument();
@@ -529,8 +529,8 @@ describe("ConversationSidebar", () => {
 });
 
 const project: ConversationSidebarProject = {
-  id: "agent-moebius",
-  path: "/Users/example/work/agent-moebius",
+  id: "moebius",
+  path: "/Users/example/work/moebius",
   sessions: [
     { id: "idle-refactor", title: "导出功能重构", unreadSince: null, isRunning: false, createdAt: "2026-07-09T00:01:00.000Z" },
     { id: "docs-history", title: "文档记录", unreadSince: "2026-07-09T00:00:30.000Z", isRunning: false, lastMessageMentionsAgent: false, createdAt: "2026-07-09T00:00:00.000Z" },

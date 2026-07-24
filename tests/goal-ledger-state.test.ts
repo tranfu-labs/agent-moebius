@@ -153,7 +153,7 @@ describe("goal ledger state", () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-goal-ledger-state-test-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-goal-ledger-state-test-"));
 }
 
 function readyGoalState(id: string): GoalLedgerState {
@@ -184,7 +184,7 @@ function readyGoal(id: string): GoalRecord {
 
 function makeProvenance(): LedgerProvenance {
   return {
-    issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+    issue: { owner: "tranfu-labs", repo: "moebius", number: 63 },
     messageIndex: 1,
     capturedAt: NOW,
   };

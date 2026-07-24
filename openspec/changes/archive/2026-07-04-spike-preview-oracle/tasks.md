@@ -10,5 +10,5 @@
 - [x] 运行探针脚本并确认只生成 1 张 PNG 截图作为验收证据。
 - [x] 运行故障注入命令并确认在 timeout 内非 0 退出、stderr 说明原因且无残留 Chromium / HTTP server 进程。
 - [ ] 运行 `pnpm test` 与 `pnpm typecheck`。
-- [ ] 记录 artifact publisher gap：在不改 `src/`、不手动 `gh release upload` 的边界下，runner 未在本 issue 评论中产出 `agent-moebius-artifacts` 截图链接；该项作为 spike finding，不阻断 T4 收尾。
+- [ ] 记录 artifact publisher gap：在不改 `src/`、不手动 `gh release upload` 的边界下，runner 未在本 issue 评论中产出 `moebius-artifacts` 截图链接；该项作为 spike finding，不阻断 T4 收尾。
 - [ ] loop watcher 裁决 T4 acceptance 后，追记 `docs/roadmap/milestone-1-acceptance-loop.md` 的 T4 证据并勾选任务。

@@ -41,7 +41,7 @@ import {
 } from "../src/goal-ledger.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
-const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
+const source = makeIssueSource({ owner: "tranfu-labs", repo: "moebius", issueNumber: 4 });
 
 describe("pollActiveIssue", () => {
   it("removes closed active issues without processing triggers or comments", async () => {
@@ -350,8 +350,8 @@ describe("runner heartbeat orchestration", () => {
         failureCount: 5,
       }),
     ]);
-    expect(posted[0]).toContain("<!-- agent-moebius:dead-letter -->");
-    expect(posted[0]).toContain("<!-- agent-moebius:ceo-reviewed action=not_applicable reason=dead-letter -->");
+    expect(posted[0]).toContain("<!-- moebius:dead-letter -->");
+    expect(posted[0]).toContain("<!-- moebius:ceo-reviewed action=not_applicable reason=dead-letter -->");
     expect(posted[0]).not.toContain("@dev");
     expect(runner.persister.state().issues[issue.issueKey]).toMatchObject({
       mode: "idle",
@@ -405,7 +405,7 @@ describe("runner heartbeat orchestration", () => {
     expect(processIssueSourceMock).not.toHaveBeenCalled();
     expect(posted).toHaveLength(1);
     expect(posted[0]).toContain("Post \"https://api.github.com/graphql\": EOF");
-    expect(posted[0]).toContain("<!-- agent-moebius:dead-letter -->");
+    expect(posted[0]).toContain("<!-- moebius:dead-letter -->");
     expect(runner.persister.state().issues[issue.issueKey]).toMatchObject({
       mode: "idle",
       updatedAt: "2026-07-01T00:05:00Z",
@@ -701,7 +701,7 @@ describe("processIssueSource Codex execution reaction", () => {
     expect(addReaction).toHaveBeenCalledWith({ kind: "issue", source }, "eyes");
     expect(runCodex).toHaveBeenCalledTimes(1);
     expect(postComment).toHaveBeenCalledTimes(1);
-    expect(postComment.mock.calls[0]?.[1]).toContain("<!-- agent-moebius:ceo-reviewed action=no_change -->");
+    expect(postComment.mock.calls[0]?.[1]).toContain("<!-- moebius:ceo-reviewed action=no_change -->");
   });
 
   it("adds an eyes reaction to the latest comment before running Codex when comment triggers", async () => {
@@ -764,7 +764,7 @@ pre_script: src/agent-prescripts/current-repo-workspace.ts
 ---
 Secretary persona`,
     );
-    const runAgentPreScript = vi.fn(async () => ({ ok: true as const, codexCwd: "/repo/agent-moebius" }));
+    const runAgentPreScript = vi.fn(async () => ({ ok: true as const, codexCwd: "/repo/moebius" }));
     const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) =>
       successfulCodexRun(options.runDir),
     );
@@ -785,7 +785,7 @@ Secretary persona`,
         preScript: "src/agent-prescripts/current-repo-workspace.ts",
       }),
     );
-    expect(runCodex.mock.calls[0]?.[0].cwd).toBe("/repo/agent-moebius");
+    expect(runCodex.mock.calls[0]?.[0].cwd).toBe("/repo/moebius");
   });
 
   it("passes workspace Codex cwd and prompt context to a workspace-capable agent", async () => {
@@ -798,7 +798,7 @@ Dev persona`,
     );
     const runIssueWorktreeCapability = vi.fn(async () => ({
       ok: true as const,
-      codexCwd: "/worktrees/tranfu-labs__agent-moebius__4",
+      codexCwd: "/worktrees/tranfu-labs__moebius__4",
       promptContext: "Issue workspace capability context:\n- workspaceAccess: write",
     }));
     const runCodex = vi.fn(async (options: Parameters<ProcessIssueSourceDependencies["runCodex"]>[0]) =>
@@ -822,7 +822,7 @@ Dev persona`,
         issueSource: source,
       }),
     );
-    expect(runCodex.mock.calls[0]?.[0].cwd).toBe("/worktrees/tranfu-labs__agent-moebius__4");
+    expect(runCodex.mock.calls[0]?.[0].cwd).toBe("/worktrees/tranfu-labs__moebius__4");
     expect(runCodex.mock.calls[0]?.[0].prompt).toContain("Issue workspace capability context");
   });
 
@@ -1000,7 +1000,7 @@ Dev persona`,
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
     expect(postComment.mock.calls[0]?.[1]).toContain("无法准备媒体输入");
     expect(postComment.mock.calls[0]?.[1]).toContain(
-      "<!-- agent-moebius:ceo-reviewed action=bypass reason=media-preparation-failed -->",
+      "<!-- moebius:ceo-reviewed action=bypass reason=media-preparation-failed -->",
     );
   });
 
@@ -1035,7 +1035,7 @@ Dev persona`,
         runCodex: async (options) =>
           successfulCodexRunWithFinalText(
             options.runDir,
-            "done\n<!-- agent-moebius:stage=code-verified -->",
+            "done\n<!-- moebius:stage=code-verified -->",
           ),
       }),
     );
@@ -1116,7 +1116,7 @@ Dev persona`,
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
     expect(postComment.mock.calls[0]?.[1]).toContain("无法发布生成产物");
     expect(postComment.mock.calls[0]?.[1]).toContain(
-      "<!-- agent-moebius:ceo-reviewed action=bypass reason=artifact-publishing-failed -->",
+      "<!-- moebius:ceo-reviewed action=bypass reason=artifact-publishing-failed -->",
     );
     expect(writeRunManifest).toHaveBeenCalledTimes(1);
     expect(writeRunManifest.mock.calls[0]?.[0].record.artifacts).toEqual([
@@ -1182,7 +1182,7 @@ Dev persona`,
     expect(outcome).toBe("triggered-success");
     expect(postComment.mock.calls[0]?.[1]).toContain("无法发布生成产物");
     expect(postComment.mock.calls[0]?.[1]).toContain(
-      "<!-- agent-moebius:ceo-reviewed action=bypass reason=artifact-publishing-failed -->",
+      "<!-- moebius:ceo-reviewed action=bypass reason=artifact-publishing-failed -->",
     );
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
   });
@@ -1291,7 +1291,7 @@ Dev persona`,
     await expectNoReaction({
       issue: makeIssue("initial", [
         {
-          body: "&lt;dev&gt;:\nplan\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=dev -->",
+          body: "&lt;dev&gt;:\nplan\n<!-- moebius:stage=plan-written -->\n\n<!-- moebius:role=dev -->",
         },
       ]),
       agentFiles: [dev],
@@ -1350,7 +1350,7 @@ CEO persona`,
           ok: false,
           reason: "ceo-ledger-context-error:missing-ledger",
           visibleFailureBody:
-            "CEO 编排路径 fail-closed：missing-ledger\n\n<!-- agent-moebius:stage=in-progress -->",
+            "CEO 编排路径 fail-closed：missing-ledger\n\n<!-- moebius:stage=in-progress -->",
         }),
       }),
     );
@@ -1360,7 +1360,7 @@ CEO persona`,
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
     expect(postComment.mock.calls[0]?.[1]).toContain("CEO 编排路径 fail-closed");
     expect(postComment.mock.calls[0]?.[1]).toContain(
-      "<!-- agent-moebius:ceo-reviewed action=bypass reason=agent-prescript-failed -->",
+      "<!-- moebius:ceo-reviewed action=bypass reason=agent-prescript-failed -->",
     );
   });
 
@@ -1400,7 +1400,7 @@ CEO persona`,
     const ledger = makeCeoLedgerState();
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 101,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+      url: "https://github.com/tranfu-labs/moebius/issues/101",
     }));
     const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async (kind, id, mutate) => {
       expect(kind).toBe("tasks");
@@ -1433,18 +1433,18 @@ CEO persona`,
     expect(outcome).toBe("triggered-success");
     expect(createIssue).toHaveBeenCalledTimes(1);
     expect(createIssue.mock.calls[0]?.[1].title).toBe("T3 child");
-    expect(createIssue.mock.calls[0]?.[1].body).toContain("Parent issue: https://github.com/tranfu-labs/agent-moebius/issues/4");
+    expect(createIssue.mock.calls[0]?.[1].body).toContain("Parent issue: https://github.com/tranfu-labs/moebius/issues/4");
     expect(createIssue.mock.calls[0]?.[1].body).toContain("Quality baseline: data-correct");
     expect(createIssue.mock.calls[0]?.[1].body).toContain("@dev 请按本子 issue");
     expect(saveGoalLedgerEntry).toHaveBeenCalledTimes(1);
     expect(ledger.tasks["task-1"]?.childIssueRefs[0]).toMatchObject({
       owner: "tranfu-labs",
-      repo: "agent-moebius",
+      repo: "moebius",
       number: 101,
       relation: "child",
       status: "open",
     });
-    expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("agent-moebius-orchestration-key:");
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("moebius-orchestration-key:");
     expect(postComment.mock.calls[0]?.[1]).toContain("CEO 编排完成");
     expect(postComment.mock.calls[0]?.[1]).toContain("issues/101");
     expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
@@ -1457,7 +1457,7 @@ CEO persona`,
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 101,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+      url: "https://github.com/tranfu-labs/moebius/issues/101",
     }));
     const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
     const saveGoalLedgerEntry = makeLedgerEntrySaver(ledger);
@@ -1498,7 +1498,7 @@ CEO persona`,
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 101,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+      url: "https://github.com/tranfu-labs/moebius/issues/101",
     }));
     const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async () => {});
 
@@ -1543,7 +1543,7 @@ CEO persona`,
     );
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 101,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+      url: "https://github.com/tranfu-labs/moebius/issues/101",
     }));
     const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async () => {});
 
@@ -1611,7 +1611,7 @@ CEO persona`,
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 101,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+      url: "https://github.com/tranfu-labs/moebius/issues/101",
     }));
     const saveGoalLedgerEntry = makeLedgerEntrySaver(ledger);
 
@@ -1647,12 +1647,12 @@ CEO persona`,
     const recoveredKey = buildCeoOrchestrationKey({ source, workflowId: "goal-intake", ledgerTaskId: "task-1" });
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async (_source, issue) => ({
       number: issue.title.includes("task-2") ? 202 : 203,
-      url: `https://github.com/tranfu-labs/agent-moebius/issues/${issue.title.includes("task-2") ? "202" : "203"}`,
+      url: `https://github.com/tranfu-labs/moebius/issues/${issue.title.includes("task-2") ? "202" : "203"}`,
     }));
     const findIssueByOrchestrationKey = vi.fn<ProcessIssueSourceDependencies["findIssueByOrchestrationKey"]>(
       async (_source, key) =>
         key === recoveredKey
-          ? { kind: "one", issue: { number: 201, url: "https://github.com/tranfu-labs/agent-moebius/issues/201" } }
+          ? { kind: "one", issue: { number: 201, url: "https://github.com/tranfu-labs/moebius/issues/201" } }
           : { kind: "none" },
     );
     const saveGoalLedgerEntry = makeLedgerEntrySaver(ledger);
@@ -1744,7 +1744,7 @@ CEO persona`,
           agentFiles: [ceo, dev],
         },
         makeDependencies({
-          createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/agent-moebius/issues/101" }),
+          createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/moebius/issues/101" }),
           postComment,
           saveRoleThreadStateEntry,
           saveGoalLedgerEntry: async () =>
@@ -1766,7 +1766,7 @@ CEO persona`,
     }
 
     expect(postComment.mock.calls[0]?.[1]).toContain("saveGoalLedgerEntry-timeout");
-    expect(postComment.mock.calls[0]?.[1]).toContain("https://github.com/tranfu-labs/agent-moebius/issues/101");
+    expect(postComment.mock.calls[0]?.[1]).toContain("https://github.com/tranfu-labs/moebius/issues/101");
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
   });
 
@@ -1782,7 +1782,7 @@ CEO persona`,
         agentFiles: [ceo, dev],
       },
       makeDependencies({
-        createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/agent-moebius/issues/101" }),
+        createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/moebius/issues/101" }),
         postComment: async () => {
           throw new Error("comment failed");
         },
@@ -1800,7 +1800,7 @@ CEO persona`,
     expect(outcome).toMatchObject({
       kind: "failed",
       agent: "ceo",
-      reason: expect.stringContaining("https://github.com/tranfu-labs/agent-moebius/issues/101"),
+      reason: expect.stringContaining("https://github.com/tranfu-labs/moebius/issues/101"),
     });
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
   });
@@ -1813,7 +1813,7 @@ CEO persona`,
       childIssueRefs: [
         {
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           number: 101,
           relation: "child",
           status: "open",
@@ -1823,7 +1823,7 @@ CEO persona`,
     });
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 102,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/102",
+      url: "https://github.com/tranfu-labs/moebius/issues/102",
     }));
     const findIssueByOrchestrationKey = vi.fn<ProcessIssueSourceDependencies["findIssueByOrchestrationKey"]>(async () => ({
       kind: "none",
@@ -1856,13 +1856,13 @@ CEO persona`,
     const ledger = makeCeoLedgerState();
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 102,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/102",
+      url: "https://github.com/tranfu-labs/moebius/issues/102",
     }));
     const findIssueByOrchestrationKey = vi.fn<ProcessIssueSourceDependencies["findIssueByOrchestrationKey"]>(async () => ({
       kind: "one",
       issue: {
         number: 101,
-        url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+        url: "https://github.com/tranfu-labs/moebius/issues/101",
       },
     }));
     const saveGoalLedgerEntry = vi.fn<ProcessIssueSourceDependencies["saveGoalLedgerEntry"]>(async (kind, id, mutate) => {
@@ -1896,12 +1896,12 @@ CEO persona`,
     expect(saveGoalLedgerEntry).toHaveBeenCalledTimes(1);
     expect(ledger.tasks["task-1"]?.childIssueRefs[0]).toMatchObject({
       owner: "tranfu-labs",
-      repo: "agent-moebius",
+      repo: "moebius",
       number: 101,
       relation: "child",
       status: "open",
     });
-    expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("agent-moebius-orchestration-key:");
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("moebius-orchestration-key:");
   });
 
   it("starts a CEO roundtable by creating a child issue and saving a bounded roundtable ref", async () => {
@@ -1912,7 +1912,7 @@ CEO persona`,
     const ledger = makeCeoLedgerState();
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 101,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/101",
+      url: "https://github.com/tranfu-labs/moebius/issues/101",
     }));
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
     const saveRoleThreadStateEntry = vi.fn<ProcessIssueSourceDependencies["saveRoleThreadStateEntry"]>(async () => {});
@@ -1939,22 +1939,22 @@ CEO persona`,
     expect(createIssue).toHaveBeenCalledTimes(1);
     expect(createIssue.mock.calls[0]?.[1]).toMatchObject({ title: "T6 plan review roundtable" });
     const childBody = createIssue.mock.calls[0]?.[1].body ?? "";
-    expect(childBody).toContain("Parent issue: https://github.com/tranfu-labs/agent-moebius/issues/4");
+    expect(childBody).toContain("Parent issue: https://github.com/tranfu-labs/moebius/issues/4");
     expect(childBody).toContain("Workflow id: roundtable-plan-review");
     expect(childBody).toContain("Ledger task id: task-1");
-    expect(childBody).toContain("Roundtable key: agent-moebius-roundtable-key:");
+    expect(childBody).toContain("Roundtable key: moebius-roundtable-key:");
     expect(childBody).toContain("Participants in order:");
     expect(childBody).toContain("Fixed one-round rule:");
     expect(childBody).toContain("Provenance:");
     expect(parseAgentMentions(childBody).map((mention) => mention.name)).toEqual(["qa"]);
     expect(ledger.tasks["task-1"]?.childIssueRefs[0]).toMatchObject({
       owner: "tranfu-labs",
-      repo: "agent-moebius",
+      repo: "moebius",
       number: 101,
       relation: "child",
       status: "open",
     });
-    expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("agent-moebius-roundtable-key:");
+    expect(ledger.tasks["task-1"]?.childIssueRefs[0]?.note).toContain("moebius-roundtable-key:");
     expect(postComment.mock.calls[0]?.[1]).toContain("圆桌已启动");
     expect(postComment.mock.calls[0]?.[1]).toContain("issues/101");
     expect(saveRoleThreadStateEntry).toHaveBeenCalledTimes(1);
@@ -1978,7 +1978,7 @@ CEO persona`,
           agentFiles: [ceo, qa, devManager, hermesUser],
         },
         makeDependencies({
-          createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/agent-moebius/issues/101" }),
+          createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/moebius/issues/101" }),
           postComment,
           saveRoleThreadStateEntry,
           saveGoalLedgerEntry: async () =>
@@ -1999,8 +1999,8 @@ CEO persona`,
     }
 
     expect(postComment.mock.calls[0]?.[1]).toContain("saveGoalLedgerEntry-timeout");
-    expect(postComment.mock.calls[0]?.[1]).toContain("https://github.com/tranfu-labs/agent-moebius/issues/101");
-    expect(postComment.mock.calls[0]?.[1]).toContain("agent-moebius-roundtable-key:");
+    expect(postComment.mock.calls[0]?.[1]).toContain("https://github.com/tranfu-labs/moebius/issues/101");
+    expect(postComment.mock.calls[0]?.[1]).toContain("moebius-roundtable-key:");
     expect(saveRoleThreadStateEntry).not.toHaveBeenCalled();
   });
 
@@ -2012,7 +2012,7 @@ CEO persona`,
     const lookupStarted = deferred<void>();
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 102,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/102",
+      url: "https://github.com/tranfu-labs/moebius/issues/102",
     }));
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
 
@@ -2300,7 +2300,7 @@ CEO persona`,
     expect(posted[0]).toMatchObject({ issueNumber: source.issueNumber });
     expect(posted[0]?.body).toContain("@product-manager");
     expect(posted[0]?.body).toContain("目标级验收语句");
-    expect(posted[0]?.body).toContain("agent-moebius-integration-acceptance-key:");
+    expect(posted[0]?.body).toContain("moebius-integration-acceptance-key:");
     expect(ledger.tasks["task-1"]?.acceptanceFacts).toHaveLength(1);
     expect(ledger.phases["phase-1"]?.integrationAcceptance?.[0]).toMatchObject({ status: "requested" });
   });
@@ -2407,7 +2407,7 @@ CEO persona`,
     const ledger = makeIntegrationLedgerState({ requested: true });
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 201,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/201",
+      url: "https://github.com/tranfu-labs/moebius/issues/201",
     }));
     const runCodex = vi.fn<ProcessIssueSourceDependencies["runCodex"]>(async (options) =>
       successfulCodexRun(options.runDir),
@@ -2486,7 +2486,7 @@ CEO persona`,
     const lookupStarted = deferred<void>();
     const createIssue = vi.fn<ProcessIssueSourceDependencies["createIssue"]>(async () => ({
       number: 201,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/201",
+      url: "https://github.com/tranfu-labs/moebius/issues/201",
     }));
     const ledger = makeIntegrationLedgerState({ requested: true });
     const postComment = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
@@ -2573,9 +2573,9 @@ CEO persona`,
       `&lt;ceo&gt;:
 @dev 验收通过，请继续实现。
 
-<!-- agent-moebius:role=ceo -->
+<!-- moebius:role=ceo -->
 
-<!-- agent-moebius:ceo-reviewed action=external_route_append -->`,
+<!-- moebius:ceo-reviewed action=external_route_append -->`,
     );
   });
 
@@ -2761,7 +2761,7 @@ CEO persona`,
             [
               {
                 id: "comment-node-2",
-                body: "&lt;dev&gt;:\n我会继续。\n\n<!-- agent-moebius:role=dev -->",
+                body: "&lt;dev&gt;:\n我会继续。\n\n<!-- moebius:role=dev -->",
               },
             ],
             "OPEN",
@@ -2783,7 +2783,7 @@ CEO persona`,
             [
               {
                 id: "comment-node-3",
-                body: "Agent Moebius dead letter\n\n<!-- agent-moebius:dead-letter -->\n\n<!-- agent-moebius:ceo-reviewed action=not_applicable reason=dead-letter -->",
+                body: "Moebius dead letter\n\n<!-- moebius:dead-letter -->\n\n<!-- moebius:ceo-reviewed action=not_applicable reason=dead-letter -->",
               },
             ],
             "OPEN",
@@ -2885,7 +2885,7 @@ describe("processIssueSource CEO guardrail", () => {
       expect(formatCeoComment.mock.calls[0]?.[0]).toMatchObject({
         agent: role,
         issueContext: {
-          issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+          issueUrl: "https://github.com/tranfu-labs/moebius/issues/4",
           issueBody: `@${role} please run`,
           comments: [],
         },
@@ -2902,8 +2902,8 @@ describe("processIssueSource CEO guardrail", () => {
     const secondComment = `&lt;reflector&gt;:
 @dev 请针对「plan-written」做一次反思。
 
-<!-- agent-moebius:role=reflector -->
-<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->`;
+<!-- moebius:role=reflector -->
+<!-- moebius:stage-hook source=dev stage=plan-written sourceIndex=1 -->`;
     const thirdComment = "@dev continue";
 
     await processIssueSource(
@@ -2921,7 +2921,7 @@ describe("processIssueSource CEO guardrail", () => {
 
     expect(formatCeoComment.mock.calls[0]?.[0]).toMatchObject({
       issueContext: {
-        issueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+        issueUrl: "https://github.com/tranfu-labs/moebius/issues/4",
         issueBody: "全局流程：先采访再方案",
         comments: [{ body: firstComment }, { body: secondComment }, { body: thirdComment }],
       },
@@ -2931,7 +2931,7 @@ describe("processIssueSource CEO guardrail", () => {
   it("posts CEO repaired text with correction metadata after role metadata", async () => {
     const agent = await makeAgentFile("dev", "Dev persona");
     const repaired = `done
-<!-- agent-moebius:stage=in-progress -->
+<!-- moebius:stage=in-progress -->
 
 ${CEO_CORRECTED_METADATA}`;
     const postComment = vi.fn(async () => {});
@@ -2953,11 +2953,11 @@ ${CEO_CORRECTED_METADATA}`;
       source,
       `&lt;dev&gt;:
 done
-<!-- agent-moebius:stage=in-progress -->
+<!-- moebius:stage=in-progress -->
 
-<!-- agent-moebius:role=dev -->
+<!-- moebius:role=dev -->
 
-<!-- agent-moebius:ceo-reviewed action=replace -->
+<!-- moebius:ceo-reviewed action=replace -->
 
 ${CEO_CORRECTED_METADATA}`,
     );
@@ -2985,7 +2985,7 @@ ${CEO_CORRECTED_METADATA}`,
 
     expect(outcome).toBe("triggered-success");
     expect(postComment.mock.calls[0]?.[1]).toContain(
-      "<!-- agent-moebius:ceo-reviewed action=fail_open reason=invalid-json -->",
+      "<!-- moebius:ceo-reviewed action=fail_open reason=invalid-json -->",
     );
     expect(postComment.mock.calls[0]?.[1]).not.toContain(CEO_CORRECTED_METADATA);
   });
@@ -3017,9 +3017,9 @@ ${CEO_CORRECTED_METADATA}`,
       `&lt;dev&gt;:
 done
 
-<!-- agent-moebius:role=dev -->
+<!-- moebius:role=dev -->
 
-<!-- agent-moebius:ceo-reviewed action=append_original -->`,
+<!-- moebius:ceo-reviewed action=append_original -->`,
     );
     expect(postComment).toHaveBeenNthCalledWith(
       2,
@@ -3027,9 +3027,9 @@ done
       `&lt;ceo&gt;:
 ${ceoBody}
 
-<!-- agent-moebius:role=ceo -->
+<!-- moebius:role=ceo -->
 
-<!-- agent-moebius:ceo-reviewed action=append_ceo -->
+<!-- moebius:ceo-reviewed action=append_ceo -->
 
 ${CEO_CORRECTED_METADATA}`,
     );
@@ -3041,7 +3041,7 @@ ${CEO_CORRECTED_METADATA}`,
 
 我按 change/foo 自行推进。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
     const postComment = vi.fn(async () => {});
 
     const outcome = await processIssueSource(
@@ -3064,9 +3064,9 @@ ${CEO_CORRECTED_METADATA}`,
       `&lt;dev&gt;:
 done
 
-<!-- agent-moebius:role=dev -->
+<!-- moebius:role=dev -->
 
-<!-- agent-moebius:ceo-reviewed action=append_original -->`,
+<!-- moebius:ceo-reviewed action=append_original -->`,
     );
     expect(postComment).toHaveBeenNthCalledWith(
       2,
@@ -3074,9 +3074,9 @@ done
       `&lt;dev&gt;:
 ${ceoBody}
 
-<!-- agent-moebius:role=dev -->
+<!-- moebius:role=dev -->
 
-<!-- agent-moebius:ceo-reviewed action=append_ceo -->
+<!-- moebius:ceo-reviewed action=append_ceo -->
 
 ${CEO_CORRECTED_METADATA}`,
     );
@@ -3094,7 +3094,7 @@ ${CEO_CORRECTED_METADATA}`,
         source,
         issue: makeIssue("initial", [
           {
-            body: "&lt;dev&gt;:\nplan\n<!-- agent-moebius:stage=plan-written -->\n\n<!-- agent-moebius:role=dev -->",
+            body: "&lt;dev&gt;:\nplan\n<!-- moebius:stage=plan-written -->\n\n<!-- moebius:role=dev -->",
           },
         ]),
         agentFiles: [dev],
@@ -3147,7 +3147,7 @@ function makeDependencies(overrides: Partial<ProcessIssueSourceDependencies> = {
     runAgentPreScript: async () => ({ ok: true }),
     runCodex: async (options) => successfulCodexRun(options.runDir),
     addReaction: async () => {},
-    createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/agent-moebius/issues/101" }),
+    createIssue: async () => ({ number: 101, url: "https://github.com/tranfu-labs/moebius/issues/101" }),
     fetchIssueState: async () => "OPEN",
     fetchIssueWithComments: async () => makeIssue("@dev please run"),
     findIssueByOrchestrationKey: async () => ({ kind: "none" }),
@@ -3221,7 +3221,7 @@ function makeDefaultPlanChainRouteFinalText(): string {
     body: "@dev 请按 OpenSpec 流程先采访确认目标，再落盘方案；本入口不做 goal-intake 提案、不创建子 issue、不写目标账本。",
   })}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function makeCeoSpawnFinalText(input: { title: string }): string {
@@ -3245,7 +3245,7 @@ function makeCeoSpawnFinalText(input: { title: string }): string {
     ],
   })}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function makeGoalIntakeProposeFinalText(): string {
@@ -3281,7 +3281,7 @@ function makeGoalIntakeProposeFinalText(): string {
     provenance: "issue body goal intake",
   })}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function makeGoalIntakeConfirmFinalText(proposalKey: string): string {
@@ -3300,7 +3300,7 @@ function makeGoalIntakeConfirmFinalText(proposalKey: string): string {
     provenance: "user confirmed proposal",
   })}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function makeGoalIntakeTaskPayload(id: string) {
@@ -3351,7 +3351,7 @@ function makeCeoRoundtableStartFinalText(
     provenance: "parent issue",
   })}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function makeCeoRoundtableRouteFinalText(input: { roundtableKey: string; nextRole: string; body?: string }): string {
@@ -3365,7 +3365,7 @@ function makeCeoRoundtableRouteFinalText(input: { roundtableKey: string; nextRol
     body: input.body ?? `@${input.nextRole} 请给出圆桌评审意见。`,
   })}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function makeCeoRoundtableCompleteFinalText(input: { roundtableKey: string; summary?: string; decision?: string }): string {
@@ -3385,7 +3385,7 @@ function makeCeoRoundtableCompleteFinalText(input: { roundtableKey: string; summ
     provenance: "child roundtable",
   })}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function makeRoundtableKey(roundtableId = "rt-1"): string {
@@ -3394,7 +3394,7 @@ function makeRoundtableKey(roundtableId = "rt-1"): string {
 
 function makeRoundtableChildBody(input: { roundtableKey?: string } = {}): string {
   return renderCeoRoundtableChildIssueBody({
-    parentIssueUrl: "https://github.com/tranfu-labs/agent-moebius/issues/4",
+    parentIssueUrl: "https://github.com/tranfu-labs/moebius/issues/4",
     workflowId: "roundtable-plan-review",
     ledgerTaskId: "task-1",
     roundtableKey: input.roundtableKey ?? makeRoundtableKey(),
@@ -3566,7 +3566,7 @@ describe("processIssueSource acceptance join resilience", () => {
     expect(posted[0]?.body).toContain("@product-manager");
     expect(posted[0]?.body).toContain("跑 child 1");
     expect(posted[0]?.body).toContain("验收结论：通过");
-    expect(posted[0]?.body).toContain("<!-- agent-moebius:acceptance-format-reminder -->");
+    expect(posted[0]?.body).toContain("<!-- moebius:acceptance-format-reminder -->");
     expect(posted[0]?.body).toContain("reason=acceptance-format-reminder");
   });
 
@@ -3581,8 +3581,8 @@ describe("processIssueSource acceptance join resilience", () => {
       {
         source: childSource,
         issue: makeIssue("child", [
-          { id: "reminder-1", body: "first\n\n<!-- agent-moebius:acceptance-format-reminder -->" },
-          { id: "reminder-2", body: "second\n\n<!-- agent-moebius:acceptance-format-reminder -->" },
+          { id: "reminder-1", body: "first\n\n<!-- moebius:acceptance-format-reminder -->" },
+          { id: "reminder-2", body: "second\n\n<!-- moebius:acceptance-format-reminder -->" },
           {
             id: "comment-table-pass",
             body: pmEnvelope("| 验收语句 | 结论 |\n| 跑 child 1 | 通过 |\n\n验收结论：通过"),
@@ -3681,7 +3681,7 @@ describe("processIssueSource acceptance join resilience", () => {
     expect(outcome).toBe("triggered-success");
     expect(saveGoalLedgerEntry).not.toHaveBeenCalled();
     expect(posted).toHaveLength(1);
-    expect(posted[0]).toContain("<!-- agent-moebius:acceptance-format-reminder -->");
+    expect(posted[0]).toContain("<!-- moebius:acceptance-format-reminder -->");
   });
 
   it("reports a blocked join on the parent when a missing child issue is closed", async () => {
@@ -3717,7 +3717,7 @@ describe("processIssueSource acceptance join resilience", () => {
     expect(posted[0]?.body).toContain("closed-child-without-acceptance");
     expect(posted[0]?.body).toContain("#102");
     expect(posted[0]?.body).toContain("@product-manager");
-    expect(posted[0]?.body).toContain("agent-moebius-integration-blocked-key:");
+    expect(posted[0]?.body).toContain("moebius-integration-blocked-key:");
   });
 
   it("dedupes the blocked report by hidden key on the parent issue", async () => {
@@ -3742,7 +3742,7 @@ describe("processIssueSource acceptance join resilience", () => {
       }),
     );
     expect(firstOutcome).toBe("triggered-success");
-    const blockedKey = posted[0]?.match(/agent-moebius-integration-blocked-key:[0-9a-f]{64}/u)?.[0];
+    const blockedKey = posted[0]?.match(/moebius-integration-blocked-key:[0-9a-f]{64}/u)?.[0];
     expect(blockedKey).toBeDefined();
 
     const secondPost = vi.fn<ProcessIssueSourceDependencies["postComment"]>(async () => {});
@@ -3966,7 +3966,7 @@ function makeIntegrationLedgerState(input: {
   const now = "2026-07-04T00:00:00.000Z";
   const parentIssueRef = { owner: source.owner, repo: source.repo, number: source.issueNumber, relation: "parent" as const, status: "open" as const };
   const requested = {
-    joinKey: `agent-moebius-integration-acceptance-key:${"a".repeat(64)}`,
+    joinKey: `moebius-integration-acceptance-key:${"a".repeat(64)}`,
     phaseId: "phase-1",
     parentIssue: { owner: source.owner, repo: source.repo, number: source.issueNumber },
     reviewerRole: "product-manager",
@@ -4077,11 +4077,11 @@ function ledgerSaveMutator(ledger: GoalLedgerState): ProcessIssueSourceDependenc
 }
 
 function pmEnvelope(body: string): string {
-  return `&lt;product-manager&gt;:\n${body}\n\n<!-- agent-moebius:role=product-manager -->`;
+  return `&lt;product-manager&gt;:\n${body}\n\n<!-- moebius:role=product-manager -->`;
 }
 
 function agentEnvelope(role: string, body: string): string {
-  return `&lt;${role}&gt;:\n${body}\n\n<!-- agent-moebius:role=${role} -->`;
+  return `&lt;${role}&gt;:\n${body}\n\n<!-- moebius:role=${role} -->`;
 }
 
 function noChangeCeoResult(body: string): FormatCeoResult {
@@ -4192,7 +4192,7 @@ function activeIntakeIssueState() {
 }
 
 async function makeAgentFile(name: string, markdown: string): Promise<{ name: string; path: string }> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-runner-test-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-runner-test-"));
   const filePath = path.join(dir, `${name}.md`);
   await fs.writeFile(filePath, markdown, "utf8");
   return { name, path: filePath };

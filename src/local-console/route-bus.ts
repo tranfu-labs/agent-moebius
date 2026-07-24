@@ -76,7 +76,7 @@ export async function maybeRouteLocalNoMentionMessage(
     timeline: input.timeline,
     latestMessage: input.message,
     availableAgentNames: input.availableAgentNames,
-    runDir: input.runDir ?? path.join("/tmp", `agent-moebius-local-route-${String(input.message.id)}`),
+    runDir: input.runDir ?? path.join("/tmp", `moebius-local-route-${String(input.message.id)}`),
     agentsDir: input.agentsDir,
     timeoutMs: input.timeoutMs,
     runCodex: input.runCodex,

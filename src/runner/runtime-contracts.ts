@@ -340,7 +340,7 @@ ${pending}
 
 本轮不会继续创建后续 issue，也不会更新 ceo role thread。下一轮会先按稳定 orchestration key 查 ledger 和 GitHub，避免重复创建。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 export function formatBypassedAgentComment(role: string, finalText: string, reason: string): string {

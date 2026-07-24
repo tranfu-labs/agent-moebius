@@ -56,7 +56,7 @@ import {
 } from "./onboarding/contract.js";
 import type { OnboardingCompletionStatus } from "./onboarding/first-run-marker.js";
 
-export interface AgentMoebiusDesktopApi {
+export interface MoebiusDesktopApi {
   onStatus(listener: (snapshot: DesktopStatusSnapshot) => void): () => void;
   getLocalConsoleUrl(): Promise<string | null>;
   getLocalConsoleAttachmentCapability(): Promise<string | null>;
@@ -109,7 +109,7 @@ export interface AgentMoebiusDesktopApi {
   openExternalLink(url: string): Promise<void>;
 }
 
-const api: AgentMoebiusDesktopApi = {
+const api: MoebiusDesktopApi = {
   onStatus(listener) {
     const wrapped = (_event: Electron.IpcRendererEvent, snapshot: DesktopStatusSnapshot): void => {
       listener(snapshot);
@@ -296,4 +296,4 @@ const api: AgentMoebiusDesktopApi = {
   },
 };
 
-contextBridge.exposeInMainWorld("agentMoebius", api);
+contextBridge.exposeInMainWorld("moebius", api);

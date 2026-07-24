@@ -77,7 +77,7 @@
 - MUST NOT move, copy, or rename any files on disk during directory repair; only the recorded project location updates.
 - MUST show both the original and newly selected locations in a confirmation surface before applying the repair.
 - MUST reject remove when the project has running agents unless the user confirms an explicit "强制中止" flow that runs abort then remove as an ordered sequence; partial failures MUST NOT be reported as success.
-- MUST NOT delete or modify the underlying folder on disk when a project is removed; the removal only affects agent-moebius records.
+- MUST NOT delete or modify the underlying folder on disk when a project is removed; the removal only affects moebius records.
 
 ### Requirement: Manual project reorder without a dedicated drag handle
 

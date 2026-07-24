@@ -8,8 +8,8 @@ import {
 
 const projects: ConversationSidebarProject[] = [
   {
-    id: "agent-moebius",
-    path: "/Users/example/work/agent-moebius",
+    id: "moebius",
+    path: "/Users/example/work/moebius",
     sessions: [
       { id: "running-fix", title: "失败汇总修复", awaitsHumanReason: "exception", unreadSince: "2026-07-11T10:06:00.000Z", isRunning: true, createdAt: "2026-07-11T10:05:00.000Z", summary: "需要处理异常" },
       { id: "docs-history", title: "文档归档记录", awaitsHumanReason: null, unreadSince: "2026-07-11T10:04:30.000Z", isRunning: false, createdAt: "2026-07-11T10:04:00.000Z" },

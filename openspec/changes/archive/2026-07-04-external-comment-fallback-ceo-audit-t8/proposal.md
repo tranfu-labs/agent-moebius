@@ -18,14 +18,14 @@ T8 还要求在方案阶段先对 issue 41 的矛盾 PM 结论对做只读取证
    - 同一 comment id 只判定一次；结果记录到 intake state，包含 comment id、outcome、时间和必要细节。判定失败 fail-open，不发评论，但记录 `fail_open` 并保持原 no-trigger 语义。
 
 2. **CEO 覆盖可审计**：
-   - 新增统一 metadata：`<!-- agent-moebius:ceo-reviewed action=<action> ... -->`。
+   - 新增统一 metadata：`<!-- moebius:ceo-reviewed action=<action> ... -->`。
    - 所有 runner 发布路径都必须带审计标记：实际调用 CEO 的评论记录 `no_change` / `replace` / `append` / `fail_open` 等结果；不适用或未调用 CEO 的系统错误评论、dead-letter、兜底路由 append 记录 `bypass` / `not_applicable` reason。
-   - 既有 `<!-- agent-moebius:ceo-corrected -->` 保留，只表示 CEO 发生 replace 或 append 修正，是 `ceo-reviewed` 的子类信号，不再承担“是否经过 CEO”的唯一审计职责。
+   - 既有 `<!-- moebius:ceo-corrected -->` 保留，只表示 CEO 发生 replace 或 append 修正，是 `ceo-reviewed` 的子类信号，不再承担“是否经过 CEO”的唯一审计职责。
 
 3. **issue 41 取证结论与范围裁剪**：
    - 取证结论写入本 change 的 `design.md`。
    - 当前可证实：issue 41 上确有两组 product-manager 相反结论对，分别相隔 19 秒与 44 秒，且评论 body 均含 runner role metadata。
-   - 当前不可证实：本 worktree 无 `.state/*`，`/tmp` 下无可读 `agent-moebius-*` runDir，仓库内没有对应原始 runner 日志；因此无法证明“双 runner 实例并发 / 补发进程伪装 envelope / 日志误读”三者之一。
+   - 当前不可证实：本 worktree 无 `.state/*`，`/tmp` 下无可读 `moebius-*` runDir，仓库内没有对应原始 runner 日志；因此无法证明“双 runner 实例并发 / 补发进程伪装 envelope / 日志误读”三者之一。
    - 修复范围裁剪为 T8 已列模块：兜底路由、审计标记、CEO persona 路由判据与对应测试；不在本任务内新增进程级防重或协议重写。
 
 ## 影响

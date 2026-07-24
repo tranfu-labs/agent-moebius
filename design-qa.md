@@ -117,8 +117,8 @@
 ### 修后同尺寸证据
 
 - 路线 1 最终并排：`/Users/wing/.codex/visualizations/2026/07/17/019f70b3-b15a-7f91-b5dd-2b932bef26e6/precision-rework/style1-source-vs-v3.png`
-- 路线 3 最终全屏：`/Users/wing/Develop/agent-moebius/.claude/worktrees/website-diff-analysis-11da70/artifacts/acceptance/style3-segmented-curve-1487x1058.png`
-- 路线 3 曲线聚焦比较：`/Users/wing/Develop/agent-moebius/.claude/worktrees/website-diff-analysis-11da70/artifacts/acceptance/style3-curve-target-vs-implementation.png`
+- 路线 3 最终全屏：`/Users/wing/Develop/moebius/.claude/worktrees/website-diff-analysis-11da70/artifacts/acceptance/style3-segmented-curve-1487x1058.png`
+- 路线 3 曲线聚焦比较：`/Users/wing/Develop/moebius/.claude/worktrees/website-diff-analysis-11da70/artifacts/acceptance/style3-curve-target-vs-implementation.png`
 - 精确独立审计：`openspec/changes/unify-marketing-visual-v02/reviews/precision-fidelity-audit.md`
 
 ### 修复与复验历史

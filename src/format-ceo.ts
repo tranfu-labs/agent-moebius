@@ -7,7 +7,7 @@ import { parseAgentMentions } from "./conversation.js";
 import { run as runCodex, type CodexRunResult } from "./codex.js";
 import { ALL_STAGES, parseTrailingStageMarker } from "./stages.js";
 
-export const CEO_CORRECTED_METADATA = "<!-- agent-moebius:ceo-corrected -->";
+export const CEO_CORRECTED_METADATA = "<!-- moebius:ceo-corrected -->";
 export const DEFAULT_CEO_TIMEOUT_MS = 300_000;
 
 export const CEO_APPEND_ROLES = ["ceo", "dev", "dev-manager", "product-manager", "hermes-user", "secretary", "qa"] as const;
@@ -291,7 +291,7 @@ export function appendCeoReviewedMetadata(
 
 export function formatCeoReviewedMetadata(input: { action: string; reason?: string }): string {
   const reason = input.reason === undefined ? "" : ` reason=${sanitizeMetadataValue(input.reason)}`;
-  return `<!-- agent-moebius:ceo-reviewed action=${sanitizeMetadataValue(input.action)}${reason} -->`;
+  return `<!-- moebius:ceo-reviewed action=${sanitizeMetadataValue(input.action)}${reason} -->`;
 }
 
 export function hasCeoCorrectedMetadata(body: string): boolean {

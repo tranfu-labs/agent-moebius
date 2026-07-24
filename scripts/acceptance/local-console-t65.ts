@@ -69,7 +69,7 @@ try {
   scenario = "running";
   await loadDesktop(page, server.url);
   await page.getByText("已把复合组件接入真实操作台。").first().waitFor({ timeout: 15_000 });
-  await assertNotVisible(page, /agent-moebius:stage=code-verified/u);
+  await assertNotVisible(page, /moebius:stage=code-verified/u);
   await page
     .getByText("已把复合组件接入真实操作台。")
     .first()
@@ -77,10 +77,10 @@ try {
     .screenshot({ path: absoluteArtifact(artifacts.agentMessage) });
   scenarios.agentMessage = {
     collapsedSummary: await page.getByText("已把复合组件接入真实操作台。").first().isVisible(),
-    rawProtocolHidden: !(await page.getByText(/agent-moebius:stage=code-verified/u).first().isVisible()),
+    rawProtocolHidden: !(await page.getByText(/moebius:stage=code-verified/u).first().isVisible()),
   };
   await page.getByText("点开全文").first().click();
-  await page.getByText(/agent-moebius:stage=code-verified/u).first().waitFor({ timeout: 10_000 });
+  await page.getByText(/moebius:stage=code-verified/u).first().waitFor({ timeout: 10_000 });
 
   await loadDesktop(page, server.url);
   await page.getByText("正在整合复合组件").first().waitFor({ timeout: 15_000 });
@@ -205,7 +205,7 @@ async function cleanupArtifacts(): Promise<void> {
 async function buildStorybook(): Promise<void> {
   await runProcess(
     "pnpm",
-    ["--filter", "@agent-moebius/console-ui", "exec", "storybook", "build", "--output-dir", "../../artifacts/acceptance/t65-storybook-static"],
+    ["--filter", "@moebius/console-ui", "exec", "storybook", "build", "--output-dir", "../../artifacts/acceptance/t65-storybook-static"],
     180_000,
   );
 }
@@ -462,7 +462,7 @@ function agentMarkdown(): string {
     "## 下一步",
     "交棒：@qa 请按验收场景走查",
     "",
-    "<!-- agent-moebius:stage=code-verified -->",
+    "<!-- moebius:stage=code-verified -->",
   ].join("\n");
 }
 

@@ -16,7 +16,7 @@
 ### 场景 23：trigger 自反 — dev 写出 plan-written 后同轮触发 reflector stage hook
 Given 最新消息包含 `@dev`
 And `agents/dev.md` 与 `agents/reflector.md` 都存在
-And dev codex 本轮返回的 `${LAST_RESPONSE}` 含 `<!-- agent-moebius:stage=plan-written -->`
+And dev codex 本轮返回的 `${LAST_RESPONSE}` 含 `<!-- moebius:stage=plan-written -->`
 When 一次轮询取回该 issue
 Then 系统先按 mention trigger 发布 dev 评论
 And 在本轮内把刚发布的 dev 评论拼回本地 timeline 再调用 `resolveTrigger`

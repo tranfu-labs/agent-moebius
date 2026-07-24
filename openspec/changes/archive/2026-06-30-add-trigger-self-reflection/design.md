@@ -75,7 +75,7 @@ export const MAX_SELF_REFLECT = 3;
 
 ### `availableAgentNames` 与 timeline 一致性
 
-自反循环复用 mention-codex 分支已构造的 `timeline` 与 `agentNames`。dev 评论的 speaker 用 `selectedAgent.name`（即 `dev`），与 `normalizeComment` 从 `<!-- agent-moebius:role=dev -->` metadata 解出的结果一致——下一轮 poll 重 fetch 时本地编号与真编号不同但去重 hash（`source+stage+sourceIndex`）正确性不受影响。
+自反循环复用 mention-codex 分支已构造的 `timeline` 与 `agentNames`。dev 评论的 speaker 用 `selectedAgent.name`（即 `dev`），与 `normalizeComment` 从 `<!-- moebius:role=dev -->` metadata 解出的结果一致——下一轮 poll 重 fetch 时本地编号与真编号不同但去重 hash（`source+stage+sourceIndex`）正确性不受影响。
 
 ## 权衡
 
@@ -101,7 +101,7 @@ export const MAX_SELF_REFLECT = 3;
 
 ## 风险
 
-- `runCodex` 返回 `result.finalText` 经 `formatAgentComment` 包成 `&lt;dev&gt;:\n…\n\n<!-- agent-moebius:role=dev -->` 后才写回 GitHub。**自反时本地拼接的 body 必须是 `formatAgentComment` 后的形态**（与 GitHub 上实际 comment body 一致），才能被 `normalizeComment` / `parseMetadataRole` / `parseReflectorStages` 正确识别。设计已显式传 `formatAgentComment(selectedAgent.name, result.finalText)` 作为 `lastPostedBody`。
+- `runCodex` 返回 `result.finalText` 经 `formatAgentComment` 包成 `&lt;dev&gt;:\n…\n\n<!-- moebius:role=dev -->` 后才写回 GitHub。**自反时本地拼接的 body 必须是 `formatAgentComment` 后的形态**（与 GitHub 上实际 comment body 一致），才能被 `normalizeComment` / `parseMetadataRole` / `parseReflectorStages` 正确识别。设计已显式传 `formatAgentComment(selectedAgent.name, result.finalText)` 作为 `lastPostedBody`。
 - 自反循环里再次 resolveTrigger 是同步纯函数计算，不会引入新并发问题。
 - 回滚：移除 `runner.ts` 里的自反循环 + 删除 `src/triggers/self-reflect.ts` + 撤销 `MAX_SELF_REFLECT` 常量与 spec-delta，行为退回现状（依赖跨轮 active poll 触发 stage hook）。
 

@@ -6,7 +6,7 @@ import {
 import type { GitHubIssue } from "../src/github.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
-const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
+const source = makeIssueSource({ owner: "tranfu-labs", repo: "moebius", issueNumber: 4 });
 
 describe("codex execution reaction", () => {
   it("resolves the issue body as the issue reaction target", () => {

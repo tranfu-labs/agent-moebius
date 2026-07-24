@@ -9,7 +9,7 @@
    &lt;role&gt;:
    ${LAST_RESPONSE}
 
-   <!-- agent-moebius:role=<role> -->
+   <!-- moebius:role=<role> -->
    ```
 
    GitHub 页面会把 `&lt;` / `&gt;` 渲染为可见尖括号。

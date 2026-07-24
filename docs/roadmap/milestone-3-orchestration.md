@@ -168,7 +168,7 @@ worktree 供给从 `agents/dev.md` 专属 `pre_script` 升级为 issue 级 capab
 ### - [x] T10 · 观察页 v2：issue 进程有向图 + agent 视角对话 + token / 缓存观测
 
 **验收证据（2026-07-05）**：
-- 实现 PR：[#91](https://github.com/tranfu-labs/agent-moebius/pull/91) merged 07:05:37 UTC（merge commit `166b6fc`，squash `92ccfcb` `feat(observer): add project issue DAG view`）
+- 实现 PR：[#91](https://github.com/tranfu-labs/moebius/pull/91) merged 07:05:37 UTC（merge commit `166b6fc`，squash `92ccfcb` `feat(observer): add project issue DAG view`）
 - 覆盖文件：`src/observer/model.ts` · `src/observer/read-state.ts` · `src/observer/render.ts` · `src/observer/server.ts` · `tests/observer.test.ts`（+1046/-36）
 - T4 集成验收真事件：runner 07:03:58 UTC 发出 `integration-acceptance-passed`（key `3a8031f777602326763e30e5e5648a0e281f9b1feca1a1992445bf5ede2d0f9a`），父级 PM 走查 5 条验收语句全通过：`render.ts:290` project filter · `render.ts:301` DAG · `render.ts:445-464` agent private view · `model.ts:794-848` stuck/dead-letter · `model.ts:853-884` token panel + 缓存疑似失效
 - 测试：`pnpm typecheck` 退 0；`pnpm vitest run tests/observer.test.ts --reporter=verbose` 14/14；`pnpm test` 30 files / 350 tests 全 pass
@@ -179,7 +179,7 @@ worktree 供给从 `agents/dev.md` 专属 `pre_script` 升级为 issue 级 capab
 - **J · integration-repair 与 integration-acceptance verdict 之间的 race**：CEO 07:02:00 spawn #90 repair，24 秒后 07:02:24 PM 才发"通过" verdict，导致 #90 冗余（本轮 loop watcher 手动关）。需要在 CEO 剧本里加"等 PM verdict 事实入账后再决定是否 spawn repair"的顺序约束。
 - **K · dev 采访/plan → code-write 阶段无强制路由**：dev 在 `interviewing → interview-confirmed → plan-written → code-written → code-verified` 五阶段里，PM 方案 approval 后没有明确 `@dev + 请 code-write` 移交，导致 dev 停在 `plan-written`。需在 agents/dev.md 或 CEO plan-review 剧本里强制"方案通过 → @dev 请 code-write"路由。
 
-**背景（2026-07-05 换题）**：原 T10「【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收」全文留档见文末「留档 · 原 T10」，方案设计（三案生成、托举预案）保留待后续复用。换入的直接动因来自 T9 dogfood 的真实痛点：判断"进程是否卡住 / 额度是否挤兑 / 缓存是否失效"目前只能 tail runDir、手工翻 `.state`，缺一个直接回答这三个问题的页面。本任务即对 agent-moebius 自身的可观测性优化。
+**背景（2026-07-05 换题）**：原 T10「【人工】产品域端到端：三案 → 选案 → 实现 → 视觉对照验收」全文留档见文末「留档 · 原 T10」，方案设计（三案生成、托举预案）保留待后续复用。换入的直接动因来自 T9 dogfood 的真实痛点：判断"进程是否卡住 / 额度是否挤兑 / 缓存是否失效"目前只能 tail runDir、手工翻 `.state`，缺一个直接回答这三个问题的页面。本任务即对 moebius 自身的可观测性优化。
 
 **形态**（在 T7 观察页基座 `src/observer/*` 上演进，只读立场不变）：
 
@@ -215,7 +215,7 @@ worktree 供给从 `agents/dev.md` 专属 `pre_script` 升级为 issue 级 capab
 
 **依赖**：M2 T8（无 mention 兜底路由）、M3 T1（goal-ledger）、M3 T4（child ledger pass/fail）。
 
-验收证据（2026-07-05，PR [#82](https://github.com/tranfu-labs/agent-moebius/pull/82) 已 merge）：
+验收证据（2026-07-05，PR [#82](https://github.com/tranfu-labs/moebius/pull/82) 已 merge）：
 - 方案与归档：`openspec/changes/archive/2026-07-05-acceptance-join-resilience/`（修复 D 即本任务；同批落地走查解析失败可见化、closed child 阻断上报、走查格式硬约束三项 join 韧性修复，共同解除 T9 dogfood 死锁根因链）
 - 行为事实源：`openspec/specs/github-issue-runner/spec.md` 新增「T11 agent-authored no-mention fallback route」节（场景 T11.1–T11.4）+ T4 增补规则与场景 T4.9–T4.11
 - 实现：`src/runner.ts`（`maybeRouteExternalNoMentionComment` agent 分支 + `resolveAgentAuthoredRouteGate` 账本门；触发条件真实所在处是 runner.ts 而非 roadmap 预估的 github-response-intake.ts）、`src/format-ceo.ts`（`ledgerContext` prompt 注入）、`agents/ceo.md` 兜底判据第 5 条；fallback 决策记录沿用 intake state 的 comment-id route ledger

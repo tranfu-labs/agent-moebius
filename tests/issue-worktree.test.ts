@@ -49,7 +49,7 @@ describe("issue worktree capability", () => {
       promptContext: expect.stringContaining("workspaceAccess: write"),
     });
     expect(commands).toEqual([
-      ["clone", "--bare", "https://github.com/tranfu-labs/agent-moebius.git", repoCachePath],
+      ["clone", "--bare", "https://github.com/tranfu-labs/moebius.git", repoCachePath],
       ["--git-dir", repoCachePath, "fetch", "--prune", "origin", FETCH_REMOTE_MAIN_REFSPEC],
       [
         "--git-dir",
@@ -57,18 +57,18 @@ describe("issue worktree capability", () => {
         "worktree",
         "add",
         "-B",
-        "agent/tranfu-labs__agent-moebius__4",
+        "agent/tranfu-labs__moebius__4",
         worktreePath,
         REMOTE_MAIN_REF,
       ],
     ]);
 
     await expect(loadAgentContextStateStore(input.contextStatePath)).resolves.toMatchObject({
-      "tranfu-labs/agent-moebius#4": {
+      "tranfu-labs/moebius#4": {
         [ISSUE_WORKTREE_CONTEXT_ROLE]: {
           preScript: ISSUE_WORKTREE_CONTEXT_PRE_SCRIPT,
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 4,
           worktreePath,
           preparedFromMessageIndex: 7,
@@ -109,7 +109,7 @@ describe("issue worktree capability", () => {
       ["--git-dir", repoCachePath, "fetch", "--prune", "origin", FETCH_REMOTE_MAIN_REFSPEC],
     ]);
     await expect(loadAgentContextStateStore(input.contextStatePath)).resolves.toMatchObject({
-      "tranfu-labs/agent-moebius#4": {
+      "tranfu-labs/moebius#4": {
         [ISSUE_WORKTREE_CONTEXT_ROLE]: {
           mainStatus: "behind-main",
           workspaceAccess: "read-run",
@@ -127,11 +127,11 @@ describe("issue worktree capability", () => {
     await fs.mkdir(repoCachePath, { recursive: true });
     await saveAgentContextStateStore(
       {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           dev: {
             preScript: LEGACY_DEV_WORKSPACE_PRE_SCRIPT_PATH,
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 4,
             worktreePath: legacyPath,
             preparedFromMessageIndex: 2,
@@ -150,7 +150,7 @@ describe("issue worktree capability", () => {
     expect(result.ok).toBe(true);
     expect(result.ok ? result.codexCwd : "").toBe(legacyPath);
     await expect(loadAgentContextStateStore(input.contextStatePath)).resolves.toMatchObject({
-      "tranfu-labs/agent-moebius#4": {
+      "tranfu-labs/moebius#4": {
         dev: {
           worktreePath: legacyPath,
         },
@@ -169,10 +169,10 @@ describe("issue worktree capability", () => {
     const inputB = makeInput(root, {
       issueSource: {
         owner: "tranfu-labs",
-        repo: "agent-moebius",
+        repo: "moebius",
         issueNumber: 5,
-        issueKey: "tranfu-labs/agent-moebius#5",
-        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+        issueKey: "tranfu-labs/moebius#5",
+        cloneUrl: "https://github.com/tranfu-labs/moebius.git",
       },
     });
     const repoCachePath = expectedRepoCachePath(root);
@@ -271,13 +271,13 @@ describe("issue worktree capability", () => {
     const input = makeInput("/tmp/does-not-matter", {
       issueSource: {
         owner: "tranfu labs",
-        repo: "agent/moebius",
+        repo: "nested/repo",
         issueNumber: 4,
-        issueKey: "tranfu labs/agent/moebius#4",
+        issueKey: "tranfu labs/nested/repo#4",
         cloneUrl: "https://example.com/x.git",
       },
     });
-    expect(buildIssueLocalBranchName(input)).toBe("agent/tranfu_labs__agent_moebius__4");
+    expect(buildIssueLocalBranchName(input)).toBe("agent/tranfu_labs__nested_repo__4");
     expect(safePathSegment("owner/repo name")).toBe("owner_repo_name");
   });
 });
@@ -292,10 +292,10 @@ function makeInput(
     latestIndex: 7,
     issueSource: {
       owner: "tranfu-labs",
-      repo: "agent-moebius",
+      repo: "moebius",
       issueNumber: 4,
-      issueKey: "tranfu-labs/agent-moebius#4",
-      cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+      issueKey: "tranfu-labs/moebius#4",
+      cloneUrl: "https://github.com/tranfu-labs/moebius.git",
     },
     workdirRoot: root,
     contextStatePath: path.join(root, ".state", "agent-contexts.json"),
@@ -307,7 +307,7 @@ function makeIssueWorkspaceState(worktreePath: string): AgentContextState {
   return {
     preScript: ISSUE_WORKTREE_CONTEXT_PRE_SCRIPT,
     owner: "tranfu-labs",
-    repo: "agent-moebius",
+    repo: "moebius",
     issueNumber: 4,
     worktreePath,
     preparedFromMessageIndex: 2,
@@ -353,11 +353,11 @@ function makeFsDependencies(): {
 }
 
 function expectedRepoCachePath(root: string): string {
-  return path.join(root, "repos", "tranfu-labs__agent-moebius.git");
+  return path.join(root, "repos", "tranfu-labs__moebius.git");
 }
 
 function expectedIssueWorktreePath(root: string): string {
-  return path.join(root, "worktrees", "tranfu-labs__agent-moebius__4");
+  return path.join(root, "worktrees", "tranfu-labs__moebius__4");
 }
 
 function worktreePathFromWorktreeAdd(args: string[]): string {
@@ -365,7 +365,7 @@ function worktreePathFromWorktreeAdd(args: string[]): string {
 }
 
 async function makeTempDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-issue-worktree-test-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-issue-worktree-test-"));
 }
 
 async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<void> {

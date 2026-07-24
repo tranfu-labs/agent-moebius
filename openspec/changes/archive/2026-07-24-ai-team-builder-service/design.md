@@ -2,7 +2,7 @@
 
 ## 覆盖的验收落点
 
-从 `~/dev-loops/agent-moebius/onboarding/rule-binding.md` 抄过来的本 change 承接行:
+从 `~/dev-loops/moebius/onboarding/rule-binding.md` 抄过来的本 change 承接行:
 
 ### onboarding.md 验收
 - **#6** AI 建队子流程在同一步内展开,首问聚焦长期工作目标,每轮 ≤1 追问,用户可退出并恢复未确认草稿 — 落点由本 service 的状态机 + IPC DTO 承接;UI 触发面在 onboarding-shell / agent-teams-ai-entry
@@ -59,7 +59,7 @@ committing
 ### Codex spawner 契约
 
 - **execution profile**:只读 sandbox、隔离 cwd(不含项目素材)、不加载项目 `AGENTS.md` / MCP / 个人指令
-- **profile 载体**:由 agent-moebius 显式装配专用参数，不使用叠加用户基础配置的 Codex CLI profile
+- **profile 载体**:由 moebius 显式装配专用参数，不使用叠加用户基础配置的 Codex CLI profile
 - **developer instructions**:固定短提示契约(onboarding.md L275-283 的那段)
 - **user prompt**:本轮用户输入
 - **output schema**:`--output-schema` 约束 phase ∈ {clarifying, proposal} + 每种 phase 的字段
@@ -163,7 +163,7 @@ broker 或修改 Codex 扩展边界，超出本 change 的 service 范围。
 
 1. 独立 AI team writer；不改 `createUserTeam`，只复用 `team-model` 的序列化、解析和校验。
 2. 新增完全独立的 `buildTeamBuilderExecOptions()`，不参数化含 `--yolo` 的普通 base。
-3. execution profile 由 agent-moebius 显式参数装配，不使用 Codex CLI profile 叠加用户配置。
+3. execution profile 由 moebius 显式参数装配，不使用 Codex CLI profile 叠加用户配置。
 4. 新增 AI 建队专用 timeout：idle 2 分钟、max-duration 10 分钟。
 5. AI 建队状态使用独立 `AiTeamBuilderPhase`；`TeamStatus` 保持落盘团队可用性语义并加边界注释。
 6. UI 使用纯 typed React 组件树；普通消息复用 `MarkdownMessage`，方案卡直接消费 DTO。

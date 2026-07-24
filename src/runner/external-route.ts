@@ -59,7 +59,7 @@ export async function maybeRouteExternalNoMentionComment(input: {
     return null;
   }
 
-  if (speakerKind === "user" && hasAgentMoebiusMetadata(routeTarget.body)) {
+  if (speakerKind === "user" && hasMoebiusMetadata(routeTarget.body)) {
     return null;
   }
 
@@ -307,8 +307,8 @@ function isLikelyGoalShapeMessage(body: string): boolean {
   return /(?:我想(?:要)?(?:做|做一个|开发|实现|启动|构建)|帮我(?:做|启动|开发|构建)|请(?:做|启动|开发|构建)|I\s+want\s+to\s+(?:build|make|create|start)|help\s+me\s+(?:build|make|create|start))/iu.test(body);
 }
 
-function hasAgentMoebiusMetadata(body: string): boolean {
-  return /<!--\s*agent-moebius:/u.test(body);
+function hasMoebiusMetadata(body: string): boolean {
+  return /<!--\s*moebius:/u.test(body);
 }
 
 function logExternalCommentRouteResult(input: {

@@ -88,9 +88,9 @@
 
 实现阶段至少运行：
 
-- `pnpm --filter @agent-moebius/console-ui test`
-- `pnpm --filter @agent-moebius/console-ui typecheck`
-- `pnpm --filter @agent-moebius/console-ui build-storybook`
+- `pnpm --filter @moebius/console-ui test`
+- `pnpm --filter @moebius/console-ui typecheck`
+- `pnpm --filter @moebius/console-ui build-storybook`
 - `pnpm typecheck`
 
 ## 权衡

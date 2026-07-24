@@ -39,12 +39,12 @@ packages/console-ui/            # 新增，React 组件库
 
 - 每个已实现 React 组件一个 `*.stories.tsx`，用 args/controls 暴露状态；后续复合组件补齐时继续按同一规则添加 stories。
 - 全局 decorator 提供浅/深主题切换（切 `:root` class，令牌变量翻转），与 HTML 版一致。
-- `pnpm --filter @agent-moebius/console-ui storybook` 起本地站——即用户要的「可在浏览器查看的 React 示例」。
+- `pnpm --filter @moebius/console-ui storybook` 起本地站——即用户要的「可在浏览器查看的 React 示例」。
 
 ### 4. Electron renderer 消费路径（本次只铺路，不搭真实 app）
 
 - desktop renderer 现为 vanilla `status-page/`（esbuild 只打包主进程，静态文件 copy）。真实对话操作台是一个 React 应用，需要给 renderer 加一套前端打包（**Vite** 最顺，或沿用 esbuild 打 renderer bundle）。
-- 约定：`@agent-moebius/console-ui` 作为 workspace 依赖被 renderer import；令牌 `globals.css` 在 renderer 入口引入。
+- 约定：`@moebius/console-ui` 作为 workspace 依赖被 renderer import；令牌 `globals.css` 在 renderer 入口引入。
 - **本 change 边界**：只保证「组件库是一个可被 import 的包 + 令牌可被 renderer 复用」，**不**建 renderer React app、不接 IPC / runner 数据——那是后续 `desktop-console-app` change。
 
 ### 5. 近单色设计基线修订（诉求①，作为本 change 一项任务落到 conversation-console 文档）

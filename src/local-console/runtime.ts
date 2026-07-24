@@ -2920,7 +2920,7 @@ function collectLocalCeoLedgerTaskIds(finalText: string): string[] {
 }
 
 function stripLocalCeoJson(finalText: string): string | null {
-  const marker = `<!-- agent-moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
+  const marker = `<!-- moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
   const withoutMarker = finalText.includes(marker) ? finalText.slice(0, finalText.lastIndexOf(marker)).trim() : finalText.trim();
   const fenced = withoutMarker.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/u);
   return (fenced?.[1] ?? withoutMarker).trim();
@@ -2936,7 +2936,7 @@ function localOrchestrationKey(input: {
     .update(`${input.parentSessionId}|${input.workflowId}|${input.ledgerTaskId}`)
     .digest("hex")
     .slice(0, 32);
-  return `agent-moebius-local-orchestration-key:${digest}`;
+  return `moebius-local-orchestration-key:${digest}`;
 }
 
 function localChildSessionId(parentSessionId: string, ledgerTaskId: string): string {

@@ -260,7 +260,7 @@ Source: docs/adr/0004-jsonl-session-fact-log.md#决策
 - MUST render `闸口不可定位：ledger 缺 parent/child issue reference` when a gate cannot identify the next GitHub issue from ledger parent/child issue references.
 - MUST use only `TaskRecord.runManifestRefs` explicit references as task evidence.
 - MUST place run manifest records not explicitly referenced by a task into an `Unlinked local runs` or equivalent legacy diagnostics section; observer MUST NOT count inferred child-issue runs as task evidence.
-- MUST detect T6 roundtable child references from bounded child ref notes only when the note contains an exact `agent-moebius-roundtable-key:[a-f0-9]{32}` key shape, show a `roundtable child` badge, and MUST NOT reveal the hidden roundtable key.
+- MUST detect T6 roundtable child references from bounded child ref notes only when the note contains an exact `moebius-roundtable-key:[a-f0-9]{32}` key shape, show a `roundtable child` badge, and MUST NOT reveal the hidden roundtable key.
 - MUST NOT show a roundtable badge for ordinary provenance text or near-miss text that resembles but does not match the exact roundtable key shape.
 - MUST NOT treat roundtable completion as child acceptance pass or integration acceptance pass.
 - MUST keep the existing observer diagnostics for config, intake state, role threads, agent contexts, run manifests, artifact publish links, unpublished artifact paths, missing files, malformed JSON, malformed JSONL lines, and fake `gh` / `codex` zero invocation.
@@ -268,14 +268,14 @@ Source: docs/adr/0004-jsonl-session-fact-log.md#决策
 ## 场景
 
 ### 场景 LC.OBS.1：白名单 issue 与阶段状态可见
-Given `config.local.toml` 包含 `tranfu-labs/agent-moebius`
-And 本地状态包含 `tranfu-labs/agent-moebius#50` 的记录
+Given `config.local.toml` 包含 `tranfu-labs/moebius`
+And 本地状态包含 `tranfu-labs/moebius#50` 的记录
 When 用户运行 `pnpm observer` 并打开本地页面
 Then 页面显示 issue `50`
 And 页面按来源标注 intake、role thread、agent context 与 run manifest 中可用的阶段 / 状态数据
 
 ### 场景 LC.OBS.2：有发布截图的 issue 显示预览或链接
-Given `.state/run-manifests.jsonl` 包含 `tranfu-labs/agent-moebius#50` 的 record
+Given `.state/run-manifests.jsonl` 包含 `tranfu-labs/moebius#50` 的 record
 And 该 record 包含 `publishedUrl` 非空且看起来是图片 URL 的 artifact
 When observer 页面渲染该 issue
 Then 页面显示该 published URL
@@ -351,8 +351,8 @@ Then 诊断区显示配置读取失败
 And 页面不把所有 repository 误报为“没有记录”
 
 ### 场景 LC.OBS.T7.1：目标树展示 watched goal
-Given `.state/goal-ledger.json` contains a goal whose task child issue reference points to `tranfu-labs/agent-moebius`
-And `config.local.toml` watches `tranfu-labs/agent-moebius`
+Given `.state/goal-ledger.json` contains a goal whose task child issue reference points to `tranfu-labs/moebius`
+And `config.local.toml` watches `tranfu-labs/moebius`
 When the observer page renders
 Then the primary view shows that goal as a goal -> milestone -> task tree
 And diagnostics do not classify that goal as filtered out

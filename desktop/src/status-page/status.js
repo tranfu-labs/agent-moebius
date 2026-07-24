@@ -16,16 +16,16 @@ const elements = {
 };
 
 elements.openObserver.addEventListener("click", () => {
-  void window.agentMoebius.openObserver();
+  void window.moebius.openObserver();
 });
 elements.openDataRoot.addEventListener("click", () => {
-  void window.agentMoebius.openDataRoot();
+  void window.moebius.openDataRoot();
 });
 elements.checkUpdates.addEventListener("click", () => {
-  void window.agentMoebius.checkUpdates();
+  void window.moebius.checkUpdates();
 });
 
-window.agentMoebius.onStatus((snapshot) => {
+window.moebius.onStatus((snapshot) => {
   elements.version.textContent = `v${snapshot.appVersion}`;
   elements.dataRoot.textContent = snapshot.dataRoot;
   renderRunner(snapshot.runner);

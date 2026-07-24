@@ -27,7 +27,7 @@ import { createSqliteLocalConsoleStore } from "../src/local-console/store.js";
 
 describe("Codex rollout resolution", () => {
   it("locates exactly one rollout beneath the configured sessions root", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-rollout-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-rollout-"));
     const sessionsRoot = path.join(tempDir, "sessions");
     const threadId = "019f8cd7-cbc4-7a72-b0f7-71fecb7bd2e3";
     const filePath = path.join(sessionsRoot, "2026", "07", "23", `rollout-example-${threadId}.jsonl`);
@@ -51,7 +51,7 @@ describe("Codex rollout resolution", () => {
   });
 
   it("fails closed for invalid, missing, duplicate, and symlink-only candidates", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-rollout-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-rollout-"));
     const sessionsRoot = path.join(tempDir, "sessions");
     const outside = path.join(tempDir, "outside.jsonl");
     const threadId = "019f8cd7-cbc4-7a72-b0f7-71fecb7bd2e3";
@@ -245,7 +245,7 @@ describe("Codex rollout paging", () => {
 
 describe("Codex thread links and public input", () => {
   it("persists a run-thread link idempotently in the session fact log", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-link-store-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-link-store-"));
     const store = await createSqliteLocalConsoleStore({
       sqlitePath: path.join(tempDir, ".state", "local-console.sqlite"),
     });
@@ -302,7 +302,7 @@ describe("Codex thread links and public input", () => {
   });
 
   it("reads idempotent links, rejects conflicts, and ignores a trailing partial fact", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-links-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-links-"));
     const logPath = path.join(tempDir, "session.jsonl");
     const fact = {
       version: 1,
@@ -372,7 +372,7 @@ describe("Codex thread links and public input", () => {
 
 describe("local process history aggregation", () => {
   it("paginates backward across attempts while preserving each attempt input", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-history-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-history-"));
     const sessionsRoot = path.join(tempDir, "codex-sessions");
     const sessionFactLogPath = path.join(tempDir, "session.jsonl");
     const threadIds = [
@@ -463,7 +463,7 @@ describe("local process history aggregation", () => {
   });
 
   it("returns unavailable without reading runDir when the stable thread link is absent", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-history-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-history-"));
     const sessionFactLogPath = path.join(tempDir, "session.jsonl");
     try {
       await fs.writeFile(sessionFactLogPath, "", "utf8");
@@ -486,7 +486,7 @@ describe("local process history aggregation", () => {
   });
 
   it("uses an append cursor to return only newly completed rollout lines", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-history-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-history-"));
     const sessionsRoot = path.join(tempDir, "codex-sessions");
     const sessionFactLogPath = path.join(tempDir, "session.jsonl");
     const threadId = "019f8cd7-cbc4-7a72-b0f7-71fecb7bd2e3";
@@ -815,7 +815,7 @@ async function createRolloutFixture(
   filePath: string;
   cleanup(): Promise<void>;
 }> {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-rollout-page-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-rollout-page-"));
   const sessionsRoot = path.join(tempDir, "sessions");
   const threadId = "019f8cd7-cbc4-7a72-b0f7-71fecb7bd2e3";
   const filePath = path.join(sessionsRoot, "2026", "07", "23", `rollout-fixture-${threadId}.jsonl`);

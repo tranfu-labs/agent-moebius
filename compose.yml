@@ -1,6 +1,6 @@
 services:
   web:
-    image: ${IMAGE_REF:-ghcr.io/tranfu-labs/agent-moebius:latest}
+    image: ${IMAGE_REF:-ghcr.io/tranfu-labs/moebius:latest}
     pull_policy: always
     expose:
       - "80"

@@ -24,8 +24,8 @@
 如果没有发现新问题，请不要继续输出同一个 stage marker，直接按推进计划进入后续步骤。
 如果发现新问题，请说明问题与建议处理方式，然后停下等待人类检查，不要继续自动推进。
 
-<!-- agent-moebius:role=reflector -->
-<!-- agent-moebius:stage-hook source=dev stage=plan-written sourceIndex=11 -->
+<!-- moebius:role=reflector -->
+<!-- moebius:stage-hook source=dev stage=plan-written sourceIndex=11 -->
 ```
 
 `parseStageHookMetadata` 与 hook metadata 格式不变；`sourceIndex` 仍只用于人 / 日志追溯。

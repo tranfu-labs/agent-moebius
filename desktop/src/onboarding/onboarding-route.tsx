@@ -4,7 +4,7 @@ import {
   type OperatorAgentTeam,
   type OperatorAgentTeamsState,
   type TeamBuilderViewState,
-} from "@agent-moebius/console-ui";
+} from "@moebius/console-ui";
 import { useCallback, useEffect, useState } from "react";
 
 import type { AiTeamBuilderIpcResponse } from "../ai-team-builder-ipc.js";
@@ -30,7 +30,7 @@ export function OnboardingRoute({
 }: {
   onComplete: (teamKey: string) => void | Promise<void>;
 }): JSX.Element {
-  const api = window.agentMoebius;
+  const api = window.moebius;
   const [environment, setEnvironment] = useState<OnboardingEnvironmentState>({ status: "checking" });
   const [teamsState, setTeamsState] = useState<OperatorAgentTeamsState>({ status: "loading" });
   const [teamBuilderState, setTeamBuilderState] = useState<TeamBuilderViewState>(

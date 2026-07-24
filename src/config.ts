@@ -12,8 +12,8 @@ try {
   // ignore：.env 不存在或 Node 版本过老（无 loadEnvFile）时保持原有 process.env
 }
 
-export const AGENT_MOEBIUS_DATA_ROOT_ENV = "AGENT_MOEBIUS_DATA_ROOT";
-export const AGENT_MOEBIUS_WORKDIR_ROOT_ENV = "AGENT_MOEBIUS_WORKDIR_ROOT";
+export const MOEBIUS_DATA_ROOT_ENV = "MOEBIUS_DATA_ROOT";
+export const MOEBIUS_WORKDIR_ROOT_ENV = "MOEBIUS_WORKDIR_ROOT";
 
 export interface RuntimePathResolutionInput {
   env?: NodeJS.ProcessEnv;
@@ -31,12 +31,12 @@ export interface RuntimePaths {
 
 export function resolveRuntimePaths(input: RuntimePathResolutionInput = {}): RuntimePaths {
   const projectRoot = path.resolve(input.projectRoot ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
-  const dataRootOverride = input.env?.[AGENT_MOEBIUS_DATA_ROOT_ENV]?.trim();
+  const dataRootOverride = input.env?.[MOEBIUS_DATA_ROOT_ENV]?.trim();
   const dataRoot = path.resolve(dataRootOverride && dataRootOverride.length > 0 ? dataRootOverride : projectRoot);
 
   // workdir（git worktree 根）默认派生自数据根，绝不以源码/应用包为基准；
-  // AGENT_MOEBIUS_WORKDIR_ROOT 仅作显式覆盖。
-  const workdirOverride = input.env?.[AGENT_MOEBIUS_WORKDIR_ROOT_ENV]?.trim();
+  // MOEBIUS_WORKDIR_ROOT 仅作显式覆盖。
+  const workdirOverride = input.env?.[MOEBIUS_WORKDIR_ROOT_ENV]?.trim();
   const workdirRoot = path.resolve(
     workdirOverride && workdirOverride.length > 0 ? workdirOverride : path.join(dataRoot, "workdir"),
   );
@@ -85,7 +85,7 @@ export const ISSUE_MEDIA_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const ISSUE_MEDIA_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 export const OUTPUT_ARTIFACT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const OUTPUT_ARTIFACT_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
-export const OUTPUT_ARTIFACT_RELEASE_TAG = "agent-moebius-artifacts";
+export const OUTPUT_ARTIFACT_RELEASE_TAG = "moebius-artifacts";
 export const LOCAL_CONSOLE_HOST = process.env.LOCAL_CONSOLE_HOST?.trim() || "127.0.0.1";
 export const LOCAL_CONSOLE_PORT = parseOptionalPort(process.env.LOCAL_CONSOLE_PORT) ?? 8788;
 export const LOCAL_CONSOLE_SQLITE_PATH = path.join(DATA_ROOT, ".state", "local-console.sqlite");

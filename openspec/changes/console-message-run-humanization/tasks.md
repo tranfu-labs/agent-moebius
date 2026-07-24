@@ -24,8 +24,8 @@
   - [x] 验证鼠标和键盘单次激活中断按钮时 `onInterrupt` spy 各只增加一次。
   - [x] 验证含换行、尖括号、与号和 `exit:42` 的原始文本展开后保持原值。
 - [x] 验证
-  - [x] 跑 `pnpm --filter @agent-moebius/console-ui test`。
-  - [x] 跑 `pnpm --filter @agent-moebius/console-ui build-storybook` 或等价 Storybook 静态构建命令。
+  - [x] 跑 `pnpm --filter @moebius/console-ui test`。
+  - [x] 跑 `pnpm --filter @moebius/console-ui build-storybook` 或等价 Storybook 静态构建命令。
   - [x] 跑 `pnpm typecheck`。
   - [x] 跑 `git diff --check`。
   - [x] 启动 Storybook，按六条正式验收语句逐 Story 走查；需要媒体证据时保存到 `artifacts/acceptance/` 并在 `code-verified` 回复显式引用。

@@ -183,7 +183,7 @@ function firstParagraph(section: string | null): string | null {
 }
 
 function extractStage(markdown: string): AgentStage | null {
-  const match = markdown.match(/<!--\s*agent-moebius:stage=(in-progress|plan-written|code-verified)\s*-->/u);
+  const match = markdown.match(/<!--\s*moebius:stage=(in-progress|plan-written|code-verified)\s*-->/u);
   return match ? (match[1] as AgentStage) : null;
 }
 

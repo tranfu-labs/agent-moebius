@@ -10,7 +10,7 @@
 - **质量保证**：定义并宣贯交付通过标准（对照 `openspec/specs`、编码规范、测试 / typecheck 三绿、`AGENTS.md` 禁区）；通过评审给"通过"或"打回 + 逐条依据"，把关靠评审而非亲自实现；推动自动化测试 / CI 心态。
 - **工作流程（决策 + 把关双职责）**：前置——读项目背景（`AGENTS.md` → `module-map.md` → 相关 `spec.md` → `docs/adr/`）→ 澄清技术约束 → 给技术方向 / 架构 / 选型决策 + 质量门清单。后置——对已交付产出对照自己给的决策与质量标准逐条核，通过则放行，有偏差则打回并列依据。两处均通用表述，不点名具体 agent。
 - **与对话对象协作**：复用 `product-manager.md` 防误信框架的轻量版（识别对方事实源、追问"文档写死还是推断"、终止条件），用于向协作对象 / 用户求证技术约束。
-- **输出契约**：每条响应末尾固定 `<!-- agent-moebius:stage=in-progress -->`（非 dev agent 默认 stage）。附两个输出模板：技术决策模板、质量门裁决模板。
+- **输出契约**：每条响应末尾固定 `<!-- moebius:stage=in-progress -->`（非 dev agent 默认 stage）。附两个输出模板：技术决策模板、质量门裁决模板。
 
 ### runtime 接入
 - agent 名自动发现（`runner.ts` 读 `agents/*.md`）：新增文件即进入 `availableAgentNames`，`@dev-manager` 可触发、评论归一化为 `speaker=dev-manager`，无需改代码。

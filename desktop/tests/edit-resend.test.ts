@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OperatorMessage } from "@agent-moebius/console-ui";
+import type { OperatorMessage } from "@moebius/console-ui";
 
 import {
   findStoppedRunStartMessage,

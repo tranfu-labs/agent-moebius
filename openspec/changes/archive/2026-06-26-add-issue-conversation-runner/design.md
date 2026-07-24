@@ -30,7 +30,7 @@ tick():
     state   = await state.read()                          # { maxRespondedCount: number }
     if not shouldRespond(count, state.maxRespondedCount): # 奇数 && count > maxResponded
       log{event:skip, count, maxResponded}; return
-    runDir  = mkRunDir()                                  # /tmp/agent-moebius-<ISO>-c<count>/
+    runDir  = mkRunDir()                                  # /tmp/moebius-<ISO>-c<count>/
     log{event:trigger, count, runDir}                     # ← runDir 必须打印
     agentMd = await readFile(AGENT_MD)
     prompt  = buildPrompt(agentMd, issue.body, issue.comments.map(c => c.body))
@@ -59,14 +59,14 @@ tick():
 - `extractFinalAssistant(lines: string[]): string | null` 作为纯函数 export 到 `codex.ts`，由 `tests/codex.test.ts` 测。
 
 ### 真实运行修复记录
-- 第一次真实运行目录：`/tmp/agent-moebius-2026-06-26T15:35:17.148Z-c1`。
+- 第一次真实运行目录：`/tmp/moebius-2026-06-26T15:35:17.148Z-c1`。
 - 现象：codex 已产出 `item.completed` / `item.type=agent_message` / `item.text`，但旧解析器只看顶层 `type`，runner 记录 `event:codex-failed`、`reason:no-final-message`，未发评论、未推进状态。
 - 修复：`extractFinalAssistant` 递归识别 `item` / `data` 中的 assistant message，并新增 `tests/codex.test.ts` 用例覆盖 `item.completed`。
-- 第二次真实运行目录：`/tmp/agent-moebius-2026-06-26T15:38:06.796Z-c1`。
-- 验证：runner 记录 `event:commented,count:1`；GitHub issue 产生评论 `https://github.com/tranfu-labs/agent-moebius/issues/1#issuecomment-4811069305`；`.state/tranfu-labs-agent-moebius-1.json` 推进到 `{"maxRespondedCount":1}`。
+- 第二次真实运行目录：`/tmp/moebius-2026-06-26T15:38:06.796Z-c1`。
+- 验证：runner 记录 `event:commented,count:1`；GitHub issue 产生评论 `https://github.com/tranfu-labs/moebius/issues/1#issuecomment-4811069305`；`.state/tranfu-labs-moebius-1.json` 推进到 `{"maxRespondedCount":1}`。
 
 ### 状态持久化
-- 文件：`./.state/tranfu-labs-agent-moebius-1.json`，内容 `{ "maxRespondedCount": number }`。
+- 文件：`./.state/tranfu-labs-moebius-1.json`，内容 `{ "maxRespondedCount": number }`。
 - 读取：缺文件 → `{ maxRespondedCount: 0 }`；JSON 解析失败 → 抛错（由 runner.catch 接住）。
 - 写入：先写 `<file>.tmp`，再 `fs.rename` → `<file>`，保证原子性（避免半写文件）。
 - `.gitignore` 加入 `.state/`。
@@ -74,7 +74,7 @@ tick():
 ### 配置（硬编码常量，集中于 config.ts）
 ```
 OWNER         = 'tranfu-labs'
-REPO          = 'agent-moebius'
+REPO          = 'moebius'
 ISSUE_NUMBER  = 1
 INTERVAL_MS   = 5 * 60 * 1000
 AGENT_MD_PATH = 'agents/product-manager.md'

@@ -32,18 +32,18 @@ describe("github issue errors", () => {
   });
 
   it("identifies GitHubIssueNotFoundError instances", () => {
-    const error = new GitHubIssueNotFoundError("tranfu-labs/agent-moebius#4", "missing");
+    const error = new GitHubIssueNotFoundError("tranfu-labs/moebius#4", "missing");
 
     expect(isGitHubIssueNotFoundError(error)).toBe(true);
     expect(isGitHubIssueNotFoundError(new Error("missing"))).toBe(false);
   });
 
   it("builds safe gh argument arrays for issue summary discovery", () => {
-    expect(buildListOpenIssueSummariesArgs({ owner: "tranfu-labs", repo: "agent-moebius" }, 20)).toEqual([
+    expect(buildListOpenIssueSummariesArgs({ owner: "tranfu-labs", repo: "moebius" }, 20)).toEqual([
       "issue",
       "list",
       "--repo",
-      "tranfu-labs/agent-moebius",
+      "tranfu-labs/moebius",
       "--state",
       "open",
       "--limit",
@@ -54,14 +54,14 @@ describe("github issue errors", () => {
   });
 
   it("builds safe gh argument arrays for issue detail fetch and comments", () => {
-    const source = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
+    const source = makeIssueSource({ owner: "tranfu-labs", repo: "moebius", issueNumber: 4 });
 
     expect(buildFetchIssueWithCommentsArgs(source)).toEqual([
       "issue",
       "view",
       "4",
       "--repo",
-      "tranfu-labs/agent-moebius",
+      "tranfu-labs/moebius",
       "--json",
       "body,comments,updatedAt,state",
     ]);
@@ -70,7 +70,7 @@ describe("github issue errors", () => {
       "view",
       "4",
       "--repo",
-      "tranfu-labs/agent-moebius",
+      "tranfu-labs/moebius",
       "--json",
       "state",
     ]);
@@ -79,7 +79,7 @@ describe("github issue errors", () => {
       "comment",
       "4",
       "--repo",
-      "tranfu-labs/agent-moebius",
+      "tranfu-labs/moebius",
       "--body-file",
       "-",
     ]);
@@ -87,21 +87,21 @@ describe("github issue errors", () => {
       "issue",
       "create",
       "--repo",
-      "tranfu-labs/agent-moebius",
+      "tranfu-labs/moebius",
       "--title",
       "title with $(rm -rf /)\nand newline",
       "--body-file",
       "-",
     ]);
-    expect(buildFindIssueByOrchestrationKeyArgs(source, "agent-moebius-orchestration-key:abc")).toEqual([
+    expect(buildFindIssueByOrchestrationKeyArgs(source, "moebius-orchestration-key:abc")).toEqual([
       "issue",
       "list",
       "--repo",
-      "tranfu-labs/agent-moebius",
+      "tranfu-labs/moebius",
       "--state",
       "all",
       "--search",
-      "agent-moebius-orchestration-key:abc",
+      "moebius-orchestration-key:abc",
       "--json",
       "number,url",
     ]);
@@ -109,7 +109,7 @@ describe("github issue errors", () => {
       "api",
       "--method",
       "POST",
-      "repos/tranfu-labs/agent-moebius/issues/4/reactions",
+      "repos/tranfu-labs/moebius/issues/4/reactions",
       "-f",
       "content=eyes",
     ]);
@@ -117,7 +117,7 @@ describe("github issue errors", () => {
       "api",
       "--method",
       "POST",
-      "repos/tranfu-labs/agent-moebius/issues/4/reactions",
+      "repos/tranfu-labs/moebius/issues/4/reactions",
       "-f",
       "content=eyes",
     ]);
@@ -136,12 +136,12 @@ describe("github issue errors", () => {
   it("parses GitHub release asset URLs and rejects non-release URLs", () => {
     expect(
       parseGitHubReleaseAssetUrl(
-        "https://github.com/tranfu-labs/tranfucom/releases/download/agent-moebius-artifacts/home-375-86e2556573.png",
+        "https://github.com/tranfu-labs/tranfucom/releases/download/moebius-artifacts/home-375-86e2556573.png",
       ),
     ).toEqual({
       owner: "tranfu-labs",
       repo: "tranfucom",
-      tag: "agent-moebius-artifacts",
+      tag: "moebius-artifacts",
       assetName: "home-375-86e2556573.png",
     });
     expect(parseGitHubReleaseAssetUrl("https://github.com/tranfu-labs/tranfucom/raw/main/a.png")).toBeNull();
@@ -155,7 +155,7 @@ describe("github issue errors", () => {
         {
           owner: "tranfu-labs",
           repo: "tranfucom",
-          tag: "agent-moebius-artifacts",
+          tag: "moebius-artifacts",
           assetName: "home-375-86e2556573.png",
         },
         "/tmp/run/input-media/0004-01-image.png",
@@ -163,7 +163,7 @@ describe("github issue errors", () => {
     ).toEqual([
       "release",
       "download",
-      "agent-moebius-artifacts",
+      "moebius-artifacts",
       "--repo",
       "tranfu-labs/tranfucom",
       "--pattern",

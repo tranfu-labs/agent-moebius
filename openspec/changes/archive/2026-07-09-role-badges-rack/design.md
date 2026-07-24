@@ -9,7 +9,7 @@
 ### 员工工牌解剖（全息档）
 一张竖版工牌卡：
 - **卡面**：深紫玻璃质感（`linear-gradient` 深紫底 + hairline 边 + 顶部内高光）。
-- **结构**：顶部打孔/卡槽（一小段圆角凹槽，不做长挂绳）→ 头像区（角色缩写色卡，底色=角色光晕色）→ 姓名位=角色名 → 职位位=charter 一句 → 底部分隔线 → 公司标 `◆ agent-moebius` + 条形码（`repeating-linear-gradient`）。
+- **结构**：顶部打孔/卡槽（一小段圆角凹槽，不做长挂绳）→ 头像区（角色缩写色卡，底色=角色光晕色）→ 姓名位=角色名 → 职位位=charter 一句 → 底部分隔线 → 公司标 `◆ moebius` + 条形码（`repeating-linear-gradient`）。
 - **全息（加满档）**：
   - hover 轻 3D tilt：JS 把指针位置写进 `--mx/--my` → `rotateX/rotateY`，幅度 **±6° 以内**。
   - 光泽扫过：`::before` 斜向高光带 hover 时 `translateX` 扫过。

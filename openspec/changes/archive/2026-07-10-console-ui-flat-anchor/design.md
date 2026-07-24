@@ -37,10 +37,10 @@
 
 ### 验收证据
 
-- Storybook：启动 `pnpm --filter @agent-moebius/console-ui storybook` 后检查 Card / Badge stories 与 OperatorConsole story。
+- Storybook：启动 `pnpm --filter @moebius/console-ui storybook` 后检查 Card / Badge stories 与 OperatorConsole story。
 - 桌面 renderer 截图：优先复用 `pnpm exec tsx scripts/acceptance/local-console-t4.ts` 产出的 `artifacts/acceptance/t4-live.png`、`t4-interrupted.png`、`t4-failed.png`；若截图不同时覆盖状态徽章、时间线消息和 RunLiveBlock，则在该脚本或等价最小 fixture 中补足。
 - Grep gate：对 `operator-console.tsx` 的主内容区执行 `grep -nE 'border border-line|<article'`，要求 0 命中。
-- 命令回归：`pnpm --filter @agent-moebius/console-ui test`、`pnpm --filter @agent-moebius/desktop build`、`pnpm typecheck`。
+- 命令回归：`pnpm --filter @moebius/console-ui test`、`pnpm --filter @moebius/desktop build`、`pnpm typecheck`。
 - Roadmap：实现完成后在 `docs/roadmap/milestone-4-local-console.md` 的 T6 下方追记证据并勾选 `[x]`。
 
 ## 权衡

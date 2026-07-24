@@ -36,7 +36,7 @@ importers:
 
   desktop:
     dependencies:
-      '@agent-moebius/console-ui':
+      '@moebius/console-ui':
         specifier: workspace:*
         version: link:../packages/console-ui
       electron-updater:

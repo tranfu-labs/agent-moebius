@@ -23,7 +23,7 @@ describe("sqlite state persistence", () => {
           kind: "import-role-threads",
           legacyDigest: "digest-bad",
           store: {
-            "tranfu-labs/agent-moebius#101": {
+            "tranfu-labs/moebius#101": {
               dev: { threadId: "thread-dev", lastSeenIndex: 7 },
               qa: { threadId: "thread-qa", lastSeenIndex: "bad" },
             },
@@ -46,7 +46,7 @@ describe("sqlite state persistence", () => {
     ).resolves.toEqual({});
 
     const validStore = {
-      "tranfu-labs/agent-moebius#101": {
+      "tranfu-labs/moebius#101": {
         dev: { threadId: "thread-dev", lastSeenIndex: 7 },
         qa: { threadId: "thread-qa", lastSeenIndex: 8 },
       },
@@ -80,16 +80,16 @@ describe("sqlite state persistence", () => {
     const ledgerPath = path.join(stateDir, "goal-ledger.json");
 
     await writeJson(roleThreadsPath, {
-      "tranfu-labs/agent-moebius#101": {
+      "tranfu-labs/moebius#101": {
         dev: { threadId: "thread-dev", lastSeenIndex: 7 },
       },
     });
     await writeJson(agentContextsPath, {
-      "tranfu-labs/agent-moebius#101": {
+      "tranfu-labs/moebius#101": {
         "__issue-worktree": {
           preScript: "workspaceAccess:issue-worktree",
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 101,
           worktreePath: "/tmp/worktree-101",
           preparedFromMessageIndex: 3,
@@ -101,12 +101,12 @@ describe("sqlite state persistence", () => {
     });
     await writeJson(intakePath, {
       repositories: {
-        "tranfu-labs/agent-moebius": { lastIdleScanAt: NOW },
+        "tranfu-labs/moebius": { lastIdleScanAt: NOW },
       },
       issues: {
-        "tranfu-labs/agent-moebius#101": {
+        "tranfu-labs/moebius#101": {
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 101,
           updatedAt: NOW,
           mode: "active",
@@ -125,18 +125,18 @@ describe("sqlite state persistence", () => {
     await loadGoalLedgerState(ledgerPath);
 
     await saveRoleThreadStateEntry(
-      "tranfu-labs/agent-moebius#101",
+      "tranfu-labs/moebius#101",
       "qa",
       { threadId: "thread-qa", lastSeenIndex: 8 },
       roleThreadsPath,
     );
     await saveAgentContextStateEntry(
-      "tranfu-labs/agent-moebius#102",
+      "tranfu-labs/moebius#102",
       "__issue-worktree",
       {
         preScript: "workspaceAccess:issue-worktree",
         owner: "tranfu-labs",
-        repo: "agent-moebius",
+        repo: "moebius",
         issueNumber: 102,
         worktreePath: "/tmp/worktree-102",
         preparedFromMessageIndex: 4,
@@ -148,9 +148,9 @@ describe("sqlite state persistence", () => {
         repositories: intake.repositories,
         issues: {
           ...intake.issues,
-          "tranfu-labs/agent-moebius#102": {
+          "tranfu-labs/moebius#102": {
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 102,
             updatedAt: NOW,
             mode: "idle",
@@ -165,25 +165,25 @@ describe("sqlite state persistence", () => {
 
     expect(await captureLegacyFiles([roleThreadsPath, agentContextsPath, intakePath, ledgerPath])).toEqual(before);
     await expect(loadRoleThreadStateStore(roleThreadsPath)).resolves.toMatchObject({
-      "tranfu-labs/agent-moebius#101": {
+      "tranfu-labs/moebius#101": {
         dev: { threadId: "thread-dev", lastSeenIndex: 7 },
         qa: { threadId: "thread-qa", lastSeenIndex: 8 },
       },
     });
     await expect(loadAgentContextStateStore(agentContextsPath)).resolves.toMatchObject({
-      "tranfu-labs/agent-moebius#102": {
+      "tranfu-labs/moebius#102": {
         "__issue-worktree": {
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 102,
         },
       },
     });
     await expect(loadGitHubResponseIntakeState(intakePath)).resolves.toMatchObject({
       issues: {
-        "tranfu-labs/agent-moebius#102": {
+        "tranfu-labs/moebius#102": {
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 102,
         },
       },
@@ -193,7 +193,7 @@ describe("sqlite state persistence", () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-sqlite-state-test-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-sqlite-state-test-"));
 }
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {

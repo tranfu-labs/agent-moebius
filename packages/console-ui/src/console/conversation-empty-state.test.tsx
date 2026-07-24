@@ -5,9 +5,9 @@ import { ConversationEmptyState } from "./conversation-empty-state";
 
 describe("ConversationEmptyState", () => {
   it("renders a Codex-style project invitation without a nested composer", () => {
-    render(<ConversationEmptyState projectName="agent-moebius" />);
+    render(<ConversationEmptyState projectName="moebius" />);
 
-    expect(screen.getByRole("heading", { name: "想在 agent-moebius 中完成什么？" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "想在 moebius 中完成什么？" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });

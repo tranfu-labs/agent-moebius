@@ -26,7 +26,7 @@
 - **死信流程**：job 层在处理返回 `failed` 且折叠后的 `failureCount` 将达到 `FAILURE_RETRY_LIMIT` 时（job 已持有 previous 状态，changed 路径从 persister 读取），同轮调用 `postComment` 发死信评论：
   - 发送成功 → 该轮结局改判 `dead-lettered`；
   - 发送失败 → 保持 `failed`，计数继续增长，下轮"先处理、后死信"再来一遍——处理一旦成功即正常收敛，绝不会给已恢复的 issue 发死信。
-- **死信评论内容**：复用现有 agent 评论格式化通道，身份为系统（不冒充 dev/ceo），必须**不含任何 agent mention**（避免自触发），带机器可识别标记 `<!-- agent-moebius:dead-letter -->`，正文包含：目标 agent 名、`lastFailureReason`、累计失败次数、恢复提示（"修复后在本 issue 发表任意新评论即可重新触发"）。死信评论本身会 bump issue `updatedAt`，下轮扫描按 no-trigger 吸收——与今天所有 bot 评论的自吸收路径一致，不新增机制。
+- **死信评论内容**：复用现有 agent 评论格式化通道，身份为系统（不冒充 dev/ceo），必须**不含任何 agent mention**（避免自触发），带机器可识别标记 `<!-- moebius:dead-letter -->`，正文包含：目标 agent 名、`lastFailureReason`、累计失败次数、恢复提示（"修复后在本 issue 发表任意新评论即可重新触发"）。死信评论本身会 bump issue `updatedAt`，下轮扫描按 no-trigger 吸收——与今天所有 bot 评论的自吸收路径一致，不新增机制。
 - **结构化日志**：新增 `event = "issue-retry-scheduled"`（含 `issueKey`、`failureCount`、`reason`）、`"dead-letter-posted"`、`"dead-letter-post-failed"`。
 
 ### 3. 配置（`src/config.ts`）

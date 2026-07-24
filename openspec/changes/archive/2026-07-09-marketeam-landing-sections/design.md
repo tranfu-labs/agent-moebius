@@ -20,8 +20,8 @@
 
 ## 分节内容（含逐字英文文案，subagent 照用）
 
-### ① What is agent-moebius —— 定位
-- eyebrow：`Meet agent-moebius`
+### ① What is moebius —— 定位
+- eyebrow：`Meet moebius`
 - H2：`An AI team that ships from your own machine.`
 - 副文：`It watches your GitHub issues. @mention a role and it runs Codex locally to do the work — while a CEO guards quality and a goal ledger tracks every task through to acceptance.`
 - 三个概念芯片（内联 SVG 小图标 + 文案）：
@@ -60,7 +60,7 @@
 - 链路小图（内联 SVG / CSS，四节点带箭头）：`goal → milestone → task → phase`
 - 三个事实芯片：`plan-written → code-verified` · `explicit acceptance gates` · `runs on your machine`
 - CTA：`Get started →`（复用 Start Project 药丸 + 旋转描边样式）
-- Footer：agent-moebius 文字标（可复用/微调首屏菱形标）+ 三列链接占位（Product / Docs / GitHub，`#` 占位）+ `© 2026 agent-moebius`
+- Footer：moebius 文字标（可复用/微调首屏菱形标）+ 三列链接占位（Product / Docs / GitHub，`#` 占位）+ `© 2026 moebius`
 - 依据：里程碑 3（目标账本 + 编排者）、`src/goal-ledger.ts`（goal/milestone/task/phase、验收语句、ready gate、阶段切换）。
 
 ---

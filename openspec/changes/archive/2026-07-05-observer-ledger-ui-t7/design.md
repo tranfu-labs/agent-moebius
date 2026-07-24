@@ -34,7 +34,7 @@ gate 展示遵守 T4/T7 的数据正确口径：
 - failed child gate：最新 fact 为 failed 时显示等待修复或重新验收，依据指向 latest fact 的 issue/message/comment。
 - integration gate：observer-local owner evaluator 找到唯一 active phase、该 phase 的 child facts 全 passed、且 integrationAcceptance 最新事件缺失或 status 为 `requested` / `failed` / `blocked` 时，显示等待父级 integration acceptance，并指向 parent issue ref；缺 parent ref 时显示“闸口不可定位：ledger 缺 parent/child issue reference”。
 - blocked reason：无 active phase、多个 active phase、缺 target acceptance statements、无 child refs、cross-repository child 等只展示为 blocked/waiting 原因，不自动触发任何 action。
-- roundtable child ref 只在 bounded note 含精确 `agent-moebius-roundtable-key:[a-f0-9]{32}` 时显示 `roundtable child` badge；渲染前必须脱敏/移除 hidden key 原文。普通 provenance 文本、近似但非 roundtable key 文本不得显示 badge。roundtable completion 不参与 acceptance pass 或 integration pass 计算。
+- roundtable child ref 只在 bounded note 含精确 `moebius-roundtable-key:[a-f0-9]{32}` 时显示 `roundtable child` badge；渲染前必须脱敏/移除 hidden key 原文。普通 provenance 文本、近似但非 roundtable key 文本不得显示 badge。roundtable completion 不参与 acceptance pass 或 integration pass 计算。
 - task evidence 只匹配 `TaskRecord.runManifestRefs` 中的 locator。`.state/run-manifests.jsonl` 的其他有效 records 展示在 `Unlinked local runs`，作为诊断而非任务证据。
 
 敏感 / 不该展示内容：
@@ -103,6 +103,6 @@ AI 验证流程：
 
 ## 风险
 - 账本 schema 后续扩展可能让 observer 忽略新字段。缓解：只读取 T7 验收需要的字段，未知字段忽略；shape 非法时诊断而不是崩溃。
-- bounded note 中 roundtable hidden key 形态可能变化。缓解：只匹配当前代码事实源的精确 `agent-moebius-roundtable-key:[a-f0-9]{32}` 形态；近似文本不标 badge；若未来 key 形态变化，observer 宁可不标 badge，也不得泄露 key 或误计 acceptance。
+- bounded note 中 roundtable hidden key 形态可能变化。缓解：只匹配当前代码事实源的精确 `moebius-roundtable-key:[a-f0-9]{32}` 形态；近似文本不标 badge；若未来 key 形态变化，observer 宁可不标 badge，也不得泄露 key 或误计 acceptance。
 - 页面信息密度提高后可读性下降。缓解：goal-first 树 + task details + legacy runs 折叠，保留诊断和 counters 辅助扫描。
 - 多 active phase 是 owner 级账本错误，不是全局 UI 不可恢复状态。缓解：owner 节点显式标红，不推断 active，不切换到全局 read-failure fallback，避免数据正确级下伪造状态。

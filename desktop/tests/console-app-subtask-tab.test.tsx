@@ -17,12 +17,12 @@ describe("desktop App subtask tab wiring", () => {
     requests.length = 0;
     window.localStorage.clear();
     window.localStorage.setItem(
-      "agent-moebius.console.selection",
+      "moebius.console.selection",
       JSON.stringify({ projectId: "local", sessionId: "parent-a" }),
     );
     window.history.replaceState({}, "", "/?api=http://127.0.0.1:8787/");
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1_200 });
-    Object.defineProperty(window, "agentMoebius", {
+    Object.defineProperty(window, "moebius", {
       configurable: true,
       value: {
         getLocalConsoleAttachmentCapability: async () => null,
@@ -195,8 +195,8 @@ const childSession = {
 const project = {
   projectId: "local",
   sourceType: "local-folder",
-  title: "agent-moebius",
-  folderPath: "/tmp/agent-moebius",
+  title: "moebius",
+  folderPath: "/tmp/moebius",
   worktreeMode: true,
   workspaceCwd: "/tmp/worktree",
   workspaceMode: "worktree",

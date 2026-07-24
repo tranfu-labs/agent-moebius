@@ -24,6 +24,6 @@ function run(commandArgs) {
 run(["exec", "vitest", "run", ...args]);
 
 if (args.length === 0) {
-  run(["--filter", "@agent-moebius/desktop", "test"]);
-  run(["--filter", "@agent-moebius/console-ui", "test"]);
+  run(["--filter", "@moebius/desktop", "test"]);
+  run(["--filter", "@moebius/console-ui", "test"]);
 }

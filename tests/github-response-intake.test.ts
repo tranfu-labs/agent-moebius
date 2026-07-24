@@ -13,7 +13,7 @@ import {
 } from "../src/github-response-intake.js";
 import { makeIssueSource } from "../src/issue-source.js";
 
-const repo = { owner: "tranfu-labs", repo: "agent-moebius" };
+const repo = { owner: "tranfu-labs", repo: "moebius" };
 const now = new Date("2026-06-28T00:00:00.000Z");
 const oneMinuteMs = 60 * 1000;
 const fiveMinutesMs = 5 * oneMinuteMs;
@@ -34,7 +34,7 @@ describe("github response intake", () => {
         repositories: [repo],
         state: {
           repositories: {
-            "tranfu-labs/agent-moebius": {
+            "tranfu-labs/moebius": {
               lastIdleScanAt: new Date(now.getTime() - fiveMinutesMs + 1).toISOString(),
             },
           },
@@ -57,7 +57,7 @@ describe("github response intake", () => {
 
     expect(result.changedIssues).toEqual([]);
     expect(result.baselineIssueCount).toBe(1);
-    expect(result.state.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(result.state.issues["tranfu-labs/moebius#4"]).toMatchObject({
       updatedAt: summary.updatedAt,
       mode: "idle",
     });
@@ -81,7 +81,7 @@ describe("github response intake", () => {
     });
 
     expect(result.changedIssues).toEqual([next]);
-    expect(result.state.issues["tranfu-labs/agent-moebius#4"]?.updatedAt).toBe(previous.updatedAt);
+    expect(result.state.issues["tranfu-labs/moebius#4"]?.updatedAt).toBe(previous.updatedAt);
   });
 
   it("records no-trigger as idle and triggered-success as active", () => {
@@ -95,7 +95,7 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(idle.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(idle.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "idle",
       updatedAt: summary.updatedAt,
       nextPollAt: null,
@@ -110,7 +110,7 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(active.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(active.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "active",
       activeNoChangeCount: 0,
       nextPollAt: "2026-06-28T00:01:00.000Z",
@@ -132,7 +132,7 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(result.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "active",
       updatedAt: "2026-06-28T00:00:00.000Z",
       activeNoChangeCount: 3,
@@ -158,7 +158,7 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(result.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "active",
       updatedAt: "2026-06-28T00:00:00.000Z",
       activeNoChangeCount: 4,
@@ -171,7 +171,7 @@ describe("github response intake", () => {
     const state: GitHubResponseIntakeState = {
       repositories: {},
       issues: {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           ...repo,
           issueNumber: 4,
           mode: "idle",
@@ -191,7 +191,7 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(result.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "active",
       updatedAt: "2026-06-28T00:00:00.000Z",
       activeNoChangeCount: 0,
@@ -211,7 +211,7 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(result.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "active",
       updatedAt: "1970-01-01T00:00:00.000Z",
       activeNoChangeCount: 0,
@@ -236,14 +236,14 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(result.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "idle",
       updatedAt: "2026-06-28T00:03:00.000Z",
       activeNoChangeCount: 0,
       nextPollAt: null,
       failureCount: 0,
     });
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).not.toHaveProperty("lastFailureReason");
+    expect(result.issues["tranfu-labs/moebius#4"]).not.toHaveProperty("lastFailureReason");
   });
 
   it("removes issue state after issue-closed outcomes", () => {
@@ -261,7 +261,7 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(result.issues).not.toHaveProperty("tranfu-labs/agent-moebius#4");
+    expect(result.issues).not.toHaveProperty("tranfu-labs/moebius#4");
   });
 
   it("keeps interrupted issues active without advancing past the interrupted baseline", () => {
@@ -280,7 +280,7 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(result.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "active",
       updatedAt: "2026-06-28T00:02:00.000Z",
       activeNoChangeCount: 0,
@@ -304,14 +304,14 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(result.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "active",
       updatedAt: "2026-06-28T00:03:00.000Z",
       activeNoChangeCount: 0,
       nextPollAt: "2026-06-28T00:01:00.000Z",
       failureCount: 0,
     });
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).not.toHaveProperty("lastFailureReason");
+    expect(result.issues["tranfu-labs/moebius#4"]).not.toHaveProperty("lastFailureReason");
   });
 
   it("records external comment fallback route outcomes by comment id across no_action, append, and fail_open", () => {
@@ -373,7 +373,7 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(state.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(state.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "active",
       updatedAt: "2026-06-28T00:05:00.000Z",
       externalCommentFallbackRoutes: {
@@ -412,11 +412,11 @@ describe("github response intake", () => {
       activeIssueNoChangeLimit: 5,
     });
 
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).toMatchObject({
+    expect(result.issues["tranfu-labs/moebius#4"]).toMatchObject({
       mode: "active",
       updatedAt: "2026-06-28T00:03:00.000Z",
     });
-    expect(result.issues["tranfu-labs/agent-moebius#4"]).not.toHaveProperty("externalCommentFallbackRoutes");
+    expect(result.issues["tranfu-labs/moebius#4"]).not.toHaveProperty("externalCommentFallbackRoutes");
   });
 
   it("demotes active issues after five unchanged active polls", () => {
@@ -446,8 +446,8 @@ describe("github response intake", () => {
     const state: GitHubResponseIntakeState = {
       repositories: {},
       issues: {
-        "tranfu-labs/agent-moebius#1": activeIssue(1, "2026-06-28T00:01:00.000Z"),
-        "tranfu-labs/agent-moebius#2": activeIssue(2, "2026-06-28T00:02:00.000Z"),
+        "tranfu-labs/moebius#1": activeIssue(1, "2026-06-28T00:01:00.000Z"),
+        "tranfu-labs/moebius#2": activeIssue(2, "2026-06-28T00:02:00.000Z"),
         "tranfu-labs/other-repo#3": {
           owner: "tranfu-labs",
           repo: "other-repo",
@@ -461,17 +461,17 @@ describe("github response intake", () => {
     };
 
     expect(getDueActiveIssueSources({ repositories: [repo], state, now }).map((source) => source.issueKey)).toEqual([
-      "tranfu-labs/agent-moebius#1",
-      "tranfu-labs/agent-moebius#2",
+      "tranfu-labs/moebius#1",
+      "tranfu-labs/moebius#2",
     ]);
 
     expect(getDueActiveIssueSources({ repositories: [], state, now })).toEqual([]);
 
     const limited = enforceActiveIssueLimit({ repositories: [repo], state, maxActiveIssues: 1 });
 
-    expect(limited.demotedIssueKeys).toEqual(["tranfu-labs/agent-moebius#1"]);
-    expect(limited.state.issues["tranfu-labs/agent-moebius#1"]?.mode).toBe("idle");
-    expect(limited.state.issues["tranfu-labs/agent-moebius#2"]?.mode).toBe("active");
+    expect(limited.demotedIssueKeys).toEqual(["tranfu-labs/moebius#1"]);
+    expect(limited.state.issues["tranfu-labs/moebius#1"]?.mode).toBe("idle");
+    expect(limited.state.issues["tranfu-labs/moebius#2"]?.mode).toBe("active");
     expect(limited.state.issues["tranfu-labs/other-repo#3"]?.mode).toBe("active");
   });
 });
@@ -494,7 +494,7 @@ function stateWithActiveIssue(input: {
   return {
     repositories: {},
     issues: {
-      "tranfu-labs/agent-moebius#4": {
+      "tranfu-labs/moebius#4": {
         ...repo,
         issueNumber: 4,
         mode: "active",

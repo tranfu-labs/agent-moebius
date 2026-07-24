@@ -1,6 +1,6 @@
 # console-ui spec delta：local-console-t4-desktop-operator-console
 
-T4 extends `@agent-moebius/console-ui` from foundation samples to the presentational components needed by the desktop operator console. Data fetching, IPC, SQLite, Codex, GitHub, and runner control remain outside the package.
+T4 extends `@moebius/console-ui` from foundation samples to the presentational components needed by the desktop operator console. Data fetching, IPC, SQLite, Codex, GitHub, and runner control remain outside the package.
 
 ## 新增行为规则
 
