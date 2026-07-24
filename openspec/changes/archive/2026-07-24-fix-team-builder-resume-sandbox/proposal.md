@@ -24,10 +24,14 @@
 
 - **修改**:
   - `src/config.ts:200-231` — `buildTeamBuilderExecOptions` 的 mode 分支收敛
-  - `tests/codex.test.ts:466-487` — resume 分支的断言反转
+  - `src/codex.ts:525-576` — 经用户授权扩围,仅在 resume 装配时把 `--sandbox` / `--cd` 参数对提升到 `exec` 子命令之前
+  - `tests/codex.test.ts` — resume profile、parent-level 参数顺序与普通 Agent 顺序回归断言
+  - `desktop/tests/ai-team-builder-codex-spawner.test.ts` — 同步 AI 建队 spawner 的 resume profile 集成断言
+  - 本 change 的 `design.md` / `tasks.md` / `spec-delta/desktop-shell/spec.md` — 记录 CLI 冒烟、扩围决定、实施证据与新增 Requirement
 - **不动**:
   - `desktop/src/ai-team-builder/**` — spawner 已用 `buildTeamBuilderExecOptions`,自动获益
-  - 其他 exec options / 普通 Agent codex 路径
+  - `mode="full"` 的参数装配
+  - 其他 exec options / 普通 Agent codex 参数顺序
 
 ## 缘由锚
 

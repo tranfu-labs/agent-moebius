@@ -69,7 +69,11 @@ describe("AiTeamBuilderCodexSpawner", () => {
       "read-only",
       "--output-schema",
     ]));
-    expect(calls[1]?.execOptions).not.toContain("--sandbox");
+    expect(calls[1]?.execOptions).toEqual(expect.arrayContaining([
+      "--sandbox",
+      "read-only",
+      "--cd",
+    ]));
     expect(calls[1]?.execOptions).toContain("--skip-git-repo-check");
     expect(calls[0]?.cwd).toBe(calls[1]?.cwd);
     expect(calls[0]?.cwd).toContain(path.join(".state", "ai-team-builder-runtime", "draft-1", "workspace"));

@@ -214,20 +214,16 @@ export function buildTeamBuilderExecOptions(input: TeamBuilderExecOptionsInput):
     'model_reasoning_effort="high"',
     "-c",
     `developer_instructions=${JSON.stringify(input.developerInstructions)}`,
+    "--sandbox",
+    "read-only",
+    "--cd",
+    input.isolatedCwd,
+    "--skip-git-repo-check",
   ];
-  const isolation = input.mode === "full"
-    ? [
-        "--sandbox",
-        "read-only",
-        "--cd",
-        input.isolatedCwd,
-        "--skip-git-repo-check",
-      ]
-    : ["--skip-git-repo-check"];
   const provider = input.providerConfig === null
     ? []
     : buildCodexProviderOptions(input.providerConfig);
-  return [...common, ...isolation, ...provider];
+  return [...common, ...provider];
 }
 
 export const CODEX_PROVIDER_CONFIG = resolveCodexProviderConfig(LOCAL_CONFIG);

@@ -15,6 +15,7 @@ import {
   run,
 } from "../src/codex.js";
 import {
+  CODEX_EXEC_OPTIONS,
   DEFAULT_CODEX_MODEL,
   buildCodexExecOptions,
   buildCodexExecOptionsBase,
@@ -110,10 +111,16 @@ describe("extractFinalAssistant", () => {
     );
     expect(buildCodexArgs("hello")).not.toContain("--ephemeral");
 
-    expect(buildCodexArgs("delta", { kind: "resume", threadId: "thread-1" })).toEqual(
-      expect.arrayContaining(["exec", "resume", "--json", "thread-1", "delta"]),
-    );
-    expect(buildCodexArgs("delta", { kind: "resume", threadId: "thread-1" })).not.toContain("--ephemeral");
+    const resumeArgs = buildCodexArgs("delta", { kind: "resume", threadId: "thread-1" });
+    expect(resumeArgs).toEqual([
+      "exec",
+      "resume",
+      ...CODEX_EXEC_OPTIONS,
+      "--",
+      "thread-1",
+      "delta",
+    ]);
+    expect(resumeArgs).not.toContain("--ephemeral");
   });
 
   it("adds image attachments to full and resume codex args", () => {
@@ -143,19 +150,43 @@ describe("extractFinalAssistant", () => {
   });
 
   it("accepts an isolated exec option set without falling back to ordinary --yolo options", () => {
-    const isolatedOptions = ["--json", "--ignore-user-config", "--sandbox", "read-only"];
+    const isolatedOptions = [
+      "--json",
+      "--ignore-user-config",
+      "--sandbox",
+      "read-only",
+      "--cd",
+      "/runtime/workspace",
+    ];
     expect(buildCodexArgs("design a team", { kind: "full" }, [], isolatedOptions)).toEqual([
       "exec",
       ...isolatedOptions,
       "--",
       "design a team",
     ]);
-    expect(buildCodexArgs(
+    const resumeArgs = buildCodexArgs(
       "adjust",
       { kind: "resume", threadId: "team-thread" },
       [],
       isolatedOptions,
-    )).toEqual(["exec", "resume", ...isolatedOptions, "--", "team-thread", "adjust"]);
+    );
+    expect(resumeArgs).toEqual([
+      "--sandbox",
+      "read-only",
+      "--cd",
+      "/runtime/workspace",
+      "exec",
+      "resume",
+      "--json",
+      "--ignore-user-config",
+      "--",
+      "team-thread",
+      "adjust",
+    ]);
+    expect(resumeArgs).toContain("--sandbox");
+    expect(resumeArgs).toContain("--cd");
+    expect(resumeArgs.indexOf("--sandbox")).toBeLessThan(resumeArgs.indexOf("resume"));
+    expect(resumeArgs.indexOf("--cd")).toBeLessThan(resumeArgs.indexOf("resume"));
   });
 
   it("returns null when no assistant message is present", () => {
@@ -480,10 +511,23 @@ describe("codex provider override", () => {
     ]));
     expect(full).not.toContain("--yolo");
     expect(full).not.toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(resume).not.toContain("--sandbox");
-    expect(resume).not.toContain("--cd");
+    expect(resume).toContain("--sandbox");
+    expect(resume).toContain("read-only");
+    expect(resume).toContain("--cd");
+    expect(resume).toContain("/runtime/workspace");
     expect(resume).toContain("--skip-git-repo-check");
     expect(resume).not.toContain("--yolo");
+
+    const resumeArgs = buildCodexArgs(
+      "adjust the team",
+      { kind: "resume", threadId: "team-thread" },
+      [],
+      resume,
+    );
+    expect(resumeArgs).toContain("--sandbox");
+    expect(resumeArgs).toContain("--cd");
+    expect(resumeArgs.indexOf("--sandbox")).toBeLessThan(resumeArgs.indexOf("resume"));
+    expect(resumeArgs.indexOf("--cd")).toBeLessThan(resumeArgs.indexOf("resume"));
   });
 
   it("subscription baseline: null provider returns byte-for-byte equal to base flags with default model", () => {

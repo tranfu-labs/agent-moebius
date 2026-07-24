@@ -534,10 +534,45 @@ export function buildCodexArgs(
   // 转而读取空的 stdin 后以 exit 1 退出。"--" 终止选项解析，保证 prompt（以及 resume
   // 模式下的 threadId）始终落在位置参数上，同时也兼容以 "-" 开头的 prompt。
   if (mode.kind === "resume") {
-    return ["exec", "resume", ...execOptions, ...imageArgs, "--", mode.threadId, prompt];
+    const { parentOptions, resumeOptions } = splitResumeParentOptions(execOptions);
+    return [
+      ...parentOptions,
+      "exec",
+      "resume",
+      ...resumeOptions,
+      ...imageArgs,
+      "--",
+      mode.threadId,
+      prompt,
+    ];
   }
 
   return ["exec", ...execOptions, ...imageArgs, "--", prompt];
+}
+
+function splitResumeParentOptions(execOptions: readonly string[]): {
+  parentOptions: string[];
+  resumeOptions: string[];
+} {
+  const parentOptions: string[] = [];
+  const resumeOptions: string[] = [];
+
+  for (let index = 0; index < execOptions.length; index += 1) {
+    const option = execOptions[index];
+    if (option === "--sandbox" || option === "--cd") {
+      const value = execOptions[index + 1];
+      if (value !== undefined) {
+        parentOptions.push(option, value);
+        index += 1;
+        continue;
+      }
+    }
+    if (option !== undefined) {
+      resumeOptions.push(option);
+    }
+  }
+
+  return { parentOptions, resumeOptions };
 }
 
 export function codexTimeoutKind(reason: string): CodexWatchdogKind | null {
