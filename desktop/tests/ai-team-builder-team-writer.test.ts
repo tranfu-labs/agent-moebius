@@ -1,0 +1,143 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AiTeamBuilderProposal } from "../src/ai-team-builder/validator.js";
+import { AiTeamWriter } from "../src/ai-team-builder/team-writer.js";
+import { listAgentTeams } from "../src/team-ipc.js";
+
+const temporaryRoots: string[] = [];
+
+const proposal: AiTeamBuilderProposal = {
+  team: { name: "Launch Team", purpose: "持续完成产品发布" },
+  members: [
+    {
+      slug: "launch-lead",
+      name: "发布负责人",
+      role: "统筹发布并收尾",
+      responsibilities: ["拆解工作", "复核证据"],
+      handoffs: ["content-planner"],
+    },
+    {
+      slug: "content-planner",
+      name: "内容策划",
+      role: "准备发布内容",
+      responsibilities: ["提炼叙事", "准备渠道素材"],
+      handoffs: ["launch-lead"],
+    },
+  ],
+  primaryAgentSlug: "launch-lead",
+  relayBeats: [
+    { speakerSlug: "launch-lead", message: "分派内容工作。" },
+    { speakerSlug: "content-planner", message: "提交内容。" },
+    { speakerSlug: "launch-lead", message: "复核并收尾。" },
+  ],
+};
+
+afterEach(async () => {
+  await Promise.all(temporaryRoots.splice(0).map((root) =>
+    fs.rm(root, { recursive: true, force: true })));
+});
+
+describe("AiTeamWriter", () => {
+  it("makes a complete AI team visible through the outer team-list entry only after registration", async () => {
+    const dataRoot = await makeDataRootWithBuiltInTeam();
+    const lastUsedPath = path.join(dataRoot, ".state", "last-used-team.json");
+    await fs.mkdir(path.dirname(lastUsedPath), { recursive: true });
+    await fs.writeFile(lastUsedPath, '{"teamId":"development"}\n', "utf8");
+    const writer = new AiTeamWriter({ createId: () => "12345678-abcd" });
+
+    const created = await writer.create(dataRoot, proposal);
+
+    expect(created.teamId).toBe("launch-team-12345678abcd");
+    const listed = await listAgentTeams({ dataRoot, seedPending: false });
+    expect(listed.status).toBe("ready");
+    const createdListItem = listed.status === "ready"
+      ? listed.teams.find((team) => team.id === created.teamId)
+      : undefined;
+    expect(createdListItem).toMatchObject({
+      id: created.teamId,
+      ownership: "user",
+      status: "usable",
+      canCreateConversation: true,
+      definition: {
+        primaryAgentSlug: "launch-lead",
+        memberOrder: ["launch-lead", "content-planner"],
+      },
+      members: [
+        { slug: "launch-lead", displayName: "发布负责人" },
+        { slug: "content-planner", displayName: "内容策划" },
+      ],
+    });
+    expect(created.snapshot.members.map((member) => member.agentMarkdown)).toEqual([
+      expect.stringContaining("统筹发布并收尾"),
+      expect.stringContaining("准备发布内容"),
+    ]);
+    expect(await fs.readFile(lastUsedPath, "utf8")).toBe('{"teamId":"development"}\n');
+    expect(await listDirectories(path.join(dataRoot, ".state", "ai-team-builder-staging"))).toEqual([]);
+  });
+
+  it("rolls back the final directory and record when registration fails", async () => {
+    const dataRoot = await makeDataRootWithBuiltInTeam();
+    const rollbackRecord = vi.fn(async () => undefined);
+    const writer = new AiTeamWriter({
+      createId: () => "abcdef",
+      register: async () => {
+        throw new Error("record write failed");
+      },
+      rollbackRecord,
+    });
+
+    await expect(writer.create(dataRoot, proposal)).rejects.toMatchObject({
+      code: "AI_TEAM_WRITE_FAILED",
+    });
+
+    expect(rollbackRecord).toHaveBeenCalledWith({
+      dataRoot,
+      teamId: "launch-team-abcdef",
+    });
+    expect(await listDirectories(path.join(dataRoot, "teams"))).toEqual([".system"]);
+    expect(await listDirectories(path.join(dataRoot, ".state", "ai-team-builder-staging"))).toEqual([]);
+    await expect(listAgentTeams({ dataRoot, seedPending: false })).resolves.toMatchObject({
+      status: "ready",
+      teams: [{ id: "development", ownership: "system" }],
+    });
+  });
+
+  it("rejects an invalid proposal before creating staging or formal directories", async () => {
+    const dataRoot = await makeDataRootWithBuiltInTeam();
+    const writer = new AiTeamWriter();
+    await expect(writer.create(dataRoot, {
+      ...proposal,
+      members: [proposal.members[0]!],
+    })).rejects.toMatchObject({ code: "AI_TEAM_WRITE_FAILED" });
+    await expect(fs.access(path.join(dataRoot, ".state", "ai-team-builder-staging"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(await listDirectories(path.join(dataRoot, "teams"))).toEqual([".system"]);
+  });
+});
+
+async function makeDataRootWithBuiltInTeam(): Promise<string> {
+  const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-team-writer-"));
+  temporaryRoots.push(dataRoot);
+  const builtIn = path.join(dataRoot, "teams", ".system", "development");
+  await fs.mkdir(path.join(builtIn, "members", "manager"), { recursive: true });
+  await fs.writeFile(path.join(builtIn, "team.json"), `${JSON.stringify({
+    name: "开发团队",
+    description: "负责软件开发",
+    primaryAgentSlug: "manager",
+    memberOrder: ["manager"],
+  }, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    path.join(builtIn, "members", "manager", "AGENT.md"),
+    "# 开发经理\n\n默认接单\n",
+    "utf8",
+  );
+  return dataRoot;
+}
+
+async function listDirectories(root: string): Promise<string[]> {
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+}

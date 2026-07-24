@@ -1,0 +1,221 @@
+import {
+  ArrowLeft,
+  CircleAlert,
+  LoaderCircle,
+  RotateCcw,
+  Send,
+  Sparkles,
+} from "lucide-react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+
+import { MarkdownMessage } from "@/console/markdown-message";
+import { cn } from "@/lib/utils";
+import { Button } from "@/ui/button";
+import {
+  TeamProposalCard,
+  type TeamProposalPreview,
+} from "./team-proposal-card";
+
+export type TeamBuilderViewPhase =
+  | "idle"
+  | "running"
+  | "clarifying"
+  | "proposal"
+  | "failed"
+  | "committing"
+  | "selected";
+
+export interface TeamBuilderViewState {
+  phase: TeamBuilderViewPhase;
+  messages: Array<{ role: "user" | "assistant"; text: string }>;
+  proposal: TeamProposalPreview | null;
+  proposalRevision: number | null;
+  error: null | {
+    code: string;
+    humanMessage: string;
+    canRetry: boolean;
+  };
+}
+
+export interface TeamBuilderViewProps {
+  state: TeamBuilderViewState;
+  contextLabel?: string;
+  backLabel?: string;
+  onBack: () => void;
+  onSubmit: (text: string) => void | Promise<void>;
+  onAdjust: (text: string) => void | Promise<void>;
+  onRetry: () => void | Promise<void>;
+  onCommit: (revision: number) => void | Promise<void>;
+}
+
+export function TeamBuilderView({
+  state,
+  contextLabel,
+  backLabel = "返回选团队",
+  onBack,
+  onSubmit,
+  onAdjust,
+  onRetry,
+  onCommit,
+}: TeamBuilderViewProps): JSX.Element {
+  const threadRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState("");
+  const [adjusting, setAdjusting] = useState(false);
+  const [localPending, setLocalPending] = useState(false);
+  const busy = state.phase === "running" || state.phase === "committing" || localPending;
+  const canCompose = state.phase === "idle"
+    || state.phase === "clarifying"
+    || (state.phase === "proposal" && adjusting);
+
+  useEffect(() => {
+    const thread = threadRef.current;
+    if (thread !== null) {
+      thread.scrollTop = thread.scrollHeight;
+    }
+  }, [state.messages, state.phase, state.proposalRevision]);
+
+  useEffect(() => {
+    setAdjusting(false);
+  }, [state.proposalRevision]);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const text = draft.trim();
+    if (text.length === 0 || busy || !canCompose) {
+      return;
+    }
+    setLocalPending(true);
+    setDraft("");
+    try {
+      if (state.phase === "proposal") {
+        await onAdjust(text);
+      } else {
+        await onSubmit(text);
+      }
+    } finally {
+      setLocalPending(false);
+    }
+  };
+
+  const startAdjustment = () => {
+    setAdjusting(true);
+    requestAnimationFrame(() => composerRef.current?.focus());
+  };
+
+  return (
+    <section className="flex h-[min(620px,calc(100dvh-160px))] min-h-[460px] w-full max-w-[780px] flex-col overflow-hidden rounded-lg border border-line bg-card text-ink">
+      <header className="grid min-h-[58px] shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line bg-sunken px-3.5">
+        <Button type="button" size="icon" variant="outline" onClick={onBack} aria-label={backLabel}>
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+        </Button>
+        <div className="min-w-0">
+          <h1 className="text-sm font-semibold text-ink">AI 团队设计器</h1>
+          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-hint">
+            <i className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+            独立只读 AI 会话
+          </span>
+        </div>
+        {contextLabel ? (
+          <span className="rounded-full border border-line px-2.5 py-1 text-xs font-medium text-sub">
+            {contextLabel}
+          </span>
+        ) : null}
+      </header>
+
+      <div
+        ref={threadRef}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
+        aria-live="polite"
+      >
+        {state.messages.map((message, index) => (
+          <div
+            key={`${message.role}-${String(index)}`}
+            className={cn(
+              "flex max-w-[88%] items-start gap-2 max-sm:max-w-[96%]",
+              message.role === "user" && "self-end",
+            )}
+          >
+            {message.role === "assistant" ? (
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent text-accent">
+                <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+              </span>
+            ) : null}
+            <div
+              className={cn(
+                "min-w-0 rounded-lg border border-line bg-sunken px-3 py-2",
+                message.role === "assistant" ? "rounded-tl-sm" : "rounded-tr-sm border-accent/50 bg-hover",
+              )}
+            >
+              <MarkdownMessage content={message.text} mode="static" />
+            </div>
+          </div>
+        ))}
+
+        {state.proposal !== null && state.proposalRevision !== null ? (
+          <TeamProposalCard
+            proposal={state.proposal}
+            revision={state.proposalRevision}
+            readOnly={adjusting || (state.phase !== "proposal" && state.phase !== "committing")}
+            committing={state.phase === "committing"}
+            onAdjust={startAdjustment}
+            onCommit={(revision) => void onCommit(revision)}
+          />
+        ) : null}
+
+        {state.phase === "running" || localPending ? (
+          <div className="flex max-w-[88%] items-start gap-2" role="status" aria-label="AI 正在处理">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent text-accent">
+              <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            </span>
+            <div className="rounded-lg rounded-tl-sm border border-line bg-sunken px-3 py-2.5">
+              <LoaderCircle className="h-4 w-4 animate-spin text-sub" strokeWidth={1.5} aria-hidden="true" />
+              <span className="sr-only">正在输入</span>
+            </div>
+          </div>
+        ) : null}
+
+        {state.error !== null ? (
+          <div className="ml-9 rounded-lg border border-danger/30 bg-card p-3 max-sm:ml-0" role="alert">
+            <div className="flex items-start gap-2 text-sm text-danger">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+              <span>{state.error.humanMessage}</span>
+            </div>
+            {state.error.canRetry ? (
+              <Button className="mt-3" type="button" size="sm" variant="outline" onClick={() => void onRetry()}>
+                <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+                重试
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <form className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-2 border-t border-line bg-canvas p-2.5" onSubmit={submit}>
+        <textarea
+          ref={composerRef}
+          aria-label={adjusting ? "调整团队提案" : "描述团队目标或回答问题"}
+          className="min-h-12 max-h-24 w-full resize-none rounded-md border border-line bg-input px-3 py-2 text-sm leading-5 text-ink outline-none placeholder:text-hint focus:border-accent/60 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!canCompose || busy}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={adjusting
+            ? "继续聊着调整，比如“让负责人最后给我一份发布清单”…"
+            : state.phase === "clarifying"
+              ? "回答这个问题…"
+              : "描述这支团队要长期完成的工作…"}
+          rows={2}
+          value={draft}
+        />
+        <Button
+          type="submit"
+          size="icon"
+          className="rounded-full"
+          aria-label="发送"
+          disabled={!canCompose || busy || draft.trim().length === 0}
+        >
+          <Send className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+        </Button>
+      </form>
+    </section>
+  );
+}

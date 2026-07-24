@@ -32,7 +32,6 @@ desktop/src/ai-team-builder-ipc.ts
 packages/console-ui/src/ai-team-builder/
   team-builder-view.tsx    — 主组件(消息流 + 方案卡 + 输入)
   team-proposal-card.tsx   — 方案卡(2-6 成员 + 主 Agent + 接力示例 + 「继续调整」/「创建并选中」)
-  streamdown-adapter.tsx   — streamdown + allowedTags 注册表(见 § 权衡)
 ```
 
 ### 状态机
@@ -53,14 +52,24 @@ committing
 
 **proposal revision**:每次生成新 proposal 递增;`commit(revision)` 只接受 `revision === current`;运行中输入锁定。
 
+`AiTeamBuilderPhase` 是 AI 建队 service 独立状态，不能并入 `team-model.ts:TeamStatus`。其中
+`idle / running / clarifying / proposal / failed` 是可恢复草稿态，`committing / selected`
+是同一 service 的提交态与终态；`TeamStatus` 继续只描述已经落盘的团队目录是否可用。
+
 ### Codex spawner 契约
 
 - **execution profile**:只读 sandbox、隔离 cwd(不含项目素材)、不加载项目 `AGENTS.md` / MCP / 个人指令
+- **profile 载体**:由 agent-moebius 显式装配专用参数，不使用叠加用户基础配置的 Codex CLI profile
 - **developer instructions**:固定短提示契约(onboarding.md L275-283 的那段)
 - **user prompt**:本轮用户输入
 - **output schema**:`--output-schema` 约束 phase ∈ {clarifying, proposal} + 每种 phase 的字段
-- **idle / max timeout**:有界(具体值见 § PRD 缺口)
+- **idle / max timeout**:独立常量，idle 2 分钟、max-duration 10 分钟
 - **不使用**:`model_instructions_file`(不替换 Codex 自带基础指令)、`--yolo`
+
+专用参数 builder 为 `buildTeamBuilderExecOptions()`，不参数化也不复用含 `--yolo` 的普通
+`buildCodexExecOptionsBase()`。首 turn 显式带 `--ignore-user-config`、`--ignore-rules`、
+`--sandbox read-only`、隔离 cwd 与 `--output-schema`；resume 继续使用同一 thread 和同一
+输出契约。
 
 ### 输出协议 schema 概要
 
@@ -69,7 +78,6 @@ type CodexOutput =
   | { phase: "clarifying"; question: string }
   | {
       phase: "proposal";
-      revision: number;
       team: { name: string; purpose: string };
       members: Array<{
         slug: string;             // 稳定,唯一
@@ -86,6 +94,12 @@ type CodexOutput =
     };
 ```
 
+`proposalRevision` 不由模型生成；service 在 proposal 通过 validator 后确定性递增并保存，
+与 PRD 的“proposal revision 由 service 层判定”一致。由于实测 Codex CLI 0.144.1 的
+`--output-schema` 不接受根级 `oneOf`，磁盘上的 schema 使用单对象 nullable envelope：
+clarifying 时 proposal 字段为 `null`，proposal 时 `question` 为 `null`；validator 将该
+传输形态收窄为上面的 typed union，renderer 不接触 nullable envelope。
+
 ### Validator 二次校验(schema 之外)
 
 - 2 ≤ members.length ≤ 6
@@ -100,11 +114,15 @@ type CodexOutput =
 ```
 1. tmpDir = mkTempDir()                       // 隔离于 teams/
 2. 写 team.json + 每个成员的目录 / AGENT.md 到 tmpDir
-3. 完整重读 tmpDir(用 team-store 的 read 路径)+ 再跑一次 validator
+3. 用 team-model 完整重读 tmpDir，逐字段比对方案 + 再跑一次 validator
 4. rename tmpDir → teams/<slug-derived-from-team-name>
 5. registerUserTeamSnapshot(...)
 6. 任一步失败:清理 tmpDir,回到 committing failed
 ```
+
+writer 采用独立 AI writer，不改 `createUserTeam`，也不复用其“先创建空团队”的持久化草稿
+语义。writer 只复用 `team-model` 的序列化、解析与结构校验；AI 专用 IO 在同一文件系统的
+临时目录完成，正式目录与团队记录在失败时一起回滚。
 
 **不动 `last-used-team.json`**——AI 建队本身不算「成功创建会话」。
 
@@ -118,6 +136,7 @@ type AiTeamBuilderState = {
   proposalRevision: number | null;
   error: null | { code: string; humanMessage: string; canRetry: boolean };
   actions: Array<"retry" | "cancel" | "commit" | "adjust">;
+  selectedTeamId: string | null;  // 仅 selected 终态携带
 };
 ```
 
@@ -125,26 +144,29 @@ type AiTeamBuilderState = {
 
 ## 权衡
 
-### streamdown / codex 交互式消息调研备忘录
+### UI 协议裁决
 
 **现状扫描**:原型 `prototypes/src/main.tsx:613-880` 的 `TeamStep` 把「对话流」和「团队方案卡」都塞在同一段手写 React 里(`BuilderMessage` + 硬编码 `<section className="team-proposal">`),AI 动作用 `setTimeout` 模拟,phase 状态机 `goal | clarify | proposal` 由本地 reducer 驱动。原型明确不与产品代码共享源码。
 
-**streamdown 能力**:Vercel `streamdown` 是 `react-markdown` 的 drop-in,流式增量渲染;通过 `components` prop 覆盖任意 markdown 元素,并通过 `allowedTags` 白名单允许 **MDX 风格自定义标签**——即模型输出 `<team-proposal id="draft-1">…</team-proposal>`,渲染层可映射到 React 组件,组件内部就是普通 React,按钮点击可直接调 IPC / team store。
+**最终选择:纯 typed React 组件树。** Codex 权威输出是 `--output-schema` 约束的 JSON，
+service 校验后把 `ProposalPreview` DTO 交给 `TeamProposalCard`。对话文本继续复用已有
+`MarkdownMessage`，但 proposal 不经过 Markdown 自定义标签二次解析。这样 schema /
+validator / DTO 是唯一结构协议，renderer 不需要信任模型生成的标签或属性。
 
-**codex 原生模式**:codex CLI 走 OpenAI Responses API 的 `function_call` / `function_call_output` 结构化事件流。审批流程 = 模型发 `function_call` → CLI 拦截并渲染 UI → 用户 y/N → CLI 回填 `function_call_output` → 下一轮。对本 change 语义完全对得上:把「团队方案」定义成 codex 自定义 tool `propose_team({members, primary, relay})`,desktop 拦截该 call → React 卡片渲染 → 按钮回填 `{decision:"accept"}` 或 `{decision:"adjust", note:"..."}` 触发下一轮 exec resume。**限制**:codex CLI 的 tool schema 扩展路径需读源码或 `codex --help` 确认;若走 codex-rs 内嵌 tool 白名单会麻烦;更安全是走 `codex exec --json` 让模型输出结构化 markdown / JSON,由 desktop 解析。
+不引入 Streamdown `allowedTags` 注册表：仓库当前 Streamdown 版本没有该公开契约，而且自定义
+标签会在 JSON schema 之外形成第二套结构协议。不引入 Codex function tool：它需要新增 tool
+broker 或修改 Codex 扩展边界，超出本 change 的 service 范围。
 
-**候选范式对比**:
+## implement clarifying 裁决
 
-| 方案 | 复杂度 | 契合度 | 扩展性 | 备注 |
-| --- | --- | --- | --- | --- |
-| A. streamdown + `allowedTags` 自定义标签 | 2 | 高 | 高 | codex 输出 `<team-proposal>` 标签,streamdown 渲染成 React 卡;新卡类型只需加标签+组件 |
-| B. codex 自定义 function tool(仿 apply_patch) | 4 | 中 | 高 | 语义最纯,但要改 codex 侧或用 MCP 中转,desktop 需实现 tool broker |
-| C. Vercel AI SDK generative-ui | 3 | 中低 | 中 | 需切到 AI SDK message 模型,与现有 codex driver 并存别扭 |
-| D. 保持纯 React 组件树,markdown 只渲染文字段 | 1 | 高(现状) | 低 | 每加一种卡片都要改 phase 状态机与 codex 输出解析,重蹈原型耦合 |
+2026-07-24 用户确认以下实施选择：
 
-**推荐 A**(streamdown + `allowedTags`)——codex 侧只需约定「在 markdown 里输出自定义标签+ JSON 属性」,不改 codex 二进制;desktop 侧一次性搭好 `<team-proposal>` / 未来 `<step-plan>` 等注册表,新卡片零协议成本。B 更纯净但依赖 codex tool 扩展未验证。最终由 change 实施者结合 codex driver 现状拍板。
-
-Sources: [vercel/streamdown](https://github.com/vercel/streamdown)、[Streamdown docs · Components](https://streamdown.ai/docs/components)、[OpenAI Codex CLI · Phil Schmid](https://www.philschmid.de/openai-codex-cli)、[Apply Patch tool · OpenAI](https://platform.openai.com/docs/guides/tools-apply-patch)。
+1. 独立 AI team writer；不改 `createUserTeam`，只复用 `team-model` 的序列化、解析和校验。
+2. 新增完全独立的 `buildTeamBuilderExecOptions()`，不参数化含 `--yolo` 的普通 base。
+3. execution profile 由 agent-moebius 显式参数装配，不使用 Codex CLI profile 叠加用户配置。
+4. 新增 AI 建队专用 timeout：idle 2 分钟、max-duration 10 分钟。
+5. AI 建队状态使用独立 `AiTeamBuilderPhase`；`TeamStatus` 保持落盘团队可用性语义并加边界注释。
+6. UI 使用纯 typed React 组件树；普通消息复用 `MarkdownMessage`，方案卡直接消费 DTO。
 
 ### 原型对照
 
@@ -159,6 +181,5 @@ Sources: [vercel/streamdown](https://github.com/vercel/streamdown)、[Streamdown
 ## 风险
 
 - **codex `--output-schema` 契约不稳**:若 codex CLI 该 flag 行为随版本变化,业务校验必须能兜住;二次 validator + 一次修复 turn 就是这层保险。
-- **streamdown allowedTags 与 CSP**:若 desktop renderer 有严格 CSP,自定义标签是否被浏览器解析需实测。原型可离线单 HTML 直接跑,产品 Electron 环境需验证。
 - **临时目录 rename 跨文件系统**:mac 上 `teams/` 与 tmpDir 应在同分区,否则 `rename` 会退化为 copy+delete,破坏原子性。team-writer 需 assert 同分区或改用 copy+fsync+rename+cleanup。
 - **thread 丢失重建的对话完整性**:PRD 允许「用已保存对话重建一次」,重建后 revision 计数须清零并显式提示用户,避免旧 revision 与新 thread 混淆。

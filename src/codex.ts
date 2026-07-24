@@ -11,6 +11,7 @@ export interface CodexRunOptions {
   prompt: string;
   runDir: string;
   mode?: CodexRunMode;
+  execOptions?: readonly string[];
   cwd?: string;
   signal?: AbortSignal;
   imagePaths?: string[];
@@ -204,7 +205,17 @@ export function extractCodexThreadId(event: unknown): string | null {
 }
 
 export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
-  const { prompt, runDir, mode = { kind: "full" }, cwd, signal, imagePaths = [], idleTimeoutMs, maxDurationMs } = options;
+  const {
+    prompt,
+    runDir,
+    mode = { kind: "full" },
+    execOptions = CODEX_EXEC_OPTIONS,
+    cwd,
+    signal,
+    imagePaths = [],
+    idleTimeoutMs,
+    maxDurationMs,
+  } = options;
   await fs.mkdir(runDir, { recursive: true });
   const stdoutPath = path.join(runDir, "stdout.jsonl");
   const stderrPath = path.join(runDir, "stderr.log");
@@ -226,7 +237,7 @@ export async function run(options: CodexRunOptions): Promise<CodexRunResult> {
     },
   });
 
-  const child = spawn("codex", buildCodexArgs(prompt, mode, imagePaths), {
+  const child = spawn("codex", buildCodexArgs(prompt, mode, imagePaths, execOptions), {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
     env: process.env,
@@ -515,6 +526,7 @@ export function buildCodexArgs(
   prompt: string,
   mode: CodexRunMode = { kind: "full" },
   imagePaths: string[] = [],
+  execOptions: readonly string[] = CODEX_EXEC_OPTIONS,
 ): string[] {
   const imageArgs = imagePaths.flatMap((imagePath) => ["--image", imagePath]);
   // "--" 必须紧跟在最后一个选项之后：codex exec 的 --image 是贪婪多值选项（<FILE>...），
@@ -522,10 +534,10 @@ export function buildCodexArgs(
   // 转而读取空的 stdin 后以 exit 1 退出。"--" 终止选项解析，保证 prompt（以及 resume
   // 模式下的 threadId）始终落在位置参数上，同时也兼容以 "-" 开头的 prompt。
   if (mode.kind === "resume") {
-    return ["exec", "resume", ...CODEX_EXEC_OPTIONS, ...imageArgs, "--", mode.threadId, prompt];
+    return ["exec", "resume", ...execOptions, ...imageArgs, "--", mode.threadId, prompt];
   }
 
-  return ["exec", ...CODEX_EXEC_OPTIONS, ...imageArgs, "--", prompt];
+  return ["exec", ...execOptions, ...imageArgs, "--", prompt];
 }
 
 export function codexTimeoutKind(reason: string): CodexWatchdogKind | null {

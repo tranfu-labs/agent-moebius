@@ -18,6 +18,7 @@ import {
   DEFAULT_CODEX_MODEL,
   buildCodexExecOptions,
   buildCodexExecOptionsBase,
+  buildTeamBuilderExecOptions,
   resolveCodexModel,
   resolveCodexProviderConfig,
 } from "../src/config.js";
@@ -139,6 +140,22 @@ describe("extractFinalAssistant", () => {
 
     // 无图片时同样保留 "--"，兼容以 "-" 开头的 prompt。
     expect(buildCodexArgs("-starts-with-dash").slice(-2)).toEqual(["--", "-starts-with-dash"]);
+  });
+
+  it("accepts an isolated exec option set without falling back to ordinary --yolo options", () => {
+    const isolatedOptions = ["--json", "--ignore-user-config", "--sandbox", "read-only"];
+    expect(buildCodexArgs("design a team", { kind: "full" }, [], isolatedOptions)).toEqual([
+      "exec",
+      ...isolatedOptions,
+      "--",
+      "design a team",
+    ]);
+    expect(buildCodexArgs(
+      "adjust",
+      { kind: "resume", threadId: "team-thread" },
+      [],
+      isolatedOptions,
+    )).toEqual(["exec", "resume", ...isolatedOptions, "--", "team-thread", "adjust"]);
   });
 
   it("returns null when no assistant message is present", () => {
@@ -438,6 +455,37 @@ process.exitCode = 7;
 });
 
 describe("codex provider override", () => {
+  it("builds a dedicated team-builder profile without ordinary --yolo or user configuration", () => {
+    const common = {
+      schemaPath: "/runtime/schema.json",
+      isolatedCwd: "/runtime/workspace",
+      developerInstructions: "Only design a team.",
+      providerConfig: null,
+      model: DEFAULT_CODEX_MODEL,
+    };
+    const full = buildTeamBuilderExecOptions({ ...common, mode: "full" });
+    const resume = buildTeamBuilderExecOptions({ ...common, mode: "resume" });
+
+    expect(full).toEqual(expect.arrayContaining([
+      "--json",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--output-schema",
+      "/runtime/schema.json",
+      "--sandbox",
+      "read-only",
+      "--cd",
+      "/runtime/workspace",
+      "--skip-git-repo-check",
+    ]));
+    expect(full).not.toContain("--yolo");
+    expect(full).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(resume).not.toContain("--sandbox");
+    expect(resume).not.toContain("--cd");
+    expect(resume).toContain("--skip-git-repo-check");
+    expect(resume).not.toContain("--yolo");
+  });
+
   it("subscription baseline: null provider returns byte-for-byte equal to base flags with default model", () => {
     const baseline = [
       "--yolo",

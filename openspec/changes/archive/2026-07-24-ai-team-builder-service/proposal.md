@@ -38,6 +38,9 @@
   - `packages/console-ui/src/ai-team-builder/` UI 组件(供 onboarding-shell 与 agent-teams-ai-entry 消费)
 - **修改**:
   - `src/config.ts` / `src/codex.ts` — 抽出 team-builder 专用 exec options(不复用 `CODEX_EXEC_OPTIONS`);具体拆法留待 codex implement 段决定(见 § PRD 缺口)
+  - `desktop/src/team-model.ts` — 仅增加 `TeamStatus` 与独立 `AiTeamBuilderPhase` 的边界注释(按 implement clarifying 结论)
+  - `packages/console-ui/src/index.ts` — 导出新增的 AI 建队组件供后续两个入口 change 消费
+  - 对应 `tests/` / `desktop/tests/` / console-ui 同目录测试 — 验证 profile、validator、writer、状态机、IPC DTO 与组件
 - **不动**:
   - `desktop/src/team-store.ts:createUserTeam / addTeamMember`(空白路径继续用,除非选 § PRD 缺口 (b)/(c))
   - `desktop/src/team-conversation-preference.ts`(AI 建队不写 last-used)

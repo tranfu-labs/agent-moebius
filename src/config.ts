@@ -77,6 +77,8 @@ export const GITHUB_CLI_RETRY_POLICY = {
 } as const;
 export const CODEX_RUN_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 export const CODEX_RUN_MAX_DURATION_MS = 120 * 60 * 1000;
+export const AI_TEAM_BUILDER_CODEX_IDLE_TIMEOUT_MS = 2 * 60 * 1000;
+export const AI_TEAM_BUILDER_CODEX_MAX_DURATION_MS = 10 * 60 * 1000;
 export const CEO_ORCHESTRATION_ACTION_TIMEOUT_MS = 2 * 60 * 1000;
 export const WORKTREE_GIT_TIMEOUT_MS = 2 * 60 * 1000;
 export const ISSUE_MEDIA_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -186,9 +188,68 @@ export function buildCodexExecOptions(
   ];
 }
 
+export interface TeamBuilderExecOptionsInput {
+  mode: "full" | "resume";
+  schemaPath: string;
+  isolatedCwd: string;
+  developerInstructions: string;
+  providerConfig: CodexProviderConfig | null;
+  model: string;
+}
+
+export function buildTeamBuilderExecOptions(input: TeamBuilderExecOptionsInput): string[] {
+  const common = [
+    "--json",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--output-schema",
+    input.schemaPath,
+    "-m",
+    input.model,
+    "-c",
+    'service_tier="fast"',
+    "-c",
+    "features.fast_mode=true",
+    "-c",
+    'model_reasoning_effort="high"',
+    "-c",
+    `developer_instructions=${JSON.stringify(input.developerInstructions)}`,
+  ];
+  const isolation = input.mode === "full"
+    ? [
+        "--sandbox",
+        "read-only",
+        "--cd",
+        input.isolatedCwd,
+        "--skip-git-repo-check",
+      ]
+    : ["--skip-git-repo-check"];
+  const provider = input.providerConfig === null
+    ? []
+    : buildCodexProviderOptions(input.providerConfig);
+  return [...common, ...isolation, ...provider];
+}
+
 export const CODEX_PROVIDER_CONFIG = resolveCodexProviderConfig(LOCAL_CONFIG);
 export const CODEX_MODEL = resolveCodexModel(LOCAL_CONFIG);
 export const CODEX_EXEC_OPTIONS = buildCodexExecOptions(CODEX_PROVIDER_CONFIG, CODEX_MODEL);
+
+function buildCodexProviderOptions(config: CodexProviderConfig): string[] {
+  const { provider, baseUrl } = config;
+  const upper = provider.toUpperCase();
+  return [
+    "-c",
+    `model_provider=${provider}`,
+    "-c",
+    `model_providers.${provider}.name=${provider}`,
+    "-c",
+    `model_providers.${provider}.base_url=${baseUrl}`,
+    "-c",
+    `model_providers.${provider}.env_key=${upper}_API_KEY`,
+    "-c",
+    `model_providers.${provider}.wire_api=responses`,
+  ];
+}
 
 export const CONFIG_LOG_FIELDS = {
   configPath: CONFIG_PATH,
