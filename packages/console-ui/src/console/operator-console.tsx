@@ -19,6 +19,7 @@ import {
 } from "@/console/agent-team-detail";
 import {
   AgentTeamsPage,
+  type AgentTeamBuilderController,
   type AgentTeamInformationInput,
   type OperatorAgentTeam,
   type OperatorAgentTeamsState,
@@ -285,6 +286,7 @@ export interface OperatorConsoleProps {
   selectedAgentTeamKey?: string | null;
   selectedAgentTeamMemberSlug?: string | null;
   agentTeamDetailState?: AgentTeamDetailState | null;
+  agentTeamBuilder?: AgentTeamBuilderController;
   newConversation?: OperatorNewConversationState | null;
   onComposerChange(value: string): void;
   onComposerFilesAdded?: (files: File[]) => void;
@@ -401,6 +403,7 @@ export function OperatorConsole({
   selectedAgentTeamKey,
   selectedAgentTeamMemberSlug,
   agentTeamDetailState,
+  agentTeamBuilder,
   newConversation = null,
   onComposerChange,
   onComposerFilesAdded,
@@ -999,6 +1002,7 @@ export function OperatorConsole({
             selectedMemberSlug={selectedAgentTeamMemberSlug}
             detailState={agentTeamDetailState}
             useStackedRows={useStackedTeamRows}
+            aiTeamBuilder={agentTeamBuilder}
             onRetry={onRetryAgentTeams}
             onCreateTeam={onCreateAgentTeam}
             onOpenTeam={onOpenAgentTeam}

@@ -24,6 +24,8 @@ import { RunnerSupervisor, type RunnerProcess } from "./runner-supervisor.js";
 import { DESKTOP_RUNNER_ARGS } from "./runner-launch.js";
 import { resolveShellPath } from "./shell-path.js";
 import type { DesktopStatusSnapshot } from "./status.js";
+import { registerAiTeamBuilderIpc } from "./ai-team-builder-ipc.js";
+import { AiTeamBuilder } from "./ai-team-builder/index.js";
 import {
   openAgentTeamLocationInFileManager,
   TEAM_FILE_MANAGER_IPC_CHANNEL,
@@ -139,6 +141,10 @@ async function boot(): Promise<void> {
     env: process.env,
     isPackaged: app.isPackaged,
     projectRoot,
+  });
+  registerAiTeamBuilderIpc({
+    ipcMain,
+    builder: new AiTeamBuilder({ dataRoot: status.dataRoot }),
   });
 
   createWindow();

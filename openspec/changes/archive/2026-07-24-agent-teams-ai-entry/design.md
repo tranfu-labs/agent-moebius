@@ -62,17 +62,39 @@ type AgentTeamsPageView =
 
 ```tsx
 <div className="ai-builder-main">
-  <button onClick={() => setView({ kind: "list" })} className="back-link">
-    ← Agent 团队
-  </button>
   <TeamBuilderView
-    onSelected={(teamId) => setView({ kind: "team-detail", teamId })}
-    onCancel={() => setView({ kind: "list" })}
+    state={aiTeamBuilder.state}
+    backLabel="返回 Agent 团队"
+    onBack={() => setView({ kind: "list" })}
+    onSubmit={aiTeamBuilder.onSubmit}
+    onAdjust={aiTeamBuilder.onAdjust}
+    onRetry={aiTeamBuilder.onRetry}
+    onCommit={async (revision) => {
+      const selectedTeam = await aiTeamBuilder.onCommit(revision);
+      if (selectedTeam !== null) {
+        setView({ kind: "team-detail", teamId: selectedTeam.teamKey });
+      }
+    }}
   />
 </div>
 ```
 
-顶部 Agent 团队页 nav 是否保留、返回按钮的确切样式,对照原型 + clarifying。
+desktop console 顶部导航和侧栏继续保留;返回按钮复用 `TeamBuilderView` 对照原型实现的左上按钮,不叠加第二个返回控件。前置 change 的组件实际是受控组件,由 desktop App 通过 preload 消费 IPC、持有白名单 DTO,并在 selected 后刷新团队列表、进入既有详情。
+
+### 运行时消费边界
+
+```text
+desktop main
+  registerAiTeamBuilderIpc(AiTeamBuilder)
+      ↓ preload 白名单方法
+desktop App（草稿 id + 受控 DTO + selected 团队刷新）
+      ↓ OperatorConsole props
+AgentTeamsPage（view state）
+      ↓
+TeamBuilderView
+```
+
+草稿 id 在 Agent 团队入口内保持稳定以支持退出后恢复;selected 后清除入口指针,下一次建队使用新的草稿 id。renderer 不接触 thread id、运行目录或原始 Codex 输出。
 
 ### 「复制并编辑」不动
 
@@ -96,5 +118,5 @@ type AgentTeamsPageView =
 
 - **DropdownMenu 组件不存在**:`packages/console-ui/` 若无现成 DropdownMenu,用 Popover + list 等价,别引入新依赖
 - **view state 与既有 team-detail 路由的兼容**:agent-teams-page.tsx 现有 team-detail 是否通过 URL / router 表达?若是,新的 ai-builder view 也要走同样路径,否则页面刷新会掉状态
-- **`TeamBuilderView` 的 onSelected 回调**:确认 `ai-team-builder-service` 提供的组件签名匹配本 change 的期望;否则要在 clarifying 阶段与 ai-team-builder-service change 对齐 API
+- **`TeamBuilderView` 的受控回调契约(已解除)**:implement clarifying 已验签为 `state + onBack / onSubmit / onAdjust / onRetry / onCommit`;selected team id 从 IPC DTO 解析后由 desktop App 刷新正式团队并返回页面详情
 - **console-ui 写盘冲突**:本 change 与 `onboarding-relay-demo` 都改 `packages/console-ui/`。DAG 已让 relay-demo 依赖本 change,序列化写盘

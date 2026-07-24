@@ -7,6 +7,7 @@ import {
   type AgentTeamDetailState,
   type AgentTeamMemberEditorState,
   type AgentTeamSaveAllFailureView,
+  type TeamBuilderViewState,
   type OperatorMessage,
   type OperatorAgentTeam,
   type OperatorAgentTeamsState,
@@ -52,6 +53,8 @@ import type {
   AgentTeamExternalChangeRequest,
   AgentTeamExternalChangeResponse,
 } from "../team-external-change.js";
+import type { AiTeamBuilderIpcResponse } from "../ai-team-builder-ipc.js";
+import type { AiTeamBuilderState } from "../ai-team-builder/dto.js";
 import { tryParseAgentMarkdownIdentity } from "../team-model.js";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -171,6 +174,14 @@ interface DesktopApi {
   selectAgentTeamRelocationFolder?: () => Promise<string | null>;
   relocateAgentTeamRecord?: (request: AgentTeamRelocateRequest) => Promise<AgentTeamListItem>;
   removeAgentTeamRecord?: (request: AgentTeamRepairRequest) => Promise<void>;
+  startAiTeamBuilder?: (draftId: string) => Promise<AiTeamBuilderIpcResponse>;
+  submitAiTeamBuilder?: (draftId: string, text: string) => Promise<AiTeamBuilderIpcResponse>;
+  adjustAiTeamBuilder?: (draftId: string, text: string) => Promise<AiTeamBuilderIpcResponse>;
+  retryAiTeamBuilder?: (draftId: string) => Promise<AiTeamBuilderIpcResponse>;
+  commitAiTeamBuilder?: (
+    draftId: string,
+    proposalRevision: number,
+  ) => Promise<AiTeamBuilderIpcResponse>;
   readLastUsedAgentTeam?: () => Promise<LastUsedAgentTeam | null>;
   recordSuccessfulConversationAgentTeam?: (
     request: SuccessfulConversationAgentTeamRequest,
@@ -211,6 +222,8 @@ interface AgentTeamPrimaryAgentChangeState {
   status: "saving" | "saved" | "failed";
   error: string | null;
 }
+
+const AGENT_TEAM_BUILDER_DRAFT_STORAGE_KEY = "agent-moebius.agent-teams.ai-builder-draft";
 
 declare global {
   interface Window {
@@ -257,6 +270,9 @@ export function App(): JSX.Element {
   const [lastUsedAgentTeamKey, setLastUsedAgentTeamKey] = useState<string | null>(null);
   const [agentTeamSelection, setAgentTeamSelection] = useState<AgentTeamSelection | null>(null);
   const [activeAgentTeamKey, setActiveAgentTeamKey] = useState<string | null>(null);
+  const [agentTeamBuilderState, setAgentTeamBuilderState] = useState<TeamBuilderViewState | null>(null);
+  const agentTeamBuilderStartedRef = useRef(false);
+  const agentTeamBuilderDraftIdRef = useRef<string | null>(null);
   const [agentTeamDraftState, setAgentTeamDraftState] = useState<AgentTeamDraftState>(EMPTY_AGENT_TEAM_DRAFT_STATE);
   const agentTeamDraftStateRef = useRef(agentTeamDraftState);
   const checkingAgentTeamExternalChangesRef = useRef(new Set<string>());
@@ -690,6 +706,237 @@ export function App(): JSX.Element {
 
     return copiedTeam.teamKey;
   }, [commitAgentTeamDraftState]);
+
+  const getAgentTeamBuilderDraftId = useCallback((): string => {
+    if (agentTeamBuilderDraftIdRef.current !== null) {
+      return agentTeamBuilderDraftIdRef.current;
+    }
+    const stored = window.localStorage.getItem(AGENT_TEAM_BUILDER_DRAFT_STORAGE_KEY);
+    const draftId = stored !== null && isSafeAiTeamBuilderDraftId(stored)
+      ? stored
+      : createAgentTeamBuilderDraftId();
+    agentTeamBuilderDraftIdRef.current = draftId;
+    window.localStorage.setItem(AGENT_TEAM_BUILDER_DRAFT_STORAGE_KEY, draftId);
+    return draftId;
+  }, []);
+
+  const failAgentTeamBuilder = useCallback((
+    error: { code: string; humanMessage: string; canRetry: boolean },
+  ) => {
+    setAgentTeamBuilderState((current) => ({
+      phase: "failed",
+      messages: current?.messages ?? [],
+      proposal: current?.proposal ?? null,
+      proposalRevision: current?.proposalRevision ?? null,
+      error,
+    }));
+  }, []);
+
+  const acceptAgentTeamBuilderResponse = useCallback((
+    response: AiTeamBuilderIpcResponse,
+  ): AiTeamBuilderState | null => {
+    if (!response.ok) {
+      agentTeamBuilderStartedRef.current = false;
+      failAgentTeamBuilder(response.error);
+      return null;
+    }
+    agentTeamBuilderStartedRef.current = true;
+    setAgentTeamBuilderState(toTeamBuilderViewState(response.state));
+    return response.state;
+  }, [failAgentTeamBuilder]);
+
+  const activateAiBuiltAgentTeam = useCallback(async (teamId: string): Promise<OperatorAgentTeam> => {
+    const listTeams = window.agentMoebius?.listAgentTeams;
+    if (listTeams === undefined) {
+      throw new Error("团队已经创建，但暂时无法打开详情。请重试。");
+    }
+    const result = await listTeams();
+    if (result.status !== "ready") {
+      throw new Error("团队已经创建，但暂时无法打开详情。请重试。");
+    }
+    const selectedItem = result.teams.find((team) => team.ownership === "user" && team.id === teamId);
+    if (selectedItem === undefined) {
+      throw new Error("团队已经创建，但暂时无法打开详情。请重试。");
+    }
+    const selectedTeam = toOperatorAgentTeam(selectedItem);
+    await activateCopiedAgentTeam(selectedItem);
+    setAgentTeamsState({ status: "ready", teams: result.teams.map(toOperatorAgentTeam) });
+    window.localStorage.removeItem(AGENT_TEAM_BUILDER_DRAFT_STORAGE_KEY);
+    agentTeamBuilderDraftIdRef.current = null;
+    agentTeamBuilderStartedRef.current = false;
+    return selectedTeam;
+  }, [activateCopiedAgentTeam]);
+
+  const activateSelectedAiTeamBuilderState = useCallback(async (
+    builderState: AiTeamBuilderState,
+  ): Promise<OperatorAgentTeam | null> => {
+    if (builderState.phase !== "selected" || builderState.selectedTeamId === null) {
+      return null;
+    }
+    try {
+      return await activateAiBuiltAgentTeam(builderState.selectedTeamId);
+    } catch (error) {
+      agentTeamBuilderStartedRef.current = false;
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: formatError(error),
+        canRetry: true,
+      });
+      return null;
+    }
+  }, [activateAiBuiltAgentTeam, failAgentTeamBuilder]);
+
+  const startAgentTeamBuilder = useCallback(async (): Promise<OperatorAgentTeam | null> => {
+    const start = window.agentMoebius?.startAiTeamBuilder;
+    if (start === undefined) {
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "AI 团队设计器暂时不可用，请稍后重试。",
+        canRetry: true,
+      });
+      return null;
+    }
+    try {
+      const state = acceptAgentTeamBuilderResponse(await start(getAgentTeamBuilderDraftId()));
+      return state === null ? null : activateSelectedAiTeamBuilderState(state);
+    } catch {
+      agentTeamBuilderStartedRef.current = false;
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "AI 团队设计器暂时不可用，请稍后重试。",
+        canRetry: true,
+      });
+      return null;
+    }
+  }, [
+    acceptAgentTeamBuilderResponse,
+    activateSelectedAiTeamBuilderState,
+    failAgentTeamBuilder,
+    getAgentTeamBuilderDraftId,
+  ]);
+
+  const submitAgentTeamBuilder = useCallback(async (text: string): Promise<void> => {
+    const submit = window.agentMoebius?.submitAiTeamBuilder;
+    if (submit === undefined) {
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "AI 团队设计器暂时不可用，请稍后重试。",
+        canRetry: true,
+      });
+      return;
+    }
+    setAgentTeamBuilderState((current) => current === null
+      ? current
+      : { ...current, phase: "running", error: null });
+    try {
+      acceptAgentTeamBuilderResponse(await submit(getAgentTeamBuilderDraftId(), text));
+    } catch {
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "AI 团队设计器暂时不可用，已保留当前内容。",
+        canRetry: true,
+      });
+    }
+  }, [acceptAgentTeamBuilderResponse, failAgentTeamBuilder, getAgentTeamBuilderDraftId]);
+
+  const adjustAgentTeamBuilder = useCallback(async (text: string): Promise<void> => {
+    const adjust = window.agentMoebius?.adjustAiTeamBuilder;
+    if (adjust === undefined) {
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "AI 团队设计器暂时不可用，请稍后重试。",
+        canRetry: true,
+      });
+      return;
+    }
+    setAgentTeamBuilderState((current) => current === null
+      ? current
+      : { ...current, phase: "running", error: null });
+    try {
+      acceptAgentTeamBuilderResponse(await adjust(getAgentTeamBuilderDraftId(), text));
+    } catch {
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "AI 团队设计器暂时不可用，已保留当前内容。",
+        canRetry: true,
+      });
+    }
+  }, [acceptAgentTeamBuilderResponse, failAgentTeamBuilder, getAgentTeamBuilderDraftId]);
+
+  const retryAgentTeamBuilder = useCallback(async (): Promise<OperatorAgentTeam | null> => {
+    if (!agentTeamBuilderStartedRef.current) {
+      return startAgentTeamBuilder();
+    }
+    const retry = window.agentMoebius?.retryAiTeamBuilder;
+    if (retry === undefined) {
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "AI 团队设计器暂时不可用，请稍后重试。",
+        canRetry: true,
+      });
+      return null;
+    }
+    setAgentTeamBuilderState((current) => current === null
+      ? current
+      : {
+          ...current,
+          phase: current.proposal === null ? "running" : "committing",
+          error: null,
+        });
+    try {
+      const state = acceptAgentTeamBuilderResponse(await retry(getAgentTeamBuilderDraftId()));
+      return state === null ? null : activateSelectedAiTeamBuilderState(state);
+    } catch {
+      agentTeamBuilderStartedRef.current = false;
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "AI 团队设计器暂时不可用，已保留当前内容。",
+        canRetry: true,
+      });
+      return null;
+    }
+  }, [
+    acceptAgentTeamBuilderResponse,
+    activateSelectedAiTeamBuilderState,
+    failAgentTeamBuilder,
+    getAgentTeamBuilderDraftId,
+    startAgentTeamBuilder,
+  ]);
+
+  const commitAgentTeamBuilder = useCallback(async (
+    proposalRevision: number,
+  ): Promise<OperatorAgentTeam | null> => {
+    const commit = window.agentMoebius?.commitAiTeamBuilder;
+    if (commit === undefined) {
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "AI 团队设计器暂时不可用，请稍后重试。",
+        canRetry: true,
+      });
+      return null;
+    }
+    setAgentTeamBuilderState((current) => current === null
+      ? current
+      : { ...current, phase: "committing", error: null });
+    try {
+      const state = acceptAgentTeamBuilderResponse(
+        await commit(getAgentTeamBuilderDraftId(), proposalRevision),
+      );
+      return state === null ? null : activateSelectedAiTeamBuilderState(state);
+    } catch {
+      failAgentTeamBuilder({
+        code: "temporarily-unavailable",
+        humanMessage: "团队创建失败，方案仍已保留，可以重试。",
+        canRetry: true,
+      });
+      return null;
+    }
+  }, [
+    acceptAgentTeamBuilderResponse,
+    activateSelectedAiTeamBuilderState,
+    failAgentTeamBuilder,
+    getAgentTeamBuilderDraftId,
+  ]);
 
   const duplicateBuiltInAgentTeam = useCallback(async (teamKey: string): Promise<string> => {
     const source = findOperatorAgentTeam(agentTeamsState, teamKey);
@@ -1898,6 +2145,14 @@ export function App(): JSX.Element {
       selectedAgentTeamKey={agentTeamSelection?.teamKey}
       selectedAgentTeamMemberSlug={agentTeamSelection?.memberSlug}
       agentTeamDetailState={agentTeamDetailState}
+      agentTeamBuilder={{
+        state: agentTeamBuilderState,
+        onStart: startAgentTeamBuilder,
+        onSubmit: submitAgentTeamBuilder,
+        onAdjust: adjustAgentTeamBuilder,
+        onRetry: retryAgentTeamBuilder,
+        onCommit: commitAgentTeamBuilder,
+      }}
       newConversation={newConversation === null ? null : {
         selectedProjectId: newConversation.projectId,
         selectedWorkspaceMode: newConversation.workspaceMode,
@@ -2106,6 +2361,38 @@ function mergeProcessEvents(
     seen.add(event.key);
     return true;
   });
+}
+
+function toTeamBuilderViewState(state: AiTeamBuilderState): TeamBuilderViewState {
+  return {
+    phase: state.phase,
+    messages: state.messages.map((message) => ({ ...message })),
+    proposal: state.proposal === null
+      ? null
+      : {
+          team: { ...state.proposal.team },
+          members: state.proposal.members.map((member) => ({
+            ...member,
+            responsibilities: [...member.responsibilities],
+            handoffs: [...member.handoffs],
+          })),
+          primaryAgentSlug: state.proposal.primaryAgentSlug,
+          relayBeats: state.proposal.relayBeats.map((beat) => ({ ...beat })),
+        },
+    proposalRevision: state.proposalRevision,
+    error: state.error === null ? null : { ...state.error },
+  };
+}
+
+function createAgentTeamBuilderDraftId(): string {
+  const suffix = typeof globalThis.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `agent-teams-${suffix}`;
+}
+
+function isSafeAiTeamBuilderDraftId(value: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(value);
 }
 
 const emptyProject: OperatorProject = {

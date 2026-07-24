@@ -43,6 +43,10 @@ import {
   COPY_SESSION_LOG_PATH_IPC_CHANNEL,
   type CopySessionLogPathResult,
 } from "./session-log-clipboard.js";
+import {
+  AI_TEAM_BUILDER_IPC_CHANNELS,
+  type AiTeamBuilderIpcResponse,
+} from "./ai-team-builder-ipc.js";
 
 export interface AgentMoebiusDesktopApi {
   onStatus(listener: (snapshot: DesktopStatusSnapshot) => void): () => void;
@@ -76,6 +80,11 @@ export interface AgentMoebiusDesktopApi {
   selectAgentTeamRelocationFolder(): Promise<string | null>;
   relocateAgentTeamRecord(request: AgentTeamRelocateRequest): Promise<AgentTeamListItem>;
   removeAgentTeamRecord(request: AgentTeamRepairRequest): Promise<void>;
+  startAiTeamBuilder(draftId: string): Promise<AiTeamBuilderIpcResponse>;
+  submitAiTeamBuilder(draftId: string, text: string): Promise<AiTeamBuilderIpcResponse>;
+  adjustAiTeamBuilder(draftId: string, text: string): Promise<AiTeamBuilderIpcResponse>;
+  retryAiTeamBuilder(draftId: string): Promise<AiTeamBuilderIpcResponse>;
+  commitAiTeamBuilder(draftId: string, proposalRevision: number): Promise<AiTeamBuilderIpcResponse>;
   readLastUsedAgentTeam(): Promise<LastUsedAgentTeam | null>;
   recordSuccessfulConversationAgentTeam(
     request: SuccessfulConversationAgentTeamRequest,
@@ -177,6 +186,36 @@ const api: AgentMoebiusDesktopApi = {
   },
   removeAgentTeamRecord(request) {
     return ipcRenderer.invoke(TEAM_REPAIR_IPC_CHANNELS.removeRecord, request) as Promise<void>;
+  },
+  startAiTeamBuilder(draftId) {
+    return ipcRenderer.invoke(
+      AI_TEAM_BUILDER_IPC_CHANNELS.start,
+      { draftId },
+    ) as Promise<AiTeamBuilderIpcResponse>;
+  },
+  submitAiTeamBuilder(draftId, text) {
+    return ipcRenderer.invoke(
+      AI_TEAM_BUILDER_IPC_CHANNELS.submit,
+      { draftId, text },
+    ) as Promise<AiTeamBuilderIpcResponse>;
+  },
+  adjustAiTeamBuilder(draftId, text) {
+    return ipcRenderer.invoke(
+      AI_TEAM_BUILDER_IPC_CHANNELS.adjust,
+      { draftId, text },
+    ) as Promise<AiTeamBuilderIpcResponse>;
+  },
+  retryAiTeamBuilder(draftId) {
+    return ipcRenderer.invoke(
+      AI_TEAM_BUILDER_IPC_CHANNELS.retry,
+      { draftId },
+    ) as Promise<AiTeamBuilderIpcResponse>;
+  },
+  commitAiTeamBuilder(draftId, proposalRevision) {
+    return ipcRenderer.invoke(
+      AI_TEAM_BUILDER_IPC_CHANNELS.commit,
+      { draftId, proposalRevision },
+    ) as Promise<AiTeamBuilderIpcResponse>;
   },
   readLastUsedAgentTeam() {
     return ipcRenderer.invoke(

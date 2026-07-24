@@ -1,6 +1,20 @@
-import { AlertTriangle, Copy, FolderOpen, LoaderCircle, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  Copy,
+  FolderOpen,
+  LoaderCircle,
+  MoreHorizontal,
+  Plus,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
+import {
+  TeamBuilderView,
+  type TeamBuilderViewState,
+} from "@/ai-team-builder/team-builder-view";
 import { AgentInitialAvatar } from "@/console/agent-initial-avatar";
 import {
   AgentTeamDetail,
@@ -60,12 +74,41 @@ type AgentTeamFileOperation =
   | { kind: "trash-team"; team: OperatorAgentTeam };
 type AgentTeamTrashOperation = Extract<AgentTeamFileOperation, { kind: "trash-member" | "trash-team" }>;
 
+export interface AgentTeamBuilderController {
+  state: TeamBuilderViewState | null;
+  onStart: () => Promise<OperatorAgentTeam | null>;
+  onSubmit: (text: string) => void | Promise<void>;
+  onAdjust: (text: string) => void | Promise<void>;
+  onRetry: () => Promise<OperatorAgentTeam | null>;
+  onCommit: (revision: number) => Promise<OperatorAgentTeam | null>;
+}
+
+type AgentTeamsPageContentView =
+  | { kind: "list" }
+  | { kind: "team-detail"; teamKey: string }
+  | { kind: "ai-builder" };
+
+type AgentTeamsPageView =
+  | AgentTeamsPageContentView
+  | {
+      kind: "information-dialog";
+      mode: "create";
+      returnView: Extract<AgentTeamsPageContentView, { kind: "list" }>;
+    }
+  | {
+      kind: "information-dialog";
+      mode: "edit";
+      team: OperatorAgentTeam;
+      returnView: Extract<AgentTeamsPageContentView, { kind: "team-detail" }>;
+    };
+
 export function AgentTeamsPage({
   state,
   selectedTeamKey,
   selectedMemberSlug,
   detailState,
   useStackedRows,
+  aiTeamBuilder,
   onRetry,
   onCreateTeam,
   onOpenTeam,
@@ -100,6 +143,7 @@ export function AgentTeamsPage({
   selectedMemberSlug?: string | null;
   detailState?: AgentTeamDetailState | null;
   useStackedRows: boolean;
+  aiTeamBuilder?: AgentTeamBuilderController;
   onRetry?: () => void;
   onCreateTeam?: (information: AgentTeamInformationInput) => Promise<OperatorAgentTeam>;
   onOpenTeam?: (teamKey: string) => void;
@@ -132,11 +176,9 @@ export function AgentTeamsPage({
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const listScrollTopRef = useRef(0);
   const pendingListScrollRestoreRef = useRef(false);
-  const [openedTeamKey, setOpenedTeamKey] = useState<string | null>(null);
+  const [view, setView] = useState<AgentTeamsPageView>({ kind: "list" });
   const [duplicatingTeamKey, setDuplicatingTeamKey] = useState<string | null>(null);
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editingTeamInformation, setEditingTeamInformation] = useState<OperatorAgentTeam | null>(null);
   const [fileManagerError, setFileManagerError] = useState<"team" | "member" | null>(null);
   const [draftOperation, setDraftOperation] = useState<AgentTeamFileOperation | null>(null);
   const [confirmationOperation, setConfirmationOperation] = useState<AgentTeamTrashOperation | null>(null);
@@ -144,6 +186,8 @@ export function AgentTeamsPage({
   const [actionError, setActionError] = useState<string | null>(null);
   const [draftOperationError, setDraftOperationError] = useState<string | null>(null);
   const [savingDraftsForOperation, setSavingDraftsForOperation] = useState(false);
+  const contentView = view.kind === "information-dialog" ? view.returnView : view;
+  const openedTeamKey = contentView.kind === "team-detail" ? contentView.teamKey : null;
   const openedTeam = state.status === "ready"
     ? state.teams.find((team) => team.teamKey === openedTeamKey)
     : undefined;
@@ -162,7 +206,7 @@ export function AgentTeamsPage({
     setFileManagerError(null);
     setActionError(null);
     onOpenTeam?.(teamKey);
-    setOpenedTeamKey(teamKey);
+    setView({ kind: "team-detail", teamKey });
     if (scrollContainerRef.current !== null) {
       scrollContainerRef.current.scrollTop = 0;
     }
@@ -176,7 +220,25 @@ export function AgentTeamsPage({
     setDraftOperation(null);
     setConfirmationOperation(null);
     pendingListScrollRestoreRef.current = true;
-    setOpenedTeamKey(null);
+    setView({ kind: "list" });
+  };
+
+  const openAiBuilder = () => {
+    if (aiTeamBuilder === undefined) {
+      return;
+    }
+    listScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? 0;
+    setView({ kind: "ai-builder" });
+    void aiTeamBuilder.onStart().then((selectedTeam) => {
+      if (selectedTeam !== null) {
+        setView({ kind: "team-detail", teamKey: selectedTeam.teamKey });
+      }
+    }).catch(() => undefined);
+  };
+
+  const returnFromAiBuilder = () => {
+    pendingListScrollRestoreRef.current = true;
+    setView({ kind: "list" });
   };
 
   useLayoutEffect(() => {
@@ -195,7 +257,7 @@ export function AgentTeamsPage({
     setDuplicateError(null);
     try {
       const copiedTeamKey = await onDuplicateBuiltInTeam(team.teamKey);
-      setOpenedTeamKey(copiedTeamKey);
+      setView({ kind: "team-detail", teamKey: copiedTeamKey });
     } catch (error) {
       setDuplicateError(error instanceof Error ? error.message : "暂时无法复制团队，请稍后重试。");
     } finally {
@@ -228,7 +290,7 @@ export function AgentTeamsPage({
           throw new Error("当前无法复制这支团队，请稍后重试。");
         }
         const copiedTeamKey = await onDuplicateUserTeam(operation.team.teamKey);
-        setOpenedTeamKey(copiedTeamKey);
+        setView({ kind: "team-detail", teamKey: copiedTeamKey });
       } else if (operation.kind === "duplicate-member") {
         if (onDuplicateMember === undefined) {
           throw new Error("当前无法复制这个 Agent，请稍后重试。");
@@ -313,10 +375,45 @@ export function AgentTeamsPage({
     <section
       ref={scrollContainerRef}
       className="scroll-thin min-h-0 flex-1 overflow-auto px-4 pb-12 pt-16 sm:px-8"
-      aria-labelledby={openedTeam === undefined ? "agent-teams-title" : undefined}
+      aria-labelledby={contentView.kind === "list" ? "agent-teams-title" : undefined}
     >
       <div className="mx-auto max-w-[960px]">
-        {openedTeam !== undefined ? (
+        {contentView.kind === "ai-builder" ? (
+          <div
+            className="flex min-h-[460px] w-full justify-center"
+            role="region"
+            aria-label="AI 建队"
+            data-testid="agent-team-ai-builder-view"
+          >
+            {aiTeamBuilder?.state === null || aiTeamBuilder === undefined ? (
+              <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-sub" role="status">
+                <LoaderCircle className="h-4 w-4 animate-spin" strokeWidth={1.5} aria-hidden="true" />
+                正在打开 AI 团队设计器…
+              </div>
+            ) : (
+              <TeamBuilderView
+                state={aiTeamBuilder.state}
+                contextLabel="Agent 团队"
+                backLabel="返回 Agent 团队"
+                onBack={returnFromAiBuilder}
+                onSubmit={aiTeamBuilder.onSubmit}
+                onAdjust={aiTeamBuilder.onAdjust}
+                onRetry={async () => {
+                  const selectedTeam = await aiTeamBuilder.onRetry();
+                  if (selectedTeam !== null) {
+                    setView({ kind: "team-detail", teamKey: selectedTeam.teamKey });
+                  }
+                }}
+                onCommit={async (revision) => {
+                  const selectedTeam = await aiTeamBuilder.onCommit(revision);
+                  if (selectedTeam !== null) {
+                    setView({ kind: "team-detail", teamKey: selectedTeam.teamKey });
+                  }
+                }}
+              />
+            )}
+          </div>
+        ) : openedTeam !== undefined ? (
           <div
             className="min-h-40"
             role="region"
@@ -372,7 +469,17 @@ export function AgentTeamsPage({
                   ) : (
                     <div className="flex items-center gap-2">
                       {onUpdateTeamInformation !== undefined ? (
-                        <Button type="button" variant="outline" size="sm" onClick={() => setEditingTeamInformation(openedTeam)}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setView({
+                            kind: "information-dialog",
+                            mode: "edit",
+                            team: openedTeam,
+                            returnView: { kind: "team-detail", teamKey: openedTeam.teamKey },
+                          })}
+                        >
                           修改信息
                         </Button>
                       ) : null}
@@ -458,11 +565,33 @@ export function AgentTeamsPage({
                 </h1>
                 <p className="mt-3 max-w-xl text-sm leading-6 text-sub">查看和管理负责不同任务的 Agent 团队</p>
               </div>
-              {state.status === "ready" && onCreateTeam !== undefined ? (
-                <Button type="button" className="mt-6 shrink-0" onClick={() => setCreateDialogOpen(true)}>
-                  <Plus className="mr-1.5 h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-                  新建团队
-                </Button>
+              {state.status === "ready" && (onCreateTeam !== undefined || aiTeamBuilder !== undefined) ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" className="mt-6 shrink-0">
+                      <Plus className="mr-1.5 h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+                      新建团队
+                      <ChevronDown className="ml-1.5 h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem disabled={aiTeamBuilder === undefined} onSelect={openAiBuilder}>
+                      <Sparkles className="mr-2 h-3.5 w-3.5 text-accent" strokeWidth={1.5} aria-hidden="true" />
+                      跟 AI 聊出一支新团队
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={onCreateTeam === undefined}
+                      onSelect={() => setView({
+                        kind: "information-dialog",
+                        mode: "create",
+                        returnView: { kind: "list" },
+                      })}
+                    >
+                      <Plus className="mr-2 h-3.5 w-3.5 text-sub" strokeWidth={1.5} aria-hidden="true" />
+                      从空白开始
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : null}
             </div>
 
@@ -510,18 +639,17 @@ export function AgentTeamsPage({
         )}
       </div>
 
-      {createDialogOpen && onCreateTeam !== undefined ? (
+      {view.kind === "information-dialog" && view.mode === "create" && onCreateTeam !== undefined ? (
         <TeamInformationDialog
           title="新建团队"
           description="先填写团队的基本信息。创建后可以在团队详情中逐步添加 Agent。"
           confirmLabel="创建团队"
           initialValue={{ name: "", description: "" }}
-          onCancel={() => setCreateDialogOpen(false)}
+          onCancel={() => setView(view.returnView)}
           onConfirm={async (information) => {
             const team = await onCreateTeam(information);
-            setCreateDialogOpen(false);
             listScrollTopRef.current = scrollContainerRef.current?.scrollTop ?? 0;
-            setOpenedTeamKey(team.teamKey);
+            setView({ kind: "team-detail", teamKey: team.teamKey });
             if (scrollContainerRef.current !== null) {
               scrollContainerRef.current.scrollTop = 0;
             }
@@ -529,19 +657,19 @@ export function AgentTeamsPage({
         />
       ) : null}
 
-      {editingTeamInformation !== null && onUpdateTeamInformation !== undefined ? (
+      {view.kind === "information-dialog" && view.mode === "edit" && onUpdateTeamInformation !== undefined ? (
         <TeamInformationDialog
           title="修改团队信息"
           description="这里只修改团队名称和一句话描述，不会改变成员或主 Agent。"
           confirmLabel="保存"
           initialValue={{
-            name: editingTeamInformation.name ?? "",
-            description: editingTeamInformation.description ?? "",
+            name: view.team.name ?? "",
+            description: view.team.description ?? "",
           }}
-          onCancel={() => setEditingTeamInformation(null)}
+          onCancel={() => setView(view.returnView)}
           onConfirm={async (information) => {
-            await onUpdateTeamInformation(editingTeamInformation.teamKey, information);
-            setEditingTeamInformation(null);
+            await onUpdateTeamInformation(view.team.teamKey, information);
+            setView(view.returnView);
           }}
         />
       ) : null}

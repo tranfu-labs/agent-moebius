@@ -66,6 +66,57 @@ describe("AgentTeamsPage built-in duplication", () => {
   });
 });
 
+describe("AgentTeamsPage creation entry", () => {
+  it("opens a two-path menu, uses the page body for AI building, and keeps blank creation in the dialog", async () => {
+    const onStart = vi.fn(async () => null);
+    render(
+      <AgentTeamsPage
+        state={{ status: "ready", teams: [builtInTeam] }}
+        detailState={detailStateFor(builtInTeam.teamKey)}
+        useStackedRows={false}
+        aiTeamBuilder={{
+          state: {
+            phase: "idle",
+            messages: [{
+              role: "assistant",
+              text: "你希望这支团队长期替你完成什么工作？",
+            }],
+            proposal: null,
+            proposalRevision: null,
+            error: null,
+          },
+          onStart,
+          onSubmit: vi.fn(),
+          onAdjust: vi.fn(),
+          onRetry: vi.fn(async () => null),
+          onCommit: vi.fn(async () => null),
+        }}
+        onCreateTeam={vi.fn()}
+        onBack={() => undefined}
+      />,
+    );
+
+    await openMenu("新建团队");
+    expect(screen.getByRole("menuitem", { name: "跟 AI 聊出一支新团队" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "从空白开始" })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: "复制并编辑" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "跟 AI 聊出一支新团队" }));
+    await waitFor(() => expect(onStart).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("agent-team-ai-builder-view")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "AI 团队设计器" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "新建团队" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "返回 Agent 团队" }));
+    expect(screen.getByRole("heading", { name: "Agent 团队" })).toBeVisible();
+
+    await openMenu("新建团队");
+    fireEvent.click(screen.getByRole("menuitem", { name: "从空白开始" }));
+    expect(screen.getByRole("dialog", { name: "新建团队" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "团队名称" })).toBeVisible();
+  });
+});
+
 describe("AgentTeamsPage user-team file operations", () => {
   it("blocks Agent duplication on unsaved drafts until the user discards them", async () => {
     const onDiscardAll = vi.fn();

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AiTeamBuilder } from "../src/ai-team-builder/index.js";
 import type { AiTeamBuilderProposal } from "../src/ai-team-builder/validator.js";
 import { AiTeamWriter } from "../src/ai-team-builder/team-writer.js";
 import { listAgentTeams } from "../src/team-ipc.js";
@@ -40,6 +41,32 @@ afterEach(async () => {
 });
 
 describe("AiTeamWriter", () => {
+  it("keeps an unconfirmed AI builder draft out of the outer team-list entry", async () => {
+    const dataRoot = await makeDataRootWithBuiltInTeam();
+    const builder = new AiTeamBuilder({
+      dataRoot,
+      codex: {
+        execute: vi.fn(async () => ({
+          ok: true as const,
+          finalText: JSON.stringify({ phase: "proposal", ...proposal }),
+          threadId: "unconfirmed-draft-thread",
+        })),
+      },
+    });
+
+    await expect(builder.submit("agent-teams", "持续负责产品发布")).resolves.toMatchObject({
+      phase: "proposal",
+      messages: expect.arrayContaining([
+        { role: "user", text: "持续负责产品发布" },
+      ]),
+      proposal: { team: { name: proposal.team.name } },
+    });
+    await expect(listAgentTeams({ dataRoot, seedPending: false })).resolves.toMatchObject({
+      status: "ready",
+      teams: [{ id: "development", ownership: "system" }],
+    });
+  });
+
   it("makes a complete AI team visible through the outer team-list entry only after registration", async () => {
     const dataRoot = await makeDataRootWithBuiltInTeam();
     const lastUsedPath = path.join(dataRoot, ".state", "last-used-team.json");
@@ -75,6 +102,15 @@ describe("AiTeamWriter", () => {
     ]);
     expect(await fs.readFile(lastUsedPath, "utf8")).toBe('{"teamId":"development"}\n');
     expect(await listDirectories(path.join(dataRoot, ".state", "ai-team-builder-staging"))).toEqual([]);
+  });
+
+  it("does not create a last-used team preference when AI creation starts without one", async () => {
+    const dataRoot = await makeDataRootWithBuiltInTeam();
+    const lastUsedPath = path.join(dataRoot, ".state", "last-used-team.json");
+
+    await new AiTeamWriter({ createId: () => "no-preference" }).create(dataRoot, proposal);
+
+    await expect(fs.access(lastUsedPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rolls back the final directory and record when registration fails", async () => {

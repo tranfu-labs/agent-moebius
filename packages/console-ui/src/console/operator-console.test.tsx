@@ -589,7 +589,8 @@ describe("OperatorConsole", () => {
       onCreateAgentTeam,
     });
     fireEvent.click(screen.getByRole("button", { name: "Agent 团队" }));
-    fireEvent.click(screen.getByRole("button", { name: "新建团队" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "新建团队" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "从空白开始" }));
 
     const dialog = screen.getByRole("dialog", { name: "新建团队" });
     expect(within(dialog).getAllByRole("textbox")).toHaveLength(2);
