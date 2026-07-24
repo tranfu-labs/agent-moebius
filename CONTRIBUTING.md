@@ -6,7 +6,7 @@ By participating, you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Development setup
 
-Moebius is a Node.js and TypeScript pnpm workspace. Use Node.js 22 and pnpm 9.15.4.
+Moebius is a Node.js and TypeScript pnpm workspace. Use Node.js 24 and pnpm 9.15.4.
 
 ```bash
 git clone https://github.com/tranfu-labs/agent-moebius.git

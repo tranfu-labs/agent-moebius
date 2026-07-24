@@ -39,7 +39,7 @@ Moebius 仍在积极开发中；发布状态见[变更日志](CHANGELOG.md)。
 从源码开发和使用终端入口需要：
 
 - Git
-- Node.js 22
+- Node.js 24
 - pnpm 9.15.4，与仓库 `packageManager` 字段一致
 - 已安装并完成认证、可通过 `PATH` 调用的 `codex` CLI
 

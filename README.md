@@ -39,7 +39,7 @@ Moebius is under active development; see the [changelog](CHANGELOG.md) for relea
 For source development and terminal use:
 
 - Git
-- Node.js 22
+- Node.js 24
 - pnpm 9.15.4, matching the repository's `packageManager` field
 - An installed and authenticated `codex` CLI available on `PATH`
 
