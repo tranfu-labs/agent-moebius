@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Check,
   Copy,
-  Infinity as InfinityIcon,
   LoaderCircle,
   MessageSquarePlus,
   RefreshCw,
@@ -23,6 +22,7 @@ import {
   type OperatorAgentTeam,
   type OperatorAgentTeamsState,
 } from "@/console/agent-teams-page";
+import { MoebiusLogo } from "@/brand/moebius-logo";
 import {
   TeamBuilderView,
   type TeamBuilderViewState,
@@ -181,9 +181,7 @@ export function OnboardingShell({
       >
         <span aria-hidden="true" />
         <span className="flex items-center gap-2 text-xs font-semibold text-sub">
-          <span className="flex h-6 w-6 items-center justify-center rounded-lg border border-line bg-card">
-            <InfinityIcon className="h-3.5 w-3.5" strokeWidth={1.7} aria-hidden="true" />
-          </span>
+          <MoebiusLogo className="h-6 w-6" decorative />
           Moebius
         </span>
         <span className="justify-self-end text-xs tabular-nums text-hint">

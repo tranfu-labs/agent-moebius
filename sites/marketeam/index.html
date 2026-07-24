@@ -8,10 +8,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Moebius：把你在用的 AI，变成一个会自己推进、会验收、会返工的团队。">
+  <meta name="description" content="Moebius：面向 macOS Apple Silicon，把你在用的 AI 变成一个会自己推进、会验收、会返工的团队。">
   <meta name="theme-color" content="#FAF9F5">
   <title>Moebius · Relay Atlas 接力地图</title>
-  <link rel="icon" href="data:,">
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@700;900&display=swap" rel="stylesheet">
@@ -112,7 +113,8 @@
       min-height: var(--header-height); display: flex; align-items: center;
       justify-content: space-between; gap: 24px;
     }
-    .brand { display: inline-flex; align-items: baseline; gap: 10px; text-decoration: none; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
+    .brand-icon { display: block; width: 34px; height: 34px; object-fit: contain; }
     .brand-word { font-weight: 900; letter-spacing: .04em; }
     .brand-note { font-family: var(--mono); font-size: .64rem; color: var(--ink-3); }
     .top-nav { display: flex; align-items: center; gap: 4px; }
@@ -964,10 +966,6 @@
     .brand-word {
       font-family: var(--mono); font-size: .92rem; letter-spacing: .15em;
     }
-    .brand-word::before {
-      content: '⌖'; display: inline-block; margin-right: 9px; color: var(--atlas-blue);
-      font-size: 1.05rem; transform: translateY(1px);
-    }
     .brand-note {
       padding-left: 14px; border-left: 1px solid var(--atlas-fine);
       color: var(--ink-2); letter-spacing: .06em;
@@ -1325,6 +1323,8 @@
       h1 { font-size: clamp(2.65rem, 14vw, 4.6rem); }
       h2 { font-size: clamp(2rem, 10vw, 3.3rem); }
       .header-inner { min-height: var(--header-height); }
+      .brand { gap: 8px; }
+      .brand-icon { width: 28px; height: 28px; }
       .brand-word { font-size: .78rem; }
       .top-nav { max-width: 58vw; overflow-x: auto; border-right: 0; scrollbar-width: none; }
       .top-nav::-webkit-scrollbar { display: none; }
@@ -1389,8 +1389,9 @@
   <header class="site-header">
     <div class="wrap header-inner">
       <a class="brand" href="#top" aria-label="回到 Moebius 首页顶部">
+        <img class="brand-icon" src="./assets/moebius-icon-64.png" width="34" height="34" alt="">
         <span class="brand-word">MOEBIUS</span>
-        <span class="brand-note">开源 · macOS</span>
+        <span class="brand-note">开源 · macOS · Apple Silicon</span>
       </a>
       <nav class="top-nav" aria-label="页面导航">
         <a href="#why">为什么</a>
@@ -1408,7 +1409,7 @@
       <div class="wrap hero-grid">
         <div class="atlas-hero-index" aria-hidden="true">FIELD 00 · ORIGIN / HANDOFF ATLAS</div>
         <div class="hero-copy">
-          <span class="hero-eyebrow trace"><b>免费开源的 macOS 应用</b> · 驱动你本机的 Codex CLI / Claude CLI</span>
+          <span class="hero-eyebrow trace"><b>免费开源的 macOS · Apple Silicon 应用</b> · 驱动你本机的 Codex CLI / Claude CLI</span>
           <h1>把你在用的 AI，变成一个会自己推进的团队。</h1>
           <p>你交出一件事，它一个环节接一个环节往前推。</p>
           <p>团队里有盯进度的，有验质量的——不合格，当场打回重做。</p>
@@ -1711,14 +1712,14 @@
           <li>对齐、验收和打回，都会出现在第一个任务里</li>
         </ul>
         <div class="actions rise" id="download-note">
-          <button class="button button-primary" type="button" disabled aria-describedby="release-note">macOS 版即将开放 …</button>
+          <button class="button button-primary" type="button" disabled aria-describedby="release-note">macOS Apple Silicon 版即将开放 …</button>
           <button class="button" type="button" disabled aria-describedby="release-note">GitHub 源码即将开放 …</button>
         </div>
         <div class="install-links rise">
           <a href="https://developers.openai.com/codex/cli/" target="_blank" rel="noreferrer">Codex CLI 官方安装指引 ↗</a>
           <a href="https://docs.anthropic.com/en/docs/claude-code/setup" target="_blank" rel="noreferrer">Claude CLI 官方安装指引 ↗</a>
         </div>
-        <p class="cta-note" id="release-note">目前只有 macOS 版；下载与源码地址公布后会更新在这里。</p>
+        <p class="cta-note" id="release-note">正式版本仅面向 Apple Silicon Mac；下载与源码地址公布后会更新在这里。</p>
         <p class="final-question rise">第一个任务交什么？<span>想想你今天本来打算盯着干完的那件事。</span></p>
       </div>
     </section>
@@ -1726,7 +1727,7 @@
 
   <footer>
     <div class="wrap footer-inner">
-      <span class="trace"><b>MOEBIUS</b> · 免费开源的 macOS 应用</span>
+      <span class="trace"><b>MOEBIUS</b> · 免费开源的 macOS · Apple Silicon 应用</span>
       <span class="trace">一件事，一路推进，一张底单。</span>
     </div>
   </footer>

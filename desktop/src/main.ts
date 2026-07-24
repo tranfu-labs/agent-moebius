@@ -153,6 +153,9 @@ async function boot(): Promise<void> {
     getDataRoot: () => status.dataRoot,
     clipboard,
   });
+  if (process.platform === "darwin" && !app.isPackaged) {
+    app.dock?.setIcon(path.join(dirname, "app-icon-1024.png"));
+  }
   createWindow();
   publishStatus();
 
@@ -199,7 +202,7 @@ function createWindow(): void {
     height: 760,
     minWidth: 900,
     minHeight: 560,
-    title: "moebius",
+    title: "Moebius",
     ...integratedMainWindowOptions(process.platform),
     webPreferences: {
       preload: path.join(dirname, "preload.cjs"),
@@ -564,7 +567,7 @@ function openStatusPage(): void {
     height: 560,
     minWidth: 520,
     minHeight: 420,
-    title: "moebius status",
+    title: "Moebius 状态",
     webPreferences: {
       preload: path.join(dirname, "preload.cjs"),
       contextIsolation: true,

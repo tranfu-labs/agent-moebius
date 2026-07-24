@@ -3,7 +3,7 @@
 ## 项目概览
 产品品牌统一为 `Moebius`：技术 slug / 协议 namespace 使用 `moebius`，workspace package scope 使用 `@moebius`，环境变量前缀使用 `MOEBIUS`，打包态默认数据根为 `~/.moebius`。这是一条硬切换契约，不读取或接受此前产品标识对应的目录、环境变量或运行协议；当前 worktree 路径与 git remote 属于外部仓库状态，不由应用代码修改。
 
-本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。本地会话创建时可原子绑定一支 Agent 团队；执行名单按 session 严格解析，未绑定的存量会话才回退共享 `agents/`。每个本地会话以数据根 `sessions/` 下的只追加 jsonl 作为消息与会话事件唯一事实源，`local-console.sqlite` 保留可变流转状态与可重建索引；两边冲突时以 jsonl 为准。本地附件在数据根的专用托管区保存不可变内容，在 `local-console.sqlite` 保存草稿/消息有序引用；消息提交原子 claim 引用，运行前再复制到本轮 runDir，图片进入 Codex `--image`，普通文件只通过 prompt manifest 交付。
+本项目是一个 Node.js + TypeScript 常驻脚本，并提供可选 Electron 桌面壳。桌面正式发行只提供 macOS Apple Silicon 的 DMG 与 ZIP。终端入口默认以 `pnpm start` 启动 local console/local 模式；只有显式执行 `pnpm start -- --github-mode` 才进入纯 GitHub runner 模式。GitHub runner 按白名单扫描 repository 的 open issue 更新，把 issue body 与 comments 归一化为带 speaker 的共享时间线，再通过独立 mention trigger 决定是否运行本机 `codex`；真正进入 Codex driver 前会给本轮触发源消息添加 `eyes` reaction 作为即时反馈（issue body 触发则打到 issue，comment 触发则打到该 comment）。提交版 `config.toml` 只作为示例，默认白名单为空；本机通过被忽略的 `config.local.toml` 配置监听 repository，并为每个 issue + role 维护独立 Codex thread。桌面形态启动后以本地对话操作台为主窗口，在数据根中启动本地 console server、显式 GitHub-mode runner child 与辅助诊断用的只读 observer，并使用本机 `codex` / `gh`。本地会话创建时可原子绑定一支 Agent 团队；执行名单按 session 严格解析，未绑定的存量会话才回退共享 `agents/`。每个本地会话以数据根 `sessions/` 下的只追加 jsonl 作为消息与会话事件唯一事实源，`local-console.sqlite` 保留可变流转状态与可重建索引；两边冲突时以 jsonl 为准。本地附件在数据根的专用托管区保存不可变内容，在 `local-console.sqlite` 保存草稿/消息有序引用；消息提交原子 claim 引用，运行前再复制到本轮 runDir，图片进入 Codex `--image`，普通文件只通过 prompt manifest 交付。
 
 ## 项目结构
 ```text
@@ -17,6 +17,8 @@
 │   ├── secretary.md            # CEO guardrail 规则维护秘书，带 current repo pre script
 │   ├── qa.md                   # 测试设计 agent 角色素材（方案阶段对抗性审查，oracle 为 docs/architecture/invariants.md）
 │   └── product-manager.md      # 产品经理 agent 角色素材
+├── assets/
+│   └── brand/                  # Moebius 品牌母版、生成产物与哈希 manifest
 ├── src/                        # TypeScript 运行时代码
 │   ├── runner.ts               # 常驻心跳编排入口（扫描派发与执行解耦）
 │   ├── runtime-mode.ts         # 启动参数解析：默认 local，exact --github-mode 进入 GitHub runner
@@ -70,6 +72,8 @@
 │   └── teams/                  # 打包进桌面应用的只读内置团队种子
 ├── sites/                      # 面向公众的自包含静态营销站点（与产品运行时零耦合）
 │   └── marketeam/              # 当前唯一官网：自包含 index.html + 同目录 DEPLOY.md（目录名 marketeam 为历史遗留；marketing-site 域）
+├── scripts/
+│   └── generate-brand-assets.mjs # 从唯一母版生成/检查桌面、UI 与官网图标
 ├── tests/                      # Vitest 单元测试
 ├── docs/
 │   ├── product/                # 产品事实源：总 PRD + 页面 PRD（pages/）+ 跨页流程 PRD（flows/）
@@ -88,6 +92,11 @@
 
 ## 常用命令
 - 安装：`pnpm install`
+- 生成品牌资产：`pnpm brand:generate`
+  - 唯一母版是 `assets/brand/moebius.png`；脚本使用 macOS `sips` 等比缩放，不裁切、不抠图、不重绘，并更新 `assets/brand/manifest.json`。
+  - 生成 1024px 应用图标、64px UI 图标、32px favicon、180px Apple Touch Icon及官网同内容部署副本。
+- 只读检查品牌资产：`pnpm brand:check`
+  - 校验母版和全部产物的 SHA-256、PNG 签名、正方形尺寸、文件大小上限与同尺寸部署副本哈希；desktop 打包会先执行该门禁。
 
 ### 启动形态（运维必读）
 - **默认 local**：`pnpm start` 缺省进入 local console/local runtime，不加载 GitHub intake、不创建 GitHub heartbeat、不扫描或读取 GitHub issue。
@@ -126,10 +135,12 @@
   - desktop build 会先构建 `@moebius/console-ui`，renderer 只消费组件库已由 Vite/PostCSS/Tailwind 编译的 `globals.css` package export；构建产物若残留 `@tailwind` / `@apply` 或缺少关键 utility 会直接失败。
   - desktop 主进程与 runner child 产物为 Node ESM bundle，preload 为 Electron sandboxed CJS bundle；构建会拒绝 Node ESM 中的动态 `require` shim，也会拒绝 preload 中 sandbox 不支持的 `require("process")`。`yaml` 在三份 bundle 中固定解析到官方纯 ESM browser export 并内联，避免主进程或 preload 加载失败。
 - 打包桌面应用：`pnpm --filter @moebius/desktop dist`
-  - 三平台产物通过 electron-builder 生成：macOS dmg/zip、Windows nsis、Linux AppImage。
-  - `desktop-v*` tag 会触发 `.github/workflows/release-desktop.yml` 构建并上传 GitHub Releases；Windows/Linux 更新走 electron-updater，macOS 无签名证书期间检查更新只跳转下载页。
+  - electron-builder 只生成 macOS Apple Silicon（arm64）的 DMG 与 ZIP，产物名固定含 `mac-arm64`；不得生成 Windows、Linux、macOS x64 或 universal 产物。
+  - `.app`、DMG、Dock、操作台、onboarding、辅助状态页与官网统一使用 `assets/brand/moebius.png` 的脚本派生产物。
+  - `desktop-v*` tag 会触发 `.github/workflows/release-desktop.yml`，workflow 只在原生 arm64 macOS runner 上构建并在打包前校验 `RUNNER_ARCH` 与 `uname -m`，随后上传 GitHub Release。正式更新口径只有 macOS“检查更新后跳转下载页”；Windows/Linux 分支仅可作为源码防御存在，不属于发布或产品支持范围。
 - 运行 React 对话操作台组件库 Storybook：`pnpm --filter @moebius/console-ui storybook`
   - 组件库位于 `packages/console-ui`，使用 shadcn 风格源码组件、Radix 原语与 Tailwind 语义令牌。
+  - 所有应用内品牌位置复用包内 `MoebiusLogo`，不得另画 SVG 或使用图标库中的 Infinity 代替。
   - `src/styles/tokens.css` 是包内令牌源：近黑底暗色优先的冷灰基底、accent 双主题统一靛蓝 `#5E6AD2`；运行状态渲染为状态 pill（图标 + tinted 底 + 同色描边），状态色相族为 running 琥珀 / pending 蓝 / waiting 紫 / completed 系中性灰，绿/红只用于裁决与危险（唯一例外：未读计数允许红色圆角标）；圆角基线 14px。`packages/console-ui/DESIGN.md` 是包内设计语言事实源（令牌纪律、排版、图标、状态语义、elevation/动效红线与组件模式目录）。
   - `@moebius/console-ui` 被 desktop renderer 复用；renderer 入口需引入 `@moebius/console-ui/globals.css`。desktop 的 `console.css` 只负责窗口/root 宿主约束，不得复制组件布局、按钮、输入框或卡片样式。
   - 用户与 Agent 正文统一由 `MarkdownMessage` / Streamdown 渲染：历史消息使用 static mode，活动 run 使用唯一 streaming 节点原地替换 `liveMarkdown`；系统事实继续使用结构化组件。支持 GFM、CJK、Shiki、KaTeX 和 Mermaid strict；链接仅允许 `http/https/mailto`，图片仅允许 `http/https`，确认后通过 desktop 单用途 IPC 交给系统浏览器。

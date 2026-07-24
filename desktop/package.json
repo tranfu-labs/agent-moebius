@@ -10,7 +10,7 @@
     "dev:web-shell": "node scripts/dev-web-shell.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "dist": "pnpm build && electron-builder"
+    "dist": "pnpm --workspace-root brand:check && pnpm build && electron-builder --mac --arm64"
   },
   "dependencies": {
     "@moebius/console-ui": "workspace:*",
@@ -55,16 +55,22 @@
       "output": "release"
     },
     "mac": {
+      "icon": "../assets/brand/generated/app-icon-1024.png",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ]
-    },
-    "win": {
-      "target": "nsis"
-    },
-    "linux": {
-      "target": "AppImage"
     },
     "publish": [
       {

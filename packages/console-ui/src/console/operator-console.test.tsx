@@ -33,7 +33,9 @@ describe("OperatorConsole", () => {
     const footer = screen.getByTestId("sidebar-footer");
     const projectHeading = screen.getByText("项目");
 
-    expect(screen.getByRole("img", { name: "Moebius Logo" })).toBeVisible();
+    const brandLogo = screen.getByTestId("moebius-logo");
+    expect(brandLogo).toBeVisible();
+    expect(brandLogo).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByText("Moebius")).toBeVisible();
     expect(windowControls).toHaveClass(
       "window-drag-region",
@@ -43,7 +45,7 @@ describe("OperatorConsole", () => {
     expect(windowControls).not.toHaveClass("pt-[6px]");
     expect(brandRegion).toHaveClass("window-drag-region", "h-[34px]", "px-4");
     expect(brandRegion).not.toHaveClass("pl-[76px]");
-    expect(windowControls).not.toContainElement(screen.getByRole("img", { name: "Moebius Logo" }));
+    expect(windowControls).not.toContainElement(brandLogo);
     expect(screen.getByRole("button", { name: "关闭侧边栏" })).toHaveClass("window-no-drag");
     expect(screen.getByRole("button", { name: "关闭侧边栏" })).toHaveAttribute("title", "关闭侧边栏");
 

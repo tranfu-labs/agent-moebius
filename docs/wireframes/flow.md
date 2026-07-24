@@ -61,8 +61,7 @@ The desktop operator console is the default local experience. Its auxiliary stat
   │         └─ 无操作按钮 / watcher / GitHub / Codex / publisher / 状态写入
   ├─ [打开数据目录] → 系统文件管理器打开数据根
   ├─ [检查更新]
-  │    ├─ macOS：读取 GitHub latest release，有新版则跳转下载页
-  │    └─ Windows/Linux：electron-updater 自动下载安装
+  │    └─ macOS Apple Silicon：读取 GitHub latest release，有新版则跳转下载页
   │
   └─ 关闭窗口 → 停 runner → 关 local console server → 关 observer → 应用退出
 ```
@@ -72,6 +71,7 @@ The desktop operator console is the default local experience. Its auxiliary stat
 ```text
 部署 sites/marketeam/ → 打开唯一入口 index.html（Moebius 品牌）
   │
+  ├─ 页头显示 64px 母版派生图标；head 声明 32px favicon + 180px Apple Touch Icon
   ├─ skip link → #main；页头锚点 → why / how / trace / start
   ├─ 首屏：任务沿接手→处理→复核→交付推进
   │     └─ 首次复核失败 → 返回处理 → 再次复核通过
@@ -81,7 +81,7 @@ The desktop operator console is the default local experience. Its auxiliary stat
   ├─ 三个时刻：先对齐目标与边界 → 按要求逐条验收 → 带原因打回/重做/再验
   ├─ 过程底单：对齐→接手→打回→重做→拍板→验收
   │     └─ 明示“完整底单仍在做 / 示例记录·非产品实拍”
-  ├─ 开始行动：Mac + Codex CLI 或 Claude CLI 版本命令
+  ├─ 开始行动：Apple Silicon Mac + Codex CLI 或 Claude CLI 版本命令
   │     ├─ 官方安装指引可打开
   │     └─ 下载/源码未开放 → 按钮 disabled + 如实说明
   ├─ IntersectionObserver 管理循环/一次性动效
@@ -91,5 +91,6 @@ The desktop operator console is the default local experience. Its auxiliary stat
   │
   └─ 静态托管只发布 sites/marketeam/
        ├─ 无 build / API / SSR / env / SPA rewrite
-       └─ 回滚 = 恢复上一稳定 index.html 后重新部署
+       ├─ index.html 与 assets/ 下三个品牌图标一同发布
+       └─ 回滚 = 恢复上一稳定 index.html 与 assets/ 后重新部署
 ```

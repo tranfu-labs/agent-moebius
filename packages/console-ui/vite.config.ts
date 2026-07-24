@@ -13,6 +13,7 @@ export default defineConfig({
     }
   },
   build: {
+    assetsInlineLimit: Number.POSITIVE_INFINITY,
     lib: {
       entry: {
         index: resolve(here, "src/index.ts"),

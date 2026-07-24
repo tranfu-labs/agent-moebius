@@ -17,6 +17,7 @@ import {
   type AgentTeamDetailState,
   type AgentTeamSaveAllFailureView,
 } from "@/console/agent-team-detail";
+import { MoebiusLogo } from "@/brand/moebius-logo";
 import {
   AgentTeamsPage,
   type AgentTeamBuilderController,
@@ -807,7 +808,7 @@ export function OperatorConsole({
           className="window-drag-region flex h-[34px] shrink-0 items-center gap-2 px-4"
           data-testid="sidebar-brand-region"
         >
-          <MoebiusLogo />
+          <MoebiusLogo decorative />
           <span className="truncate font-display text-[14.5px] font-semibold tracking-[-0.01em]">Moebius</span>
         </div>
 
@@ -1703,29 +1704,6 @@ async function submitProjectFolderRepair(
   } catch (error) {
     setError(error instanceof Error ? error.message : String(error));
   }
-}
-
-function MoebiusLogo(): JSX.Element {
-  return (
-    <span
-      className="flex h-5 w-5 shrink-0 items-center justify-center text-ink"
-      role="img"
-      aria-label="Moebius Logo"
-    >
-      <svg
-        className="h-5 w-5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        aria-hidden="true"
-      >
-        <path d="M12 12c-1.4-1.9-2.8-3-4.4-3a3.6 3.6 0 1 0 0 7.2c1.6 0 3-1.1 4.4-3z" />
-        <path d="M12 12c1.4 1.9 2.8 3 4.4 3a3.6 3.6 0 1 0 0-7.2c-1.6 0-3 1.1-4.4 3z" />
-      </svg>
-    </span>
-  );
 }
 
 function SidebarAction({
