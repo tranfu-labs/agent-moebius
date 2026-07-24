@@ -27,6 +27,14 @@
 - **规则句 3** 引导所选团队传参 → `operator-console.tsx:1805-1816` `resolveNewConversationAgentTeamKey()`;`app.tsx:257, 1894` 状态传递
 - **规则句 6 & 18** gh 检查清除 → `env-doctor.ts:12-27, 29-37`、`status.ts:1, 21`、`main.ts:21, 175`、`status-page/index.html:38-43`、`status-page/status.js:85-91`、`env-doctor.test.ts:5-48`
 
+## Clarifying 结论（implement）
+
+- **引导完成判据**：采用 `<dataRoot>/.onboarding-completed` marker 文件；内容为完成时间的 ISO 字符串，文件存在且可读即视为完成，缺失、不可读或内容不是有效 ISO 时间均视为未完成。用户删除 marker 后可重新进入引导。
+- **引导所选团队如何等同于 last-used**：采用独立的一次性 pending pick，不写 `last-used-team.json`。第 4 步完成时通过顶层路由 state 传递，主页面消费一次后立即清除；真正成功创建会话时仍由既有逻辑更新 last-used。
+- **desktop GitHub runner mode**：本 change 只清理 proposal「影响」已列出的环境诊断和状态页展示，不修改 `runner-launch.ts`、`runner-child.ts` 或 runtime mode。彻底退役 desktop GitHub runner mode 另起 `retire-github-runner-mode` change，避免把启动生命周期变更混入 onboarding shell。
+- **中途关闭恢复**：首版不持久化当前步骤、环境结果或团队选择；marker 写入前关闭应用，下次从第 1 步重新开始并重新检查 Codex。
+- **env-doctor 收敛**：采用方案 A，`env-doctor.ts` 只导出 `checkCodex()`；引导和状态快照复用同一个检查函数，删除 gh CLI / gh auth 检查及解析逻辑。
+
 ## 方案
 
 ### 路由分叉
@@ -44,21 +52,21 @@
 
 ### First-run marker
 
-方案由 codex 在 clarifying 阶段与用户拍板(见 § PRD 缺口)。默认草案:
+采用 clarifying 已确认的 marker 文件方案:
 
 - `<dataRoot>/.onboarding-completed` marker 文件,内容 = 完成时间戳 ISO 字符串
-- 读:文件存在即视为已完成;不存在或读取失败视为未完成
+- 读:文件存在、可读且内容为有效 ISO 时间才视为已完成;不存在、损坏或读取失败视为未完成
 - 写:第 4 步「开始使用」触发,先写 marker 再 navigate
 - `isFirstRunOnboarding()` 换用它,`projects` 参数彻底去掉
+- marker 写入前不持久化中间步骤；中途关闭后从第 1 步重走
 
 ### 环境检查器(引导专用)
 
-引导第 1 步不复用 `env-doctor.ts` 里保留下来的 codex 检查逻辑? 有两个思路:
+引导第 1 步与状态快照复用 `env-doctor.ts` 的 Codex 检查逻辑。clarifying 采用方案 A:
 
-- **方案 A(倾向)**:`env-doctor.ts` 收敛为 `checkCodex()`,引导第 1 步直接调它。删除 `checkGhCliVersion` / `checkGhAuth` / `parseGhAuthAccount` 全部代码。
-- **方案 B**:引导独立写一个 `onboarding-env-check.ts`,`env-doctor` 保留(即使内部只剩 codex),让 status-page 与引导都读它。
-
-推荐 A(既然 gh 全清,`env-doctor` 存在的意义只剩 codex,单一函数即可)。留待 clarifying。
+- `env-doctor.ts` 收敛为 `checkCodex()`,引导第 1 步直接通过窄 IPC 调用它
+- 删除 `checkGhCliVersion` / `checkGhAuth` / `parseGhAuthAccount` 全部代码
+- 状态页继续展示 Codex 一项，不再拥有 gh 相关 DTO 或渲染分支
 
 ### 4 步 shell
 

@@ -1,5 +1,7 @@
 export * from "./ai-team-builder/team-builder-view";
 export * from "./ai-team-builder/team-proposal-card";
+export * from "./onboarding/onboarding-shell";
+export * from "./onboarding/onboarding-state";
 export * from "./console/accept-card";
 export * from "./console/agent-message";
 export * from "./console/agent-team-detail";

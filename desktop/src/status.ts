@@ -1,4 +1,4 @@
-import type { DesktopDoctorResult } from "./env-doctor.js";
+import type { DoctorCheck } from "./env-doctor.js";
 import type { RunnerSupervisorState } from "./runner-supervisor.js";
 import type { ShellPathResult } from "./shell-path.js";
 import type { UpdateDecision } from "./updater.js";
@@ -18,7 +18,7 @@ export interface DesktopStatusSnapshot {
     error?: string;
   };
   runner: RunnerSupervisorState;
-  doctor: DesktopDoctorResult | null;
+  doctor: { codex: DoctorCheck } | null;
   shellPath: ShellPathResult | null;
   seed: {
     status: "pending" | "ok" | "error";

@@ -45,8 +45,16 @@ import {
 } from "./session-log-clipboard.js";
 import {
   AI_TEAM_BUILDER_IPC_CHANNELS,
+  type AiTeamBuilderCommitRequest,
+  type AiTeamBuilderDraftRequest,
   type AiTeamBuilderIpcResponse,
+  type AiTeamBuilderTurnRequest,
 } from "./ai-team-builder-ipc.js";
+import type { DoctorCheck } from "./env-doctor.js";
+import {
+  ONBOARDING_IPC_CHANNELS,
+} from "./onboarding/contract.js";
+import type { OnboardingCompletionStatus } from "./onboarding/first-run-marker.js";
 
 export interface AgentMoebiusDesktopApi {
   onStatus(listener: (snapshot: DesktopStatusSnapshot) => void): () => void;
@@ -89,6 +97,15 @@ export interface AgentMoebiusDesktopApi {
   recordSuccessfulConversationAgentTeam(
     request: SuccessfulConversationAgentTeamRequest,
   ): Promise<LastUsedAgentTeam>;
+  getOnboardingStatus(): Promise<OnboardingCompletionStatus>;
+  completeOnboarding(): Promise<OnboardingCompletionStatus>;
+  checkOnboardingCodex(): Promise<DoctorCheck>;
+  copyOnboardingInstallCommand(): Promise<void>;
+  startOnboardingTeamBuilder(request: AiTeamBuilderDraftRequest): Promise<AiTeamBuilderIpcResponse>;
+  submitOnboardingTeamBuilder(request: AiTeamBuilderTurnRequest): Promise<AiTeamBuilderIpcResponse>;
+  adjustOnboardingTeamBuilder(request: AiTeamBuilderTurnRequest): Promise<AiTeamBuilderIpcResponse>;
+  retryOnboardingTeamBuilder(request: AiTeamBuilderDraftRequest): Promise<AiTeamBuilderIpcResponse>;
+  commitOnboardingTeamBuilder(request: AiTeamBuilderCommitRequest): Promise<AiTeamBuilderIpcResponse>;
   openExternalLink(url: string): Promise<void>;
 }
 
@@ -227,6 +244,52 @@ const api: AgentMoebiusDesktopApi = {
       TEAM_CONVERSATION_PREFERENCE_IPC_CHANNELS.recordSuccessful,
       request,
     ) as Promise<LastUsedAgentTeam>;
+  },
+  getOnboardingStatus() {
+    return ipcRenderer.invoke(
+      ONBOARDING_IPC_CHANNELS.status,
+    ) as Promise<OnboardingCompletionStatus>;
+  },
+  completeOnboarding() {
+    return ipcRenderer.invoke(
+      ONBOARDING_IPC_CHANNELS.complete,
+    ) as Promise<OnboardingCompletionStatus>;
+  },
+  checkOnboardingCodex() {
+    return ipcRenderer.invoke(ONBOARDING_IPC_CHANNELS.checkCodex) as Promise<DoctorCheck>;
+  },
+  copyOnboardingInstallCommand() {
+    return ipcRenderer.invoke(ONBOARDING_IPC_CHANNELS.copyInstallCommand) as Promise<void>;
+  },
+  startOnboardingTeamBuilder(request) {
+    return ipcRenderer.invoke(
+      ONBOARDING_IPC_CHANNELS.teamBuilderStart,
+      request,
+    ) as Promise<AiTeamBuilderIpcResponse>;
+  },
+  submitOnboardingTeamBuilder(request) {
+    return ipcRenderer.invoke(
+      ONBOARDING_IPC_CHANNELS.teamBuilderSubmit,
+      request,
+    ) as Promise<AiTeamBuilderIpcResponse>;
+  },
+  adjustOnboardingTeamBuilder(request) {
+    return ipcRenderer.invoke(
+      ONBOARDING_IPC_CHANNELS.teamBuilderAdjust,
+      request,
+    ) as Promise<AiTeamBuilderIpcResponse>;
+  },
+  retryOnboardingTeamBuilder(request) {
+    return ipcRenderer.invoke(
+      ONBOARDING_IPC_CHANNELS.teamBuilderRetry,
+      request,
+    ) as Promise<AiTeamBuilderIpcResponse>;
+  },
+  commitOnboardingTeamBuilder(request) {
+    return ipcRenderer.invoke(
+      ONBOARDING_IPC_CHANNELS.teamBuilderCommit,
+      request,
+    ) as Promise<AiTeamBuilderIpcResponse>;
   },
   openExternalLink(url) {
     return ipcRenderer.invoke(OPEN_EXTERNAL_LINK_IPC_CHANNEL, url) as Promise<void>;

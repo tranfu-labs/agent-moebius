@@ -239,9 +239,21 @@ describe("OperatorConsole", () => {
       status: "unfinished-draft" as const,
     };
     const teams = [agentTeam, unavailableLastUsed, draft];
+    const pendingTeam = {
+      ...agentTeam,
+      teamKey: "user:onboarding",
+      id: "onboarding",
+      ownership: "user" as const,
+      name: "引导所选团队",
+    };
     expect(resolveNewConversationAgentTeamKey(teams, null)).toBe(agentTeam.teamKey);
     expect(resolveNewConversationAgentTeamKey(teams, "user:deleted")).toBe(agentTeam.teamKey);
     expect(resolveNewConversationAgentTeamKey(teams, unavailableLastUsed.teamKey)).toBe(agentTeam.teamKey);
+    expect(resolveNewConversationAgentTeamKey(
+      [agentTeam, pendingTeam],
+      agentTeam.teamKey,
+      pendingTeam.teamKey,
+    )).toBe(pendingTeam.teamKey);
   });
 
   it("keeps a project with an unavailable directory out of the new-conversation flow", () => {
@@ -926,20 +938,15 @@ describe("OperatorConsole", () => {
     expect(onSelectSession).not.toHaveBeenCalled();
   });
 
-  it("keeps the sidebar visible throughout first-run onboarding", () => {
+  it("keeps an explicit closed sidebar preference after onboarding moved to its own route", () => {
     const onSidebarOpenChange = vi.fn();
     renderConsole({
       sidebarOpen: false,
-      isFirstRunOnboarding: true,
       onSidebarOpenChange,
     });
 
-    const closeButton = screen.getByRole("button", { name: "关闭侧边栏" });
-    expect(screen.getByTestId("operator-sidebar")).toBeVisible();
-    expect(closeButton).toBeDisabled();
-    expect(closeButton).toHaveAttribute("title", "首次启动引导期间侧边栏保持打开");
-    expect(screen.queryByRole("button", { name: "打开侧边栏" })).not.toBeInTheDocument();
-    fireEvent.click(closeButton);
+    expect(screen.getByTestId("operator-sidebar")).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "打开侧边栏" })).toBeInTheDocument();
     expect(onSidebarOpenChange).not.toHaveBeenCalled();
   });
 

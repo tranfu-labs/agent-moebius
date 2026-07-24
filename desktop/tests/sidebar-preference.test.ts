@@ -24,10 +24,9 @@ describe("sidebar visibility preference", () => {
     expect(() => writeSidebarVisibilityPreference({ setItem: () => { throw new Error("full"); } }, "open")).not.toThrow();
   });
 
-  it("recognizes the no-project configuration as first-run onboarding", () => {
+  it("uses only the completion marker result for first-run onboarding", () => {
     expect(isFirstRunOnboarding(null)).toBe(false);
-    expect(isFirstRunOnboarding([])).toBe(true);
-    expect(isFirstRunOnboarding([{ folderPath: "" }, { folderPath: "  " }])).toBe(true);
-    expect(isFirstRunOnboarding([{ folderPath: "/Users/example/project" }])).toBe(false);
+    expect(isFirstRunOnboarding(false)).toBe(true);
+    expect(isFirstRunOnboarding(true)).toBe(false);
   });
 });

@@ -8,8 +8,6 @@ const elements = {
   openObserver: document.getElementById("open-observer"),
   codexDot: document.getElementById("codex-dot"),
   codexStatus: document.getElementById("codex-status"),
-  ghDot: document.getElementById("gh-dot"),
-  ghStatus: document.getElementById("gh-status"),
   configDot: document.getElementById("config-dot"),
   configStatus: document.getElementById("config-status"),
   dataRoot: document.getElementById("data-root"),
@@ -83,13 +81,6 @@ function renderObserver(observer) {
 
 function renderDoctor(snapshot) {
   renderCheck(elements.codexDot, elements.codexStatus, snapshot.doctor?.codex, "检测中");
-  const ghMessage =
-    snapshot.doctor?.gh.status === "ok" && snapshot.doctor?.ghAuth.status === "ok"
-      ? snapshot.doctor.ghAuth
-      : snapshot.doctor?.gh.status === "error"
-        ? snapshot.doctor.gh
-        : snapshot.doctor?.ghAuth;
-  renderCheck(elements.ghDot, elements.ghStatus, ghMessage, "检测中");
 
   elements.configDot.className = "dot";
   if (snapshot.seed.status === "ok") {

@@ -29,7 +29,7 @@ export function writeSidebarVisibilityPreference(
 }
 
 export function isFirstRunOnboarding(
-  projects: ReadonlyArray<{ folderPath: string }> | null,
+  onboardingCompleted: boolean | null,
 ): boolean {
-  return projects !== null && projects.every((project) => project.folderPath.trim() === "");
+  return onboardingCompleted === false;
 }

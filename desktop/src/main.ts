@@ -18,7 +18,7 @@ import { startLocalConsoleServer, type StartedLocalConsoleServer } from "../../s
 import { createSqliteLocalConsoleStore } from "../../src/local-console/store.js";
 import { startObserverServer, type StartedObserverServer } from "../../src/observer/server.js";
 import { buildSeedCopyPlan, executeSeedCopyPlan, resolveDesktopDataRoot } from "./data-root.js";
-import { checkDesktopEnvironment } from "./env-doctor.js";
+import { checkCodex } from "./env-doctor.js";
 import { integratedMainWindowOptions } from "./main-window-options.js";
 import { RunnerSupervisor, type RunnerProcess } from "./runner-supervisor.js";
 import { DESKTOP_RUNNER_ARGS } from "./runner-launch.js";
@@ -73,6 +73,7 @@ import {
   openValidatedExternalLink,
 } from "./external-link.js";
 import { registerSessionLogClipboardIpc } from "./session-log-clipboard.js";
+import { registerOnboardingIpc } from "./onboarding/ipc.js";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(dirname, "..", "..");
@@ -147,6 +148,11 @@ async function boot(): Promise<void> {
     builder: new AiTeamBuilder({ dataRoot: status.dataRoot }),
   });
 
+  registerOnboardingIpc({
+    ipcMain,
+    getDataRoot: () => status.dataRoot,
+    clipboard,
+  });
   createWindow();
   publishStatus();
 
@@ -178,7 +184,7 @@ async function boot(): Promise<void> {
   }
   publishStatus();
 
-  status.doctor = await checkDesktopEnvironment();
+  status.doctor = { codex: await checkCodex() };
   publishStatus();
 
   await startObserver();

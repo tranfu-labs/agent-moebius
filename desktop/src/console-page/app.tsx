@@ -50,14 +50,29 @@ import type {
   SuccessfulConversationAgentTeamRequest,
 } from "../team-conversation-preference.js";
 import type {
+  AiTeamBuilderCommitRequest,
+  AiTeamBuilderDraftRequest,
+  AiTeamBuilderIpcResponse,
+  AiTeamBuilderTurnRequest,
+} from "../ai-team-builder-ipc.js";
+import type { DoctorCheck } from "../env-doctor.js";
+import type { OnboardingCompletionStatus } from "../onboarding/first-run-marker.js";
+import type {
   AgentTeamExternalChangeRequest,
   AgentTeamExternalChangeResponse,
 } from "../team-external-change.js";
-import type { AiTeamBuilderIpcResponse } from "../ai-team-builder-ipc.js";
 import type { AiTeamBuilderState } from "../ai-team-builder/dto.js";
 import { tryParseAgentMarkdownIdentity } from "../team-model.js";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  HashRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import {
   acknowledgeDisplayedResult,
   ConsoleStateActions,
@@ -84,6 +99,7 @@ import {
   writeSidebarVisibilityPreference,
   type SidebarVisibilityPreference,
 } from "./sidebar-preference.js";
+import { OnboardingRoute } from "../onboarding/onboarding-route.js";
 import {
   clearConsoleSelectionPreference,
   decideConsoleSelectionCommit,
@@ -145,7 +161,7 @@ import { interruptLocalConsoleRun } from "./interrupt.js";
 import { refillStoppedRunDraft } from "./edit-resend.js";
 import type { CopySessionLogPathResult } from "../session-log-clipboard.js";
 
-interface DesktopApi {
+export interface DesktopApi {
   getLocalConsoleUrl?: () => Promise<string | null>;
   getLocalConsoleAttachmentCapability?: () => Promise<string | null>;
   copySessionLogPath?: (sessionId: string) => Promise<CopySessionLogPathResult>;
@@ -186,6 +202,15 @@ interface DesktopApi {
   recordSuccessfulConversationAgentTeam?: (
     request: SuccessfulConversationAgentTeamRequest,
   ) => Promise<LastUsedAgentTeam>;
+  getOnboardingStatus?: () => Promise<OnboardingCompletionStatus>;
+  completeOnboarding?: () => Promise<OnboardingCompletionStatus>;
+  checkOnboardingCodex?: () => Promise<DoctorCheck>;
+  copyOnboardingInstallCommand?: () => Promise<void>;
+  startOnboardingTeamBuilder?: (request: AiTeamBuilderDraftRequest) => Promise<AiTeamBuilderIpcResponse>;
+  submitOnboardingTeamBuilder?: (request: AiTeamBuilderTurnRequest) => Promise<AiTeamBuilderIpcResponse>;
+  adjustOnboardingTeamBuilder?: (request: AiTeamBuilderTurnRequest) => Promise<AiTeamBuilderIpcResponse>;
+  retryOnboardingTeamBuilder?: (request: AiTeamBuilderDraftRequest) => Promise<AiTeamBuilderIpcResponse>;
+  commitOnboardingTeamBuilder?: (request: AiTeamBuilderCommitRequest) => Promise<AiTeamBuilderIpcResponse>;
   openExternalLink?: (url: string) => Promise<void>;
 }
 
@@ -199,6 +224,8 @@ interface DesktopStatusSnapshot {
     sqlitePath?: string;
     error?: string;
   };
+  shellPath?: { status: "ok" | "fallback"; path: string; detail?: string } | null;
+  seed?: { status: "pending" | "ok" | "error" };
 }
 
 interface LocalConsoleState {
@@ -233,6 +260,112 @@ declare global {
 }
 
 export function App(): JSX.Element {
+  return (
+    <HashRouter>
+      <DesktopRoutes />
+    </HashRouter>
+  );
+}
+
+function DesktopRoutes(): JSX.Element {
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean | null>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let active = true;
+    const readStatus = async () => {
+      if (window.agentMoebius?.getOnboardingStatus === undefined) {
+        if (active) {
+          setOnboardingCompleted(true);
+        }
+        return;
+      }
+      try {
+        const result = await window.agentMoebius.getOnboardingStatus();
+        if (active) {
+          setOnboardingCompleted(result.completed);
+        }
+      } catch {
+        if (active) {
+          setOnboardingCompleted(false);
+        }
+      }
+    };
+    void readStatus();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (onboardingCompleted === null) {
+    return <main className="h-screen min-h-[560px] bg-canvas" data-testid="desktop-route-loading" />;
+  }
+
+  const completeOnboarding = async (pendingAgentTeamKey: string) => {
+    const result = await window.agentMoebius?.completeOnboarding?.();
+    if (result?.completed !== true) {
+      throw new Error("无法保存引导完成状态。");
+    }
+    setOnboardingCompleted(true);
+    navigate("/", {
+      replace: true,
+      state: { pendingAgentTeamKey } satisfies OnboardingNavigationState,
+    });
+  };
+
+  return (
+    <Routes>
+      <Route
+        path="/onboarding/*"
+        element={isFirstRunOnboarding(onboardingCompleted)
+          ? <OnboardingRoute onComplete={completeOnboarding} />
+          : <Navigate replace to="/" />}
+      />
+      <Route
+        path="/*"
+        element={isFirstRunOnboarding(onboardingCompleted)
+          ? <Navigate replace to="/onboarding" />
+          : <OperatorConsoleRoute />}
+      />
+    </Routes>
+  );
+}
+
+interface OnboardingNavigationState {
+  pendingAgentTeamKey: string;
+}
+
+function OperatorConsoleRoute(): JSX.Element {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [pendingAgentTeamKey] = useState(() => readPendingAgentTeamKey(location.state));
+
+  useEffect(() => {
+    if (readPendingAgentTeamKey(location.state) === null) {
+      return;
+    }
+    navigate(
+      { pathname: location.pathname, search: location.search, hash: location.hash },
+      { replace: true, state: null },
+    );
+  }, [location.hash, location.pathname, location.search, location.state, navigate]);
+
+  return <OperatorConsoleApp pendingAgentTeamKey={pendingAgentTeamKey} />;
+}
+
+function readPendingAgentTeamKey(value: unknown): string | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const key = (value as Partial<OnboardingNavigationState>).pendingAgentTeamKey;
+  return typeof key === "string" && key.trim().length > 0 ? key : null;
+}
+
+export function OperatorConsoleApp({
+  pendingAgentTeamKey: initialPendingAgentTeamKey = null,
+}: {
+  pendingAgentTeamKey?: string | null;
+}): JSX.Element {
   const [apiBase, setApiBase] = useState<string | null>(readQueryApiBase());
   const [attachmentCapability, setAttachmentCapability] = useState<string | null>(null);
   const [initialSelectionPreference] = useState<ConsoleSelection | null>(() =>
@@ -268,6 +401,9 @@ export function App(): JSX.Element {
   const [newConversation, dispatchNewConversation] = useReducer(reduceNewConversationDraft, null);
   const [agentTeamsState, setAgentTeamsState] = useState<OperatorAgentTeamsState>({ status: "loading" });
   const [lastUsedAgentTeamKey, setLastUsedAgentTeamKey] = useState<string | null>(null);
+  const [pendingAgentTeamKey, setPendingAgentTeamKey] = useState<string | null>(
+    initialPendingAgentTeamKey,
+  );
   const [agentTeamSelection, setAgentTeamSelection] = useState<AgentTeamSelection | null>(null);
   const [activeAgentTeamKey, setActiveAgentTeamKey] = useState<string | null>(null);
   const [agentTeamBuilderState, setAgentTeamBuilderState] = useState<TeamBuilderViewState | null>(null);
@@ -1696,7 +1832,27 @@ export function App(): JSX.Element {
   const preferredNewConversationTeamKey = useMemo(() => resolveNewConversationAgentTeamKey(
     agentTeamsState.status === "ready" ? agentTeamsState.teams : [],
     lastUsedAgentTeamKey,
-  ), [agentTeamsState, lastUsedAgentTeamKey]);
+    pendingAgentTeamKey,
+  ), [agentTeamsState, lastUsedAgentTeamKey, pendingAgentTeamKey]);
+
+  useEffect(() => {
+    if (
+      pendingAgentTeamKey === null
+      || newConversation === null
+      || agentTeamsState.status !== "ready"
+    ) {
+      return;
+    }
+    const resolvedTeamKey = resolveNewConversationAgentTeamKey(
+      agentTeamsState.teams,
+      lastUsedAgentTeamKey,
+      pendingAgentTeamKey,
+    );
+    if (newConversation.teamKey !== resolvedTeamKey) {
+      dispatchNewConversation({ type: "select-team", teamKey: resolvedTeamKey });
+    }
+    setPendingAgentTeamKey(null);
+  }, [agentTeamsState, lastUsedAgentTeamKey, newConversation, pendingAgentTeamKey]);
 
   useEffect(() => {
     if (newConversation === null || agentTeamsState.status !== "ready") {
@@ -2314,7 +2470,6 @@ export function App(): JSX.Element {
       isSessionProjectUpdating={selectionMutationKind === "rebind-session"}
       isProjectMutationPending={isProjectMutationPending}
       sidebarOpen={sidebarVisibilityPreference === "open"}
-      isFirstRunOnboarding={isFirstRunOnboarding(state?.projects ?? null)}
       onSidebarOpenChange={setSidebarOpen}
       rightSidebarOpen={rightSidebarVisibilityPreference === "open"}
       rightSidebarWidth={rightSidebarWidth}

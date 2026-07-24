@@ -365,7 +365,6 @@ export interface OperatorConsoleProps {
   isSessionProjectUpdating?: boolean;
   isProjectMutationPending?: boolean;
   sidebarOpen?: boolean;
-  isFirstRunOnboarding?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
   rightSidebarOpen?: boolean;
   rightSidebarWidth?: number;
@@ -482,7 +481,6 @@ export function OperatorConsole({
   isSessionProjectUpdating = false,
   isProjectMutationPending = false,
   sidebarOpen,
-  isFirstRunOnboarding = false,
   onSidebarOpenChange,
   rightSidebarOpen,
   rightSidebarWidth,
@@ -574,8 +572,8 @@ export function OperatorConsole({
     hasPendingWork: messages.some((message) => message.status === "pending" || message.status === "running"),
   });
   const requestedSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
-  const sidebarAutoCollapsed = !isFirstRunOnboarding && requestedSidebarOpen && isNarrowWindow;
-  const effectiveSidebarOpen = isFirstRunOnboarding || (requestedSidebarOpen && !isNarrowWindow);
+  const sidebarAutoCollapsed = requestedSidebarOpen && isNarrowWindow;
+  const effectiveSidebarOpen = requestedSidebarOpen && !isNarrowWindow;
   const requestedRightSidebarOpen = rightSidebarOpen ?? uncontrolledRightSidebarOpen;
   const effectiveRightSidebarOpen = applicationView === "conversation" && requestedRightSidebarOpen;
   const effectiveRightSidebarWidth = clampRightSidebarWidth(
@@ -668,9 +666,6 @@ export function OperatorConsole({
   };
 
   const setSidebarOpen = (open: boolean) => {
-    if (isFirstRunOnboarding && !open) {
-      return;
-    }
     if (sidebarOpen === undefined) {
       setUncontrolledSidebarOpen(open);
     }
@@ -800,8 +795,7 @@ export function OperatorConsole({
             type="button"
             className="window-no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-40"
             aria-label="关闭侧边栏"
-            title={isFirstRunOnboarding ? "首次启动引导期间侧边栏保持打开" : "关闭侧边栏"}
-            disabled={isFirstRunOnboarding}
+            title="关闭侧边栏"
             onClick={() => setSidebarOpen(false)}
           >
             <PanelLeftClose className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
@@ -1809,7 +1803,14 @@ function ApplicationPlaceholder({
 export function resolveNewConversationAgentTeamKey(
   teams: readonly OperatorAgentTeam[],
   lastUsedAgentTeamKey: string | null,
+  pendingAgentTeamKey: string | null = null,
 ): string | null {
+  const pendingTeam = pendingAgentTeamKey === null
+    ? undefined
+    : teams.find((team) => team.teamKey === pendingAgentTeamKey && team.canCreateConversation);
+  if (pendingTeam !== undefined) {
+    return pendingTeam.teamKey;
+  }
   const recordedTeam = lastUsedAgentTeamKey === null
     ? undefined
     : teams.find((team) => team.teamKey === lastUsedAgentTeamKey && team.canCreateConversation);
