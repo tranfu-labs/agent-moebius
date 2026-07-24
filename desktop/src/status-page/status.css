@@ -49,6 +49,19 @@ h1 {
   font-size: 20px;
 }
 
+.brand-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-title img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
 h2 {
   font-size: 15px;
   margin-bottom: 14px;

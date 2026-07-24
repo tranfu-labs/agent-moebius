@@ -10,6 +10,7 @@ import { assertCompiledRendererStyles } from "./renderer-style-contract.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
+const brandAssets = path.join(root, "..", "assets", "brand", "generated");
 const yamlBrowserEntry = path.join(
   path.dirname(fileURLToPath(import.meta.resolve("yaml/package.json"))),
   "browser/index.js",
@@ -90,6 +91,7 @@ await build({
   outfile: path.join(dist, "console-page/app.js"),
   loader: {
     ".css": "css",
+    ".png": "dataurl",
   },
 });
 
@@ -99,6 +101,10 @@ assertCompiledRendererStyles(rendererCss);
 
 await fs.copyFile(path.join(root, "src/console-page/index.html"), path.join(dist, "console-page/index.html"));
 await fs.copyFile(path.join(root, "src/console-page/console.css"), path.join(dist, "console-page/console.css"));
+await fs.copyFile(path.join(brandAssets, "favicon-32.png"), path.join(dist, "console-page/favicon-32.png"));
 await fs.copyFile(path.join(root, "src/status-page/index.html"), path.join(dist, "status-page/index.html"));
 await fs.copyFile(path.join(root, "src/status-page/status.css"), path.join(dist, "status-page/status.css"));
 await fs.copyFile(path.join(root, "src/status-page/status.js"), path.join(dist, "status-page/status.js"));
+await fs.copyFile(path.join(brandAssets, "favicon-32.png"), path.join(dist, "status-page/favicon-32.png"));
+await fs.copyFile(path.join(brandAssets, "ui-icon-64.png"), path.join(dist, "status-page/moebius-icon-64.png"));
+await fs.copyFile(path.join(brandAssets, "app-icon-1024.png"), path.join(dist, "app-icon-1024.png"));

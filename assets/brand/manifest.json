@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "generator": "scripts/generate-brand-assets.mjs",
+  "source": {
+    "path": "assets/brand/moebius.png",
+    "width": 1254,
+    "height": 1254,
+    "bytes": 754041,
+    "sha256": "d590d7d5d2c087cbf12e775eb44aac7a7f97049c1c913e7d2ad74be0f70398db"
+  },
+  "assets": [
+    {
+      "path": "assets/brand/generated/app-icon-1024.png",
+      "purpose": "Electron macOS application icon source",
+      "width": 1024,
+      "height": 1024,
+      "maxBytes": 1048576,
+      "bytes": 697917,
+      "sha256": "4c6b9f85535e809fca2e3985cf84dd4397b5416607d33c9a4a6425cf9ea5583a"
+    },
+    {
+      "path": "assets/brand/generated/ui-icon-64.png",
+      "purpose": "Shared in-app brand mark",
+      "width": 64,
+      "height": 64,
+      "maxBytes": 32768,
+      "bytes": 3650,
+      "sha256": "64b6140c2ffed5f82ba011c35b7caa57225fc5e3a3d544f04177775e5d14fdb0"
+    },
+    {
+      "path": "assets/brand/generated/favicon-32.png",
+      "purpose": "Desktop renderer and marketing-site favicon",
+      "width": 32,
+      "height": 32,
+      "maxBytes": 16384,
+      "bytes": 1378,
+      "sha256": "068d16f62ef3ce3ad063f090fa76891e39c12c1c5aa7cbfb840b76f0dc02f741"
+    },
+    {
+      "path": "assets/brand/generated/apple-touch-icon-180.png",
+      "purpose": "Marketing-site Apple Touch Icon",
+      "width": 180,
+      "height": 180,
+      "maxBytes": 131072,
+      "bytes": 26475,
+      "sha256": "450562cf7faa4f96509a87041605a7ce6ceaab7e08d6043fb5ae5ca0e0aa9ad1"
+    },
+    {
+      "path": "sites/marketeam/assets/moebius-icon-64.png",
+      "purpose": "Marketing-site header brand mark",
+      "width": 64,
+      "height": 64,
+      "maxBytes": 32768,
+      "bytes": 3650,
+      "sha256": "64b6140c2ffed5f82ba011c35b7caa57225fc5e3a3d544f04177775e5d14fdb0",
+      "duplicateOf": "assets/brand/generated/ui-icon-64.png"
+    },
+    {
+      "path": "sites/marketeam/assets/favicon-32.png",
+      "purpose": "Marketing-site favicon deployment copy",
+      "width": 32,
+      "height": 32,
+      "maxBytes": 16384,
+      "bytes": 1378,
+      "sha256": "068d16f62ef3ce3ad063f090fa76891e39c12c1c5aa7cbfb840b76f0dc02f741",
+      "duplicateOf": "assets/brand/generated/favicon-32.png"
+    },
+    {
+      "path": "sites/marketeam/assets/apple-touch-icon.png",
+      "purpose": "Marketing-site Apple Touch Icon deployment copy",
+      "width": 180,
+      "height": 180,
+      "maxBytes": 131072,
+      "bytes": 26475,
+      "sha256": "450562cf7faa4f96509a87041605a7ce6ceaab7e08d6043fb5ae5ca0e0aa9ad1",
+      "duplicateOf": "assets/brand/generated/apple-touch-icon-180.png"
+    }
+  ]
+}

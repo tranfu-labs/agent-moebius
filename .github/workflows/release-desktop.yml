@@ -7,16 +7,13 @@ on:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-          - os: windows-latest
-          - os: ubuntu-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Assert native Apple Silicon runner
+        run: |
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(uname -m)" = "arm64"
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4

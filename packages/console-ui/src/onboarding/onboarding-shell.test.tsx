@@ -45,6 +45,7 @@ describe("OnboardingShell", () => {
       onRecheckCodex,
     });
 
+    expect(screen.getByTestId("moebius-logo")).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByRole("button", { name: "继续" })).toBeDisabled();
     expect(screen.getByText("brew install codex")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "复制" }));

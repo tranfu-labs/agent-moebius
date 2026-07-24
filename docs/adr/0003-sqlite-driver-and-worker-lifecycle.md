@@ -24,13 +24,13 @@ proposed
 - 终端模式使用系统 Node，桌面模式使用 Electron 内嵌 Node，两者可能需要不同 ABI 的二进制构建产物。
 - Electron 开发态需要针对 Electron 版本 rebuild；esbuild 必须把原生模块标记为 external。
 - electron-builder 必须把 production dependency 带入安装包，并正确 rebuild、按平台/架构打包及从 ASAR 解出 `.node` 文件。
-- macOS、Windows、Linux 以及 x64/arm64 构建都需要验证对应 prebuild 或本地编译工具链；升级 Electron 时也要重新验证兼容性。
+- 正式桌面交付只覆盖 macOS arm64，但该架构仍需验证对应 prebuild 或本地编译工具链；升级 Electron 时也要重新验证兼容性。
 
 `better-sqlite3` 同样是同步 API。仅替换 driver 并不会自动解决 Worker 生命周期问题；如果移除 Worker，反而会破坏当前数据库操作有界失败的保证。
 
 ## 决策
 当前不为了消除 `ExperimentalWarning` 单独迁移到 `better-sqlite3`，继续使用 Node/Electron 自带的 `node:sqlite`，保持零第三方原生数据库依赖和
-现有三平台打包路径。
+现有 macOS arm64 打包路径。
 
 在持久 Worker 改造落地前，根 `package.json` 的 `start` 与 `desktop` 开发入口通过 `cross-env` 设置
 `NODE_OPTIONS=--disable-warning=ExperimentalWarning`，作为减少终端与桌面开发态重复 SQLite 实验警告的临时运维例外。该设置覆盖入口进程及其 Node
@@ -51,13 +51,13 @@ proposed
 
 - `node:sqlite` 的稳定性、API 或性能无法满足已测量的产品需求。
 - 需要 `better-sqlite3` 独有的扩展或能力。
-- Electron 与系统 Node 的原生模块 rebuild、ASAR、跨平台/架构 CI 已有稳定且持续验证的交付链路。
+- Electron 与系统 Node 的原生模块 rebuild、ASAR、macOS arm64 CI 已有稳定且持续验证的交付链路。
 
 ## 后果
 正面后果：
 
 - 保留当前标准 SQLite 数据文件、schema、迁移逻辑和事务语义。
-- 不增加原生 addon、Node/Electron ABI、node-gyp 或额外三平台打包维护成本。
+- 不增加原生 addon、Node/Electron ABI、node-gyp 或额外 macOS arm64 打包维护成本。
 - 持久 Worker 能消除正常路径上重复创建 Worker、连接和 schema 检查的大部分开销。
 - 保留同步 SQLite 卡死时通过终止 Worker 实现硬超时的能力。
 - SQLite 实验警告可被限制在实现边界内处理，不再污染正常启动日志。
