@@ -15,6 +15,10 @@ const developmentTeam: OperatorAgentTeam = {
   description: "把目标变成可验证的实现",
   primaryAgentSlug: "dev-manager",
   memberOrder: ["dev-manager", "dev"],
+  relayBeats: [
+    { speakerSlug: "dev-manager", message: "拆解任务" },
+    { speakerSlug: "dev", message: "完成实现" },
+  ],
   members: [
     {
       slug: "dev-manager",
@@ -63,10 +67,12 @@ describe("OnboardingShell", () => {
     ));
     fireEvent.click(screen.getByRole("button", { name: "继续" }));
     expect(screen.getByTestId("onboarding-relay-demo-slot")).toHaveAttribute("data-relay-run", "1");
+    fireEvent.click(screen.getByRole("button", { name: "重新播放" }));
+    expect(screen.getByTestId("onboarding-relay-demo-slot")).toHaveAttribute("data-relay-run", "2");
     fireEvent.click(screen.getByRole("button", { name: "继续" }));
     expect(screen.getByTestId("onboarding-step-4")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "上一步" }));
-    expect(screen.getByTestId("onboarding-relay-demo-slot")).toHaveAttribute("data-relay-run", "2");
+    expect(screen.getByTestId("onboarding-relay-demo-slot")).toHaveAttribute("data-relay-run", "3");
     fireEvent.click(screen.getByRole("button", { name: "上一步" }));
 
     expect(screen.getByTestId("onboarding-step-2")).toBeInTheDocument();

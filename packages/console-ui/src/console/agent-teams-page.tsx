@@ -42,6 +42,11 @@ export interface OperatorAgentTeamMember {
   available?: boolean;
 }
 
+export interface OperatorAgentTeamRelayBeat {
+  speakerSlug: string;
+  message: string;
+}
+
 export interface OperatorAgentTeam {
   teamKey: string;
   id: string;
@@ -50,6 +55,7 @@ export interface OperatorAgentTeam {
   description: string | null;
   primaryAgentSlug: string | null;
   memberOrder: string[];
+  relayBeats?: OperatorAgentTeamRelayBeat[];
   members: OperatorAgentTeamMember[];
   status: "usable" | "unfinished-draft" | "needs-repair";
   canCreateConversation: boolean;

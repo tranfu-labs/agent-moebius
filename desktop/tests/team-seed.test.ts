@@ -38,6 +38,14 @@ describe("built-in team seed", () => {
         description: "负责软件方案、实现、测试、复核和主理收尾",
         primaryAgentSlug: "dev-manager",
         memberOrder: ["dev-manager", "dev", "qa"],
+        relayBeats: [
+          { speakerSlug: "dev-manager" },
+          { speakerSlug: "dev" },
+          { speakerSlug: "qa" },
+          { speakerSlug: "dev" },
+          { speakerSlug: "qa" },
+          { speakerSlug: "dev-manager" },
+        ],
       },
     });
     expect(snapshot.members.map(({ slug, displayName, description }) => ({ slug, displayName, description }))).toEqual([

@@ -54,6 +54,8 @@ describe("desktop onboarding routing", () => {
     expect(selectedTeam.textContent).toContain("开发团队");
     await clickButton("继续");
     await findElement('[data-testid="onboarding-relay-demo-slot"]');
+    expect(document.body.textContent).toContain("拆解任务");
+    expect(document.querySelectorAll('[data-testid="relay-message-row"]')).toHaveLength(2);
     await clickButton("继续");
     await findElement('[data-testid="onboarding-step-4"]');
     await clickButton("开始使用");
@@ -205,6 +207,10 @@ const developmentTeam = {
     description: "把目标变成可验证的实现",
     primaryAgentSlug: "dev-manager",
     memberOrder: ["dev-manager", "dev"],
+    relayBeats: [
+      { speakerSlug: "dev-manager", message: "拆解任务" },
+      { speakerSlug: "dev", message: "完成实现" },
+    ],
   },
   members: [
     { slug: "dev-manager", displayName: "技术负责人", description: "拆解并收尾" },

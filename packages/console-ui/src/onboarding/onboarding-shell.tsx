@@ -8,7 +8,6 @@ import {
   MessageSquarePlus,
   RefreshCw,
   Sparkles,
-  Users,
   X,
 } from "lucide-react";
 import {
@@ -36,6 +35,7 @@ import {
   resolveDefaultOnboardingTeamKey,
   type OnboardingStep,
 } from "./onboarding-state";
+import { RelayDemo } from "./relay-demo/relay-demo";
 
 export type OnboardingEnvironmentState =
   | { status: "checking" }
@@ -242,7 +242,13 @@ export function OnboardingShell({
               )
             ) : null}
             {state.step === 3 ? (
-              <RelayDemoSlot relayRun={state.relayRun} team={selectedTeam} />
+              selectedTeam === null ? null : (
+                <RelayDemo
+                  relayRun={state.relayRun}
+                  team={selectedTeam}
+                  onReplay={() => dispatch({ type: "replay-relay" })}
+                />
+              )
             ) : null}
             {state.step === 4 ? <ReadyStep /> : null}
             {completionState === "error" ? (
@@ -521,42 +527,6 @@ function TeamChoiceCard({
         <span className="mt-3 block pl-[30px] text-xs leading-5 text-sub">{team.description}</span>
       ) : null}
     </button>
-  );
-}
-
-function RelayDemoSlot({
-  team,
-  relayRun,
-}: {
-  team: OperatorAgentTeam | null;
-  relayRun: number;
-}): JSX.Element {
-  return (
-    <section
-      className="overflow-hidden rounded-xl border border-line bg-card"
-      data-testid="onboarding-relay-demo-slot"
-      data-relay-run={relayRun}
-      aria-label="团队接力演示"
-    >
-      <div className="flex items-center justify-between gap-3 border-b border-line bg-sunken px-4 py-3">
-        <span className="flex items-center gap-2 text-xs text-sub">
-          <i className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
-          接力演示
-        </span>
-        <strong className="truncate text-sm font-semibold text-ink">
-          {team?.name ?? "所选团队"}
-        </strong>
-      </div>
-      <div className="flex min-h-56 flex-col items-center justify-center px-6 py-8 text-center">
-        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-sunken text-sub">
-          <Users className="h-6 w-6" strokeWidth={1.4} aria-hidden="true" />
-        </span>
-        <h2 className="mt-4 text-sm font-semibold text-ink">准备观看这支团队的接力</h2>
-        <p className="mt-2 max-w-sm text-xs leading-5 text-sub">
-          从主 Agent 派工到成员执行、复核和带证据收尾，都会在同一条时间线中呈现。
-        </p>
-      </div>
-    </section>
   );
 }
 

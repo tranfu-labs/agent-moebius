@@ -104,6 +104,7 @@ async function writeStagedTeam(
     description: proposal.team.purpose,
     primaryAgentSlug: proposal.primaryAgentSlug,
     memberOrder: proposal.members.map((member) => member.slug),
+    relayBeats: proposal.relayBeats.map((beat) => ({ ...beat })),
   };
   await fs.writeFile(path.join(directory, TEAM_MANIFEST_FILE), serializeTeamDefinition(definition), "utf8");
   for (const member of proposal.members) {
@@ -139,6 +140,9 @@ async function rereadStagedTeam(input: {
   }
   if (JSON.stringify(definition.memberOrder) !== JSON.stringify(input.proposal.members.map(({ slug }) => slug))) {
     throw new AiTeamWriterError("Staged team member order does not match the proposal.");
+  }
+  if (JSON.stringify(definition.relayBeats) !== JSON.stringify(input.proposal.relayBeats)) {
+    throw new AiTeamWriterError("Staged team relay beats do not match the proposal.");
   }
 
   const members: TeamMemberSnapshot[] = [];

@@ -399,6 +399,10 @@ async function writeBuiltInTeam(dataRoot: string): Promise<void> {
     description: "测试团队",
     primaryAgentSlug: "manager",
     memberOrder: ["dev", "manager"],
+    relayBeats: [
+      { speakerSlug: "manager", message: "先拆解任务。" },
+      { speakerSlug: "dev", message: "开始实现。" },
+    ],
   }), "utf8");
   for (const [slug, title] of [["dev", "开发"], ["manager", "主 Agent"]] as const) {
     const memberDirectory = path.join(team.directory, "members", slug);

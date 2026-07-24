@@ -227,6 +227,7 @@ function toOperatorAgentTeam(team: AgentTeamListItem): OperatorAgentTeam {
     description: team.definition?.description ?? null,
     primaryAgentSlug: team.definition?.primaryAgentSlug ?? null,
     memberOrder: team.definition?.memberOrder ?? [],
+    relayBeats: team.definition?.relayBeats.map((beat) => ({ ...beat })) ?? [],
     members: team.members.map((member) => ({ ...member, available: member.available !== false })),
     status: team.status,
     canCreateConversation: team.canCreateConversation,

@@ -29,6 +29,7 @@ const usableDefinition: TeamDefinition = {
   description: "负责软件开发任务",
   primaryAgentSlug: "manager",
   memberOrder: ["manager"],
+  relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
 };
 
 afterEach(async () => {

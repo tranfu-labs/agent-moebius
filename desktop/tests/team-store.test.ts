@@ -30,6 +30,10 @@ const usableDefinition: TeamDefinition = {
   description: "负责软件开发任务",
   primaryAgentSlug: "manager",
   memberOrder: ["manager", "developer"],
+  relayBeats: [
+    { speakerSlug: "manager", message: "拆解任务" },
+    { speakerSlug: "developer", message: "完成实现" },
+  ],
 };
 
 afterEach(async () => {
@@ -91,7 +95,11 @@ describe("team disk store", () => {
   it("marks partial canonical member identity as needing repair", async () => {
     const dataRoot = await makeDataRoot();
     const location = resolveTeamLocation({ dataRoot, teamId: "invalid-metadata", ownership: "user" });
-    await writeTeamDefinition(location, { ...usableDefinition, memberOrder: ["manager"] });
+    await writeTeamDefinition(location, {
+      ...usableDefinition,
+      memberOrder: ["manager"],
+      relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
+    });
     await writeMemberAgentMarkdown(location, "manager", `---
 display_name: 开发经理
 ---
@@ -273,7 +281,11 @@ display_name: 开发经理
     expect(team).toMatchObject({
       status: "usable",
       canCreateConversation: true,
-      definition: { primaryAgentSlug: "manager", memberOrder: ["manager"] },
+      definition: {
+        primaryAgentSlug: "manager",
+        memberOrder: ["manager"],
+        relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
+      },
       issues: [],
     });
     expect(await fs.readFile(path.join(trashedMember, "notes.txt"), "utf8")).toBe("可恢复\n");
@@ -319,7 +331,11 @@ display_name: 开发经理
     expect(repaired).toMatchObject({
       status: "usable",
       canCreateConversation: true,
-      definition: { primaryAgentSlug: "developer", memberOrder: ["developer"] },
+      definition: {
+        primaryAgentSlug: "developer",
+        memberOrder: ["developer"],
+        relayBeats: [{ speakerSlug: "developer", message: "完成实现" }],
+      },
       issues: [],
     });
     await expect(fs.stat(trashedMember)).resolves.toMatchObject({});
@@ -329,7 +345,12 @@ display_name: 开发经理
     const dataRoot = await makeDataRoot();
     const user = resolveTeamLocation({ dataRoot, teamId: "my-development", ownership: "user" });
     const builtIn = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
-    await writeTeamDefinition(user, { ...usableDefinition, primaryAgentSlug: null, memberOrder: [] });
+    await writeTeamDefinition(user, {
+      ...usableDefinition,
+      primaryAgentSlug: null,
+      memberOrder: [],
+      relayBeats: [],
+    });
     await fs.mkdir(builtIn.directory, { recursive: true });
     const trashRoot = path.join(dataRoot, "system-trash");
     const trashedTeam = path.join(trashRoot, user.id);
@@ -358,6 +379,7 @@ display_name: 开发经理
       description: "还没有可接收任务的 Agent",
       primaryAgentSlug: null,
       memberOrder: [],
+      relayBeats: [],
     });
 
     await expect(readTeamSnapshot(location)).resolves.toMatchObject({
@@ -433,6 +455,7 @@ display_name: 开发经理
       description: "新描述",
       primaryAgentSlug: first.member.slug,
       memberOrder: [first.member.slug],
+      relayBeats: [],
     });
     expect(updated.members.map((member) => member.slug)).toEqual([first.member.slug]);
   });
@@ -440,7 +463,11 @@ display_name: 开发经理
   it("marks missing AGENT.md as needing repair and clears the state after restoration", async () => {
     const dataRoot = await makeDataRoot();
     const location = resolveTeamLocation({ dataRoot, teamId: "repairable", ownership: "user" });
-    await writeTeamDefinition(location, { ...usableDefinition, memberOrder: ["manager"] });
+    await writeTeamDefinition(location, {
+      ...usableDefinition,
+      memberOrder: ["manager"],
+      relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
+    });
 
     const broken = await readTeamSnapshot(location);
     expect(broken.status).toBe("needs-repair");
@@ -457,7 +484,11 @@ display_name: 开发经理
   it("marks an unreadable AGENT.md entry as needing repair", async () => {
     const dataRoot = await makeDataRoot();
     const location = resolveTeamLocation({ dataRoot, teamId: "unreadable-agent", ownership: "user" });
-    await writeTeamDefinition(location, { ...usableDefinition, memberOrder: ["manager"] });
+    await writeTeamDefinition(location, {
+      ...usableDefinition,
+      memberOrder: ["manager"],
+      relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
+    });
     await fs.mkdir(path.join(location.directory, "members", "manager", "AGENT.md"), { recursive: true });
 
     await expect(readTeamSnapshot(location)).resolves.toMatchObject({
@@ -473,7 +504,12 @@ display_name: 开发经理
     await fs.mkdir(location.directory, { recursive: true });
     await fs.writeFile(
       path.join(location.directory, "team.json"),
-      JSON.stringify({ ...usableDefinition, primaryAgentSlug: null, memberOrder: ["developer", "", "developer"] }),
+      JSON.stringify({
+        ...usableDefinition,
+        primaryAgentSlug: null,
+        memberOrder: ["developer", "", "developer"],
+        relayBeats: [{ speakerSlug: "developer", message: "实现任务" }],
+      }),
       "utf8",
     );
     await writeMemberAgentMarkdown(location, "developer", "# 开发\n\n负责实现\n");

@@ -90,6 +90,7 @@ describe("AiTeamWriter", () => {
       definition: {
         primaryAgentSlug: "launch-lead",
         memberOrder: ["launch-lead", "content-planner"],
+        relayBeats: proposal.relayBeats,
       },
       members: [
         { slug: "launch-lead", displayName: "发布负责人" },
@@ -164,6 +165,7 @@ async function makeDataRootWithBuiltInTeam(): Promise<string> {
     description: "负责软件开发",
     primaryAgentSlug: "manager",
     memberOrder: ["manager"],
+    relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
   }, null, 2)}\n`, "utf8");
   await fs.writeFile(
     path.join(builtIn, "members", "manager", "AGENT.md"),

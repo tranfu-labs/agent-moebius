@@ -1,0 +1,173 @@
+import { Users } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
+
+import type { OperatorAgentTeam } from "@/console/agent-teams-page";
+import { RelayGraph, RelayRoleColumns, RELAY_STAGE_COLUMNS } from "./relay-graph";
+import { RelayMessages } from "./relay-messages";
+import { parseRelayDurationToken, useRelayPlayback } from "./relay-motion";
+import { RelayReplayButton } from "./relay-replay-button";
+
+export interface RelayDemoProps {
+  team: OperatorAgentTeam;
+  relayRun: number;
+  onReplay: () => void;
+  reducedMotion?: boolean;
+}
+
+export function RelayDemo({
+  team,
+  relayRun,
+  onReplay,
+  reducedMotion,
+}: RelayDemoProps): JSX.Element {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const { beats, members } = useMemo(() => readRelayTeam(team), [team]);
+  const playback = useRelayPlayback({
+    beatCount: beats.length,
+    relayRun,
+    reducedMotion,
+  });
+  const activeSpeakerSlug = playback.activeIndex < 0
+    ? null
+    : beats[playback.activeIndex]!.speakerSlug;
+
+  useEffect(() => {
+    if (playback.activeIndex < 0) {
+      return;
+    }
+    const currentMessage = stageRef.current?.querySelector<HTMLElement>(
+      `[data-testid="relay-message-row"][data-relay-row="${String(playback.activeIndex)}"]`,
+    );
+    currentMessage?.scrollIntoView?.({
+      block: "nearest",
+      behavior: playback.reducedMotion ? "auto" : "smooth",
+    });
+  }, [playback.activeIndex, playback.reducedMotion]);
+
+  useEffect(() => {
+    if (playback.reducedMotion || playback.activeIndex < 0) {
+      return;
+    }
+    const elements = stageRef.current?.querySelectorAll<HTMLElement>(
+      `[data-relay-row="${String(playback.activeIndex)}"]`,
+    );
+    const rootStyle = window.getComputedStyle(document.documentElement);
+    const enterEasing = rootStyle.getPropertyValue("--ease-enter").trim() || "ease-out";
+    const standardEasing = rootStyle.getPropertyValue("--ease").trim() || "ease";
+    const standardDurationMs = parseRelayDurationToken(
+      rootStyle.getPropertyValue("--dur"),
+      150,
+    );
+    elements?.forEach((element) => {
+      element.animate?.(
+        [
+          { opacity: 0, transform: "translateY(8px)" },
+          { opacity: 1, transform: "translateY(0)" },
+        ],
+        { duration: standardDurationMs, easing: enterEasing, fill: "both" },
+      );
+    });
+    const connector = stageRef.current?.querySelector<SVGPathElement>(
+      `[data-relay-row="${String(playback.activeIndex)}"] [data-testid="relay-connector"]`,
+    );
+    connector?.animate?.(
+      [
+        { strokeDasharray: "1", strokeDashoffset: "1" },
+        { strokeDasharray: "1", strokeDashoffset: "0" },
+      ],
+      { duration: standardDurationMs, easing: standardEasing, fill: "both" },
+    );
+  }, [playback.activeIndex, playback.reducedMotion]);
+
+  return (
+    <section
+      className="overflow-hidden rounded-xl border border-line bg-card"
+      data-testid="onboarding-relay-demo-slot"
+      data-relay-run={relayRun}
+      data-motion={playback.reducedMotion ? "reduced" : "standard"}
+      data-total-duration-ms={playback.timing.totalDurationMs}
+      aria-label="团队接力演示"
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+        <span className="flex min-w-0 items-center gap-2">
+          <i className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-run-fg)]" aria-hidden="true" />
+          <span className="text-xs text-sub">接力演示</span>
+          <strong className="truncate text-xs font-semibold text-ink">
+            {team.name ?? "所选团队"}
+          </strong>
+        </span>
+        <RelayReplayButton onReplay={onReplay} />
+      </div>
+
+      <div
+        className="grid items-center gap-x-3 border-b border-line bg-sunken px-3 py-2 text-[10px] font-semibold text-hint"
+        style={{ gridTemplateColumns: RELAY_STAGE_COLUMNS }}
+      >
+        <RelayRoleColumns activeSpeakerSlug={activeSpeakerSlug} members={members} />
+        <span className="tracking-[0.04em]">对话记录</span>
+      </div>
+
+      <div
+        ref={stageRef}
+        className="grid max-h-[360px] gap-x-3 overflow-y-auto px-3 py-1"
+        style={{
+          gridAutoRows: "minmax(88px, auto)",
+          gridTemplateColumns: RELAY_STAGE_COLUMNS,
+        }}
+        aria-live="polite"
+        data-testid="relay-stage"
+      >
+        <RelayGraph
+          activeIndex={playback.activeIndex}
+          beats={beats}
+          members={members}
+          reducedMotion={playback.reducedMotion}
+          visibleCount={playback.visibleCount}
+        />
+        <RelayMessages
+          activeIndex={playback.activeIndex}
+          beats={beats}
+          members={members}
+          visibleCount={playback.visibleCount}
+        />
+      </div>
+
+      <footer className="flex items-center gap-2 border-t border-line px-4 py-2.5 text-[10px] text-hint">
+        <Users className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
+        <span>
+          {playback.complete
+            ? "这支团队已带着复核证据完成接力。"
+            : "动画不会拦住你；看懂后可以随时继续。"}
+        </span>
+      </footer>
+    </section>
+  );
+}
+
+function readRelayTeam(team: OperatorAgentTeam): {
+  beats: NonNullable<OperatorAgentTeam["relayBeats"]>;
+  members: OperatorAgentTeam["members"];
+} {
+  const beats = team.relayBeats ?? [];
+  if (beats.length === 0) {
+    throw new Error(`Relay beats are missing for team: ${team.id}`);
+  }
+  const membersBySlug = new Map(team.members.map((member) => [member.slug, member]));
+  for (const beat of beats) {
+    if (!membersBySlug.has(beat.speakerSlug)) {
+      throw new Error(`Relay speaker is not a current team member: ${beat.speakerSlug}`);
+    }
+  }
+  const orderedMembers = team.memberOrder
+    .map((slug) => membersBySlug.get(slug))
+    .filter((member): member is NonNullable<typeof member> => member !== undefined);
+  const orderedSlugs = new Set(orderedMembers.map((member) => member.slug));
+  const members = [
+    ...orderedMembers,
+    ...team.members.filter((member) => !orderedSlugs.has(member.slug)),
+  ];
+  return {
+    beats,
+    members,
+  };
+}

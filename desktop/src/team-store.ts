@@ -263,6 +263,7 @@ export async function createUserTeam(dataRoot: string, information: TeamInformat
         ...normalizedInformation,
         primaryAgentSlug: null,
         memberOrder: [],
+        relayBeats: [],
       });
       return await readTeamSnapshot(location);
     } catch (error) {
@@ -448,6 +449,7 @@ export async function trashTeamMemberDirectory(
   await writeTeamDefinition(location, {
     ...previousDefinition,
     memberOrder: previousDefinition.memberOrder.filter((slug) => slug !== memberSlug),
+    relayBeats: previousDefinition.relayBeats.filter((beat) => beat.speakerSlug !== memberSlug),
   });
   try {
     await moveToTrash(memberDirectory);
