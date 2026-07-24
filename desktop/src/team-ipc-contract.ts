@@ -36,6 +36,12 @@ export interface AgentTeamListItem {
   status: TeamStatus;
   canCreateConversation: boolean;
   issues: Array<{ code: TeamRepairIssueCode; slug?: string }>;
+  onboardingOrchestration?:
+    | {
+        status: "ready";
+        relayBeats: Array<{ speakerSlug: string; message: string }>;
+      }
+    | { status: "unavailable" };
 }
 
 export type AgentTeamListResponse =

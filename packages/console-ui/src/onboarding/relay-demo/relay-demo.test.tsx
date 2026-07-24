@@ -13,14 +13,17 @@ const developmentTeam: OperatorAgentTeam = {
   description: "把目标变成有证据的实现",
   primaryAgentSlug: "manager",
   memberOrder: ["manager", "developer", "qa"],
-  relayBeats: [
-    { speakerSlug: "manager", message: "拆解任务并派工。" },
-    { speakerSlug: "developer", message: "完成第一版实现。" },
-    { speakerSlug: "qa", message: "复核发现边界问题。" },
-    { speakerSlug: "developer", message: "修正边界问题。" },
-    { speakerSlug: "qa", message: "第二轮复核通过。" },
-    { speakerSlug: "manager", message: "带着证据收尾。" },
-  ],
+  onboardingOrchestration: {
+    status: "ready",
+    relayBeats: [
+      { speakerSlug: "manager", message: "拆解任务并派工。" },
+      { speakerSlug: "developer", message: "完成第一版实现。" },
+      { speakerSlug: "qa", message: "复核发现边界问题。" },
+      { speakerSlug: "developer", message: "修正边界问题。" },
+      { speakerSlug: "qa", message: "第二轮复核通过。" },
+      { speakerSlug: "manager", message: "带着证据收尾。" },
+    ],
+  },
   members: [
     { slug: "manager", displayName: "经理", description: "拆解并收尾" },
     { slug: "developer", displayName: "开发", description: "负责实现" },
@@ -39,7 +42,7 @@ describe("RelayDemo", () => {
     renderDemo({ reducedMotion: true });
 
     const connectors = screen.getAllByTestId("relay-connector");
-    expect(connectors).toHaveLength(developmentTeam.relayBeats!.length - 1);
+    expect(connectors).toHaveLength(5);
     for (const connector of connectors) {
       const y1 = Number(connector.getAttribute("data-y1"));
       const y2 = Number(connector.getAttribute("data-y2"));
@@ -98,10 +101,13 @@ describe("RelayDemo", () => {
       id: "launch-team",
       ownership: "user",
       name: "发布团队",
-      relayBeats: [
-        { speakerSlug: "manager", message: "锁定发布目标。" },
-        { speakerSlug: "qa", message: "校验渠道与排期。" },
-      ],
+      onboardingOrchestration: {
+        status: "ready",
+        relayBeats: [
+          { speakerSlug: "manager", message: "锁定发布目标。" },
+          { speakerSlug: "qa", message: "校验渠道与排期。" },
+        ],
+      },
     };
 
     render(
@@ -118,23 +124,40 @@ describe("RelayDemo", () => {
     expect(screen.getAllByTestId("relay-message-row")).toHaveLength(2);
   });
 
-  it("throws when relay metadata references a non-member speaker", () => {
+  it("isolates invalid relay metadata to a local unavailable state", () => {
     const invalidTeam: OperatorAgentTeam = {
       ...developmentTeam,
-      relayBeats: [{ speakerSlug: "missing", message: "不应静默降级。" }],
+      onboardingOrchestration: {
+        status: "ready",
+        relayBeats: [{ speakerSlug: "missing", message: "不应静默降级。" }],
+      },
     };
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    expect(() => render(
+    render(
       <RelayDemo
         team={invalidTeam}
         relayRun={1}
         reducedMotion
         onReplay={vi.fn()}
       />,
-    )).toThrow("Relay speaker is not a current team member: missing");
+    );
 
-    consoleError.mockRestore();
+    expect(screen.getByText("暂无可播放的协作示例")).toBeInTheDocument();
+    expect(screen.getByText("不影响这支团队的实际使用")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新播放" })).not.toBeInTheDocument();
+  });
+
+  it("allows onboarding to continue when orchestration is missing", () => {
+    render(
+      <RelayDemo
+        team={{ ...developmentTeam, onboardingOrchestration: { status: "unavailable" } }}
+        relayRun={1}
+        reducedMotion
+        onReplay={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("暂无可播放的协作示例")).toBeInTheDocument();
   });
 
   it("delegates replay and computes a standard duration in the 8-12 second window", () => {

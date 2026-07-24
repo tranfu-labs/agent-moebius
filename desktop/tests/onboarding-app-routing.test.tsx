@@ -207,6 +207,9 @@ const developmentTeam = {
     description: "把目标变成可验证的实现",
     primaryAgentSlug: "dev-manager",
     memberOrder: ["dev-manager", "dev"],
+  },
+  onboardingOrchestration: {
+    status: "ready" as const,
     relayBeats: [
       { speakerSlug: "dev-manager", message: "拆解任务" },
       { speakerSlug: "dev", message: "完成实现" },

@@ -83,7 +83,6 @@ function team(input: {
       description: "description",
       primaryAgentSlug: input.primaryAgentSlug,
       memberOrder: input.memberSlugs,
-      relayBeats: input.memberSlugs.map((speakerSlug) => ({ speakerSlug, message: `${speakerSlug} 工作` })),
     },
     members: input.memberSlugs.map((slug) => ({ slug, displayName: slug, description: "" })),
     status: input.primaryAgentSlug === null ? "unfinished-draft" : "usable",

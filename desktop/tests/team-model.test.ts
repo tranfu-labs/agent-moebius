@@ -14,18 +14,15 @@ const usableDefinition: TeamDefinition = {
   description: "负责软件开发任务",
   primaryAgentSlug: "manager",
   memberOrder: ["manager", "developer"],
-  relayBeats: [
-    { speakerSlug: "manager", message: "拆解任务" },
-    { speakerSlug: "developer", message: "完成实现" },
-  ],
 };
 
 describe("team model", () => {
-  it("round-trips team identity, primary slug, member order, and relay metadata", () => {
+  it("round-trips only core team identity and runtime membership", () => {
     const encoded = serializeTeamDefinition(usableDefinition);
 
     expect(JSON.parse(encoded)).toEqual(usableDefinition);
     expect(encoded).not.toContain("displayName");
+    expect(encoded).not.toContain("relayBeats");
     expect(parseTeamDefinitionJson(encoded)).toEqual(usableDefinition);
   });
 
@@ -40,15 +37,11 @@ describe("team model", () => {
     ).toThrow(/unsupported field: members/);
   });
 
-  it("requires relay metadata and rejects speakers outside the team", () => {
-    const { relayBeats: _relayBeats, ...withoutRelayBeats } = usableDefinition;
-    expect(() => parseTeamDefinitionJson(JSON.stringify(withoutRelayBeats))).toThrow(
-      /relayBeats must be an array/,
-    );
-    expect(() => parseTeamDefinitionJson(JSON.stringify({
+  it("ignores recent embedded relay metadata so presentation data cannot invalidate a team", () => {
+    expect(parseTeamDefinitionJson(JSON.stringify({
       ...usableDefinition,
-      relayBeats: [{ speakerSlug: "reviewer", message: "越界发言" }],
-    }))).toThrow(/speakerSlug is not a current team member: reviewer/);
+      relayBeats: "damaged presentation data",
+    }))).toEqual(usableDefinition);
   });
 
   it("prefers canonical frontmatter identity over persona prose", () => {

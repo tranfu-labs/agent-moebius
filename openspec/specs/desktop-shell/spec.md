@@ -192,6 +192,55 @@ And it does not use Node integration or direct filesystem access.
 - **THEN** the request is rejected with an explicit error
 - **AND** no file under `.system/` is modified.
 
+### Requirement: Team core and onboarding orchestration are independent
+
+- MUST store only the team name, one-line description, primary agent slug, and member order in `team.json`.
+- MUST store the optional first-run relay example in a versioned `onboarding-orchestration.json` beside `team.json`.
+- MUST NOT include onboarding orchestration in team health, application record snapshots, new identity fingerprints, session rosters, runtime prompts, or primary-agent scheduling.
+- MUST return onboarding orchestration as an independent `ready | missing | invalid` read result.
+- MUST keep a structurally usable team available for real conversations when orchestration is missing or invalid.
+- MUST let AI team creation write and reread core definition, independent orchestration, and every member file in the same staging directory before registration.
+
+#### Scenario: A pre-relay team starts normally
+
+- **GIVEN** an existing team's `team.json` and cached record do not contain `relayBeats`
+- **WHEN** the desktop starts and lists teams
+- **THEN** the team is evaluated from its core definition and member files
+- **AND** `agent-teams:list` succeeds
+- **AND** a usable team can still create a real conversation.
+
+#### Scenario: Invalid orchestration is locally unavailable
+
+- **GIVEN** a usable team whose `onboarding-orchestration.json` is malformed or references a non-member slug
+- **WHEN** the desktop reads the team and runtime roster
+- **THEN** the team remains usable
+- **AND** orchestration returns `invalid`
+- **AND** no orchestration content enters the roster or prompt.
+
+### Requirement: Embedded relay compatibility is bounded
+
+- MUST tolerate recent manifests and cached definitions that contain an embedded `relayBeats` field without treating it as team core.
+- MAY use a valid embedded value as transitional onboarding input only when the independent file is absent.
+- MUST preserve valid embedded relay data into `onboarding-orchestration.json` before a safe user-team definition write removes the embedded field.
+- MUST ignore missing or invalid embedded relay data for team health.
+- MUST calculate new identity fingerprints from only core `team.json` and ordered member `AGENT.md` files.
+- MUST accept the previous relay-inclusive fingerprint algorithm only for relocating a record that still carries valid legacy relay data, then MUST write the new core fingerprint.
+
+#### Scenario: Legacy relay data is migrated on a safe write
+
+- **GIVEN** a user team's `team.json` contains valid embedded relay beats and has no independent orchestration file
+- **WHEN** the app saves core team information
+- **THEN** it first writes `onboarding-orchestration.json`
+- **AND** then writes a core-only `team.json`
+- **AND** a failed step does not remove the still-readable legacy source.
+
+#### Scenario: Relay-only changes do not change identity
+
+- **GIVEN** a team's core definition and member files are unchanged
+- **WHEN** its onboarding orchestration changes or is removed
+- **THEN** its new identity fingerprint is unchanged
+- **AND** its bound-session roster and primary agent are unchanged.
+
 ### Requirement: Agent identity metadata in frontmatter
 
 - Team member `AGENT.md` files MUST store new display identities in leading YAML frontmatter fields `display_name` and `description`.

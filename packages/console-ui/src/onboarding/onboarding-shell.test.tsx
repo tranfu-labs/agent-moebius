@@ -15,10 +15,13 @@ const developmentTeam: OperatorAgentTeam = {
   description: "把目标变成可验证的实现",
   primaryAgentSlug: "dev-manager",
   memberOrder: ["dev-manager", "dev"],
-  relayBeats: [
-    { speakerSlug: "dev-manager", message: "拆解任务" },
-    { speakerSlug: "dev", message: "完成实现" },
-  ],
+  onboardingOrchestration: {
+    status: "ready",
+    relayBeats: [
+      { speakerSlug: "dev-manager", message: "拆解任务" },
+      { speakerSlug: "dev", message: "完成实现" },
+    ],
+  },
   members: [
     {
       slug: "dev-manager",
@@ -110,6 +113,30 @@ describe("OnboardingShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "开始使用" }));
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith("system:development"));
+  });
+
+  it("keeps continue available when the selected team has no playable orchestration", async () => {
+    renderShell({
+      teamsState: {
+        status: "ready",
+        teams: [{
+          ...developmentTeam,
+          onboardingOrchestration: { status: "unavailable" },
+        }],
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "继续" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /开发团队/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "继续" }));
+
+    expect(screen.getByText("暂无可播放的协作示例")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "继续" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "继续" }));
+    expect(screen.getByTestId("onboarding-step-4")).toBeInTheDocument();
   });
 });
 

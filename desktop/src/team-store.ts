@@ -24,6 +24,9 @@ import {
   type TeamRepairIssue,
   type TeamStatus,
 } from "./team-model.js";
+import {
+  preserveLegacyEmbeddedOnboardingOrchestration,
+} from "./team-onboarding-orchestration.js";
 
 export const TEAMS_DIRECTORY = "teams";
 export const SYSTEM_TEAMS_DIRECTORY = ".system";
@@ -228,7 +231,16 @@ export async function writeTeamDefinition(location: TeamLocation, definition: Te
   }
 
   await fs.mkdir(location.directory, { recursive: true });
-  await fs.writeFile(getTeamManifestPath(location), serializeTeamDefinition(normalizedDefinition), "utf8");
+  await preserveLegacyEmbeddedOnboardingOrchestration(location.directory);
+  const manifestPath = getTeamManifestPath(location);
+  const temporaryPath = `${manifestPath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await fs.writeFile(temporaryPath, serializeTeamDefinition(normalizedDefinition), "utf8");
+    await fs.rename(temporaryPath, manifestPath);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true });
+    throw error;
+  }
 }
 
 export async function writeMemberAgentMarkdown(
@@ -263,7 +275,6 @@ export async function createUserTeam(dataRoot: string, information: TeamInformat
         ...normalizedInformation,
         primaryAgentSlug: null,
         memberOrder: [],
-        relayBeats: [],
       });
       return await readTeamSnapshot(location);
     } catch (error) {
@@ -449,7 +460,6 @@ export async function trashTeamMemberDirectory(
   await writeTeamDefinition(location, {
     ...previousDefinition,
     memberOrder: previousDefinition.memberOrder.filter((slug) => slug !== memberSlug),
-    relayBeats: previousDefinition.relayBeats.filter((beat) => beat.speakerSlug !== memberSlug),
   });
   try {
     await moveToTrash(memberDirectory);

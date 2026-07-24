@@ -30,10 +30,6 @@ const usableDefinition: TeamDefinition = {
   description: "负责软件开发任务",
   primaryAgentSlug: "manager",
   memberOrder: ["manager", "developer"],
-  relayBeats: [
-    { speakerSlug: "manager", message: "拆解任务" },
-    { speakerSlug: "developer", message: "完成实现" },
-  ],
 };
 
 afterEach(async () => {
@@ -98,7 +94,6 @@ describe("team disk store", () => {
     await writeTeamDefinition(location, {
       ...usableDefinition,
       memberOrder: ["manager"],
-      relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
     });
     await writeMemberAgentMarkdown(location, "manager", `---
 display_name: 开发经理
@@ -284,7 +279,6 @@ display_name: 开发经理
       definition: {
         primaryAgentSlug: "manager",
         memberOrder: ["manager"],
-        relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
       },
       issues: [],
     });
@@ -334,7 +328,6 @@ display_name: 开发经理
       definition: {
         primaryAgentSlug: "developer",
         memberOrder: ["developer"],
-        relayBeats: [{ speakerSlug: "developer", message: "完成实现" }],
       },
       issues: [],
     });
@@ -349,7 +342,6 @@ display_name: 开发经理
       ...usableDefinition,
       primaryAgentSlug: null,
       memberOrder: [],
-      relayBeats: [],
     });
     await fs.mkdir(builtIn.directory, { recursive: true });
     const trashRoot = path.join(dataRoot, "system-trash");
@@ -379,7 +371,6 @@ display_name: 开发经理
       description: "还没有可接收任务的 Agent",
       primaryAgentSlug: null,
       memberOrder: [],
-      relayBeats: [],
     });
 
     await expect(readTeamSnapshot(location)).resolves.toMatchObject({
@@ -455,7 +446,6 @@ display_name: 开发经理
       description: "新描述",
       primaryAgentSlug: first.member.slug,
       memberOrder: [first.member.slug],
-      relayBeats: [],
     });
     expect(updated.members.map((member) => member.slug)).toEqual([first.member.slug]);
   });
@@ -466,7 +456,6 @@ display_name: 开发经理
     await writeTeamDefinition(location, {
       ...usableDefinition,
       memberOrder: ["manager"],
-      relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
     });
 
     const broken = await readTeamSnapshot(location);
@@ -487,7 +476,6 @@ display_name: 开发经理
     await writeTeamDefinition(location, {
       ...usableDefinition,
       memberOrder: ["manager"],
-      relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
     });
     await fs.mkdir(path.join(location.directory, "members", "manager", "AGENT.md"), { recursive: true });
 

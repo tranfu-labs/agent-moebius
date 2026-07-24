@@ -120,7 +120,6 @@ async function writeTeam(directory: string, roles: string[]): Promise<void> {
     description: "负责开发",
     primaryAgentSlug: roles[0]!,
     memberOrder: roles,
-    relayBeats: roles.map((speakerSlug) => ({ speakerSlug, message: `${speakerSlug} 处理任务` })),
   }), "utf8");
   await Promise.all(roles.map(async (role) => {
     const memberDirectory = path.join(directory, "members", role);

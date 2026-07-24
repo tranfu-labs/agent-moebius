@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620">
+  <style>
+    text { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+    .title { font-size: 20px; font-weight: 600; fill: #111827; }
+    .subtitle { font-size: 12px; fill: #6b7280; }
+    .label { font-size: 14px; font-weight: 600; fill: #111827; }
+    .detail { font-size: 12px; fill: #6b7280; }
+    .lane { font-size: 12px; font-weight: 600; fill: #374151; letter-spacing: .04em; }
+    .arrow-label { font-size: 11px; fill: #374151; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#059669"/>
+    </marker>
+    <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#6b7280"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#111827" flood-opacity=".10"/>
+    </filter>
+  </defs>
+  <rect width="960" height="620" fill="#ffffff"/>
+  <text x="40" y="42" class="title">改造后：团队核心与引导编排独立演化</text>
+  <text x="40" y="64" class="subtitle">同一 staging 目录原子创建，两条读取链路互不决定对方健康度</text>
+
+  <rect x="32" y="88" width="896" height="442" rx="12" fill="#f8fafc" stroke="#d1d5db" stroke-dasharray="6 4"/>
+
+  <rect x="56" y="122" width="148" height="76" rx="10" fill="#faf5ff" stroke="#d8b4fe" stroke-width="1.5"/>
+  <text x="130" y="152" text-anchor="middle" class="label">AI Team Builder</text>
+  <text x="130" y="175" text-anchor="middle" class="detail">团队方案 + 协作示例</text>
+
+  <rect x="272" y="122" width="148" height="76" rx="10" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="346" y="152" text-anchor="middle" class="label">Atomic Writer</text>
+  <text x="346" y="175" text-anchor="middle" class="detail">同一 staging 目录</text>
+
+  <path d="M204 160 H272" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <rect x="214" y="143" width="48" height="17" rx="3" fill="#ffffff" opacity=".95"/>
+  <text x="238" y="155" text-anchor="middle" class="arrow-label">proposal</text>
+
+  <text x="474" y="112" class="lane">团队核心链路</text>
+  <rect x="468" y="132" width="188" height="98" rx="10" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="562" y="162" text-anchor="middle" class="label">team.json</text>
+  <text x="562" y="184" text-anchor="middle" class="detail">名称 / 主 Agent / 成员</text>
+  <text x="562" y="206" text-anchor="middle" class="detail">不含演示数据</text>
+
+  <rect x="724" y="132" width="164" height="98" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+  <text x="806" y="162" text-anchor="middle" class="label">Core Consumers</text>
+  <text x="806" y="184" text-anchor="middle" class="detail">状态 / 记录 / 指纹</text>
+  <text x="806" y="206" text-anchor="middle" class="detail">roster / prompt</text>
+
+  <path d="M420 151 H446 V181 H468" stroke="#059669" stroke-width="2" fill="none" marker-end="url(#arrow-green)"/>
+  <path d="M656 181 H724" stroke="#059669" stroke-width="2" fill="none" marker-end="url(#arrow-green)"/>
+  <rect x="666" y="164" width="48" height="17" rx="3" fill="#ffffff" opacity=".95"/>
+  <text x="690" y="176" text-anchor="middle" class="arrow-label">核心定义</text>
+
+  <text x="474" y="286" class="lane">首次引导演示链路</text>
+  <rect x="468" y="306" width="188" height="98" rx="10" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="562" y="336" text-anchor="middle" class="label">onboarding-</text>
+  <text x="562" y="356" text-anchor="middle" class="label">orchestration.json</text>
+  <text x="562" y="382" text-anchor="middle" class="detail">version + relayBeats</text>
+
+  <rect x="724" y="306" width="164" height="98" rx="10" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="806" y="336" text-anchor="middle" class="label">RelayDemo</text>
+  <text x="806" y="358" text-anchor="middle" class="detail">节点 / 消息 / 重播</text>
+  <text x="806" y="380" text-anchor="middle" class="detail">reduced-motion</text>
+
+  <path d="M420 169 H440 V355 H468" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M656 355 H724" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <rect x="662" y="338" width="56" height="17" rx="3" fill="#ffffff" opacity=".95"/>
+  <text x="690" y="350" text-anchor="middle" class="arrow-label">演示 beats</text>
+
+  <rect x="260" y="438" width="396" height="62" rx="10" fill="#f9fafb" stroke="#9ca3af" stroke-dasharray="5 3"/>
+  <text x="458" y="463" text-anchor="middle" class="label">编排 missing / invalid</text>
+  <text x="458" y="485" text-anchor="middle" class="detail">只产生第 3 步局部空态；团队核心与真实会话继续可用</text>
+  <path d="M724 388 H690 V469 H656" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-gray)"/>
+
+  <rect x="56" y="276" width="300" height="112" rx="10" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="206" y="306" text-anchor="middle" class="label">历史兼容层</text>
+  <text x="206" y="330" text-anchor="middle" class="detail">无 relayBeats → 核心直接读取</text>
+  <text x="206" y="352" text-anchor="middle" class="detail">内嵌 beats → 过渡读取 / 安全迁出</text>
+  <text x="206" y="374" text-anchor="middle" class="detail">旧指纹 → 有界接受一次后收敛</text>
+  <path d="M356 322 H410 V205 H468" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-gray)"/>
+  <path d="M356 352 H410 V375 H468" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="5 3" fill="none" marker-end="url(#arrow-gray)"/>
+
+  <line x1="42" y1="566" x2="72" y2="566" stroke="#059669" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="82" y="570" class="detail">团队核心数据</text>
+  <line x1="200" y1="566" x2="230" y2="566" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="240" y="570" class="detail">引导演示数据</text>
+  <line x1="368" y1="566" x2="398" y2="566" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#arrow-gray)"/>
+  <text x="408" y="570" class="detail">兼容 / 局部降级</text>
+</svg>

@@ -15,6 +15,11 @@ import {
   serializeTeamDefinition,
   type TeamDefinition,
 } from "./team-model.js";
+import {
+  readLegacyEmbeddedOnboardingOrchestration,
+  serializeLegacyRelayInclusiveTeamDefinition,
+  type TeamRelayBeat,
+} from "./team-onboarding-orchestration.js";
 
 export const USER_TEAM_RECORDS_FILE = ".agent-team-records.json";
 
@@ -27,6 +32,8 @@ export interface UserTeamRecord {
   location: UserTeamRecordLocation;
   identityFingerprint: string | null;
   lastKnownDefinition: TeamDefinition | null;
+  /** Transitional compatibility input retained only until a live snapshot can refresh the record. */
+  legacyRelayBeats?: TeamRelayBeat[];
 }
 
 interface UserTeamRecordsDocument {
@@ -127,7 +134,13 @@ export async function relocateUserTeamRecord(input: {
   if (record.identityFingerprint === null) {
     throw new TeamRelocationError("原记录缺少足够的完整信息，暂时无法确认所选位置属于同一支团队。");
   }
-  if (createTeamIdentityFingerprint(candidate) !== record.identityFingerprint) {
+  const candidateFingerprints = [
+    createTeamIdentityFingerprint(candidate),
+    ...(record.legacyRelayBeats === undefined
+      ? []
+      : [createTeamIdentityFingerprint(candidate, record.legacyRelayBeats)]),
+  ];
+  if (!candidateFingerprints.includes(record.identityFingerprint)) {
     throw new TeamRelocationError("所选位置的团队名称、成员或 AGENT.md 内容与原记录不一致，不能认作同一支团队。");
   }
 
@@ -168,13 +181,18 @@ export async function forgetTrashedUserTeamRecord(input: { dataRoot: string; tea
   await writeRecords(input.dataRoot, { version: 2, records: nextRecords });
 }
 
-export function createTeamIdentityFingerprint(snapshot: TeamSnapshot): string {
+export function createTeamIdentityFingerprint(
+  snapshot: TeamSnapshot,
+  legacyRelayBeats?: readonly TeamRelayBeat[],
+): string {
   if (snapshot.status !== "usable" || snapshot.definition === null) {
     throw new TeamRecordError("只有完整可用的团队才能生成身份指纹。");
   }
   const membersBySlug = new Map(snapshot.members.map((member) => [member.slug, member]));
   const hash = createHash("sha256");
-  hash.update(serializeTeamDefinition(snapshot.definition));
+  hash.update(legacyRelayBeats === undefined
+    ? serializeTeamDefinition(snapshot.definition)
+    : serializeLegacyRelayInclusiveTeamDefinition(snapshot.definition, legacyRelayBeats));
   for (const slug of snapshot.definition.memberOrder) {
     const member = membersBySlug.get(slug);
     if (member === undefined) {
@@ -240,7 +258,8 @@ function refreshRecordFromSnapshot(record: UserTeamRecord, snapshot: TeamSnapsho
     return record;
   }
   return {
-    ...record,
+    id: record.id,
+    location: record.location,
     identityFingerprint: snapshot.status === "usable" ? createTeamIdentityFingerprint(snapshot) : null,
     lastKnownDefinition: snapshot.definition,
   };
@@ -294,7 +313,10 @@ async function writeRecords(dataRoot: string, document: UserTeamRecordsDocument)
   await fs.mkdir(path.dirname(recordsPath), { recursive: true });
   const temporaryPath = `${recordsPath}.tmp-${process.pid}-${randomUUID()}`;
   try {
-    await fs.writeFile(temporaryPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+    await fs.writeFile(temporaryPath, `${JSON.stringify({
+      version: document.version,
+      records: document.records.map(toPersistedRecord),
+    }, null, 2)}\n`, "utf8");
     await fs.rename(temporaryPath, recordsPath);
   } catch (error) {
     await fs.rm(temporaryPath, { force: true });
@@ -338,11 +360,17 @@ function parseRecord(value: unknown, version: 1 | 2): UserTeamRecord {
   const definition = value.lastKnownDefinition === null
     ? null
     : parseCachedDefinition(value.lastKnownDefinition);
+  const legacyOrchestration = definition === null
+    ? { status: "missing" as const }
+    : readLegacyEmbeddedOnboardingOrchestration(value.lastKnownDefinition, definition.memberOrder);
   return {
     id: value.id,
     location,
     identityFingerprint: value.identityFingerprint,
     lastKnownDefinition: definition,
+    ...(legacyOrchestration.status === "ready"
+      ? { legacyRelayBeats: legacyOrchestration.orchestration.relayBeats }
+      : {}),
   };
 }
 
@@ -375,7 +403,22 @@ function sortRecords(records: UserTeamRecord[]): UserTeamRecord[] {
 }
 
 function recordsEqual(left: UserTeamRecord, right: UserTeamRecord): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(toPersistedRecord(left)) === JSON.stringify(toPersistedRecord(right));
+}
+
+function toPersistedRecord(record: UserTeamRecord): Record<string, unknown> {
+  const lastKnownDefinition = record.legacyRelayBeats === undefined || record.lastKnownDefinition === null
+    ? record.lastKnownDefinition
+    : {
+        ...record.lastKnownDefinition,
+        relayBeats: record.legacyRelayBeats,
+      };
+  return {
+    id: record.id,
+    location: record.location,
+    identityFingerprint: record.identityFingerprint,
+    lastKnownDefinition,
+  };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

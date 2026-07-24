@@ -1,7 +1,10 @@
 import { Users } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 
-import type { OperatorAgentTeam } from "@/console/agent-teams-page";
+import type {
+  OperatorAgentTeam,
+  OperatorAgentTeamRelayBeat,
+} from "@/console/agent-teams-page";
 import { RelayGraph, RelayRoleColumns, RELAY_STAGE_COLUMNS } from "./relay-graph";
 import { RelayMessages } from "./relay-messages";
 import { parseRelayDurationToken, useRelayPlayback } from "./relay-motion";
@@ -20,8 +23,32 @@ export function RelayDemo({
   onReplay,
   reducedMotion,
 }: RelayDemoProps): JSX.Element {
+  const relay = readRelayTeam(team);
+  if (relay === null) {
+    return <RelayUnavailable team={team} />;
+  }
+  return (
+    <RelayPlaybackDemo
+      team={team}
+      relayRun={relayRun}
+      onReplay={onReplay}
+      reducedMotion={reducedMotion}
+      relay={relay}
+    />
+  );
+}
+
+function RelayPlaybackDemo({
+  team,
+  relayRun,
+  onReplay,
+  reducedMotion,
+  relay,
+}: RelayDemoProps & {
+  relay: NonNullable<ReturnType<typeof readRelayTeam>>;
+}): JSX.Element {
   const stageRef = useRef<HTMLDivElement>(null);
-  const { beats, members } = useMemo(() => readRelayTeam(team), [team]);
+  const { beats, members } = relay;
   const playback = useRelayPlayback({
     beatCount: beats.length,
     relayRun,
@@ -144,18 +171,42 @@ export function RelayDemo({
   );
 }
 
+function RelayUnavailable({ team }: { team: OperatorAgentTeam }): JSX.Element {
+  return (
+    <section
+      className="overflow-hidden rounded-xl border border-line bg-card"
+      data-testid="onboarding-relay-demo-slot"
+      data-orchestration-status="unavailable"
+      aria-label="团队接力演示"
+    >
+      <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
+        <i className="h-1.5 w-1.5 shrink-0 rounded-full bg-hint" aria-hidden="true" />
+        <span className="text-xs text-sub">接力演示</span>
+        <strong className="truncate text-xs font-semibold text-ink">
+          {team.name ?? "所选团队"}
+        </strong>
+      </div>
+      <div className="flex min-h-56 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+        <strong className="text-sm font-semibold text-ink">暂无可播放的协作示例</strong>
+        <p className="text-xs text-sub">不影响这支团队的实际使用</p>
+      </div>
+    </section>
+  );
+}
+
 function readRelayTeam(team: OperatorAgentTeam): {
-  beats: NonNullable<OperatorAgentTeam["relayBeats"]>;
+  beats: OperatorAgentTeamRelayBeat[];
   members: OperatorAgentTeam["members"];
-} {
-  const beats = team.relayBeats ?? [];
-  if (beats.length === 0) {
-    throw new Error(`Relay beats are missing for team: ${team.id}`);
+} | null {
+  const orchestration = team.onboardingOrchestration;
+  if (orchestration?.status !== "ready" || orchestration.relayBeats.length === 0) {
+    return null;
   }
+  const beats = orchestration.relayBeats;
   const membersBySlug = new Map(team.members.map((member) => [member.slug, member]));
   for (const beat of beats) {
     if (!membersBySlug.has(beat.speakerSlug)) {
-      throw new Error(`Relay speaker is not a current team member: ${beat.speakerSlug}`);
+      return null;
     }
   }
   const orderedMembers = team.memberOrder
