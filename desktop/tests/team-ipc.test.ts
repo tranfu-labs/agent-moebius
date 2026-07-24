@@ -29,7 +29,6 @@ const usableDefinition: TeamDefinition = {
   description: "负责软件开发任务",
   primaryAgentSlug: "manager",
   memberOrder: ["manager"],
-  relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
 };
 
 afterEach(async () => {
@@ -69,12 +68,37 @@ describe("Agent team IPC service", () => {
           ownership: "system",
           definition: usableDefinition,
           members: [{ slug: "manager", displayName: "开发经理", description: "默认接单" }],
+          onboardingOrchestration: { status: "unavailable" },
         },
-        { id: "my-team", ownership: "user" },
+        { id: "my-team", ownership: "user", onboardingOrchestration: { status: "unavailable" } },
       ],
     });
     expect(JSON.stringify(result)).not.toContain(dataRoot);
     expect(JSON.stringify(result)).not.toContain("# 开发经理");
+  });
+
+  it("keeps a usable team usable when its independent onboarding orchestration is invalid", async () => {
+    const dataRoot = await makeDataRoot();
+    const builtIn = resolveTeamLocation({ dataRoot, teamId: "development", ownership: "system" });
+    await createUsableTeam(builtIn);
+    await fs.writeFile(
+      path.join(builtIn.directory, "onboarding-orchestration.json"),
+      JSON.stringify({
+        version: 1,
+        relayBeats: [{ speakerSlug: "missing", message: "越界演示" }],
+      }),
+      "utf8",
+    );
+
+    await expect(listAgentTeams({ dataRoot, seedPending: false })).resolves.toMatchObject({
+      status: "ready",
+      teams: [{
+        id: "development",
+        status: "usable",
+        canCreateConversation: true,
+        onboardingOrchestration: { status: "unavailable" },
+      }],
+    });
   });
 
   it("propagates missing, unreadable, missing-slug, and duplicate-slug damage as non-selectable repair state", async () => {

@@ -16,7 +16,6 @@ const usableDefinition: TeamDefinition = {
   description: "负责软件开发任务",
   primaryAgentSlug: "manager",
   memberOrder: ["manager"],
-  relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
 };
 
 describe("last-used conversation Agent team preference", () => {
@@ -55,7 +54,6 @@ describe("last-used conversation Agent team preference", () => {
       description: "还没有主 Agent",
       primaryAgentSlug: null,
       memberOrder: [],
-      relayBeats: [],
     });
     await writeTeam(dataRoot, "broken", "user", usableDefinition, false);
 

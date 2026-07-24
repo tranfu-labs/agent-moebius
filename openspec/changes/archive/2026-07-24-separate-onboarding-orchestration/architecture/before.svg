@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620">
+  <style>
+    text { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+    .title { font-size: 20px; font-weight: 600; fill: #111827; }
+    .subtitle { font-size: 12px; fill: #6b7280; }
+    .label { font-size: 14px; font-weight: 600; fill: #111827; }
+    .detail { font-size: 12px; fill: #6b7280; }
+    .lane { font-size: 12px; font-weight: 600; fill: #374151; letter-spacing: .04em; }
+    .arrow-label { font-size: 11px; fill: #374151; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#ea580c"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#111827" flood-opacity=".10"/>
+    </filter>
+  </defs>
+  <rect width="960" height="620" fill="#ffffff"/>
+  <text x="40" y="42" class="title">现状：引导演示数据耦合进团队核心</text>
+  <text x="40" y="64" class="subtitle">relayBeats 同时影响创建、团队解析、记录缓存、身份指纹与引导演示</text>
+
+  <rect x="32" y="88" width="896" height="274" rx="12" fill="#f8fafc" stroke="#d1d5db" stroke-dasharray="6 4"/>
+  <text x="52" y="114" class="lane">正常写入与消费</text>
+
+  <rect x="56" y="146" width="148" height="72" rx="10" fill="#faf5ff" stroke="#d8b4fe" stroke-width="1.5"/>
+  <text x="130" y="176" text-anchor="middle" class="label">AI Team Builder</text>
+  <text x="130" y="198" text-anchor="middle" class="detail">生成成员 + relayBeats</text>
+
+  <rect x="272" y="146" width="148" height="72" rx="10" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="346" y="176" text-anchor="middle" class="label">Team Writer</text>
+  <text x="346" y="198" text-anchor="middle" class="detail">写同一份团队定义</text>
+
+  <rect x="488" y="128" width="184" height="108" rx="10" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="580" y="158" text-anchor="middle" class="label">team.json</text>
+  <text x="580" y="180" text-anchor="middle" class="detail">名称 / 主 Agent / 成员</text>
+  <text x="580" y="200" text-anchor="middle" class="detail">+ relayBeats（必填）</text>
+  <text x="580" y="220" text-anchor="middle" class="detail">团队核心与展示混合</text>
+
+  <rect x="744" y="116" width="152" height="72" rx="10" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+  <text x="820" y="146" text-anchor="middle" class="label">团队核心链路</text>
+  <text x="820" y="168" text-anchor="middle" class="detail">状态 / 记录 / 指纹</text>
+
+  <rect x="744" y="230" width="152" height="72" rx="10" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="820" y="260" text-anchor="middle" class="label">RelayDemo</text>
+  <text x="820" y="282" text-anchor="middle" class="detail">第 3 步接力动画</text>
+
+  <path d="M204 182 H272" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M420 182 H488" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M672 164 H714 V152 H744" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M672 204 H714 V266 H744" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <rect x="216" y="165" width="44" height="17" rx="3" fill="#ffffff" opacity=".95"/>
+  <text x="238" y="177" text-anchor="middle" class="arrow-label">proposal</text>
+  <rect x="428" y="165" width="52" height="17" rx="3" fill="#ffffff" opacity=".95"/>
+  <text x="454" y="177" text-anchor="middle" class="arrow-label">manifest</text>
+
+  <rect x="32" y="390" width="896" height="184" rx="12" fill="#fff7ed" stroke="#fdba74" stroke-dasharray="6 4"/>
+  <text x="52" y="416" class="lane">升级失败路径</text>
+
+  <rect x="64" y="448" width="190" height="74" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+  <text x="159" y="477" text-anchor="middle" class="label">升级前团队与记录</text>
+  <text x="159" y="500" text-anchor="middle" class="detail">没有 relayBeats</text>
+
+  <rect x="348" y="448" width="190" height="74" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+  <text x="443" y="477" text-anchor="middle" class="label">最新严格 parser</text>
+  <text x="443" y="500" text-anchor="middle" class="detail">把展示字段当核心必填</text>
+
+  <rect x="632" y="448" width="230" height="74" rx="10" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+  <text x="747" y="477" text-anchor="middle" class="label">agent-teams:list 整体失败</text>
+  <text x="747" y="500" text-anchor="middle" class="detail">桌面启动控制台持续报错</text>
+
+  <path d="M254 485 H348" stroke="#ea580c" stroke-width="2" fill="none" marker-end="url(#arrow-orange)"/>
+  <path d="M538 485 H632" stroke="#ea580c" stroke-width="2" fill="none" marker-end="url(#arrow-orange)"/>
+  <rect x="274" y="468" width="54" height="17" rx="3" fill="#fff7ed" opacity=".95"/>
+  <text x="301" y="480" text-anchor="middle" class="arrow-label">历史数据</text>
+  <rect x="560" y="468" width="50" height="17" rx="3" fill="#fff7ed" opacity=".95"/>
+  <text x="585" y="480" text-anchor="middle" class="arrow-label">抛异常</text>
+
+  <line x1="42" y1="598" x2="72" y2="598" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="82" y="602" class="detail">主数据流</text>
+  <line x1="174" y1="598" x2="204" y2="598" stroke="#ea580c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+  <text x="214" y="602" class="detail">升级失败</text>
+</svg>

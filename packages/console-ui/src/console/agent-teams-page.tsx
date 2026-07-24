@@ -47,6 +47,10 @@ export interface OperatorAgentTeamRelayBeat {
   message: string;
 }
 
+export type OperatorAgentTeamOnboardingOrchestration =
+  | { status: "ready"; relayBeats: OperatorAgentTeamRelayBeat[] }
+  | { status: "unavailable" };
+
 export interface OperatorAgentTeam {
   teamKey: string;
   id: string;
@@ -55,7 +59,7 @@ export interface OperatorAgentTeam {
   description: string | null;
   primaryAgentSlug: string | null;
   memberOrder: string[];
-  relayBeats?: OperatorAgentTeamRelayBeat[];
+  onboardingOrchestration?: OperatorAgentTeamOnboardingOrchestration;
   members: OperatorAgentTeamMember[];
   status: "usable" | "unfinished-draft" | "needs-repair";
   canCreateConversation: boolean;

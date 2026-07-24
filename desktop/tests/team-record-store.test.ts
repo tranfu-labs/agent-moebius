@@ -5,12 +5,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { serializeTeamDefinition, type TeamDefinition } from "../src/team-model.js";
 import {
   USER_TEAM_RECORDS_FILE,
+  createTeamIdentityFingerprint,
   listRecordedUserTeamSnapshots,
   relocateUserTeamRecord,
   removeUserTeamRecord,
   resolveRecordedTeamLocation,
 } from "../src/team-record-store.js";
-import { resolveTeamLocation } from "../src/team-store.js";
+import { readTeamSnapshot, resolveTeamLocation } from "../src/team-store.js";
 
 const temporaryRoots: string[] = [];
 const definition: TeamDefinition = {
@@ -18,7 +19,6 @@ const definition: TeamDefinition = {
   description: "负责软件开发任务",
   primaryAgentSlug: "manager",
   memberOrder: ["manager"],
-  relayBeats: [{ speakerSlug: "manager", message: "拆解任务" }],
 };
 
 afterEach(async () => {
@@ -111,6 +111,74 @@ describe("user team application records", () => {
       records: [{ id: "legacy-team", location: { kind: "managed", directoryName: "legacy-team" } }],
     });
     expect(JSON.stringify(migrated)).not.toContain("lastKnownMembers");
+  });
+
+  it("loads a v2 cached team definition that predates relay metadata", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "pre-relay-team", ownership: "user" });
+    await createTeamDirectory(location.directory, definition, "# 开发经理\n\n默认接单\n");
+    await fs.writeFile(path.join(dataRoot, "teams", USER_TEAM_RECORDS_FILE), `${JSON.stringify({
+      version: 2,
+      records: [{
+        id: "pre-relay-team",
+        location: { kind: "managed", directoryName: "pre-relay-team" },
+        identityFingerprint: null,
+        lastKnownDefinition: definition,
+      }],
+    }, null, 2)}\n`, "utf8");
+
+    await expect(listRecordedUserTeamSnapshots(dataRoot)).resolves.toMatchObject([{
+      record: { lastKnownDefinition: definition },
+      snapshot: { status: "usable", canCreateConversation: true },
+    }]);
+  });
+
+  it("accepts a legacy relay-inclusive fingerprint once and converges it to the core fingerprint", async () => {
+    const dataRoot = await makeDataRoot();
+    const location = resolveTeamLocation({ dataRoot, teamId: "relay-era-team", ownership: "user" });
+    const agentMarkdown = "# 开发经理\n\n默认接单\n";
+    const legacyRelayBeats = [{ speakerSlug: "manager", message: "拆解任务" }];
+    await createTeamDirectory(location.directory, definition, agentMarkdown);
+    const snapshot = await readTeamSnapshot(location);
+    const legacyFingerprint = createTeamIdentityFingerprint(snapshot, legacyRelayBeats);
+    const coreFingerprint = createTeamIdentityFingerprint(snapshot);
+    await fs.writeFile(path.join(dataRoot, "teams", USER_TEAM_RECORDS_FILE), `${JSON.stringify({
+      version: 2,
+      records: [{
+        id: "relay-era-team",
+        location: { kind: "managed", directoryName: "relay-era-team" },
+        identityFingerprint: legacyFingerprint,
+        lastKnownDefinition: { ...definition, relayBeats: legacyRelayBeats },
+      }],
+    }, null, 2)}\n`, "utf8");
+    const relocatedDirectory = path.join(dataRoot, "relocated", "relay-era-team");
+    await fs.mkdir(path.dirname(relocatedDirectory), { recursive: true });
+    await fs.rename(location.directory, relocatedDirectory);
+
+    await listRecordedUserTeamSnapshots(dataRoot);
+    const stillCompatible = JSON.parse(await fs.readFile(
+      path.join(dataRoot, "teams", USER_TEAM_RECORDS_FILE),
+      "utf8",
+    )) as { records: Array<{ lastKnownDefinition: Record<string, unknown> }> };
+    expect(stillCompatible.records[0]?.lastKnownDefinition).toHaveProperty("relayBeats", legacyRelayBeats);
+
+    await expect(relocateUserTeamRecord({
+      dataRoot,
+      teamId: "relay-era-team",
+      directory: relocatedDirectory,
+    })).resolves.toMatchObject({ status: "usable" });
+
+    const converged = JSON.parse(await fs.readFile(
+      path.join(dataRoot, "teams", USER_TEAM_RECORDS_FILE),
+      "utf8",
+    )) as {
+      records: Array<{
+        identityFingerprint: string;
+        lastKnownDefinition: Record<string, unknown>;
+      }>;
+    };
+    expect(converged.records[0]?.identityFingerprint).toBe(coreFingerprint);
+    expect(converged.records[0]?.lastKnownDefinition).not.toHaveProperty("relayBeats");
   });
 
   it("removes only the invalid application record and leaves team files and session history untouched", async () => {

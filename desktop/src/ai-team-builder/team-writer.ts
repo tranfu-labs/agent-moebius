@@ -14,6 +14,11 @@ import {
   type TeamDefinition,
 } from "../team-model.js";
 import {
+  TEAM_ONBOARDING_ORCHESTRATION_FILE,
+  parseTeamOnboardingOrchestrationJson,
+  writeTeamOnboardingOrchestration,
+} from "../team-onboarding-orchestration.js";
+import {
   forgetTrashedUserTeamRecord,
   registerUserTeamSnapshot,
 } from "../team-record-store.js";
@@ -104,9 +109,12 @@ async function writeStagedTeam(
     description: proposal.team.purpose,
     primaryAgentSlug: proposal.primaryAgentSlug,
     memberOrder: proposal.members.map((member) => member.slug),
-    relayBeats: proposal.relayBeats.map((beat) => ({ ...beat })),
   };
   await fs.writeFile(path.join(directory, TEAM_MANIFEST_FILE), serializeTeamDefinition(definition), "utf8");
+  await writeTeamOnboardingOrchestration(directory, {
+    version: 1,
+    relayBeats: proposal.relayBeats.map((beat) => ({ ...beat })),
+  }, definition.memberOrder);
   for (const member of proposal.members) {
     const memberDirectory = path.join(directory, TEAM_MEMBERS_DIRECTORY, member.slug);
     await fs.mkdir(memberDirectory, { recursive: true });
@@ -141,7 +149,11 @@ async function rereadStagedTeam(input: {
   if (JSON.stringify(definition.memberOrder) !== JSON.stringify(input.proposal.members.map(({ slug }) => slug))) {
     throw new AiTeamWriterError("Staged team member order does not match the proposal.");
   }
-  if (JSON.stringify(definition.relayBeats) !== JSON.stringify(input.proposal.relayBeats)) {
+  const orchestration = parseTeamOnboardingOrchestrationJson(
+    await fs.readFile(path.join(input.directory, TEAM_ONBOARDING_ORCHESTRATION_FILE), "utf8"),
+    definition.memberOrder,
+  );
+  if (JSON.stringify(orchestration.relayBeats) !== JSON.stringify(input.proposal.relayBeats)) {
     throw new AiTeamWriterError("Staged team relay beats do not match the proposal.");
   }
 
