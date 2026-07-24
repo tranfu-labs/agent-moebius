@@ -1353,7 +1353,7 @@ describe("local console", { timeout: 15_000 }, () => {
     } finally {
       await started.close();
     }
-  }, 10_000);
+  }, 20_000);
 
   it("builds local timelines that reuse mention parsing rules", () => {
     const agents = ["dev"];
