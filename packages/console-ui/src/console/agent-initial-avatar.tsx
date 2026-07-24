@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { identityToken } from "@/console/role-tag";
 
 export type AgentInitialAvatarSize = "compact" | "heading";
 
@@ -26,10 +27,14 @@ export function AgentInitialAvatar({
       aria-hidden="true"
       data-agent-initial-avatar={slug}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full bg-ava-bg font-medium text-ava-fg",
+        "inline-flex shrink-0 items-center justify-center rounded-full font-medium",
         size === "heading" ? "h-8 w-8 text-xs" : "h-5 w-5 text-[10px]",
         className,
       )}
+      style={{
+        backgroundColor: `var(${identityToken(slug)})`,
+        color: "var(--ident-fg)",
+      }}
     >
       {agentInitialGlyph(displayName, slug)}
     </span>

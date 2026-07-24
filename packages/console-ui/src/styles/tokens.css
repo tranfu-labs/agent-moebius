@@ -1,59 +1,65 @@
 /* ============================================================
-   Design tokens: dark-first dashboard baseline.
-   Cool-tinted neutrals dominate; indigo #5E6AD2 is the single
-   interaction accent in both themes; a status hue family (amber /
-   blue / violet / neutral) powers status pills; green/red remain
-   reserved for verdict and danger facts (the red unread-count
-   badge is the single registered exception). Dark canvas sits near
-   pure black with visibly bordered card surfaces; corner radius
-   baseline is 14px. Dark elevation stacks luminance with inset
-   hairlines instead of heavy drop shadows.
+   Design tokens: dark-first dashboard baseline (aligned with
+   moebius-desktop-spec v1.1). A five-step neutral ladder
+   (#101010 → #171717 → #1c1c1c → #242424 → #2d2d2d) carries all
+   surfaces; sidebar shares the canvas color; layering relies on
+   luminance steps and a single 1px border — zero shadows, zero
+   gradients. Indigo #5E6AD2 remains the single interaction
+   accent in both themes (PRD mandate, overrides the spec's
+   lavender); a status hue family (amber / blue / violet /
+   neutral) powers status pills; green/red remain reserved for
+   verdict and danger facts (the red unread-count badge is the
+   single registered exception). Corner radius baseline is 14px.
    ============================================================ */
 :root {
   --window-header-height: 46px;
-  --canvas: #FFFFFF;
-  --rail: #F7F8FA;
+  --canvas: #FAFAFA;
+  --rail: #FAFAFA;
   --card: #FFFFFF;
-  --sunken: #F6F7F9;
+  --sunken: #F0F0F0;
   --input: #FFFFFF;
-  --ink: #23252D;
-  --sub: #5E6472;
-  --hint: #9BA0AC;
-  --line: rgba(24, 26, 42, 0.07);
-  --line-strong: rgba(24, 26, 42, 0.11);
-  --sel: rgba(24, 26, 42, 0.07);
-  --hover: rgba(24, 26, 42, 0.045);
+  --ink: #181818;
+  --sub: #636363;
+  --hint: #707070;
+  --line: #DDDDDD;
+  --line-strong: #CFCFCF;
+  --sel: #E4E4E4;
+  --hover: #EDEDED;
   --accent: #5E6AD2;
   --accent-fg: #FFFFFF;
   --accent-hover: #4B57C8;
-  --pass: #2F8F5B;
-  --danger: #E5484D;
+  --pass: #077C15;
+  --danger: #CB1124;
   --ava-bg: rgba(24, 26, 42, 0.06);
-  --ava-fg: #5E6472;
+  --ava-fg: #636363;
+  /* 身份色板（moebius-desktop-spec 6.6 采样）：彩底 + 深字，亮暗双主题共用同一组值 */
+  --ident-1: #E8B4C8;
+  --ident-2: #F0C9A0;
+  --ident-3: #BCD9F7;
+  --ident-4: #B8E3D2;
+  --ident-5: #D9C2F0;
+  --ident-6: #E8D1A8;
+  --ident-fg: #101010;
   /* 状态色相族（亮色：压深 fg + 浅 tint bg + 同色描边） */
-  --status-run-fg: #A16A0E;
-  --status-run-bg: rgba(214, 150, 44, 0.14);
-  --status-run-line: rgba(214, 150, 44, 0.32);
-  --status-info-fg: #3563C9;
-  --status-info-bg: rgba(74, 124, 214, 0.11);
-  --status-info-line: rgba(74, 124, 214, 0.28);
+  --status-run-fg: #816A00;
+  --status-run-bg: #F3F2EF;
+  --status-run-line: rgba(129, 106, 0, 0.32);
+  --status-info-fg: #196AA9;
+  --status-info-bg: #EFF2F6;
+  --status-info-line: rgba(25, 106, 169, 0.3);
   --status-violet-fg: #6C54B8;
   --status-violet-bg: rgba(140, 116, 220, 0.12);
   --status-violet-line: rgba(140, 116, 220, 0.28);
-  --status-neutral-fg: #5E6472;
-  --status-neutral-bg: rgba(24, 26, 42, 0.06);
-  --status-neutral-line: rgba(24, 26, 42, 0.14);
-  --status-pass-bg: rgba(47, 143, 91, 0.1);
-  --status-pass-line: rgba(47, 143, 91, 0.28);
-  --status-danger-bg: rgba(229, 72, 77, 0.08);
-  --status-danger-line: rgba(229, 72, 77, 0.26);
-  --shadow-pop:
-    0 0 0 1px rgba(24, 26, 42, 0.05),
-    0 4px 12px rgba(24, 26, 42, 0.10),
-    0 8px 24px rgba(24, 26, 42, 0.08);
-  --ring-focus:
-    0 0 0 2px rgba(94, 106, 210, 0.4),
-    0 0 0 4px rgba(94, 106, 210, 0.2);
+  --status-neutral-fg: #636363;
+  --status-neutral-bg: #F0F0F0;
+  --status-neutral-line: #DDDDDD;
+  --status-pass-bg: #EFF3EF;
+  --status-pass-line: rgba(7, 124, 21, 0.3);
+  --status-danger-bg: #F9EFF0;
+  --status-danger-line: rgba(203, 17, 36, 0.28);
+  /* 零阴影：浮层只靠 1px 描边分层 */
+  --shadow-pop: none;
+  --ring-focus: 0 0 0 2px var(--accent);
   --dur-fast: 100ms;
   --dur: 150ms;
   --ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
@@ -62,86 +68,80 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --canvas: #0A0B0D;
-    --rail: #0E0F12;
-    --card: #15161A;
-    --sunken: #101114;
-    --input: #1C1D21;
-    --ink: #F7F8F8;
-    --sub: #9BA0AC;
-    --hint: #6B6F78;
-    --line: rgba(214, 218, 235, 0.12);
-    --line-strong: rgba(214, 218, 235, 0.2);
-    --sel: rgba(214, 218, 235, 0.09);
-    --hover: rgba(214, 218, 235, 0.05);
+    --canvas: #101010;
+    --rail: #101010;
+    --card: #171717;
+    --sunken: #1C1C1C;
+    --input: #171717;
+    --ink: #F4F4F4;
+    --sub: #A1A1A1;
+    --hint: #6E6E6E;
+    --line: #262626;
+    --line-strong: #2E2E2E;
+    --sel: #2D2D2D;
+    --hover: #242424;
     --accent: #5E6AD2;
     --accent-fg: #F7F8F8;
     --accent-hover: #828FFF;
-    --pass: #5CC08A;
-    --danger: #F26E6E;
+    --pass: #2EE03A;
+    --danger: #F72332;
     --ava-bg: rgba(214, 218, 235, 0.08);
     --ava-fg: #C3C6CC;
-    --status-run-fg: #F0B45C;
-    --status-run-bg: rgba(240, 180, 92, 0.14);
-    --status-run-line: rgba(240, 180, 92, 0.32);
-    --status-info-fg: #7BA7F0;
-    --status-info-bg: rgba(123, 167, 240, 0.14);
-    --status-info-line: rgba(123, 167, 240, 0.32);
+    --status-run-fg: #F0D050;
+    --status-run-bg: #2B2612;
+    --status-run-line: rgba(240, 208, 80, 0.35);
+    --status-info-fg: #5FB3FF;
+    --status-info-bg: #19232D;
+    --status-info-line: rgba(95, 179, 255, 0.32);
     --status-violet-fg: #B9A8F0;
     --status-violet-bg: rgba(185, 168, 240, 0.13);
     --status-violet-line: rgba(185, 168, 240, 0.3);
-    --status-neutral-fg: #9BA0AC;
-    --status-neutral-bg: rgba(214, 218, 235, 0.09);
-    --status-neutral-line: rgba(214, 218, 235, 0.2);
-    --status-pass-bg: rgba(92, 192, 138, 0.14);
-    --status-pass-line: rgba(92, 192, 138, 0.32);
-    --status-danger-bg: rgba(242, 110, 110, 0.14);
-    --status-danger-line: rgba(242, 110, 110, 0.32);
-    --shadow-pop:
-      rgba(0, 0, 0, 0.15) 0 4px 12px,
-      rgba(0, 0, 0, 0.2) 0 8px 24px,
-      inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    --status-neutral-fg: #A1A1A1;
+    --status-neutral-bg: #1C1C1C;
+    --status-neutral-line: #262626;
+    --status-pass-bg: #172C19;
+    --status-pass-line: rgba(46, 224, 58, 0.32);
+    --status-danger-bg: #321C1E;
+    --status-danger-line: rgba(247, 35, 50, 0.35);
+    --shadow-pop: none;
   }
 }
 
 :root.dark {
-  --canvas: #0A0B0D;
-  --rail: #0E0F12;
-  --card: #15161A;
-  --sunken: #101114;
-  --input: #1C1D21;
-  --ink: #F7F8F8;
-  --sub: #9BA0AC;
-  --hint: #6B6F78;
-  --line: rgba(214, 218, 235, 0.12);
-  --line-strong: rgba(214, 218, 235, 0.2);
-  --sel: rgba(214, 218, 235, 0.09);
-  --hover: rgba(214, 218, 235, 0.05);
+  --canvas: #101010;
+  --rail: #101010;
+  --card: #171717;
+  --sunken: #1C1C1C;
+  --input: #171717;
+  --ink: #F4F4F4;
+  --sub: #A1A1A1;
+  --hint: #6E6E6E;
+  --line: #262626;
+  --line-strong: #2E2E2E;
+  --sel: #2D2D2D;
+  --hover: #242424;
   --accent: #5E6AD2;
   --accent-fg: #F7F8F8;
   --accent-hover: #828FFF;
-  --pass: #5CC08A;
-  --danger: #F26E6E;
+  --pass: #2EE03A;
+  --danger: #F72332;
   --ava-bg: rgba(214, 218, 235, 0.08);
   --ava-fg: #C3C6CC;
-  --status-run-fg: #F0B45C;
-  --status-run-bg: rgba(240, 180, 92, 0.14);
-  --status-run-line: rgba(240, 180, 92, 0.32);
-  --status-info-fg: #7BA7F0;
-  --status-info-bg: rgba(123, 167, 240, 0.14);
-  --status-info-line: rgba(123, 167, 240, 0.32);
+  --status-run-fg: #F0D050;
+  --status-run-bg: #2B2612;
+  --status-run-line: rgba(240, 208, 80, 0.35);
+  --status-info-fg: #5FB3FF;
+  --status-info-bg: #19232D;
+  --status-info-line: rgba(95, 179, 255, 0.32);
   --status-violet-fg: #B9A8F0;
   --status-violet-bg: rgba(185, 168, 240, 0.13);
   --status-violet-line: rgba(185, 168, 240, 0.3);
-  --status-neutral-fg: #9BA0AC;
-  --status-neutral-bg: rgba(214, 218, 235, 0.09);
-  --status-neutral-line: rgba(214, 218, 235, 0.2);
-  --status-pass-bg: rgba(92, 192, 138, 0.14);
-  --status-pass-line: rgba(92, 192, 138, 0.32);
-  --status-danger-bg: rgba(242, 110, 110, 0.14);
-  --status-danger-line: rgba(242, 110, 110, 0.32);
-  --shadow-pop:
-    rgba(0, 0, 0, 0.15) 0 4px 12px,
-    rgba(0, 0, 0, 0.2) 0 8px 24px,
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --status-neutral-fg: #A1A1A1;
+  --status-neutral-bg: #1C1C1C;
+  --status-neutral-line: #262626;
+  --status-pass-bg: #172C19;
+  --status-pass-line: rgba(46, 224, 58, 0.32);
+  --status-danger-bg: #321C1E;
+  --status-danger-line: rgba(247, 35, 50, 0.35);
+  --shadow-pop: none;
 }

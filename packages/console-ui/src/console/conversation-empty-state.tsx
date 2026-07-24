@@ -14,7 +14,7 @@ export function ConversationEmptyState({ projectName, className }: ConversationE
         <span className="mx-auto mb-5 flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-line-strong text-hint">
           <Braces className="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
         </span>
-        <h1 className="text-[26px] font-medium leading-9 tracking-[-0.025em] text-ink">
+        <h1 className="font-display text-[26px] font-medium leading-9 tracking-[-0.025em] text-ink">
           想在 <span className="font-semibold">{projectName}</span> 中完成什么？
         </h1>
       </div>

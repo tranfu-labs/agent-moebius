@@ -309,7 +309,7 @@ export function AgentMarkdownMentionEditor({
           id={listboxId}
           role="listbox"
           aria-label="团队成员提及补全"
-          className="absolute left-2 top-full z-40 mt-2 w-[min(360px,calc(100%-1rem))] rounded-lg border border-line bg-card p-1.5 shadow-overlay"
+          className="absolute left-2 top-full z-40 mt-2 w-[min(360px,calc(100%-1rem))] rounded-md border border-line bg-sunken p-1.5"
         >
           {matches.map((member, index) => (
             <button
@@ -382,7 +382,7 @@ function AgentMention({ member }: { member: AgentMentionMember }): JSX.Element {
       <span data-mention-label>{member.displayName || `@${member.slug}`}</span>
       <span
         role="tooltip"
-        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[11px] font-normal leading-4 text-card shadow-overlay group-hover:block group-focus-visible:block"
+        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[11px] font-normal leading-4 text-card group-hover:block group-focus-visible:block"
       >
         {copied ? `已复制 @${member.slug}` : `@${member.slug} · 点击复制`}
       </span>

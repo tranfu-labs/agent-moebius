@@ -1,9 +1,9 @@
 import { FileText, Square } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { Button } from "@/ui/button";
 import { sanitizeMachineText } from "@/console/machine-text";
 import { MarkdownMessage } from "@/console/markdown-message";
+import { RoleTag } from "@/console/role-tag";
 
 export type RunBlockStepStatus = "completed" | "running" | "pending";
 
@@ -59,45 +59,44 @@ export function RunBlock({
   const fallbackSummary = sanitizeMachineText(nonBlank(summary) ?? "正在推进这一步…", "正在推进这一步…");
 
   return (
-    <div className={cn("max-w-[680px] border-y border-line py-3", className)}>
+    <div className={cn("max-w-[680px]", className)}>
       <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-ink">{roleLabel}</span>
-        {onOpenOutput ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="ml-auto"
-            onClick={() => onOpenOutput(nonBlank(rawOutput))}
-          >
-            <FileText className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-            完整输出
-          </Button>
-        ) : null}
-        {onInterrupt ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={onOpenOutput ? undefined : "ml-auto"}
-            onClick={onInterrupt}
-            aria-label={interruptLabel ?? `停下${roleLabel}`}
-            title={interruptLabel ?? `停下${roleLabel}`}
-          >
-            <Square className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
-            停下
-          </Button>
-        ) : null}
+        <RoleTag label={roleLabel} toneKey={role} />
+        <span className="text-[12.5px] font-semibold text-ink">{roleLabel}</span>
+        <span className="ml-auto flex items-center gap-0.5">
+          {onOpenOutput ? (
+            <button
+              type="button"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-sub transition-colors hover:bg-hover hover:text-ink"
+              aria-label="完整输出"
+              title="完整输出"
+              onClick={() => onOpenOutput(nonBlank(rawOutput))}
+            >
+              <FileText className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            </button>
+          ) : null}
+          {onInterrupt ? (
+            <button
+              type="button"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-sub transition-colors hover:bg-hover hover:text-ink"
+              onClick={onInterrupt}
+              aria-label={interruptLabel ?? `停下${roleLabel}`}
+              title={interruptLabel ?? `停下${roleLabel}`}
+            >
+              <Square className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            </button>
+          ) : null}
+        </span>
       </div>
 
       {usableSteps ? (
-        <div className="mt-3 space-y-2.5">
+        <div className="mt-2.5 space-y-2.5 pl-7">
           {usableSteps.map((step, index) => (
             <RunStepItem key={step.id ?? `${step.title}-${index}`} step={step} index={index} />
           ))}
         </div>
       ) : (
-        <div className="mt-3 max-w-full overflow-x-auto text-sm text-sub" data-testid="run-live-output">
+        <div className="mt-2.5 max-w-full overflow-x-auto pl-7 text-sm text-sub" data-testid="run-live-output">
           <MarkdownMessage
             content={liveContent === null
               ? fallbackSummary

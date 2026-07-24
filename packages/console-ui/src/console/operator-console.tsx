@@ -42,6 +42,7 @@ import {
   type CopySessionLogPathResult,
 } from "@/console/conversation-sidebar";
 import { RoleComposer, type RoleCompletion } from "@/console/role-composer";
+import { RoleTag } from "@/console/role-tag";
 import {
   StructuredAttachmentList,
   hasBlockingComposerAttachment,
@@ -803,14 +804,14 @@ export function OperatorConsole({
         </header>
 
         <div
-          className="window-drag-region flex h-10 shrink-0 items-center gap-2 px-3"
+          className="window-drag-region flex h-[34px] shrink-0 items-center gap-2 px-4"
           data-testid="sidebar-brand-region"
         >
           <MoebiusLogo />
-          <span className="truncate text-sm font-semibold tracking-[-0.01em]">Moebius</span>
+          <span className="truncate font-display text-[14.5px] font-semibold tracking-[-0.01em]">Moebius</span>
         </div>
 
-        <nav className="shrink-0 px-2 pb-2 pt-1" aria-label="应用导航" data-testid="sidebar-app-actions">
+        <nav className="shrink-0 space-y-1 px-2.5 pb-1 pt-3" aria-label="应用导航" data-testid="sidebar-app-actions">
           <SidebarAction
             icon={Plus}
             label="新建对话"
@@ -838,7 +839,7 @@ export function OperatorConsole({
           />
         </nav>
 
-        <div className="flex shrink-0 items-center justify-between px-4 pb-1 pt-2 text-xs font-medium text-hint">
+        <div className="flex shrink-0 items-center justify-between px-5 pb-1.5 pt-4 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-sub">
           <span>项目</span>
           {projectConfigurationPending ? <span role="status">正在更新…</span> : null}
         </div>
@@ -1088,7 +1089,7 @@ export function OperatorConsole({
                   data-testid="conversation-title-header"
                 >
                   <h1
-                    className="mx-auto w-full max-w-[760px] truncate pl-10 text-left text-base font-semibold text-ink"
+                    className="mx-auto w-full max-w-[760px] truncate text-left font-display text-[15px] font-semibold tracking-[-0.01em] text-ink"
                     title={selectedSession.title}
                   >
                     {selectedSession.title}
@@ -1103,7 +1104,7 @@ export function OperatorConsole({
               ) : (
                 <div className="px-8">
                   <div className="mx-auto max-w-[760px]">
-                    <div className="divide-y divide-line">
+                    <div>
                       {messages.map((message) => (
                         <TimelineEntry
                           key={message.id}
@@ -1124,7 +1125,7 @@ export function OperatorConsole({
                       const isPrimaryRun = activeRun?.runId === run.runId;
                       const roleLabel = localizeTimelineRole(run.role);
                       return (
-                        <div className="pl-10" data-testid="active-run-block" data-run-id={run.runId} key={run.runId}>
+                        <div data-testid="active-run-block" data-run-id={run.runId} key={run.runId}>
                           <RunBlock
                             role={run.role ?? "dev"}
                             summary={safeRunSummary(run.lastOutputSummary)}
@@ -1142,7 +1143,7 @@ export function OperatorConsole({
                               ? () => onInterrupt(run.sessionId, run.runId)
                               : undefined}
                             interruptLabel={!isPrimaryRun ? `停下${roleLabel}` : undefined}
-                            className="mt-3 max-w-none"
+                            className="mt-4 max-w-none"
                           />
                         </div>
                       );
@@ -1178,7 +1179,7 @@ export function OperatorConsole({
               <button
                 type="button"
                 className={cn(
-                  "absolute left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-xs text-sub shadow-overlay hover:text-ink",
+                  "absolute left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-xs text-sub hover:text-ink",
                   pendingPrimaryMessages.length > 0 ? "bottom-64" : "bottom-36",
                 )}
                 onClick={() => {
@@ -1195,7 +1196,7 @@ export function OperatorConsole({
               </button>
             ) : null}
 
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-canvas via-canvas to-transparent px-6 pb-5 pt-12">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-canvas px-6 pb-5 pt-3">
                 {pendingPrimaryMessages.length > 0 ? (
                   <section
                     className="pointer-events-auto mx-auto mb-2 max-w-[720px] rounded-[14px] border border-accent/35 bg-accent/10 px-3.5 py-2.5"
@@ -1601,7 +1602,7 @@ function ProjectActionDialog({
 }): JSX.Element {
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-6"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-6"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
@@ -1609,11 +1610,11 @@ function ProjectActionDialog({
         }
       }}
     >
-      <div className="w-full max-w-md rounded-xl border border-line bg-card p-5 text-ink shadow-overlay" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="w-full max-w-md rounded-[14px] border border-line bg-sunken p-5 text-ink" role="dialog" aria-modal="true" aria-label={title}>
         <div className="flex items-start gap-3">
           {icon}
           <div className="min-w-0">
-            <h2 className="text-base font-semibold">{title}</h2>
+            <h2 className="font-display text-base font-semibold tracking-[-0.01em]">{title}</h2>
             <p className="mt-1 text-sm leading-5 text-sub">{description}</p>
           </div>
         </div>
@@ -1707,18 +1708,21 @@ async function submitProjectFolderRepair(
 function MoebiusLogo(): JSX.Element {
   return (
     <span
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-ink text-rail"
+      className="flex h-5 w-5 shrink-0 items-center justify-center text-ink"
       role="img"
       aria-label="Moebius Logo"
     >
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path
-          d="M7.25 16.25C4.9 16.25 3 14.35 3 12s1.9-4.25 4.25-4.25C11.2 7.75 12.8 16.25 16.75 16.25 19.1 16.25 21 14.35 21 12s-1.9-4.25-4.25-4.25C12.8 7.75 11.2 16.25 7.25 16.25Z"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+      <svg
+        className="h-5 w-5"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        aria-hidden="true"
+      >
+        <path d="M12 12c-1.4-1.9-2.8-3-4.4-3a3.6 3.6 0 1 0 0 7.2c1.6 0 3-1.1 4.4-3z" />
+        <path d="M12 12c1.4 1.9 2.8 3 4.4 3a3.6 3.6 0 1 0 0-7.2c-1.6 0-3 1.1-4.4 3z" />
       </svg>
     </span>
   );
@@ -1745,7 +1749,7 @@ function SidebarAction({
     <button
       type="button"
       className={cn(
-        "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-normal text-ink hover:bg-hover",
+        "flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium text-ink hover:bg-hover",
         selected ? "bg-sel" : "bg-transparent",
       )}
       aria-label={label}
@@ -1755,7 +1759,11 @@ function SidebarAction({
       disabled={disabled}
       onClick={onClick}
     >
-      <Icon className="h-4 w-4 shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
+      <Icon
+        className={cn("h-[18px] w-[18px] shrink-0", selected ? "text-ink" : "text-sub")}
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
       <span>{label}</span>
       {statusIndicatorLabel ? (
         <span
@@ -1777,9 +1785,9 @@ function ApplicationPlaceholder({
   onClose: () => void;
 }): JSX.Element {
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-ink/20 p-6" data-testid="application-overlay">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 p-6" data-testid="application-overlay">
       <section
-        className="w-full max-w-md rounded-xl border border-line bg-canvas p-5 shadow-lg"
+        className="w-full max-w-md rounded-[14px] border border-line bg-sunken p-5"
         role="dialog"
         aria-modal="true"
         aria-labelledby="application-placeholder-title"
@@ -1857,7 +1865,7 @@ function TimelineEntry({
       ? childSessions
       : sessionIds.map((sessionId) => childSessions.find((item) => item.sessionId === sessionId)).filter(isDefined);
     return (
-      <div className="py-4 pl-10">
+      <div className="py-4 pl-7">
         <SubSessionCard items={items} openedSessionId={openedSubSessionId} onOpen={onOpenSubSession} />
       </div>
     );
@@ -1888,17 +1896,49 @@ function TimelineEntry({
           role: message.role,
           fallbackOutput,
         })}
-        className="py-4"
+        className="my-4"
       />
     );
   }
 
+  if (message.speaker === "user") {
+    return (
+      <div className="group py-4 text-sm">
+        <div className="mb-1.5 flex items-center justify-end gap-2 text-[12.5px] text-sub">
+          <span className="tnum text-hint opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">{formatTime(message.updatedAt)}</span>
+          <span className="font-semibold text-ink">你</span>
+          <RoleTag label="你" toneKey="user" />
+        </div>
+        <div className="flex justify-end">
+          <div className="max-w-[85%] rounded-[14px] border border-line bg-card px-3.5 py-2.5">
+            {message.body.trim() === "" ? null : (
+              <MarkdownMessage
+                content={sanitizeMachineText(message.body)}
+                mode="static"
+                onOpenExternalLink={onOpenExternalLink}
+              />
+            )}
+            <StructuredAttachmentList
+              attachments={message.attachments ?? []}
+              mode="message"
+              className={message.body.trim() === "" ? "" : "mt-2"}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="group py-4 pl-10 text-sm">
-      <div className="mb-1.5 flex items-center gap-2 text-xs text-sub">
-        <span className="font-semibold text-ink">{message.speaker === "user" ? "你" : message.speaker === "agent" ? resolveOperatorMemberName(message.role) : "系统提示"}</span>
+    <div className="group py-4 text-sm">
+      <div className="mb-1.5 flex items-center gap-2 text-[12.5px] text-sub">
+        {message.speaker === "agent" ? (
+          <RoleTag label={resolveOperatorMemberName(message.role)} toneKey={message.role ?? "agent"} />
+        ) : null}
+        <span className="font-semibold text-ink">{message.speaker === "agent" ? resolveOperatorMemberName(message.role) : "系统提示"}</span>
         <span className="tnum text-hint opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">{formatTime(message.updatedAt)}</span>
       </div>
+      <div className="pl-7">
       {message.speaker === "system" ? (
         <div className="whitespace-pre-wrap break-words leading-6 text-ink">{systemSummary(message)}</div>
       ) : (
@@ -1934,6 +1974,7 @@ function TimelineEntry({
           完整输出
         </Button>
       ) : null}
+      </div>
     </div>
   );
 }

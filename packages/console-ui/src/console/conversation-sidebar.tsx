@@ -609,7 +609,7 @@ function SessionRow({
             <button
               type="button"
               className={cn(
-                "absolute right-1 flex h-6 w-6 items-center justify-center rounded-md bg-rail text-sub opacity-0 shadow-sm hover:bg-hover hover:text-ink focus:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent group-hover:opacity-100 group-focus-within:opacity-100",
+                "absolute right-1 flex h-6 w-6 items-center justify-center rounded-md bg-rail text-sub opacity-0 hover:bg-hover hover:text-ink focus:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent group-hover:opacity-100 group-focus-within:opacity-100",
                 menuOpen && "opacity-100",
               )}
               aria-label={`${session.title} 对话菜单`}
@@ -652,7 +652,7 @@ function SessionRow({
       {copyFeedback !== null ? (
         <span
           className={cn(
-            "pointer-events-none absolute right-8 z-20 whitespace-nowrap rounded-md border bg-card px-2 py-1 text-xs shadow-overlay",
+            "pointer-events-none absolute right-8 z-20 whitespace-nowrap rounded-md border bg-card px-2 py-1 text-xs",
             copyFeedback === "success" ? "border-line text-ink" : "border-danger/40 text-danger",
           )}
           role={copyFeedback === "success" ? "status" : "alert"}
@@ -688,9 +688,9 @@ function StatusIcon({ status }: { status: ConversationSessionStatus }): JSX.Elem
       title={statusLabel[status]}
       data-status-indicator={status}
     >
-      {status === "red" ? <span className="h-2 w-2 rounded-full bg-danger" aria-hidden="true" /> : null}
-      {status === "blue" ? <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" /> : null}
-      {status === "blink" ? <span className="h-2 w-2 rounded-full bg-sub animate-breathe" aria-hidden="true" /> : null}
+      {status === "red" ? <span className="h-[7px] w-[7px] rounded-full bg-danger" aria-hidden="true" /> : null}
+      {status === "blue" ? <span className="h-[7px] w-[7px] rounded-full bg-[var(--status-info-fg)]" aria-hidden="true" /> : null}
+      {status === "blink" ? <span className="h-[7px] w-[7px] rounded-full bg-[var(--status-run-fg)] animate-breathe" aria-hidden="true" /> : null}
     </span>
   );
 }

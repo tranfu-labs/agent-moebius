@@ -148,16 +148,16 @@ export function FileDiffView({
                 key={`${String(line.oldLineNumber)}:${String(line.newLineNumber)}:${String(index)}`}
                 className={cn(
                   "flex min-w-max",
-                  line.kind === "addition" && "bg-sel text-ink",
-                  line.kind === "deletion" && "bg-hover text-ink",
+                  line.kind === "addition" && "bg-[var(--status-pass-bg)] text-ink",
+                  line.kind === "deletion" && "bg-[var(--status-danger-bg)] text-sub",
                 )}
                 data-line-kind={line.kind}
               >
                 <span
                   className={cn(
                     "sticky left-0 z-10 flex w-24 shrink-0 justify-end gap-2 border-r border-line bg-canvas px-2 text-hint",
-                    line.kind === "addition" && "text-accent",
-                    line.kind === "deletion" && "text-danger",
+                    line.kind === "addition" && "bg-[var(--status-pass-bg)] text-pass",
+                    line.kind === "deletion" && "bg-[var(--status-danger-bg)] text-danger",
                   )}
                   aria-hidden="true"
                 >
@@ -271,7 +271,7 @@ function FileTreeNode({
       <span className="min-w-0 flex-1 truncate">{node.name}</span>
       {change !== null && change.changed !== false && (change.additions !== null || change.deletions !== null) ? (
         <span className="tnum flex shrink-0 gap-1 text-[11px]" aria-label={changeSummary(change)}>
-          {change.additions !== null ? <span className="text-accent">+{change.additions}</span> : null}
+          {change.additions !== null ? <span className="text-pass">+{change.additions}</span> : null}
           {change.deletions !== null ? <span className="text-danger">−{change.deletions}</span> : null}
         </span>
       ) : null}

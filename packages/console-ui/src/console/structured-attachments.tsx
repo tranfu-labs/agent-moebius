@@ -75,7 +75,7 @@ export function StructuredAttachmentList({
           return (
             <article
               key={itemId}
-              className="relative flex h-24 w-32 min-w-0 overflow-hidden rounded-xl border border-line bg-sunken"
+              className="relative flex h-24 w-32 min-w-0 overflow-hidden rounded-[10px] border border-line bg-sunken"
               aria-label={`${attachment.displayName}，${attachmentStatusLabel(status)}`}
               title={attachment.displayName}
             >
@@ -101,7 +101,7 @@ export function StructuredAttachmentList({
           <article
             key={itemId}
             className={cn(
-              "flex min-h-14 min-w-0 max-w-full items-center gap-2 rounded-xl border bg-sunken px-3 py-2",
+              "flex min-h-14 min-w-0 max-w-full items-center gap-2 rounded-[10px] border bg-sunken px-3 py-2",
               status === "failed" ? "border-danger/40" : "border-line",
             )}
             aria-label={`${attachment.displayName}，${attachmentStatusLabel(status)}`}

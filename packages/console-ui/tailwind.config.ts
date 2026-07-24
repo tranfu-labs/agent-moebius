@@ -53,6 +53,7 @@ const config = {
         overlay: "var(--shadow-pop)"
       },
       fontFamily: {
+        display: ["var(--font-display)"],
         sans: [
           "InterVar",
           "ui-sans-serif",

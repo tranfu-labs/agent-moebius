@@ -289,7 +289,7 @@ export function RoleComposer({
         <div
           id={listboxId}
           role="listbox"
-          className="absolute bottom-full left-0 z-30 mb-2 w-full rounded-xl border border-line bg-card p-1.5 shadow-overlay"
+          className="absolute bottom-full left-0 z-30 mb-2 w-full rounded-md border border-line bg-sunken p-1.5"
           aria-label="角色补全面板"
         >
           {matchingRoleOptions.map((role, index) => (
@@ -321,7 +321,7 @@ export function RoleComposer({
 
       <div
         className={cn(
-          "relative overflow-hidden rounded-[18px] border border-line-strong bg-input shadow-overlay",
+          "relative overflow-hidden rounded-[14px] border border-line bg-input",
           dragActive && "border-accent ring-2 ring-accent/20",
         )}
         onDragEnter={(event) => {
@@ -347,7 +347,7 @@ export function RoleComposer({
           }
         }}
       >
-        {context ? <div className="border-b border-line bg-sunken px-3.5 py-2.5">{context}</div> : null}
+        {context ? <div className="px-3 pt-2">{context}</div> : null}
         <StructuredAttachmentList
           attachments={attachments}
           mode="draft"
@@ -411,10 +411,10 @@ export function RoleComposer({
           />
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="icon"
             className={cn(
-              "absolute bottom-3 h-8 w-8 rounded-full p-0",
+              "absolute bottom-3 h-8 w-8 rounded-[10px] border-line bg-transparent p-0 text-sub hover:bg-hover hover:text-ink",
               runActive ? "right-[84px]" : "right-12",
             )}
             disabled={disabled}
@@ -428,7 +428,7 @@ export function RoleComposer({
             <Button
               type="button"
               size="icon"
-              className="absolute bottom-3 right-12 h-8 w-8 rounded-full p-0"
+              className="absolute bottom-3 right-12 h-8 w-8 rounded-[10px] bg-ink p-0 text-canvas hover:opacity-85"
               disabled={!canSubmit}
               aria-label={submitLabel}
               title={submitLabel}
@@ -440,7 +440,12 @@ export function RoleComposer({
           <Button
             type="button"
             size="icon"
-            className="absolute bottom-3 right-3 h-8 w-8 rounded-full p-0"
+            className={cn(
+              "absolute bottom-3 right-3 h-8 w-8 rounded-[10px] p-0",
+              runActive
+                ? "bg-[var(--status-danger-bg)] text-danger hover:bg-[var(--status-danger-bg)] hover:opacity-85"
+                : "bg-ink text-canvas hover:opacity-85",
+            )}
             disabled={runActive ? disabled || onInterrupt === undefined : !canSubmit}
             aria-label={runActive ? interruptLabel : submitLabel}
             title={runActive ? interruptLabel : submitLabel}

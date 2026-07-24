@@ -111,7 +111,7 @@ function SafeMarkdownLink({
         <span
           role="dialog"
           aria-label="确认打开外部链接"
-          className="absolute left-0 top-full z-30 mt-2 block w-[min(360px,80vw)] rounded-lg border border-line bg-card p-3 text-left text-xs font-normal text-ink shadow-overlay"
+          className="absolute left-0 top-full z-30 mt-2 block w-[min(360px,80vw)] rounded-md border border-line bg-sunken p-3 text-left text-xs font-normal text-ink"
         >
           <span className="block break-all text-sub">{safeUrl}</span>
           <span className="mt-3 flex justify-end gap-2">

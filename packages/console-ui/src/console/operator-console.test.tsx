@@ -41,7 +41,7 @@ describe("OperatorConsole", () => {
       "pl-[76px]",
     );
     expect(windowControls).not.toHaveClass("pt-[6px]");
-    expect(brandRegion).toHaveClass("window-drag-region", "h-10", "px-3");
+    expect(brandRegion).toHaveClass("window-drag-region", "h-[34px]", "px-4");
     expect(brandRegion).not.toHaveClass("pl-[76px]");
     expect(windowControls).not.toContainElement(screen.getByRole("img", { name: "Moebius Logo" }));
     expect(screen.getByRole("button", { name: "关闭侧边栏" })).toHaveClass("window-no-drag");
@@ -896,20 +896,36 @@ describe("OperatorConsole", () => {
       "px-8",
     );
     expect(titleHeader).not.toHaveClass("absolute", "pt-12", "window-drag-region");
-    expect(title).toHaveClass("w-full", "max-w-[760px]", "pl-10", "text-left");
+    expect(title).toHaveClass("w-full", "max-w-[760px]", "text-left");
+    expect(title).not.toHaveClass("pl-10");
   });
 
   it("aligns the active run with the same content column as historical messages", () => {
-    renderConsole({ activeRun: runSnapshot });
+    renderConsole({
+      activeRun: runSnapshot,
+      messages: [message({ id: 1, body: "先看一眼现状", speaker: "agent", role: "dev" })],
+    });
 
-    const historicalMessage = screen.getByText("@dev hello").closest(".group");
+    const historicalMessage = screen.getByText("先看一眼现状").closest(".group");
     const activeRunHost = screen.getByTestId("active-run-block");
     const activeRun = activeRunHost.firstElementChild;
 
-    expect(historicalMessage).toHaveClass("pl-10");
-    expect(activeRunHost).toHaveClass("pl-10");
+    expect(historicalMessage).not.toHaveClass("pl-10");
+    expect(historicalMessage?.querySelector(".pl-7")).not.toBeNull();
+    expect(activeRunHost).not.toHaveClass("pl-10");
+    expect(activeRun?.querySelector(".pl-7")).not.toBeNull();
     expect(activeRun).toHaveClass("max-w-none");
     expect(activeRun).not.toHaveClass("max-w-[680px]");
+  });
+
+  it("renders user messages in a right-aligned chat lane outside the shared left column", () => {
+    renderConsole();
+
+    const userMessage = screen.getByText("@dev hello").closest(".group");
+
+    expect(userMessage?.querySelector(".pl-7")).toBeNull();
+    expect(userMessage?.querySelector(".justify-end")).not.toBeNull();
+    expect(userMessage).toHaveTextContent("你");
   });
 
   it("keeps the selected conversation mounted when its project is collapsed", () => {

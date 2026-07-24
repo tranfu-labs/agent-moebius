@@ -52,15 +52,16 @@ describe("dashboard tokens", () => {
   });
 
   it("sets the near-black dark canvas and the 14px radius baseline", () => {
-    expect(tokens.match(/--canvas: #0A0B0D/g)?.length).toBe(2);
-    expect(tokens.match(/--card: #15161A/g)?.length).toBe(2);
+    expect(tokens.match(/--canvas: #101010/g)?.length).toBe(2);
+    expect(tokens.match(/--card: #171717/g)?.length).toBe(2);
+    expect(tokens.match(/--rail: #101010/g)?.length).toBe(2);
     expect(globals).toContain("--radius: 14px");
   });
 
-  it("defines popover shadow, double-layer focus ring, and motion tokens", () => {
-    expect(tokens).toContain("--shadow-pop:");
-    expect(tokens).toContain("inset 0 0 0 1px rgba(255, 255, 255, 0.08)");
-    expect(tokens).toContain("--ring-focus:");
+  it("drops elevation shadows and uses a single-layer focus ring", () => {
+    expect(tokens.match(/--shadow-pop: none/g)?.length).toBe(3);
+    expect(tokens).not.toContain("inset 0 0 0 1px");
+    expect(tokens).toContain("--ring-focus: 0 0 0 2px var(--accent)");
     expect(tokens).toContain("--dur: 150ms");
     expect(tokens).toContain("--ease: cubic-bezier(0.25, 0.46, 0.45, 0.94)");
     expect(tokens).toContain("--ease-enter: cubic-bezier(0.165, 0.84, 0.44, 1)");

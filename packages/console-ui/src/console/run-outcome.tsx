@@ -58,18 +58,21 @@ export function RunOutcome({
   const roleLabel = role ? localizeRole(role) : null;
 
   return (
-    <div className={cn("grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-3", className)}>
-      <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-sunken text-sub" aria-hidden="true">
+    <div
+      className={cn(
+        "flex max-w-[720px] items-start gap-2.5 rounded-[10px] border border-line bg-card px-3.5 py-2.5",
+        className,
+      )}
+    >
+      <span className="mt-0.5 flex shrink-0" aria-hidden="true">
         <OutcomeIcon status={status} />
       </span>
-      <span className="min-w-0">
-        <span className={cn("text-sm font-semibold", status === "user-stopped" ? "text-ink" : "text-danger")}>
-          {outcomeLabels[status]}
-        </span>
+      <span className="min-w-0 flex-1 text-[13px] leading-5 text-ink">
+        {outcomeLabels[status]}
         {roleLabel ? <span className="ml-2 text-xs text-sub">{roleLabel}</span> : null}
-        <span className="mt-1 block text-sm leading-6 text-sub">{outcomeDescriptions[status]}</span>
+        <span className="mt-0.5 block text-xs text-sub">{outcomeDescriptions[status]}</span>
       </span>
-      <span className="flex items-center gap-2">
+      <span className="flex shrink-0 items-center gap-1.5">
         {status === "run-not-started" || status === "run-stuck" ? (
           <Button type="button" variant="outline" size="sm" onClick={onRetry}>
             重试
@@ -103,15 +106,15 @@ function nonBlank(value: string | null | undefined): string | null {
 
 function OutcomeIcon({ status }: { status: RunOutcomeStatus }): JSX.Element {
   if (status === "run-not-started") {
-    return <AlertTriangle className="h-4 w-4 text-danger" strokeWidth={1.5} />;
+    return <AlertTriangle className="h-[15px] w-[15px] text-[var(--status-run-fg)]" strokeWidth={1.5} />;
   }
   if (status === "run-stuck") {
-    return <Clock3 className="h-4 w-4 text-danger" strokeWidth={1.5} />;
+    return <Clock3 className="h-[15px] w-[15px] text-[var(--status-run-fg)]" strokeWidth={1.5} />;
   }
   if (status === "user-stopped") {
-    return <CirclePause className="h-4 w-4 text-sub" strokeWidth={1.5} />;
+    return <CirclePause className="h-[15px] w-[15px] text-sub" strokeWidth={1.5} />;
   }
-  return <Ban className="h-4 w-4 text-danger" strokeWidth={1.5} />;
+  return <Ban className="h-[15px] w-[15px] text-danger" strokeWidth={1.5} />;
 }
 
 function localizeRole(role: string): string {

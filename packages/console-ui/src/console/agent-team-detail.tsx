@@ -662,7 +662,7 @@ export function AgentTeamDetail({
             setLeavePromptOpen(false);
           }
         }}>
-          <div className="w-full max-w-md border border-line bg-card p-5 text-ink shadow-overlay" role="dialog" aria-modal="true" aria-label="还有未保存的修改">
+          <div className="w-full max-w-md border border-line bg-card p-5 text-ink" role="dialog" aria-modal="true" aria-label="还有未保存的修改">
             <h2 className="text-base font-semibold">还有未保存的修改</h2>
             <p className="mt-2 text-sm leading-6 text-sub">可以继续编辑、放弃全部修改，或逐个保存后离开。</p>
             <div className="mt-5 flex flex-wrap justify-end gap-2">
@@ -686,7 +686,7 @@ export function AgentTeamDetail({
 
       {externalConflictPromptOpen ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-6">
-          <div className="w-full max-w-md border border-line bg-card p-5 text-ink shadow-overlay" role="dialog" aria-modal="true" aria-label="无法返回团队列表">
+          <div className="w-full max-w-md border border-line bg-card p-5 text-ink" role="dialog" aria-modal="true" aria-label="无法返回团队列表">
             <h2 className="text-base font-semibold">无法返回团队列表</h2>
             <p className="mt-2 text-sm leading-6 text-sub">
               以下 Agent 的文件在应用外被修改，需要先选择载入外部版本或用当前内容覆盖：
@@ -705,7 +705,7 @@ export function AgentTeamDetail({
 
       {removeRecordPromptOpen ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-6">
-          <div className="w-full max-w-md border border-line bg-card p-5 text-ink shadow-overlay" role="dialog" aria-modal="true" aria-label="移除失效团队记录">
+          <div className="w-full max-w-md border border-line bg-card p-5 text-ink" role="dialog" aria-modal="true" aria-label="移除失效团队记录">
             <h2 className="text-base font-semibold">移除失效团队记录？</h2>
             <p className="mt-2 text-sm leading-6 text-sub">
               这只会从应用中移除这条失效记录，不会删除、移动或修改磁盘上的任何文件。已有会话和历史消息也会保留。

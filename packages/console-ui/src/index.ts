@@ -19,6 +19,7 @@ export * from "./console/process-scroll-model";
 export * from "./console/process-tab";
 export * from "./console/project-files-tab";
 export * from "./console/role-composer";
+export * from "./console/role-tag";
 export * from "./console/result-card";
 export * from "./console/right-sidebar";
 export * from "./console/right-sidebar-tabs";

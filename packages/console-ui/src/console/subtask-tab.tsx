@@ -8,10 +8,12 @@ import type {
   OperatorSubSessionView,
 } from "@/console/operator-console";
 import { RoleComposer, type RoleCompletion } from "@/console/role-composer";
+import { RoleTag } from "@/console/role-tag";
 import { RunBlock } from "@/console/run-block";
 import { RunOutcome, type RunOutcomeStatus } from "@/console/run-outcome";
 import { StructuredAttachmentList, type ComposerAttachment } from "@/console/structured-attachments";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 
 export type OperatorSubSessionViewState =
@@ -82,9 +84,8 @@ export function SubtaskTab({
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <h2 className="min-w-0 truncate font-semibold text-ink" title={title}>{title}</h2>
           <span aria-hidden="true" className="text-hint">·</span>
-          <span className="shrink-0 text-sub">{memberName}</span>
-          <span aria-hidden="true" className="text-hint">·</span>
-          <span className="shrink-0 text-sub">{statusLabel}</span>
+          <span className="shrink-0 text-[12.5px] text-sub">{memberName}</span>
+          <Badge variant={subtaskBadgeVariant(summary?.status ?? view?.session.status)}>{statusLabel}</Badge>
         </div>
         <p className="mt-1 text-xs leading-5 text-hint">
           关闭标签只会关闭这个视图，不会取消子任务。
@@ -97,7 +98,7 @@ export function SubtaskTab({
         ) : view === null ? (
           <SubtaskStateMessage>正在加载子任务内容…</SubtaskStateMessage>
         ) : (
-          <div className="divide-y divide-line">
+          <div>
             {view.messages.length === 0 && activeRun === null ? (
               <SubtaskStateMessage>这个子任务还没有推进内容。</SubtaskStateMessage>
             ) : null}
@@ -199,11 +200,40 @@ function SubtaskTimelineEntry({
     );
   }
 
+  if (message.speaker === "user") {
+    return (
+      <article className="py-4 text-sm">
+        <div className="mb-1.5 flex items-center justify-end gap-2 text-[12.5px] text-sub">
+          <span className="font-semibold text-ink">你</span>
+          <RoleTag label="你" toneKey="user" />
+        </div>
+        <div className="flex justify-end">
+          <div className="max-w-[85%] rounded-[14px] border border-line bg-card px-3.5 py-2.5">
+            {message.body.trim() === "" ? null : (
+              <MarkdownMessage content={message.body} mode="static" onOpenExternalLink={onOpenExternalLink} />
+            )}
+            <StructuredAttachmentList
+              attachments={message.attachments ?? []}
+              mode="message"
+              className={message.body.trim() === "" ? "" : "mt-2"}
+            />
+          </div>
+        </div>
+      </article>
+    );
+  }
+
   return (
     <article className="py-4 text-sm">
-      <div className="mb-1.5 text-xs font-semibold text-ink">
-        {message.speaker === "user" ? "你" : message.speaker === "agent" ? memberLabel(message.role) : "系统提示"}
+      <div className="mb-1.5 flex items-center gap-2 text-[12.5px] text-sub">
+        {message.speaker === "agent" ? (
+          <RoleTag label={memberLabel(message.role)} toneKey={message.role ?? "agent"} />
+        ) : null}
+        <span className="font-semibold text-ink">
+          {message.speaker === "agent" ? memberLabel(message.role) : "系统提示"}
+        </span>
       </div>
+      <div className="pl-7">
       {message.speaker === "system" ? (
         <p className="whitespace-pre-wrap break-words leading-6 text-ink">{message.body}</p>
       ) : (
@@ -234,6 +264,7 @@ function SubtaskTimelineEntry({
           ) : null}
         </>
       )}
+      </div>
     </article>
   );
 }
@@ -273,6 +304,25 @@ function fallbackStatusLabel(status: OperatorSubSessionView["session"]["status"]
   if (status === "interrupted") return "已停下";
   if (status === "idle") return "已结束";
   return "状态未知";
+}
+
+function subtaskBadgeVariant(
+  status: string | undefined,
+): "running" | "waiting" | "completed" | "interrupted" | "failed" {
+  switch (status) {
+    case "running":
+      return "running";
+    case "waiting":
+      return "waiting";
+    case "finished":
+    case "idle":
+      return "completed";
+    case "stopped":
+    case "interrupted":
+      return "interrupted";
+    default:
+      return "failed";
+  }
 }
 
 function memberLabel(role: string | null): string {

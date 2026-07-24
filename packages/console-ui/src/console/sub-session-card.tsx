@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Badge } from "@/ui/badge";
 
 export type SubSessionStatus =
   | "running"
@@ -33,7 +34,7 @@ export function SubSessionCard({
 }): JSX.Element {
   return (
     <section
-      className={cn("overflow-hidden rounded-xl border border-line bg-card", className)}
+      className={cn("overflow-hidden rounded-md border border-line bg-card", className)}
       aria-label="子任务"
       data-testid="sub-session-card"
     >
@@ -44,7 +45,7 @@ export function SubSessionCard({
             key={item.sessionId}
             type="button"
             className={cn(
-              "grid min-h-11 w-full grid-cols-[minmax(0,1fr)_minmax(5rem,auto)_minmax(6rem,auto)] items-center gap-3 border-b border-line px-3 text-left text-sm last:border-b-0 hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent",
+              "grid min-h-11 w-full grid-cols-[minmax(0,1fr)_minmax(5rem,auto)_auto] items-center gap-3 border-b border-line px-3.5 text-left text-[13px] last:border-b-0 hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent",
               opened && "bg-sel",
             )}
             aria-label={`${item.title}，负责成员：${item.memberName}，状态：${item.statusLabel}`}
@@ -56,14 +57,16 @@ export function SubSessionCard({
           >
             <span className="flex min-w-0 items-center gap-1.5 font-medium text-ink">
               <ChevronRight
-                className={cn("h-3.5 w-3.5 shrink-0 text-sub", opened && "rotate-90 text-accent")}
+                className={cn("h-3.5 w-3.5 shrink-0 text-hint", opened && "rotate-90 text-accent")}
                 strokeWidth={1.5}
                 aria-hidden="true"
               />
               <span className="truncate" title={item.title}>{item.title}</span>
             </span>
-            <span className="truncate text-sub" title={item.memberName}>{item.memberName}</span>
-            <span className={cn("truncate text-right", statusTextClass(item.status))}>{item.statusLabel}</span>
+            <span className="truncate text-[12.5px] text-sub" title={item.memberName}>{item.memberName}</span>
+            <span className="flex justify-end">
+              <Badge variant={statusBadgeVariant(item.status)}>{item.statusLabel}</Badge>
+            </span>
           </button>
         );
       })}
@@ -71,10 +74,17 @@ export function SubSessionCard({
   );
 }
 
-function statusTextClass(status: SubSessionStatus): string {
-  if (status === "not-started" || status === "stuck" || status === "retry-exhausted" || status === "unavailable") {
-    return "text-danger";
+function statusBadgeVariant(status: SubSessionStatus): "running" | "waiting" | "completed" | "interrupted" | "failed" {
+  switch (status) {
+    case "running":
+      return "running";
+    case "waiting":
+      return "waiting";
+    case "finished":
+      return "completed";
+    case "stopped":
+      return "interrupted";
+    default:
+      return "failed";
   }
-  if (status === "running") return "text-warning";
-  return "text-sub";
 }

@@ -316,7 +316,7 @@ export function ProcessTab({
       {scrollModel.mode === "reading" && scrollModel.unreadCount > 0 ? (
         <button
           type="button"
-          className="sticky bottom-4 ml-auto mt-3 block rounded-full border border-line bg-card px-3 py-1.5 text-xs font-medium text-ink shadow-overlay hover:bg-hover"
+          className="sticky bottom-4 ml-auto mt-3 block rounded-full border border-line bg-card px-3 py-1.5 text-xs font-medium text-ink hover:bg-hover"
           onClick={returnLatest}
         >
           ↓ {scrollModel.unreadCount} 条新内容 / 到最新

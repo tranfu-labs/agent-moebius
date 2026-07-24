@@ -174,7 +174,7 @@ export function NewConversationPage({
       {confirmIndependentWorkspace ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/20 p-6">
           <section
-            className="w-full max-w-md rounded-xl border border-line bg-canvas p-5 text-ink shadow-lg"
+            className="w-full max-w-md rounded-[14px] border border-line bg-sunken p-5 text-ink"
             role="dialog"
             aria-modal="true"
             aria-label="换成独立工作空间"

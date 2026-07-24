@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { OperatorAgentTeam } from "@/console/agent-teams-page";
 import type { OperatorProject, OperatorSession } from "@/console/operator-console";
 import { SessionTeamMenu } from "@/console/session-team-menu";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -60,30 +61,30 @@ export function ComposerContext({
 
   return (
     <div className="min-w-0 text-xs text-sub">
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 items-center gap-1.5">
         {visible.project ? <span className="contents" data-context-entry="project">{canChangeProject && selectedSession && onChangeSessionProject ? (
           disabled ? (
             <button
               type="button"
-              className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 opacity-50"
+              className={cn(COMPOSER_CHIP_CLASS, "opacity-40")}
               aria-label={`项目：${project.title}，点击切换`}
               disabled
             >
-              <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+              <FolderOpen className="h-[13px] w-[13px] shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
               <span className="truncate">{project.title}</span>
-              <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+              <ChevronDown className="h-[11px] w-[11px] shrink-0 text-hint" strokeWidth={1.5} aria-hidden="true" />
             </button>
           ) : (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink"
+                  className={COMPOSER_CHIP_CLASS}
                   aria-label={`项目：${project.title}，点击切换`}
                 >
-                  <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                  <FolderOpen className="h-[13px] w-[13px] shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
                   <span className="truncate">{project.title}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                  <ChevronDown className="h-[11px] w-[11px] shrink-0 text-hint" strokeWidth={1.5} aria-hidden="true" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="top" className="min-w-48">
@@ -104,8 +105,8 @@ export function ComposerContext({
             </DropdownMenu>
           )
         ) : (
-          <span className="inline-flex min-w-0 items-center gap-1.5" aria-label={`项目：${project.title}，已锁定`}>
-            <FolderOpen className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+          <span className={COMPOSER_LOCKED_CLASS} aria-label={`项目：${project.title}，已锁定`}>
+            <FolderOpen className="h-[13px] w-[13px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
             <span className="truncate">{project.title}</span>
           </span>
         )}</span> : null}
@@ -115,13 +116,13 @@ export function ComposerContext({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink"
+                className={COMPOSER_CHIP_CLASS}
                 aria-label={`工作空间：${workspaceLabel}，点击切换`}
                 disabled={disabled}
               >
-                <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+                <Laptop className="h-[13px] w-[13px] shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
                 {workspaceLabel}
-                <ChevronDown className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
+                <ChevronDown className="h-[11px] w-[11px] shrink-0 text-hint" strokeWidth={1.5} aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="top" className="w-72">
@@ -151,15 +152,15 @@ export function ComposerContext({
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <span className="inline-flex items-center gap-1.5" aria-label={`工作空间：${workspaceLabel}，已锁定`}>
-            <Laptop className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+          <span className={COMPOSER_LOCKED_CLASS} aria-label={`工作空间：${workspaceLabel}，已锁定`}>
+            <Laptop className="h-[13px] w-[13px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
             {workspaceLabel}
           </span>
         )}</span> : null}
 
-        {visible.branch ? <span className="inline-flex min-w-0 items-center gap-1.5" aria-label={`分支：${branchName}`} data-context-entry="branch">
-          <GitBranch className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-          <span className="truncate">{branchName}</span>
+        {visible.branch ? <span className={COMPOSER_LOCKED_CLASS} aria-label={`分支：${branchName}`} data-context-entry="branch">
+          <GitBranch className="h-[13px] w-[13px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+          <span className="truncate font-mono text-[11.5px]">{branchName}</span>
         </span> : null}
 
         {visible.team ? <span className="contents" data-context-entry="team"><SessionTeamMenu
@@ -183,6 +184,12 @@ export function ComposerContext({
     </div>
   );
 }
+
+/* 可点 chip：h28 r12 描边（moebius-desktop-spec .chip）；锁定项退化为纯文本 */
+const COMPOSER_CHIP_CLASS =
+  "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-line px-2.5 text-xs font-medium text-ink transition-colors hover:bg-hover";
+const COMPOSER_LOCKED_CLASS =
+  "inline-flex min-w-0 items-center gap-1.5 px-1 py-1 text-sub";
 
 function workspaceModeLabel(mode: WorkspaceMode): string {
   return mode === "worktree" ? "独立工作空间" : "默认工作空间";

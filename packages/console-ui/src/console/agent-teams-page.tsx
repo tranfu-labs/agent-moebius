@@ -916,7 +916,7 @@ function DialogFrame({
         }
       }}
     >
-      <div className="w-full max-w-md rounded-xl border border-line bg-card p-5 text-ink shadow-overlay" role="dialog" aria-modal="true" aria-label={label}>
+      <div className="w-full max-w-md rounded-xl border border-line bg-card p-5 text-ink" role="dialog" aria-modal="true" aria-label={label}>
         {children}
       </div>
     </div>
@@ -972,7 +972,7 @@ function TeamInformationDialog({
       }}
     >
       <form
-        className="w-full max-w-md rounded-xl border border-line bg-card p-5 text-ink shadow-overlay"
+        className="w-full max-w-md rounded-xl border border-line bg-card p-5 text-ink"
         role="dialog"
         aria-modal="true"
         aria-label={title}

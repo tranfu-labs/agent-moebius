@@ -16,7 +16,7 @@ const PopoverContent = React.forwardRef<
       ref={ref}
       align={align}
       sideOffset={sideOffset}
-      className={cn("z-50 rounded-lg border border-line bg-card p-3 text-ink shadow-overlay", className)}
+      className={cn("z-50 rounded-md border border-line bg-sunken p-3 text-ink", className)}
       {...props}
     />
   </PopoverPrimitive.Portal>

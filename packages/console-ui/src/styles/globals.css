@@ -28,6 +28,10 @@
     --destructive-foreground: var(--accent-fg);
     --ring: var(--accent);
     --radius: 14px;
+    /* 标题/品牌用展示字体：Inter Tight 优先，未自托管时回落 InterVar */
+    --font-display:
+      "Inter Tight", "Inter", "InterVar", ui-sans-serif, system-ui,
+      -apple-system, "PingFang SC", sans-serif;
     color-scheme: light;
   }
 

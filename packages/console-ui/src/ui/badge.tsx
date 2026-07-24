@@ -1,14 +1,22 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import { CircleCheck, CircleDashed, CircleX } from "lucide-react";
+import { Circle, CircleCheck, CircleDashed, CircleX, Clock } from "lucide-react";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium leading-none whitespace-nowrap",
+  "inline-flex h-[26px] items-center gap-[5px] rounded-full border px-[11px] text-[12.5px] font-medium leading-none whitespace-nowrap",
   {
     variants: {
       variant: {
+        running:
+          "border-[var(--status-run-line)] bg-[var(--status-run-bg)] text-[var(--status-run-fg)]",
+        pending:
+          "border-[var(--status-info-line)] bg-[var(--status-info-bg)] text-[var(--status-info-fg)]",
+        waiting:
+          "border-[var(--status-violet-line)] bg-[var(--status-violet-bg)] text-[var(--status-violet-fg)]",
+        completed:
+          "border-[var(--status-neutral-line)] bg-[var(--status-neutral-bg)] text-[var(--status-neutral-fg)]",
         failed:
           "border-[var(--status-danger-line)] bg-[var(--status-danger-bg)] text-danger",
         stuck:
@@ -23,7 +31,21 @@ const badgeVariants = cva(
   }
 );
 
+/* running 的半满饼图为自绘 12px SVG（lucide 无对应精度图形） */
+function HalfPieIcon(): JSX.Element {
+  return (
+    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 const badgeIcons: Record<NonNullable<BadgeProps["variant"]>, () => JSX.Element> = {
+  running: HalfPieIcon,
+  pending: () => <Clock className="h-3 w-3" strokeWidth={2} />,
+  waiting: () => <Circle className="h-3 w-3" strokeWidth={2} />,
+  completed: () => <Circle className="h-3 w-3 fill-current" strokeWidth={2} />,
   failed: () => <CircleX className="h-3 w-3" strokeWidth={2} />,
   stuck: () => <CircleX className="h-3 w-3" strokeWidth={2} />,
   interrupted: () => <CircleDashed className="h-3 w-3" strokeWidth={2} />,

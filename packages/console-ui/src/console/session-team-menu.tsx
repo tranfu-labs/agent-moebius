@@ -45,21 +45,23 @@ export function SessionTeamMenu({
         <button
           type="button"
           className={cn(
-            "inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-hover hover:text-ink",
-            needsAttention ? "bg-danger/10 text-danger" : "text-sub",
+            "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+            needsAttention
+              ? "border-danger text-danger"
+              : "border-line text-ink hover:bg-hover",
           )}
           aria-label={accessibleLabel}
           title={accessibleLabel}
           disabled={disabled}
         >
           {needsAttention ? (
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <AlertTriangle className="h-[13px] w-[13px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
           ) : (
-            <Diamond className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            <Diamond className="h-[13px] w-[13px] shrink-0 text-sub" strokeWidth={1.5} aria-hidden="true" />
           )}
           <span className="truncate">{teamLabel}</span>
           {needsAttention ? <span className="whitespace-nowrap font-medium">{stateLabel}</span> : null}
-          <ChevronDown className="h-3 w-3 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+          <ChevronDown className="h-[11px] w-[11px] shrink-0 text-hint" strokeWidth={1.5} aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="top" className="w-72">

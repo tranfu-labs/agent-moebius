@@ -98,7 +98,7 @@ export function RightSidebar({
     <aside
       className={cn(
         "relative flex min-w-0 shrink-0 flex-col border-l border-line bg-canvas",
-        narrow && "absolute inset-0 z-40 w-full border-l-0 shadow-overlay",
+        narrow && "absolute inset-0 z-40 w-full border-l-0",
         className,
       )}
       style={narrow ? undefined : { width: `${width}px` }}
@@ -137,9 +137,9 @@ export function RightSidebar({
         </div>
       ) : null}
 
-      <header className="window-drag-region flex h-[var(--window-header-height)] shrink-0 items-center border-b border-line">
+      <header className="window-drag-region flex h-[var(--window-header-height)] shrink-0 items-center gap-1 border-b border-line px-2">
         <div
-          className="scroll-thin window-no-drag flex min-w-0 flex-1 items-center overflow-x-auto"
+          className="scroll-thin window-no-drag flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
           role="tablist"
           aria-label="右侧栏标签"
         >
@@ -147,28 +147,28 @@ export function RightSidebar({
             <div
               key={tab.id}
               className={cn(
-                "flex h-[var(--window-header-height)] shrink-0 items-center border-r border-line",
+                "flex h-[30px] max-w-[150px] shrink-0 items-center gap-1 rounded-md pl-3 pr-1 text-[12.5px] font-medium transition-colors",
                 activeTab?.id === tab.id ? "bg-sel text-ink" : "text-sub hover:bg-hover hover:text-ink",
               )}
             >
               <button
                 type="button"
-                className="flex min-w-0 items-center gap-1.5 py-2 pl-3 pr-1 text-xs font-medium"
+                className="flex min-w-0 items-center gap-1.5"
                 role="tab"
                 aria-selected={activeTab?.id === tab.id}
                 title={tab.title}
                 onClick={() => onStateChange(selectRightSidebarTab(state, tab.id))}
               >
                 <TabIcon type={tab.type} />
-                <span className="max-w-32 truncate">{tab.title}</span>
+                <span className="truncate">{tab.title}</span>
               </button>
               <button
                 type="button"
-                className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-hint hover:bg-hover hover:text-ink"
+                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded text-sub hover:bg-sunken hover:text-ink"
                 aria-label={`关闭标签：${tab.title}`}
                 onClick={() => onStateChange(closeRightSidebarTab(state, tab.id, createTabId()))}
               >
-                <X className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+                <X className="h-[11px] w-[11px]" strokeWidth={1.5} aria-hidden="true" />
               </button>
             </div>
           ))}
@@ -176,7 +176,7 @@ export function RightSidebar({
 
         <button
           type="button"
-          className="window-no-drag flex h-[var(--window-header-height)] w-10 shrink-0 items-center justify-center border-l border-line text-sub hover:bg-hover hover:text-ink"
+          className="window-no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sub hover:bg-hover hover:text-ink"
           aria-label="新建空白标签"
           title="新建空白标签"
           onClick={() => onStateChange(addBlankRightSidebarTab(state, createTabId()))}
@@ -225,8 +225,8 @@ function BlankTab({
   );
   return (
     <div className="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center px-6 py-10">
-      <h2 className="text-center text-base font-semibold text-ink">这个标签要看什么</h2>
-      <div className="mt-5 overflow-hidden rounded-lg border border-line bg-card">
+      <h2 className="text-center font-display text-base font-semibold tracking-[-0.01em] text-ink">这个标签要看什么</h2>
+      <div className="mt-5 overflow-hidden rounded-md border border-line bg-card">
         {visibleTypes.map((type) => (
           <button
             key={type}
