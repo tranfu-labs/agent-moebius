@@ -22,7 +22,7 @@
 - [x] `storybook` 脚本可起本地站，浏览器可查看。
 
 ## E. Electron 消费路径（只铺路）
-- [x] 约定 `@agent-moebius/console-ui` 可被 desktop renderer import；令牌 `globals.css` 可在 renderer 入口引入。
+- [x] 约定 `@moebius/console-ui` 可被 desktop renderer import；令牌 `globals.css` 可在 renderer 入口引入。
 - [x] 记录后续 `desktop-console-app` change 的边界（renderer React app + Vite/esbuild 打包 + IPC/数据对接），本次不实现。
 
 ## F. 验证（AI 可执行）

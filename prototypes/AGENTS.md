@@ -47,10 +47,10 @@
 ## 构建与验证
 
 - 安装：`pnpm install`
-- 单元测试：`pnpm --filter @agent-moebius/prototypes test`
-- 构建并发布 onboarding：`pnpm --filter @agent-moebius/prototypes build:onboarding`
-- 最终 HTML 验证：`pnpm --filter @agent-moebius/prototypes verify:onboarding`
-- 完整门禁：`pnpm --filter @agent-moebius/prototypes check`
+- 单元测试：`pnpm --filter @moebius/prototypes test`
+- 构建并发布 onboarding：`pnpm --filter @moebius/prototypes build:onboarding`
+- 最终 HTML 验证：`pnpm --filter @moebius/prototypes verify:onboarding`
+- 完整门禁：`pnpm --filter @moebius/prototypes check`
 
 每份原型至少验证：
 

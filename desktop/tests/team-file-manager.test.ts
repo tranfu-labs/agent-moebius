@@ -127,7 +127,7 @@ describe("Agent team file manager", () => {
 });
 
 async function makeDataRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-file-manager-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-team-file-manager-"));
   cleanupRoots.push(root);
   return root;
 }

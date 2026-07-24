@@ -102,7 +102,7 @@ describe("last-used conversation Agent team preference", () => {
 });
 
 async function makeDataRoot(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-preference-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-team-preference-"));
 }
 
 async function writeTeam(

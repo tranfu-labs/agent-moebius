@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   const originalPath = process.env.PATH ?? "";
   const acceptance: Evidence["acceptance"] = [];
 
-  const mainRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-t46-main-"));
+  const mainRoot = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-t46-main-"));
   const fakeGhLog = path.join(mainRoot, "fake-gh.log");
   const fakeBin = path.join(mainRoot, "fake-bin");
   await installFakeCommand(fakeBin, "gh", fakeGhLog);
@@ -198,7 +198,7 @@ async function startFixtureServer(root: string, runCalls: RunCall[], options: { 
 }
 
 async function runFakeGitTimeoutScenario(originalPath: string): Promise<Evidence["acceptance"][number]> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-t46-git-timeout-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-t46-git-timeout-"));
   const fakeBin = path.join(root, "fake-bin");
   const gitLog = path.join(root, "fake-git.log");
   const marker = path.join(root, "fake-git-marker");
@@ -252,7 +252,7 @@ exit 128
 }
 
 async function runSqliteMigrationScenario(): Promise<Evidence["acceptance"][number]> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-t46-sqlite-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-t46-sqlite-"));
   const sqlitePath = path.join(root, ".state", "local-console.sqlite");
   await fs.mkdir(path.dirname(sqlitePath), { recursive: true });
   const database = new DatabaseSync(sqlitePath);
@@ -346,7 +346,7 @@ async function runSqliteMigrationScenario(): Promise<Evidence["acceptance"][numb
 
 async function runDeletedFolderScenario(originalPath: string): Promise<Evidence["acceptance"][number]> {
   process.env.PATH = originalPath;
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-t46-deleted-folder-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-t46-deleted-folder-"));
   const calls: RunCall[] = [];
   const server = await startFixtureServer(root, calls);
   try {

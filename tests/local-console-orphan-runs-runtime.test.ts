@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 async function makeRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-orphan-runs-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-orphan-runs-"));
   roots.push(root);
   return root;
 }

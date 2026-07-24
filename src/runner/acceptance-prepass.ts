@@ -270,7 +270,7 @@ async function processChildTaskAcceptance(input: {
   });
 }
 
-const ACCEPTANCE_FORMAT_REMINDER_METADATA = "<!-- agent-moebius:acceptance-format-reminder -->";
+const ACCEPTANCE_FORMAT_REMINDER_METADATA = "<!-- moebius:acceptance-format-reminder -->";
 const ACCEPTANCE_FORMAT_REMINDER_LIMIT = 2;
 
 async function maybeEscalateUnparsedAcceptanceWalkthrough(input: {
@@ -332,7 +332,7 @@ ${statementLines}
 ${ACCEPTANCE_FORMAT_REMINDER_METADATA}`;
 }
 
-const INTEGRATION_BLOCKED_KEY_PREFIX = "agent-moebius-integration-blocked-key:";
+const INTEGRATION_BLOCKED_KEY_PREFIX = "moebius-integration-blocked-key:";
 
 async function maybeReportClosedChildJoinBlock(input: {
   source: IssueSource;
@@ -1090,7 +1090,7 @@ ${childFacts}
 
 <!-- ${input.joinKey} -->
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function formatIntegrationAcceptanceBlockedBody(input: { reason: string; detail: string }): string {
@@ -1101,7 +1101,7 @@ function formatIntegrationAcceptanceBlockedBody(input: { reason: string; detail:
 
 本轮不会把父目标标记为通过，也不会创建修复子任务。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function formatIntegrationRepairSuccessBody(input: {
@@ -1123,5 +1123,5 @@ ${completed}
 
 修复子任务通过后，将重新触发同一父目标的集成验收。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }

@@ -8,6 +8,6 @@
 - [x] 新增 `ConversationEmptyState`、测试与 Story：邀请文案、角色 composer、单个实心主操作。
 - [x] 新增 `SessionContextHeader`、测试与 Story：父会话面包屑、任务状态、进展摘要及非目标能力缺失。
 - [x] 视觉走查四组 Story：方角细边、紧凑布局、扁平按钮、仅补全面板使用阴影、深浅模式无裸色值。
-- [x] 运行 `pnpm --filter @agent-moebius/console-ui test`、`typecheck`、`build-storybook` 与根级 `pnpm typecheck`。
+- [x] 运行 `pnpm --filter @moebius/console-ui test`、`typecheck`、`build-storybook` 与根级 `pnpm typecheck`。
 - [x] 按三条已确认验收语句逐条留存实现证据，并确认没有修改 `operator-console.tsx` 或 `src/index.ts`。
 - [x] 实现收尾时比较 `spec-delta/console-ui/spec.md` 与 `specs/console-ui/spec.md`，确认兼容镜像未分叉。

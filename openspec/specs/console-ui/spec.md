@@ -8,9 +8,9 @@
 
 ### Requirement: Package boundary and Storybook source of truth
 
-The `console-ui` domain MUST provide a workspace package named `@agent-moebius/console-ui` under `packages/console-ui`.
+The `console-ui` domain MUST provide a workspace package named `@moebius/console-ui` under `packages/console-ui`.
 
-The `console-ui` package MUST expose React components and global styles so the desktop renderer can import `@agent-moebius/console-ui` and `@agent-moebius/console-ui/globals.css`.
+The `console-ui` package MUST expose React components and global styles so the desktop renderer can import `@moebius/console-ui` and `@moebius/console-ui/globals.css`.
 
 The `console-ui` package MUST use shadcn-style source components built on Tailwind CSS variables and Radix primitives, with component source checked into this repository rather than hidden behind a runtime UI package.
 
@@ -25,18 +25,18 @@ The `console-ui` package MUST NOT keep a parallel static Tailwind HTML component
 #### Scenario: Renderer can consume the component library
 
 - **GIVEN** a desktop renderer needs console UI components
-- **WHEN** it imports `@agent-moebius/console-ui` and `@agent-moebius/console-ui/globals.css`
+- **WHEN** it imports `@moebius/console-ui` and `@moebius/console-ui/globals.css`
 - **THEN** it can render React components with the package-local global styles.
 
 #### Scenario: Storybook shows package samples
 
-- **GIVEN** a developer runs `pnpm --filter @agent-moebius/console-ui storybook`
+- **GIVEN** a developer runs `pnpm --filter @moebius/console-ui storybook`
 - **WHEN** Storybook starts
 - **THEN** the browser showcase includes a primitive button story and a project-specific acceptance card story.
 
 ### Requirement: Compiled global-style package boundary
 
-The `console-ui` package MUST compile its Tailwind directives and `@apply` rules during package build and MUST expose the compiled stylesheet as `@agent-moebius/console-ui/globals.css`.
+The `console-ui` package MUST compile its Tailwind directives and `@apply` rules during package build and MUST expose the compiled stylesheet as `@moebius/console-ui/globals.css`.
 
 The desktop renderer MUST consume the compiled package stylesheet and MUST NOT rely on Chromium to interpret Tailwind build directives.
 
@@ -46,7 +46,7 @@ The desktop build MUST fail when its emitted renderer stylesheet still contains 
 
 #### Scenario: Desktop renderer receives compiled component styles
 
-- **GIVEN** the desktop renderer imports `@agent-moebius/console-ui/globals.css`
+- **GIVEN** the desktop renderer imports `@moebius/console-ui/globals.css`
 - **WHEN** the desktop application is built
 - **THEN** the emitted renderer stylesheet contains the component library token and utility styles
 - **AND** it contains no `@tailwind` or `@apply` build directives.
@@ -315,7 +315,7 @@ The operator console MUST keep root-session selection stable after refresh. Miss
 - MUST NOT move, copy, or rename any files on disk during directory repair; only the recorded project location updates.
 - MUST show both the original and newly selected locations in a confirmation surface before applying the repair.
 - MUST reject remove when the project has running agents unless the user confirms an explicit "强制中止" flow that runs abort then remove as an ordered sequence; partial failures MUST NOT be reported as success.
-- MUST NOT delete or modify the underlying folder on disk when a project is removed; the removal only affects agent-moebius records.
+- MUST NOT delete or modify the underlying folder on disk when a project is removed; the removal only affects moebius records.
 
 ### Requirement: Manual project reorder without a dedicated drag handle
 

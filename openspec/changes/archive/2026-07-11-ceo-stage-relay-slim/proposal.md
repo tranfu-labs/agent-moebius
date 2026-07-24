@@ -2,7 +2,7 @@
 
 ## 背景
 
-以 issue [#126](https://github.com/tranfu-labs/agent-moebius/issues/126)（M4 T6，一个「两个组件改样式 + 单文件回收」的小任务）为样本，编排流程的实录是 15 条评论、约 48 分钟，其中真正产出判断内容的只有 5 条（dev 方案、qa 审查、product-manager 方案验收、dev 实现、product-manager 实现验收）。开销集中在三类：
+以 issue [#126](https://github.com/tranfu-labs/moebius/issues/126)（M4 T6，一个「两个组件改样式 + 单文件回收」的小任务）为样本，编排流程的实录是 15 条评论、约 48 分钟，其中真正产出判断内容的只有 5 条（dev 方案、qa 审查、product-manager 方案验收、dev 实现、product-manager 实现验收）。开销集中在三类：
 
 1. **模板背诵轮**：CEO 在 `plan-written` / `code-verified` 阶段回流时，把「方案评审模板」六项 / 「执行后复盘模板」三问全文抄进交棒评论。而 `agents/qa.md` 自带比六项更细的四步审查方法（经验假设清单、故障矩阵、用例二分、对抗性审查）与豁免判据，`agents/product-manager.md` 自带完整「验收职责」（逐条走查硬格式）。CEO 模板对接收方是重复投喂，且与目标 persona 构成方法论双事实源。
 2. **spawn 判定轮**：`docs/roadmap/milestone-task-issue-template.md` 已有例外 (b)「明显不可拆的最小切片可直接 `@dev`」，但主路径默认 `@ceo` 判定；#126 的出题人已在 body 写明「倾向 no_spawn + 理由」，CEO 那轮只是复述出题人的预判。

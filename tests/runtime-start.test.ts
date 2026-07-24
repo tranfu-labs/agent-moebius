@@ -22,7 +22,7 @@ describe("runtime mode selection", () => {
   });
 
   it("starts a clean local console without preparing or creating GitHub runtime", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-local-start-"));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-local-start-"));
     const prepareGitHubRunnerState = vi.fn(async () => {
       throw new Error("GitHub state must not load in local mode");
     });
@@ -169,13 +169,13 @@ async function runStartProcess(
   args: readonly string[],
   waitForExit = false,
 ): Promise<{ exitCode: number | null; output: string; dataRoot: string }> {
-  const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-clean-start-"));
+  const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-clean-start-"));
   const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const child = spawn(pnpm, args.length === 0 ? ["start"] : ["start", "--", ...args], {
     cwd: path.resolve("."),
     env: {
       ...process.env,
-      AGENT_MOEBIUS_DATA_ROOT: dataRoot,
+      MOEBIUS_DATA_ROOT: dataRoot,
       GH_CONFIG_DIR: path.join(dataRoot, "gh-config"),
       GH_TOKEN: "",
       GITHUB_TOKEN: "",

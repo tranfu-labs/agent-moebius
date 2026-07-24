@@ -10,8 +10,8 @@
     "outDir": "dist-types",
     "paths": {
       "@/*": ["../packages/console-ui/src/*"],
-      "@agent-moebius/console-ui": ["../packages/console-ui/src/index.ts"],
-      "@agent-moebius/console-ui/globals.css": ["../packages/console-ui/src/styles/globals.css"]
+      "@moebius/console-ui": ["../packages/console-ui/src/index.ts"],
+      "@moebius/console-ui/globals.css": ["../packages/console-ui/src/styles/globals.css"]
     },
     "types": ["node", "electron"],
     "noEmit": true

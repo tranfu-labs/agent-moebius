@@ -81,7 +81,7 @@ describe("session-scoped Agent team runtime binding", () => {
 });
 
 async function makeDataRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-runtime-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-team-runtime-"));
   roots.push(root);
   return root;
 }

@@ -1,6 +1,6 @@
-import type { StructuredAttachment } from "@agent-moebius/console-ui";
+import type { StructuredAttachment } from "@moebius/console-ui";
 
-export const ATTACHMENT_CAPABILITY_HEADER = "x-agent-moebius-attachment-capability";
+export const ATTACHMENT_CAPABILITY_HEADER = "x-moebius-attachment-capability";
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 

@@ -2,7 +2,7 @@
 
 ## 覆盖的验收落点
 
-从 `~/dev-loops/agent-moebius/onboarding/rule-binding.md` 抄过来:
+从 `~/dev-loops/moebius/onboarding/rule-binding.md` 抄过来:
 
 ### onboarding.md 验收
 

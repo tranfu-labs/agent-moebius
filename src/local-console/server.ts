@@ -144,7 +144,7 @@ let localRunDirSequence = 0;
 
 export function makeLocalConsoleRunDir(count: number, now = new Date()): string {
   localRunDirSequence += 1;
-  return path.join(TMP_ROOT, `agent-moebius-local-${now.toISOString()}-c${count}-r${localRunDirSequence}`);
+  return path.join(TMP_ROOT, `moebius-local-${now.toISOString()}-c${count}-r${localRunDirSequence}`);
 }
 
 export function createLocalConsoleHttpServer(
@@ -728,7 +728,7 @@ function sendHtml(response: http.ServerResponse, body: string): void {
   response.writeHead(200, {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "content-type, x-agent-moebius-attachment-capability",
+    "access-control-allow-headers": "content-type, x-moebius-attachment-capability",
     "content-type": "text/html; charset=utf-8",
   });
   response.end(body);
@@ -738,7 +738,7 @@ function sendJson(response: http.ServerResponse, statusCode: number, body: unkno
   response.writeHead(statusCode, {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "content-type, x-agent-moebius-attachment-capability",
+    "access-control-allow-headers": "content-type, x-moebius-attachment-capability",
     "content-type": "application/json; charset=utf-8",
   });
   response.end(JSON.stringify(body));
@@ -748,7 +748,7 @@ function sendNoContent(response: http.ServerResponse): void {
   response.writeHead(204, {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "content-type, x-agent-moebius-attachment-capability",
+    "access-control-allow-headers": "content-type, x-moebius-attachment-capability",
   });
   response.end();
 }
@@ -757,7 +757,7 @@ function sendPng(response: http.ServerResponse, body: Buffer): void {
   response.writeHead(200, {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "content-type, x-agent-moebius-attachment-capability",
+    "access-control-allow-headers": "content-type, x-moebius-attachment-capability",
     "content-type": "image/png",
     "content-length": String(body.byteLength),
     "cache-control": "private, no-store",
@@ -772,7 +772,7 @@ function renderLocalConsolePage(): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Agent Moebius Local Spike</title>
+  <title>Moebius Local Spike</title>
   <style>
     :root { color-scheme: light; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f6f5; color: #171717; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: stretch; }
@@ -798,7 +798,7 @@ function renderLocalConsolePage(): string {
 <body>
   <main>
     <header>
-      <h1>Agent Moebius Local Spike</h1>
+      <h1>Moebius Local Spike</h1>
       <div class="status" id="status">loading</div>
     </header>
     <section class="meta">
@@ -1006,7 +1006,7 @@ function readOptionalMessageBody(value: unknown): string | undefined {
 }
 
 function hasAttachmentCapability(request: http.IncomingMessage, expected: string): boolean {
-  const value = request.headers["x-agent-moebius-attachment-capability"];
+  const value = request.headers["x-moebius-attachment-capability"];
   return typeof value === "string" && value === expected;
 }
 

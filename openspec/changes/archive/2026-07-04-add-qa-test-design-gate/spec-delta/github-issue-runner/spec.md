@@ -8,7 +8,7 @@
 - MUST 让 qa 审查评论包含固定结论行 `QA 结论：通过` 或 `QA 结论：不通过`；不通过时每条缺陷 MUST 挂靠到具体故障矩阵格或 `invariants.md` 条目，未挂靠的泛化批评视为无效缺陷。
 - MUST 让 qa 按结论执行 mention 协议（一轮只一个 mention）：不通过 → mention `@dev` 逐条列缺陷与增补要求；通过 → mention 发起需求角色请其按含 QA 增补的「验收语句」逐条验收，并在正文注明增补部分。
 - MUST 对不触碰运行时代码、外部依赖、状态机、agent 协作协议的纯文档 / 文案类方案豁免四步审查：qa MUST 输出一句话豁免（含理由）并直接 mention 发起需求角色。
-- MUST 让 `agents/qa.md` 每条响应末尾以 `<!-- agent-moebius:stage=in-progress -->` 结尾，阶段语义用正文结论行表达，MUST NOT 为 qa 新增注册 stage。
+- MUST 让 `agents/qa.md` 每条响应末尾以 `<!-- moebius:stage=in-progress -->` 结尾，阶段语义用正文结论行表达，MUST NOT 为 qa 新增注册 stage。
 - MUST 让 qa 对同一需求的方案最多判两轮不通过；第三轮仍有分歧时 MUST 列明分歧点、判"有保留通过"并交人类裁决，MUST NOT 与 dev 无限空转。
 - MUST 提供 `docs/architecture/invariants.md` 作为系统级不变量事实源，至少覆盖 liveness（任何单点故障不得使心跳循环或任一 issue 推进永久停转；每个外部调用必须有界时或有看门狗）、safety（intake 游标只在 GitHub 留下可见结果后推进）、visibility（放弃或降级任务必须留下可见痕迹，且痕迹发布路径本身受前两者约束）三类。qa 发现新故障类时 MUST 以补丁建议形式回流，经人类确认后合并，MUST NOT 直接修改该文件。
 

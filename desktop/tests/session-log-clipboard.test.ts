@@ -109,7 +109,7 @@ function registerHarness(input: {
 }
 
 async function fixtureRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-session-log-clipboard-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-session-log-clipboard-"));
   roots.push(root);
   return root;
 }

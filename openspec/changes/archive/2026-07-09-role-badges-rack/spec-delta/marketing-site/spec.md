@@ -9,8 +9,8 @@
 ## 新增行为规则
 
 ### 员工工牌视觉
-- 角色 MUST 以「员工工牌」样式呈现：卡面含卡槽/打孔、头像（缩写色卡，底色=角色光晕色）、姓名（角色名）、职位（charter）、公司标 `agent-moebius`、条形码。MUST NOT 使用长挂绳等重装饰。
-- 工牌 MUST NOT 虚构 agent-moebius 之外的岗位；牌上角色 MUST 是真实可 @mention 角色。
+- 角色 MUST 以「员工工牌」样式呈现：卡面含卡槽/打孔、头像（缩写色卡，底色=角色光晕色）、姓名（角色名）、职位（charter）、公司标 `moebius`、条形码。MUST NOT 使用长挂绳等重装饰。
+- 工牌 MUST NOT 虚构 moebius 之外的岗位；牌上角色 MUST 是真实可 @mention 角色。
 - 采用全息档：hover MUST 有轻 3D tilt（幅度 ≤ ±6°）+ 光泽扫过 + 随指针流动的全息 foil；MUST 在 `prefers-reduced-motion` 下降级为静态。
 - 工牌样式 MUST 应用到 ③ 角色阵容（完整工牌）与首屏圆环节点（简化版工牌，体量克制）。
 
@@ -26,7 +26,7 @@
 ### 场景 MS.10：角色以员工工牌呈现
 Given ③ 角色阵容或首屏圆环已渲染
 When 用户查看某个角色
-Then 该角色以员工工牌样式呈现（卡槽、缩写色卡、角色名、charter、agent-moebius 标、条形码）
+Then 该角色以员工工牌样式呈现（卡槽、缩写色卡、角色名、charter、moebius 标、条形码）
 When 用户 hover 该工牌
 Then 出现 ≤±6° 的 3D 倾斜、光泽扫过与随指针流动的全息 foil
 And 在 prefers-reduced-motion 下退化为静态

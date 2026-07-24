@@ -140,7 +140,7 @@ describe("built-in team seed", () => {
 });
 
 async function makeTemporaryRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-seed-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-team-seed-"));
   temporaryRoots.push(root);
   return root;
 }

@@ -18,9 +18,9 @@
 
 里程碑 1 的闭环已在三组真实 issue / PR 中跑通：
 
-- 主例：[issue #39](https://github.com/tranfu-labs/agent-moebius/issues/39) → [PR #40](https://github.com/tranfu-labs/agent-moebius/pull/40) merged。#39 完整覆盖需求角色提需、dev `plan-written`、验收角色方案验收、dev `code-verified`、验收角色逐条走查，并额外证明 qa gate 真实介入 dev 方案修订。
-- 补充证据：[issue #34](https://github.com/tranfu-labs/agent-moebius/issues/34) → [PR #35](https://github.com/tranfu-labs/agent-moebius/pull/35) merged，验证 T2 的 CEO 阶段验收回流规则在真实 issue 中闭环。
-- 补充证据：[issue #36](https://github.com/tranfu-labs/agent-moebius/issues/36) → [PR #37](https://github.com/tranfu-labs/agent-moebius/pull/37) merged，验证 T3 的验收角色逐条走查行为在真实 issue 中闭环。
+- 主例：[issue #39](https://github.com/tranfu-labs/moebius/issues/39) → [PR #40](https://github.com/tranfu-labs/moebius/pull/40) merged。#39 完整覆盖需求角色提需、dev `plan-written`、验收角色方案验收、dev `code-verified`、验收角色逐条走查，并额外证明 qa gate 真实介入 dev 方案修订。
+- 补充证据：[issue #34](https://github.com/tranfu-labs/moebius/issues/34) → [PR #35](https://github.com/tranfu-labs/moebius/pull/35) merged，验证 T2 的 CEO 阶段验收回流规则在真实 issue 中闭环。
+- 补充证据：[issue #36](https://github.com/tranfu-labs/moebius/issues/36) → [PR #37](https://github.com/tranfu-labs/moebius/pull/37) merged，验证 T3 的验收角色逐条走查行为在真实 issue 中闭环。
 
 ## 任务清单
 
@@ -86,7 +86,7 @@
 - 阶段证据规则：两个 persona 均明确方案阶段基于 dev 方案文本推演，代码阶段基于 dev 提供的测试输出、截图 artifact、文件路径、命令输出或可核查交付说明。
 - 事实源：`openspec/specs/github-issue-runner/spec.md` 已合入验收角色的 MUST 契约与两个 Given/When/Then 场景；对应 change 归档到 `openspec/changes/archive/2026-07-04-add-acceptance-walkthrough-personas/`。
 - 文本检查：`rg -n "验收职责|逐条|结构化结论|通过|不通过|@dev|方案阶段|代码阶段|下一步等待" agents/hermes-user.md agents/product-manager.md` 命中两个 persona 的验收职责定义。
-- 本地 dry-run：构造 3 条验收语句、其中 1 条明显不满足的方案，按 persona 规则得到 `persona contract check: PASS` 与 `dry-run result: PASS`；失败项响应包含 `不通过`、`@dev`、未过项与期望差异，且末尾保留 `<!-- agent-moebius:stage=in-progress -->`。
+- 本地 dry-run：构造 3 条验收语句、其中 1 条明显不满足的方案，按 persona 规则得到 `persona contract check: PASS` 与 `dry-run result: PASS`；失败项响应包含 `不通过`、`@dev`、未过项与期望差异，且末尾保留 `<!-- moebius:stage=in-progress -->`。
 - 项目检查：`pnpm test` 通过（23 个测试文件、193 个测试）；`pnpm typecheck` 通过。
 
 ### - [x] T4 ·【人工】预览 oracle 探针（spike）
@@ -97,13 +97,13 @@
 
 **验收语句**（loop watcher 已按无可用前端仓 rescope 为技术机制自证；证明 worktree + 本地起服务 + 截图 + artifact 发布 链路是否可用）：
 1. 打开 `docs/roadmap/spike-preview-oracle.md` → 应看到明确的路径建议结论，而非只有过程记录。
-2. 在 agent-moebius 内起最小 HTML 预览 → Playwright 无头浏览器截图 → 通过现有 artifact publisher 发布到 GitHub → 应在试验 issue 评论里见到至少一条含截图链接的 artifact 评论。
+2. 在 moebius 内起最小 HTML 预览 → Playwright 无头浏览器截图 → 通过现有 artifact publisher 发布到 GitHub → 应在试验 issue 评论里见到至少一条含截图链接的 artifact 评论。
 
 **依赖**：无。
 
 **验收证据**（2026-07-04，loop watcher 代 PM 走查 + override）：
 - 结论文档：`docs/roadmap/spike-preview-oracle.md` 已明确建议——里程碑 1 默认走本地 worktree + Playwright + artifact publisher 轻量链路；PR 预览基建暂不作为前置投入，仅在需要公网回调 / 跨设备协作 / 第三方 OAuth / 真实域名/CORS / 长期共享预览时立项。
-- 试验 issue：https://github.com/tranfu-labs/agent-moebius/issues/39（v2；#38 因 runner media bug 死锁被替换）。
+- 试验 issue：https://github.com/tranfu-labs/moebius/issues/39（v2；#38 因 runner media bug 死锁被替换）。
 - 探针脚本：`scripts/spike-preview-oracle/run.mjs`（Playwright + `marked` + 本地 HTTP server + timeout 常量 + 故障注入 + try/finally 清理 + 唯一 PNG 检查）。
 - 依赖：`playwright` + `marked` 加入 devDependencies；`pnpm-lock.yaml` 同步。
 - Happy path 验证：`pnpm exec playwright install chromium` 后 `node scripts/spike-preview-oracle/run.mjs` 退出 0，生成唯一 PNG。
@@ -124,9 +124,9 @@
 **依赖**：T1、T2、T3。
 
 **验收证据**（2026-07-04）：
-- 主例：[issue #39](https://github.com/tranfu-labs/agent-moebius/issues/39) → [PR #40](https://github.com/tranfu-labs/agent-moebius/pull/40) merged。公开时间线包含需求角色提需、dev `plan-written` 带验收语句、qa / product-manager 对方案的结构化验收、dev `code-verified`、product-manager 对实现证据逐条走查；其中 #39 还展示 qa gate 对 dev 方案修订的真实介入。
-- 补充证据：[issue #34](https://github.com/tranfu-labs/agent-moebius/issues/34) → [PR #35](https://github.com/tranfu-labs/agent-moebius/pull/35) merged。公开时间线包含 dev `plan-written`、product-manager 方案验收、dev `code-verified` 与后续实现反思 / 证据核对，证明 T2 验收回流规则可在真实任务中收敛。
-- 补充证据：[issue #36](https://github.com/tranfu-labs/agent-moebius/issues/36) → [PR #37](https://github.com/tranfu-labs/agent-moebius/pull/37) merged。公开时间线包含需求角色提需、dev `plan-written` 带验收语句、product-manager 方案验收、dev `code-verified`、product-manager 逐条验收通过，证明 T3 验收角色职责可在真实任务中收敛。
+- 主例：[issue #39](https://github.com/tranfu-labs/moebius/issues/39) → [PR #40](https://github.com/tranfu-labs/moebius/pull/40) merged。公开时间线包含需求角色提需、dev `plan-written` 带验收语句、qa / product-manager 对方案的结构化验收、dev `code-verified`、product-manager 对实现证据逐条走查；其中 #39 还展示 qa gate 对 dev 方案修订的真实介入。
+- 补充证据：[issue #34](https://github.com/tranfu-labs/moebius/issues/34) → [PR #35](https://github.com/tranfu-labs/moebius/pull/35) merged。公开时间线包含 dev `plan-written`、product-manager 方案验收、dev `code-verified` 与后续实现反思 / 证据核对，证明 T2 验收回流规则可在真实任务中收敛。
+- 补充证据：[issue #36](https://github.com/tranfu-labs/moebius/issues/36) → [PR #37](https://github.com/tranfu-labs/moebius/pull/37) merged。公开时间线包含需求角色提需、dev `plan-written` 带验收语句、product-manager 方案验收、dev `code-verified`、product-manager 逐条验收通过，证明 T3 验收角色职责可在真实任务中收敛。
 - 文档记录：本节已追记三组 dogfood 记录；下方「里程碑 2 候选 / 卡点清单」已追记执行中观察到的 5 条卡点。#38 仅作为 SVG 死锁卡点证据，不计入成功闭环 issue。
 
 ## 非目标
@@ -145,7 +145,7 @@
    - 影响：阶段路由不稳定，`plan-written` / `code-verified` 后续验收可能漏派，需要人工补 ping，真实闭环时延和误判成本上升。
 
 2. **Codex `--image` 不接受 SVG**
-   - 观察证据：[issue #38](https://github.com/tranfu-labs/agent-moebius/issues/38) 因 dev 探索阶段生成的 SVG 被 runner 作为 output artifact 发布，后续触发时又被按 `--image` 输入传给 Codex，导致 `codex-failed exit-code-1` 并死锁；loop watcher 曾在本地临时 patch `src/issue-media.ts` 跳过 SVG。
+   - 观察证据：[issue #38](https://github.com/tranfu-labs/moebius/issues/38) 因 dev 探索阶段生成的 SVG 被 runner 作为 output artifact 发布，后续触发时又被按 `--image` 输入传给 Codex，导致 `codex-failed exit-code-1` 并死锁；loop watcher 曾在本地临时 patch `src/issue-media.ts` 跳过 SVG。
    - 影响：SVG artifact 会污染后续 Codex 输入并阻断 issue；下一里程碑应把 SVG 跳过或转换策略正式走 OpenSpec 流程落地。
 
 3. **preScript 失败不真的重试**
@@ -157,7 +157,7 @@
    - 影响：`code-verified` 后的需求角色验收回流不可靠，阶段成功与否取决于人工 watcher，而不是规则闭环。
 
 5. **dev 可能幻觉 commit / 文件写入**
-   - 观察证据：T4 / #39 中 dev 声称已有 commit `f8d984d`、已追记证据并归档；实际 `git status` 仍显示未提交改动，milestone 文档未改，最终由 loop watcher 代 dev commit、归档、push 并开 [PR #40](https://github.com/tranfu-labs/agent-moebius/pull/40)。
+   - 观察证据：T4 / #39 中 dev 声称已有 commit `f8d984d`、已追记证据并归档；实际 `git status` 仍显示未提交改动，milestone 文档未改，最终由 loop watcher 代 dev commit、归档、push 并开 [PR #40](https://github.com/tranfu-labs/moebius/pull/40)。
    - 影响：评论中的完成叙述不能作为事实依据；后续需要强化 git/file 证据校验，要求关键交付必须以 `git status`、diff、commit sha 和文件检索结果交叉验证。
 
 ## 里程碑收尾

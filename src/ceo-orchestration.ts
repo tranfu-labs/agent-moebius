@@ -6,10 +6,10 @@ import type { IssueSource } from "./issue-source.js";
 import { parseTrailingStageMarker } from "./stages.js";
 
 export const CEO_ORCHESTRATION_STAGE = "in-progress";
-export const CEO_ORCHESTRATION_KEY_PREFIX = "agent-moebius-orchestration-key";
-export const CEO_ROUNDTABLE_KEY_PREFIX = "agent-moebius-roundtable-key";
-export const CEO_ROUNDTABLE_COMPLETION_KEY_PREFIX = "agent-moebius-roundtable-completion-key";
-export const GOAL_INTAKE_PROPOSAL_KEY_PREFIX = "agent-moebius-goal-intake-proposal-key";
+export const CEO_ORCHESTRATION_KEY_PREFIX = "moebius-orchestration-key";
+export const CEO_ROUNDTABLE_KEY_PREFIX = "moebius-roundtable-key";
+export const CEO_ROUNDTABLE_COMPLETION_KEY_PREFIX = "moebius-roundtable-completion-key";
+export const GOAL_INTAKE_PROPOSAL_KEY_PREFIX = "moebius-goal-intake-proposal-key";
 
 export interface CeoOrchestrationGroup {
   id: string;
@@ -315,7 +315,7 @@ export function extractCeoOrchestrationKeyFromNote(note: string | undefined): st
   if (note === undefined) {
     return null;
   }
-  const match = note.match(/agent-moebius-orchestration-key:[a-f0-9]{32}/u);
+  const match = note.match(/moebius-orchestration-key:[a-f0-9]{32}/u);
   return match?.[0] ?? null;
 }
 
@@ -323,7 +323,7 @@ export function extractCeoRoundtableKey(text: string | undefined): string | null
   if (text === undefined) {
     return null;
   }
-  const match = text.match(/agent-moebius-roundtable-key:[a-f0-9]{32}/u);
+  const match = text.match(/moebius-roundtable-key:[a-f0-9]{32}/u);
   return match?.[0] ?? null;
 }
 
@@ -331,7 +331,7 @@ export function extractCeoRoundtableCompletionKey(text: string | undefined): str
   if (text === undefined) {
     return null;
   }
-  const match = text.match(/agent-moebius-roundtable-completion-key:[a-f0-9]{32}/u);
+  const match = text.match(/moebius-roundtable-completion-key:[a-f0-9]{32}/u);
   return match?.[0] ?? null;
 }
 
@@ -339,7 +339,7 @@ export function extractGoalIntakeProposalKey(text: string | undefined): string |
   if (text === undefined) {
     return null;
   }
-  const match = text.match(/agent-moebius-goal-intake-proposal-key:[a-f0-9]{32}/u);
+  const match = text.match(/moebius-goal-intake-proposal-key:[a-f0-9]{32}/u);
   return match?.[0] ?? null;
 }
 
@@ -442,7 +442,7 @@ export function renderCeoRoundtableRouteBody(input: {
 
 本轮是圆桌发言，不是正式验收裁决；发言后请把控制权交回 CEO 主持人，不能直接交给 dev 或 product-manager。
 
-<!-- agent-moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
+<!-- moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
   const mentions = parseAgentMentions(body);
   if (mentions.length !== 1 || mentions[0]?.name !== input.nextRole) {
     return { ok: false, reason: `roundtable-route-invalid-mention:${mentions.map((mention) => mention.name).join(",")}` };
@@ -490,7 +490,7 @@ ${input.provenance}
 
 <!-- ${input.completionKey} -->
 
-<!-- agent-moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
+<!-- moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
 }
 
 export function ensureInProgressStage(body: string): string {
@@ -498,7 +498,7 @@ export function ensureInProgressStage(body: string): string {
     return body.trimEnd();
   }
 
-  return `${body.trimEnd()}\n\n<!-- agent-moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
+  return `${body.trimEnd()}\n\n<!-- moebius:stage=${CEO_ORCHESTRATION_STAGE} -->`;
 }
 
 function parseRoundtableAction(input: {
@@ -812,7 +812,7 @@ function parseGoalIntakeAction(input: {
 }
 
 function stripTrailingStageMarker(output: string): string {
-  return output.replace(/\s*<!--\s*agent-moebius:stage=in-progress\s*-->\s*$/u, "");
+  return output.replace(/\s*<!--\s*moebius:stage=in-progress\s*-->\s*$/u, "");
 }
 
 function stripFencedJson(text: string): string {

@@ -13,7 +13,7 @@ const rawAgentMarkdown = [
   "## 下一步",
   "交棒：@qa 请审查方案",
   "",
-  "<!-- agent-moebius:stage=plan-written -->",
+  "<!-- moebius:stage=plan-written -->",
 ].join("\n");
 
 describe("AgentMessage", () => {

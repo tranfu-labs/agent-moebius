@@ -292,14 +292,14 @@ export function formatMediaPreparationFailure(failures: MediaPreparationFailure[
     reason: failure.reason,
   })))}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 export function formatArtifactPublishingFailure(error: unknown): string {
   return `无法发布生成产物：
 - ${formatErrorMessage(error)}
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 export function formatPublishedArtifactsMarkdown(artifacts: PublishedArtifact[]): string {

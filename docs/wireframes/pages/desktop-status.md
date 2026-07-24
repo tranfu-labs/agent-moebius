@@ -6,7 +6,7 @@ Normal state:
 
 ```text
 ┌──────────────────────────────────────────────┐
-│  agent-moebius                       v0.1.0  │
+│  moebius                       v0.1.0  │
 ├──────────────────────────────────────────────┤
 │  运行状态                                     │
 │   ● runner    运行中                          │
@@ -32,7 +32,7 @@ Runner stopped after repeated crashes:
 
 ```text
 │   ✗ runner    已停止（连续崩溃 3 次）           │
-│               日志：~/.agent-moebius/logs/…   │
+│               日志：~/.moebius/logs/…   │
 ```
 
 Doctor failures:

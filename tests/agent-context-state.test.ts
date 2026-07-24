@@ -19,10 +19,10 @@ describe("agent context state store", () => {
 
   it("saves and loads agent context state", async () => {
     const filePath = path.join(await makeTempDir(), ".state", "agent-contexts.json");
-    const store = withAgentContextState({}, "tranfu-labs/agent-moebius#4", "dev", {
+    const store = withAgentContextState({}, "tranfu-labs/moebius#4", "dev", {
       preScript: "src/agent-prescripts/dev-workspace.ts",
       owner: "tranfu-labs",
-      repo: "agent-moebius",
+      repo: "moebius",
       issueNumber: 4,
       worktreePath: "/tmp/worktree",
       preparedFromMessageIndex: 3,
@@ -31,15 +31,15 @@ describe("agent context state store", () => {
     await saveAgentContextStateStore(store, filePath);
 
     await expect(loadAgentContextStateStore(filePath)).resolves.toEqual(store);
-    expect(getAgentContextState(store, "tranfu-labs/agent-moebius#4", "dev")).toEqual({
+    expect(getAgentContextState(store, "tranfu-labs/moebius#4", "dev")).toEqual({
       preScript: "src/agent-prescripts/dev-workspace.ts",
       owner: "tranfu-labs",
-      repo: "agent-moebius",
+      repo: "moebius",
       issueNumber: 4,
       worktreePath: "/tmp/worktree",
       preparedFromMessageIndex: 3,
     });
-    expect(getAgentContextState(store, "tranfu-labs/agent-moebius#4", "product-manager")).toBeNull();
+    expect(getAgentContextState(store, "tranfu-labs/moebius#4", "product-manager")).toBeNull();
   });
 
   it("fails safely on invalid state shape", async () => {
@@ -55,7 +55,7 @@ describe("agent context state store", () => {
     const validEntry = {
       preScript: "workspaceAccess:issue-worktree",
       owner: "tranfu-labs",
-      repo: "agent-moebius",
+      repo: "moebius",
       issueNumber: 4,
       worktreePath: "/tmp/worktree",
       preparedFromMessageIndex: 3,
@@ -64,7 +64,7 @@ describe("agent context state store", () => {
       mainStatus: "behind-main",
       lastCheckedAt: "2026-07-04T00:00:00.000Z",
     } as const;
-    const validStore = withAgentContextState({}, "tranfu-labs/agent-moebius#4", "__issue-worktree", validEntry);
+    const validStore = withAgentContextState({}, "tranfu-labs/moebius#4", "__issue-worktree", validEntry);
 
     await saveAgentContextStateStore(validStore, filePath);
 
@@ -73,7 +73,7 @@ describe("agent context state store", () => {
     await fs.writeFile(
       filePath,
       JSON.stringify({
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           "__issue-worktree": {
             ...validEntry,
             workspaceAccess: "admin",
@@ -89,7 +89,7 @@ describe("agent context state store", () => {
     await fs.writeFile(
       invalidLegacyPath,
       JSON.stringify({
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           "__issue-worktree": {
             ...validEntry,
             workspaceAccess: "admin",
@@ -106,12 +106,12 @@ describe("agent context state store", () => {
 
     await Promise.all([
       saveAgentContextStateEntry(
-        "tranfu-labs/agent-moebius#4",
+        "tranfu-labs/moebius#4",
         "dev",
         {
           preScript: "src/agent-prescripts/dev-workspace.ts",
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 4,
           worktreePath: "/tmp/worktree-4",
           preparedFromMessageIndex: 3,
@@ -119,12 +119,12 @@ describe("agent context state store", () => {
         filePath,
       ),
       saveAgentContextStateEntry(
-        "tranfu-labs/agent-moebius#5",
+        "tranfu-labs/moebius#5",
         "dev",
         {
           preScript: "src/agent-prescripts/dev-workspace.ts",
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 5,
           worktreePath: "/tmp/worktree-5",
           preparedFromMessageIndex: 8,
@@ -134,21 +134,21 @@ describe("agent context state store", () => {
     ]);
 
     await expect(loadAgentContextStateStore(filePath)).resolves.toEqual({
-      "tranfu-labs/agent-moebius#4": {
+      "tranfu-labs/moebius#4": {
         dev: {
           preScript: "src/agent-prescripts/dev-workspace.ts",
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 4,
           worktreePath: "/tmp/worktree-4",
           preparedFromMessageIndex: 3,
         },
       },
-      "tranfu-labs/agent-moebius#5": {
+      "tranfu-labs/moebius#5": {
         dev: {
           preScript: "src/agent-prescripts/dev-workspace.ts",
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 5,
           worktreePath: "/tmp/worktree-5",
           preparedFromMessageIndex: 8,
@@ -159,5 +159,5 @@ describe("agent context state store", () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-agent-context-test-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-agent-context-test-"));
 }

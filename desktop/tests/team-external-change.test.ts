@@ -92,7 +92,7 @@ describe("Agent team external AGENT.md change detection", () => {
 });
 
 async function makeDataRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-external-change-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-team-external-change-"));
   temporaryRoots.push(root);
   return root;
 }

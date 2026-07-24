@@ -1,4 +1,4 @@
-export const SIDEBAR_VISIBILITY_STORAGE_KEY = "agent-moebius.sidebar.visibility";
+export const SIDEBAR_VISIBILITY_STORAGE_KEY = "moebius.sidebar.visibility";
 
 export type SidebarVisibilityPreference = "open" | "closed";
 

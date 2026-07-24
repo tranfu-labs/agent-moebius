@@ -40,7 +40,7 @@
   <path d="M332 156 L400 196" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow2)"/>
 
   <rect x="40" y="372" width="340" height="130" rx="8" fill="none" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="56" y="396" font-size="13" font-weight="600" fill="#6b7280">数据根 ~/.agent-moebius</text>
+  <text x="56" y="396" font-size="13" font-weight="600" fill="#6b7280">数据根 ~/.moebius</text>
   <rect x="56" y="408" width="148" height="26" rx="13" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
   <text x="130" y="425" text-anchor="middle" font-size="11" fill="#6b7280">config.local.toml</text>
   <rect x="216" y="408" width="148" height="26" rx="13" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>

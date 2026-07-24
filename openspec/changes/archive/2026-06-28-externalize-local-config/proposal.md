@@ -11,7 +11,7 @@
 - `config.local` 使用 TOML 格式，并加入 `.gitignore`，不提交。
 - 当前需要监听的两个 repository 作为本地 `config.local` 内容：
   - `tranfu-labs/tranfu-agents-app`
-  - `tranfu-labs/agent-moebius`
+  - `tranfu-labs/moebius`
 - 配置解析分层：TOML 文件读取是外部适配，解析后的 shape 校验是可测业务逻辑。
 
 ## 影响

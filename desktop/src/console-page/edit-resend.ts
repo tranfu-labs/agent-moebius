@@ -1,4 +1,4 @@
-import type { OperatorMessage } from "@agent-moebius/console-ui";
+import type { OperatorMessage } from "@moebius/console-ui";
 
 export function findStoppedRunStartMessage(
   messages: readonly OperatorMessage[],

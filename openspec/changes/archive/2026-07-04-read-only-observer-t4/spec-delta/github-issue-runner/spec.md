@@ -28,14 +28,14 @@
 
 ## 新增场景
 ### 场景 T4.1：白名单 issue 与阶段状态可见
-Given `config.local.toml` contains `tranfu-labs/agent-moebius`
-And local state contains records for `tranfu-labs/agent-moebius#50`
+Given `config.local.toml` contains `tranfu-labs/moebius`
+And local state contains records for `tranfu-labs/moebius#50`
 When the user runs `pnpm observer` and opens the local page
 Then the page shows issue `50`
 And the page shows source-labeled stage/status data from intake, role threads, agent contexts, and run manifest records where available
 
 ### 场景 T4.2：有发布截图的 issue 显示预览或链接
-Given `.state/run-manifests.jsonl` contains a record for `tranfu-labs/agent-moebius#50`
+Given `.state/run-manifests.jsonl` contains a record for `tranfu-labs/moebius#50`
 And the record contains an artifact with a non-null image-like `publishedUrl`
 When the observer page renders that issue
 Then the page shows the published URL

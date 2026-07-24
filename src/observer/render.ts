@@ -30,7 +30,7 @@ export function renderObserverPage(model: ObserverModel, selection: ObserverRend
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agent Moebius Observer</title>
+  <title>Moebius Observer</title>
   <style>
     :root {
       color-scheme: light;
@@ -311,7 +311,7 @@ export function renderObserverPage(model: ObserverModel, selection: ObserverRend
 </head>
 <body>
   <header>
-    <h1>Agent Moebius Observer</h1>
+    <h1>Moebius Observer</h1>
     <div class="meta">read on load · ${escapeHtml(model.generatedAt)}</div>
   </header>
   <main>
@@ -599,7 +599,7 @@ function selectionHref(input: { project?: string; issue?: string; run?: string }
 }
 
 const DETAIL_HIDDEN_KEY_PATTERN =
-  /agent-moebius-(?:orchestration|roundtable|roundtable-completion|integration-acceptance)-key:[a-f0-9]{16,64}/giu;
+  /moebius-(?:orchestration|roundtable|roundtable-completion|integration-acceptance)-key:[a-f0-9]{16,64}/giu;
 const TOKEN_LIKE_PATTERN =
   /\b(?:ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b/gu;
 const LOCAL_ABSOLUTE_PATH_PATTERN = /(?:\/Users\/[^\s"'<>]+|\/tmp\/[^\s"'<>]+|[A-Za-z]:\\[^\s"'<>]+)/gu;

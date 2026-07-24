@@ -67,7 +67,7 @@ The shared `Badge` primitive MUST reserve pass/fail verdict coloring for accepta
 
 #### Scenario: Storybook shows flat primitives and dot status
 
-- **GIVEN** a developer runs `pnpm --filter @agent-moebius/console-ui storybook`
+- **GIVEN** a developer runs `pnpm --filter @moebius/console-ui storybook`
 - **WHEN** the Card and Badge stories render
 - **THEN** Card appears as a flat thin-border surface, Badge stories show all nine status semantic variants as dot-plus-text markers, and the stories do not show a separate floating component-library visual language.
 

@@ -10,7 +10,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Moebius                       1 运行中 · 0 等你            [诊断] [新会话] │
 ├────────────────────┬──────────────────────────────────────┬────────────────┤
-│ ▾ agent-moebius     │ 会话: 本地 T4 验收                 运行中│ 运行详情       │
+│ ▾ moebius     │ 会话: 本地 T4 验收                 运行中│ 运行详情       │
 │  »  本地 T4 验收    │                                      │ runDir          │
 │     失败构造验证    │ ┌ 你 · 14:02 ─────────────────────┐ │ /tmp/.../run-1  │
 │     卡住状态验证    │ │ dev 帮我验证本地操作台直播       │ │                │
@@ -18,7 +18,7 @@
 │  已完成 (2)        │                                      │ running tests... │
 │                    │ ┌ 开发 · 运行中 00:43 ─── [中断] ┐ │                │
 │                    │ │ 正在运行 · stdout.jsonl 已更新   │ │ 状态           │
-│                    │ │ runDir: /tmp/agent-moebius...    │ │ running        │
+│                    │ │ runDir: /tmp/moebius...    │ │ running        │
 │                    │ │ 最近输出: running tests...       │ │                │
 │                    │ └──────────────────────────────────┘ │ 错误记录       │
 │                    │                                      │ 无              │
@@ -39,7 +39,7 @@
 ```text
 ┌ 开发 · 已中断 · 14:03 ───────────────────────────────┐
 │ 用户已中断本轮运行。                                │
-│ runDir: /tmp/agent-moebius-local-...                 │
+│ runDir: /tmp/moebius-local-...                 │
 │ 状态: interrupted                                    │
 └──────────────────────────────────────────────────────┘
 
@@ -56,13 +56,13 @@
 ```text
 ┌ 系统 · 本地错误 · 14:08 ─────────────────────────────┐
 │ Codex 运行失败: exit-code-1                          │
-│ runDir: /tmp/agent-moebius-local-...                 │
+│ runDir: /tmp/moebius-local-...                 │
 │ stderr: fake codex failed for acceptance             │
 └──────────────────────────────────────────────────────┘
 
 右侧错误记录
   14:08  exit-code-1
-  runDir /tmp/agent-moebius-local-...
+  runDir /tmp/moebius-local-...
 ```
 
 要点：
@@ -74,14 +74,14 @@
 ```text
 ┌ 系统 · 运行卡住 · 14:12 ─────────────────────────────┐
 │ Codex 运行卡住: idle-timeout:300000ms                │
-│ runDir: /tmp/agent-moebius-local-...                 │
+│ runDir: /tmp/moebius-local-...                 │
 │ 状态: stuck                                          │
 └──────────────────────────────────────────────────────┘
 
 右侧状态
   卡住
   reason idle-timeout:300000ms
-  runDir /tmp/agent-moebius-local-...
+  runDir /tmp/moebius-local-...
 ```
 
 要点：

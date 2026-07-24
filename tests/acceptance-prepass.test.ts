@@ -9,8 +9,8 @@ import {
   type AcceptancePrePassDependencies,
 } from "../src/runner/acceptance-prepass.js";
 
-const parentSource = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
-const childSource = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 101 });
+const parentSource = makeIssueSource({ owner: "tranfu-labs", repo: "moebius", issueNumber: 4 });
+const childSource = makeIssueSource({ owner: "tranfu-labs", repo: "moebius", issueNumber: 101 });
 
 describe("acceptance pre-pass runner module", () => {
   it("records a child acceptance fact and requests parent integration acceptance only when join is ready", async () => {
@@ -44,7 +44,7 @@ describe("acceptance pre-pass runner module", () => {
     expect(ledger.phases["phase-1"]?.integrationAcceptance?.[0]).toMatchObject({ status: "requested" });
     expect(posted).toHaveLength(1);
     expect(posted[0]).toMatchObject({ issueNumber: parentSource.issueNumber });
-    expect(posted[0]?.body).toContain("agent-moebius-integration-acceptance-key:");
+    expect(posted[0]?.body).toContain("moebius-integration-acceptance-key:");
   });
 
   it("bounds a never-resolving child fact ledger write", async () => {
@@ -91,7 +91,7 @@ describe("acceptance pre-pass runner module", () => {
     ]);
     const createIssue = vi.fn<AcceptancePrePassDependencies["createIssue"]>(async () => ({
       number: 201,
-      url: "https://github.com/tranfu-labs/agent-moebius/issues/201",
+      url: "https://github.com/tranfu-labs/moebius/issues/201",
     }));
     const visibleComments: string[] = [];
 
@@ -133,7 +133,7 @@ function makeDependencies(
     fetchIssueWithComments: async () => makeIssue("parent"),
     postComment: async () => {},
     findIssueByOrchestrationKey: async () => ({ kind: "none" }),
-    createIssue: async () => ({ number: 201, url: "https://github.com/tranfu-labs/agent-moebius/issues/201" }),
+    createIssue: async () => ({ number: 201, url: "https://github.com/tranfu-labs/moebius/issues/201" }),
     ...overrides,
   };
 }
@@ -157,7 +157,7 @@ function makeIntegrationLedgerState(input: { task2Passed?: boolean; requested?: 
     status: "open" as const,
   };
   const requested = {
-    joinKey: `agent-moebius-integration-acceptance-key:${"a".repeat(64)}`,
+    joinKey: `moebius-integration-acceptance-key:${"a".repeat(64)}`,
     phaseId: "phase-1",
     parentIssue: { owner: parentSource.owner, repo: parentSource.repo, number: parentSource.issueNumber },
     reviewerRole: "product-manager",
@@ -295,7 +295,7 @@ function ledgerSaveMutator(ledger: GoalLedgerState): AcceptancePrePassDependenci
 }
 
 function pmEnvelope(body: string): string {
-  return `&lt;product-manager&gt;:\n${body}\n\n<!-- agent-moebius:role=product-manager -->`;
+  return `&lt;product-manager&gt;:\n${body}\n\n<!-- moebius:role=product-manager -->`;
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void; reject(error: unknown): void } {

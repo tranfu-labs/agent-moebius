@@ -6,7 +6,7 @@
 >
 > 范围：定义主内容区的会话页——包括还没有消息时的新对话形态、上下文选择、时间线、用户与团队的往来、子会话入口和异常表现。[主页面侧边栏](./main-left-sidebar.md)、[主页面右侧栏](./main-right-sidebar.md)、[Agent 团队](./agent-teams.md)、[全局搜索](./search.md)、[设置](./settings.md)分别定义。
 >
-> 产品基线：[agent-moebius 产品需求文档](../prd.md)
+> 产品基线：[moebius 产品需求文档](../prd.md)
 
 ## 页面目标
 

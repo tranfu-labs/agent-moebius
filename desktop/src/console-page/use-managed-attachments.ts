@@ -2,7 +2,7 @@ import type {
   ComposerAttachment,
   OperatorMessage,
   StructuredAttachment,
-} from "@agent-moebius/console-ui";
+} from "@moebius/console-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cloneManagedMessageAttachments,

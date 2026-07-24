@@ -17,12 +17,18 @@ describe("stages", () => {
   });
 
   it("parses tolerant marker variants while preserving strict stage names", () => {
-    expect(parseStageMarkers("done\n<!--  Agent-Moebius : stage = code-verified  -->")).toEqual(["code-verified"]);
-    expect(parseStageMarkers("done\n<!-- agent-moebius:stage=Code-Verified -->")).toEqual([]);
+    expect(parseStageMarkers("done\n<!--  Moebius : stage = code-verified  -->")).toEqual(["code-verified"]);
+    expect(parseStageMarkers("done\n<!-- moebius:stage=Code-Verified -->")).toEqual([]);
+  });
+
+  it("does not recognize the legacy marker namespace", () => {
+    const legacyNamespace = ["agent", "moebius"].join("-");
+
+    expect(parseStageMarkers(`done\n<!-- ${legacyNamespace}:stage=code-verified -->`)).toEqual([]);
   });
 
   it("requires trailing markers for CEO post-validation", () => {
-    expect(parseTrailingStageMarker("body\n<!-- agent-moebius:stage=in-progress -->")).toBe("in-progress");
-    expect(parseTrailingStageMarker("<!-- agent-moebius:stage=in-progress -->\nmore")).toBeNull();
+    expect(parseTrailingStageMarker("body\n<!-- moebius:stage=in-progress -->")).toBe("in-progress");
+    expect(parseTrailingStageMarker("<!-- moebius:stage=in-progress -->\nmore")).toBeNull();
   });
 });

@@ -29,7 +29,7 @@
 └── <user-team-id>/                 ← 用户区，产品永不覆盖
 ```
 
-`<dataRoot>` 沿用 `resolveDesktopDataRoot`：打包后为 `~/.agent-moebius`，开发时为仓库根。
+`<dataRoot>` 沿用 `resolveDesktopDataRoot`：打包后为 `~/.moebius`，开发时为仓库根。
 
 产品行为的**唯一事实源**保持为 `docs/product/pages/agent-teams.md`；spec-delta 只登记足以让机器判定「是否符合」的行为规则。
 

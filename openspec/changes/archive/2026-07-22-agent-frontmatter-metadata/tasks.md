@@ -32,10 +32,10 @@
   - [x] 审计测试 fixture：canonical 用例改 snake_case，legacy 专项用例保留 camelCase
 
 - [x] T6：验证与可见验收
-  - [x] `pnpm --filter @agent-moebius/desktop test -- team-model.test.ts team-store.test.ts team-seed.test.ts team-ipc.test.ts team-external-change.test.ts`
+  - [x] `pnpm --filter @moebius/desktop test -- team-model.test.ts team-store.test.ts team-seed.test.ts team-ipc.test.ts team-external-change.test.ts`
   - [x] `pnpm vitest run tests/agent-manifest.test.ts`
   - [x] `pnpm test`
   - [x] `pnpm typecheck`
-  - [x] `pnpm --filter @agent-moebius/desktop build`
+  - [x] `pnpm --filter @moebius/desktop build`
   - [x] 在运行中的开发态 renderer 隔离注入实际 seed 摘要，确认“开发经理 / 开发 / 软件测试”与主 Agent 文案，“角色”不再作为 UI 身份
   - [x] 用同一临时数据根重复播种，确认内容指纹命中后身份仍稳定，升级替换也不改写用户团队文件

@@ -207,7 +207,7 @@ describe("local managed attachments", () => {
 });
 
 async function createFixture() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-attachments-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-attachments-"));
   temporaryRoots.push(root);
   const store = await createSqliteLocalConsoleStore({
     sqlitePath: path.join(root, ".state", "local-console.sqlite"),

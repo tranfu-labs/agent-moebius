@@ -62,7 +62,7 @@ And `.state/goal-ledger.json` 不存在
 When runner 准备 CEO agent
 Then runner 不调用 Codex
 And runner 不创建任何 issue
-And runner 发布一条 `<ceo>:` 可见失败评论，末尾为 `<!-- agent-moebius:stage=in-progress -->`
+And runner 发布一条 `<ceo>:` 可见失败评论，末尾为 `<!-- moebius:stage=in-progress -->`
 And runner 不更新 ceo role thread
 
 ### 场景 T3.4：剧本缺失时不创建 issue
@@ -144,7 +144,7 @@ And runner 发布可见 fail-closed 评论，包含已创建 issue URL 与 ledge
 
 ### 场景 T3.7d：CEO JSON 与 stage marker 共存
 Given CEO Codex 输出 fenced JSON
-And fenced JSON 后接合法 `<!-- agent-moebius:stage=in-progress -->`
+And fenced JSON 后接合法 `<!-- moebius:stage=in-progress -->`
 When runner 解析 CEO orchestration output
 Then parser 接受该输出
 When CEO Codex 输出非法 JSON 后接合法 stage marker

@@ -447,7 +447,7 @@ async function runWorktreeDiffCase(): Promise<EvidenceItem[]> {
     await fs.writeFile(path.join(options.cwd, "binary-output.bin"), Buffer.from([0, 1, 2, 255]));
     await fs.rm(path.join(options.cwd, "README.md"));
     runCalls.push({ cwd: options.cwd, runDir: options.runDir });
-    return codexOk(options, "done in worktree\n\n<!-- agent-moebius:stage=code-verified -->");
+    return codexOk(options, "done in worktree\n\n<!-- moebius:stage=code-verified -->");
   });
   try {
     const project = await createProject(server.url, repo, true);
@@ -490,7 +490,7 @@ async function runWorktreeReturnRollbackCase(): Promise<EvidenceItem[]> {
   const server = await startFixtureServer(root, async (options) => {
     assert(options.cwd !== undefined, "cwd required");
     await fs.writeFile(path.join(options.cwd, "local-output.txt"), "changed\n", "utf8");
-    return codexOk(options, "verified rollback path\n\n<!-- agent-moebius:stage=code-verified -->");
+    return codexOk(options, "verified rollback path\n\n<!-- moebius:stage=code-verified -->");
   });
   try {
     const project = await createProject(server.url, repo, true);
@@ -544,7 +544,7 @@ async function runWorktreeAbandonCase(): Promise<EvidenceItem[]> {
   const server = await startFixtureServer(root, async (options) => {
     assert(options.cwd !== undefined, "cwd required");
     await fs.writeFile(path.join(options.cwd, "abandoned-output.txt"), "draft\n", "utf8");
-    return codexOk(options, "verified abandon path\n\n<!-- agent-moebius:stage=code-verified -->");
+    return codexOk(options, "verified abandon path\n\n<!-- moebius:stage=code-verified -->");
   });
   try {
     const project = await createProject(server.url, repo, true);
@@ -1479,7 +1479,7 @@ function now(offsetSeconds: number): string {
 }
 
 async function makeRoot(name: string): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), `agent-moebius-t5-${name}-`));
+  return await fs.mkdtemp(path.join(os.tmpdir(), `moebius-t5-${name}-`));
 }
 
 async function writeAgent(root: string, name: string, body: string): Promise<void> {

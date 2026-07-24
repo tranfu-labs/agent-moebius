@@ -81,7 +81,7 @@ describe("goal ledger", () => {
       status: "no-active",
       owner: { kind: "goal", id: "goal-intake" },
     });
-    expect(resolveGoalIntakeProposal(state, "agent-moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")?.tasks).toHaveLength(3);
+    expect(resolveGoalIntakeProposal(state, "moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")?.tasks).toHaveLength(3);
   });
 
   it("treats identical goal-intake proposals as idempotent and conflicts as fail-closed", () => {
@@ -101,7 +101,7 @@ describe("goal ledger", () => {
   it("confirms a goal-intake proposal into ready entries and a single active phase", () => {
     const proposed = applyGoalIntakeProposal(createEmptyGoalLedgerState(), makeGoalIntakeProposalInput());
     const confirmed = confirmGoalIntakeProposal(proposed, {
-      proposalKey: "agent-moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      proposalKey: "moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       taskIds: ["task-1", "task-2", "task-3"],
       now: "2026-07-04T00:10:00.000Z",
       provenance: { ...makeProvenance(), note: "confirmed" },
@@ -122,7 +122,7 @@ describe("goal ledger", () => {
     });
 
     const repeated = confirmGoalIntakeProposal(confirmed, {
-      proposalKey: "agent-moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      proposalKey: "moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       taskIds: ["task-1", "task-2", "task-3"],
       now: "2026-07-04T00:20:00.000Z",
       provenance: { ...makeProvenance(), note: "confirmed again" },
@@ -170,14 +170,14 @@ describe("goal ledger", () => {
   it("accepts run manifest refs only when linked refs have a stable locator", () => {
     const linked: RunManifestReference = {
       locator: { kind: "jsonl-line", path: ".state/run-manifests.jsonl", line: 12 },
-      issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+      issue: { owner: "tranfu-labs", repo: "moebius", number: 63 },
       role: "dev",
       completedAt: NOW,
       stage: "code-verified",
       resolution: "linked",
     };
     const unresolved: RunManifestReference = {
-      issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+      issue: { owner: "tranfu-labs", repo: "moebius", number: 63 },
       role: "dev",
       completedAt: NOW,
       stage: "code-verified",
@@ -459,7 +459,7 @@ describe("goal ledger", () => {
     const state = stateWithGoalJoinChildren();
     const factInput = {
       taskId: "task-1",
-      issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 101 },
+      issue: { owner: "tranfu-labs", repo: "moebius", number: 101 },
       role: "product-manager",
       status: "passed" as const,
       statementResults: [{ id: "1", status: "passed" as const, statement: "跑 task-1" }],
@@ -479,7 +479,7 @@ describe("goal ledger", () => {
     const state = stateWithGoalJoinChildren();
     const onePassed = recordTaskAcceptanceFact(state, {
       taskId: "task-1",
-      issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 101 },
+      issue: { owner: "tranfu-labs", repo: "moebius", number: 101 },
       role: "product-manager",
       status: "passed",
       statementResults: [{ id: "1", status: "passed", statement: "跑 task-1" }],
@@ -491,7 +491,7 @@ describe("goal ledger", () => {
     expect(
       evaluateIntegrationAcceptanceJoin(onePassed, {
         owner: goalOwner(),
-        parentIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+        parentIssue: { owner: "tranfu-labs", repo: "moebius", number: 63 },
         reviewerRole: "product-manager",
       }),
     ).toMatchObject({
@@ -501,7 +501,7 @@ describe("goal ledger", () => {
 
     const allPassed = recordTaskAcceptanceFact(onePassed, {
       taskId: "task-2",
-      issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 102 },
+      issue: { owner: "tranfu-labs", repo: "moebius", number: 102 },
       role: "product-manager",
       status: "passed",
       statementResults: [{ id: "1", status: "passed", statement: "跑 task-2" }],
@@ -511,7 +511,7 @@ describe("goal ledger", () => {
     });
     const ready = evaluateIntegrationAcceptanceJoin(allPassed, {
       owner: goalOwner(),
-      parentIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+      parentIssue: { owner: "tranfu-labs", repo: "moebius", number: 63 },
       reviewerRole: "product-manager",
     });
 
@@ -521,7 +521,7 @@ describe("goal ledger", () => {
       reviewerRole: "product-manager",
       childPassFacts: [{ taskId: "task-1" }, { taskId: "task-2" }],
     });
-    expect(ready.status === "ready" ? ready.joinKey : "").toContain("agent-moebius-integration-acceptance-key:");
+    expect(ready.status === "ready" ? ready.joinKey : "").toContain("moebius-integration-acceptance-key:");
   });
 
   it("records integration acceptance events idempotently by join key and status", () => {
@@ -530,7 +530,7 @@ describe("goal ledger", () => {
     const targetAcceptanceDigest = "b".repeat(64);
     const once = recordIntegrationAcceptanceEvent(state, {
       phaseId: "goal-phase",
-      parentIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+      parentIssue: { owner: "tranfu-labs", repo: "moebius", number: 63 },
       reviewerRole: "product-manager",
       status: "requested",
       childPassDigest,
@@ -539,7 +539,7 @@ describe("goal ledger", () => {
     });
     const twice = recordIntegrationAcceptanceEvent(once, {
       phaseId: "goal-phase",
-      parentIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+      parentIssue: { owner: "tranfu-labs", repo: "moebius", number: 63 },
       reviewerRole: "product-manager",
       status: "requested",
       childPassDigest,
@@ -624,8 +624,8 @@ function stateWithGoalJoinChildren(): GoalLedgerState {
       dependencies: [],
       qualityBaseline: "data-correct",
       phaseIds: [],
-      parentIssueRef: { owner: "tranfu-labs", repo: "agent-moebius", number: 63, relation: "parent", status: "open" },
-      childIssueRefs: [{ owner: "tranfu-labs", repo: "agent-moebius", number: 101, relation: "child", status: "open" }],
+      parentIssueRef: { owner: "tranfu-labs", repo: "moebius", number: 63, relation: "parent", status: "open" },
+      childIssueRefs: [{ owner: "tranfu-labs", repo: "moebius", number: 101, relation: "child", status: "open" }],
       runManifestRefs: [],
       provenance: [makeProvenance()],
       createdAt: NOW,
@@ -643,8 +643,8 @@ function stateWithGoalJoinChildren(): GoalLedgerState {
       dependencies: [],
       qualityBaseline: "data-correct",
       phaseIds: [],
-      parentIssueRef: { owner: "tranfu-labs", repo: "agent-moebius", number: 63, relation: "parent", status: "open" },
-      childIssueRefs: [{ owner: "tranfu-labs", repo: "agent-moebius", number: 102, relation: "child", status: "open" }],
+      parentIssueRef: { owner: "tranfu-labs", repo: "moebius", number: 63, relation: "parent", status: "open" },
+      childIssueRefs: [{ owner: "tranfu-labs", repo: "moebius", number: 102, relation: "child", status: "open" }],
       runManifestRefs: [],
       provenance: [makeProvenance()],
       createdAt: NOW,
@@ -698,7 +698,7 @@ function makeArtifactReference(kind: PhaseArtifactReference["kind"]): PhaseArtif
     return {
       kind,
       summary: "issue comment",
-      issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 65 },
+      issue: { owner: "tranfu-labs", repo: "moebius", number: 65 },
       commentId: "IC_kwDOP",
     };
   }
@@ -719,7 +719,7 @@ function makeArtifactReference(kind: PhaseArtifactReference["kind"]): PhaseArtif
 function makeIssueReference(relation: IssueReference["relation"]): IssueReference {
   return {
     owner: "tranfu-labs",
-    repo: "agent-moebius",
+    repo: "moebius",
     number: 63,
     relation,
     status: "open",
@@ -728,8 +728,8 @@ function makeIssueReference(relation: IssueReference["relation"]): IssueReferenc
 
 function makeGoalIntakeProposalInput(): Parameters<typeof applyGoalIntakeProposal>[1] {
   return {
-    proposalKey: "agent-moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    sourceIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+    proposalKey: "moebius-goal-intake-proposal-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    sourceIssue: { owner: "tranfu-labs", repo: "moebius", number: 63 },
     messageIndex: 1,
     commentId: "comment-1",
     capturedAt: NOW,
@@ -770,7 +770,7 @@ function makeGoalIntakeProposalInput(): Parameters<typeof applyGoalIntakeProposa
 
 function makeProvenance(): LedgerProvenance {
   return {
-    issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 63 },
+    issue: { owner: "tranfu-labs", repo: "moebius", number: 63 },
     messageIndex: 1,
     capturedAt: NOW,
   };

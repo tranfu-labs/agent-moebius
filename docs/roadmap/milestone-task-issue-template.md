@@ -11,7 +11,7 @@
   - **预判 no_spawn → 直接 `@dev`**（主路径之一）：能写出「倾向 no_spawn + 理由」的任务（文件范围集中、验收面单一），首行直接 `@dev`，并在「协作方式」里保留该预判理由，不再绕 CEO 复述预判。
   - **拆分真不确定 → `@ceo`**：只有跨模块、验收面分散、疑似需并行等拆分真不确定的任务，才首行 `@ceo`，让 CEO 按 `agents/ceo-scripts/milestone-spawn-child-issues.md` 判定"要不要拆 / 怎么拆"——如判"不拆"则由 CEO 显式 `no_spawn` + `@dev` 接续采访；如判"拆"则 CEO spawn 子 issue，子 issue 各自 ping 对应角色（默认 `@dev`）。
   - **例外**：维护 CEO guardrail 或 `agents/ceo.md` 的任务用 `@secretary`（避免自激）。
-- issue 开在 agent-moebius 仓库（需在 `config.local.toml` 白名单内），dev 的 worktree 会自动落在本仓库。
+- issue 开在 moebius 仓库（需在 `config.local.toml` 白名单内），dev 的 worktree 会自动落在本仓库。
 
 ## 标题
 

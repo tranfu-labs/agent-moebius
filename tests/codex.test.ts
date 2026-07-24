@@ -199,7 +199,7 @@ describe("extractFinalAssistant", () => {
   });
 
   it("returns interrupted without parsing partial output when aborted", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
     await fs.mkdir(binDir);
@@ -234,7 +234,7 @@ setInterval(() => {}, 1000);
   });
 
   it("escalates aborted codex child processes to SIGKILL when they ignore graceful signals", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
     await fs.mkdir(binDir);
@@ -332,7 +332,7 @@ describe("Codex visible Markdown stream", () => {
   });
 
   it("delivers complete visible segments without making callback failures fatal", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
     await fs.mkdir(binDir);
@@ -378,7 +378,7 @@ for (const event of events) process.stdout.write(JSON.stringify(event) + "\\n");
   });
 
   it("delivers thread.started exactly once before returning a successful run", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
     await fs.mkdir(binDir);
@@ -416,7 +416,7 @@ process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "age
   });
 
   it("keeps the Agent run successful when only complete-output linking cannot persist", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
     await fs.mkdir(binDir);
@@ -451,7 +451,7 @@ process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "age
   });
 
   it("persists thread.started before reporting a later Codex failure", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
     await fs.mkdir(binDir);
@@ -734,7 +734,7 @@ describe("codexTimeoutKind", () => {
 
 describe("run watchdogs", () => {
   it("kills a silent codex process and returns idle-timeout", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
     await fs.mkdir(binDir);
@@ -771,7 +771,7 @@ setInterval(() => {}, 1000);
   });
 
   it("caps a still-running process with max-duration before the idle deadline", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
     await fs.mkdir(binDir);
@@ -810,7 +810,7 @@ setInterval(() => {
   });
 
   it("settles in bounded time even when a grandchild keeps the stdio pipes open", async () => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-codex-test-"));
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-codex-test-"));
     const binDir = path.join(tempDir, "bin");
     const runDir = path.join(tempDir, "run");
     await fs.mkdir(binDir);

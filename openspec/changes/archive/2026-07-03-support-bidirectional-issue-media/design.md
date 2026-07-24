@@ -44,7 +44,7 @@
 无法准备媒体输入：
 - #5 image[1] https://...：响应不是支持的图片 / 视频，content-type=...
 
-<!-- agent-moebius:stage=in-progress -->
+<!-- moebius:stage=in-progress -->
 ```
 
 该评论使用触发 agent 的 role envelope 发布，保持 timeline 可归一化；不更新 role thread。处理结果视为本轮 mention 已处理，避免同一坏链接每分钟重复刷屏。
@@ -94,7 +94,7 @@ interface ArtifactPublisher {
 
 SVG 优先作为图片预览发布，视频优先发布为 GitHub 可查看链接。生成文件不提交到业务仓库。
 
-GitHub 的公开 issue comment API / `gh issue comment` 没有一等本地附件上传能力；默认实现使用同仓库 GitHub release tag `agent-moebius-artifacts` 上传 release assets，并把 asset URL 作为 Markdown 预览或可点击链接追加到评论。该路径不提交生成产物到业务仓库，但会在目标 GitHub repository 中维护一个专用 release。若 release asset 创建 / 上传失败，runner 发布错误评论并不更新 role thread，避免用户误以为媒体已交付。
+GitHub 的公开 issue comment API / `gh issue comment` 没有一等本地附件上传能力；默认实现使用同仓库 GitHub release tag `moebius-artifacts` 上传 release assets，并把 asset URL 作为 Markdown 预览或可点击链接追加到评论。该路径不提交生成产物到业务仓库，但会在目标 GitHub repository 中维护一个专用 release。若 release asset 创建 / 上传失败，runner 发布错误评论并不更新 role thread，避免用户误以为媒体已交付。
 
 ### 5. 评论与 CEO guardrail 顺序
 输出 artifact 成功发布后，runner 构造 `publishableFinalText = result.finalText + artifactPreviewMarkdown`，再调用 CEO guardrail。这样 CEO 看到的 `latestResponse` 与即将发布的 agent comment 一致。

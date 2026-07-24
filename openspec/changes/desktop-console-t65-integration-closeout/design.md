@@ -130,10 +130,10 @@
 
 实现后按以下顺序执行，前一步失败即停止收尾：
 
-1. `pnpm --filter @agent-moebius/console-ui test`
-2. `pnpm --filter @agent-moebius/console-ui typecheck`
-3. `pnpm --filter @agent-moebius/console-ui build-storybook`
-4. `pnpm --filter @agent-moebius/desktop build`
+1. `pnpm --filter @moebius/console-ui test`
+2. `pnpm --filter @moebius/console-ui typecheck`
+3. `pnpm --filter @moebius/console-ui build-storybook`
+4. `pnpm --filter @moebius/desktop build`
 5. `pnpm typecheck`
 6. `pnpm exec tsx scripts/acceptance/local-console-t65.ts`（内部统一执行浏览器、可见／ARIA 门、哨兵、新鲜度与故障注入检查）
 7. 核对 `artifacts/acceptance/t65-evidence.json` 的 run id、`baseHead`、`testedSourceDigest`、命令退出码、payload artifact SHA-256 与 `t65-evidence.sha256`

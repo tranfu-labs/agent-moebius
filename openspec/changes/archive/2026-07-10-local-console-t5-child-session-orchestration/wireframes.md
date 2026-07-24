@@ -9,7 +9,7 @@
 │ Projects                 +   │
 │ runner running               │
 ├──────────────────────────────┤
-│ agent-moebius             ⎇  │
+│ moebius             ⎇  │
 │ /Users/wing/...              │
 │ worktree                     │
 │                              │

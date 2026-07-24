@@ -86,7 +86,7 @@ And 不永久占用 local session 或 issue in-flight 状态
 And 解除故障后下一条消息或下一轮 state 保存可继续
 
 ### 场景 LC-T3.6：GitHub issue 映射为稳定 session key
-Given GitHub source 为 owner `tranfu-labs`、repo `agent-moebius`、issue `101`
+Given GitHub source 为 owner `tranfu-labs`、repo `moebius`、issue `101`
 When runner 读写 role thread、agent context 或 intake issue state
 Then 内部 session key 稳定派生自该 GitHub source
 And 同一 issue 的同一 role 仍复用原 thread state

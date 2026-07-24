@@ -3,7 +3,7 @@
 ## 新增
 
 - MUST 提供 `docs/protocols/github-interaction.md` 作为 GitHub issue 共享时间线交互协议的单一事实源，适用于所有 agent 输出、CEO append、人类评论与 loop watcher 补发评论。
-- MUST 让全局 GitHub 交互协议至少覆盖四条规则：`@` 语义等于移交下一步控制权且每条消息最多一个合法 agent mention；裸 `#N` 只用于真实引用 GitHub issue / PR，任务编号、评论编号、验收语句编号与步骤编号不得写成裸 `#N`；runner 专属 role envelope（`<role>:` 可见前缀与 `<!-- agent-moebius:role=... -->` metadata）不得由人工或 loop watcher 手写伪装；带路由意图的人工评论必须显式包含一个合法 agent mention。
+- MUST 让全局 GitHub 交互协议至少覆盖四条规则：`@` 语义等于移交下一步控制权且每条消息最多一个合法 agent mention；裸 `#N` 只用于真实引用 GitHub issue / PR，任务编号、评论编号、验收语句编号与步骤编号不得写成裸 `#N`；runner 专属 role envelope（`<role>:` 可见前缀与 `<!-- moebius:role=... -->` metadata）不得由人工或 loop watcher 手写伪装；带路由意图的人工评论必须显式包含一个合法 agent mention。
 - MUST 让全局 GitHub 交互协议为每条规则提供正例、反例与合规改写；任务编号示例 MUST 使用 `T3` 等非 GitHub issue 引用形式，评论位置 MUST 使用「第 N 条评论」或完整评论 URL，验收编号 MUST 使用「验收语句 N」文字形式，避免制造真实 issue / PR 反向引用。
 - MUST 让所有 `agents/*.md` persona 引用并遵守 `docs/protocols/github-interaction.md`；persona 文件只做最小引用，MUST NOT 复制协议全文形成多事实源。
 - MUST 让 `agents/ceo.md` 承载 GitHub 交互协议违规纠偏场景：当本轮 `latestResponse` 误用 `@` 进行纯提及或多重控制权移交、用裸 `#N` 表达非 issue / PR 编号、试图手写 runner 专属 role envelope，或需要提醒人工路由必须显式带一个合法 mention 时，CEO SHOULD 输出 `append`、`as=ceo`，指出违规点并给出合规写法。

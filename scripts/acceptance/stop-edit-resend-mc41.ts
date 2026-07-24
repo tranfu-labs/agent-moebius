@@ -11,7 +11,7 @@ import { startLocalConsoleServer } from "../../src/local-console/server.js";
 const attachmentCapability = "stop-edit-resend-mc41";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const stateDir = readStateDir(process.argv.slice(2));
-const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-mc41-"));
+const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-mc41-"));
 const sqlitePath = path.join(runtimeRoot, ".state", "local-console.sqlite");
 const preservedFile = path.join(runtimeRoot, "preserved-before-resend.txt");
 let codexInvocation = 0;
@@ -40,8 +40,8 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 try {
   await page.addInitScript({
     content: `
-      localStorage.setItem("agent-moebius.console.selection", JSON.stringify({ projectId: "local", sessionId: "default" }));
-      Object.defineProperty(window, "agentMoebius", {
+      localStorage.setItem("moebius.console.selection", JSON.stringify({ projectId: "local", sessionId: "default" }));
+      Object.defineProperty(window, "moebius", {
         configurable: true,
         value: { getLocalConsoleAttachmentCapability: async () => "${attachmentCapability}" }
       });
@@ -247,7 +247,7 @@ async function waitForReadyAttachment(page: import("playwright").Page, attachmen
       (elements) => elements.map((element) => ({ label: element.getAttribute("aria-label"), text: element.textContent })),
     );
     const capabilityProbe = await page.evaluate(async () => {
-      const api = (window as Window & { agentMoebius?: { getLocalConsoleAttachmentCapability?: () => Promise<string | null> } }).agentMoebius;
+      const api = (window as Window & { moebius?: { getLocalConsoleAttachmentCapability?: () => Promise<string | null> } }).moebius;
       return {
         hasApi: api !== undefined,
         hasCapabilityMethod: api?.getLocalConsoleAttachmentCapability !== undefined,

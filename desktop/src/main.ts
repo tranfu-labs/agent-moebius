@@ -199,7 +199,7 @@ function createWindow(): void {
     height: 760,
     minWidth: 900,
     minHeight: 560,
-    title: "agent-moebius",
+    title: "moebius",
     ...integratedMainWindowOptions(process.platform),
     webPreferences: {
       preload: path.join(dirname, "preload.cjs"),
@@ -301,10 +301,10 @@ function spawnRunnerProcess(logPath: string): RunnerProcess {
     env: {
       ...process.env,
       // WORKDIR_ROOT 默认派生自 DATA_ROOT，故只需注入数据根，workdir 自动跟随。
-      AGENT_MOEBIUS_DATA_ROOT: status.dataRoot,
+      MOEBIUS_DATA_ROOT: status.dataRoot,
     },
     stdio: "pipe",
-    serviceName: "agent-moebius-runner",
+    serviceName: "moebius-runner",
   });
 
   child.stdout?.on("data", (chunk) => {
@@ -495,12 +495,12 @@ ipcMain.handle("action:check-updates", async () => {
       platform: process.platform,
       currentVersion: app.getVersion(),
       latestVersion: latestRelease?.version,
-      downloadUrl: latestRelease?.url ?? "https://github.com/tranfu-labs/agent-moebius/releases/latest",
+      downloadUrl: latestRelease?.url ?? "https://github.com/tranfu-labs/moebius/releases/latest",
     });
     status.update = decision;
     publishStatus();
     if (decision.action === "open-download-page") {
-      await shell.openExternal(decision.downloadUrl ?? "https://github.com/tranfu-labs/agent-moebius/releases/latest");
+      await shell.openExternal(decision.downloadUrl ?? "https://github.com/tranfu-labs/moebius/releases/latest");
     }
     return;
   }
@@ -564,7 +564,7 @@ function openStatusPage(): void {
     height: 560,
     minWidth: 520,
     minHeight: 420,
-    title: "agent-moebius status",
+    title: "moebius status",
     webPreferences: {
       preload: path.join(dirname, "preload.cjs"),
       contextIsolation: true,
@@ -591,10 +591,10 @@ function formatError(error: unknown): string {
 
 async function fetchLatestDesktopRelease(): Promise<ReleaseMetadata | null> {
   try {
-    const response = await fetch("https://api.github.com/repos/tranfu-labs/agent-moebius/releases/latest", {
+    const response = await fetch("https://api.github.com/repos/tranfu-labs/moebius/releases/latest", {
       headers: {
         accept: "application/vnd.github+json",
-        "user-agent": "agent-moebius-desktop",
+        "user-agent": "moebius-desktop",
       },
     });
     if (!response.ok) {

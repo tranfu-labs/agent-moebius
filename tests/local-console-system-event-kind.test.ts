@@ -94,7 +94,7 @@ describe("local console persisted system event kinds", () => {
 });
 
 async function fixtureStore(): Promise<{ store: LocalConsoleStore; sqlitePath: string }> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-system-events-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-system-events-"));
   roots.push(root);
   const sqlitePath = path.join(root, ".state", "local-console.sqlite");
   const store = await createSqliteLocalConsoleStore({ sqlitePath });

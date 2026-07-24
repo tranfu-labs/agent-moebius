@@ -277,7 +277,7 @@ describe("local Codex recovery runtime", { timeout: 15_000 }, () => {
 });
 
 async function fixtureRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-resume-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-resume-"));
   cleanupRoots.push(root);
   return root;
 }

@@ -25,7 +25,7 @@ const webPort = Number.isFinite(Number(args.webPort)) ? Number(args.webPort) : a
 
 if (args.noBuild !== true) {
   console.log(`[web-shell] building console-ui...`);
-  await run("pnpm", ["--filter", "@agent-moebius/console-ui", "build"], { cwd: repoRoot });
+  await run("pnpm", ["--filter", "@moebius/console-ui", "build"], { cwd: repoRoot });
 }
 
 console.log(`[web-shell] worktree=${worktreeName}`);
@@ -102,7 +102,7 @@ function parseArgs(argv) {
 }
 
 function defaultStateDir(worktree) {
-  return resolve(homedir(), "dev-loops", "agent-moebius", "state", worktree);
+  return resolve(homedir(), "dev-loops", "moebius", "state", worktree);
 }
 
 function derivePorts(worktree) {

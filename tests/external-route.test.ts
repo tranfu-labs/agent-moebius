@@ -11,8 +11,8 @@ import {
   type ExternalRouteDependencies,
 } from "../src/runner/external-route.js";
 
-const parentSource = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 4 });
-const childSource = makeIssueSource({ owner: "tranfu-labs", repo: "agent-moebius", issueNumber: 101 });
+const parentSource = makeIssueSource({ owner: "tranfu-labs", repo: "moebius", issueNumber: 4 });
+const childSource = makeIssueSource({ owner: "tranfu-labs", repo: "moebius", issueNumber: 101 });
 
 describe("external route runner module", () => {
   it("rejects an append route when publishing the visible handoff fails", async () => {
@@ -32,7 +32,7 @@ describe("external route runner module", () => {
         agentNames: ["dev"],
         intakeIssueState: activeIntakeIssueState(parentSource),
         count: 2,
-        makeRunDir: () => "/tmp/agent-moebius-route-test",
+        makeRunDir: () => "/tmp/moebius-route-test",
         postVisibleComment: async () => {
           throw new Error("comment timeout");
         },
@@ -60,7 +60,7 @@ describe("external route runner module", () => {
       agentNames: ["dev", "product-manager"],
       intakeIssueState: activeIntakeIssueState(childSource),
       count: 2,
-      makeRunDir: () => "/tmp/agent-moebius-route-test",
+      makeRunDir: () => "/tmp/moebius-route-test",
       postVisibleComment,
       dependencies: makeDependencies({
         loadGoalLedgerState: async () => ledgerWithPassedChild(),
@@ -195,9 +195,9 @@ Participants in order:
 1. qa
 2. dev-manager
 
-<!-- agent-moebius-roundtable-key:${"b".repeat(32)} -->`;
+<!-- moebius-roundtable-key:${"b".repeat(32)} -->`;
 }
 
 function agentEnvelope(role: string, body: string): string {
-  return `&lt;${role}&gt;:\n${body}\n\n<!-- agent-moebius:role=${role} -->`;
+  return `&lt;${role}&gt;:\n${body}\n\n<!-- moebius:role=${role} -->`;
 }

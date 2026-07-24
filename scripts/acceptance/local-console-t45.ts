@@ -298,7 +298,7 @@ async function runMultiSessionScenario(): Promise<{ fastSessionAgents: Array<str
 }
 
 async function makeRoot(label: string): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), `agent-moebius-t45-${label}-`));
+  return await fs.mkdtemp(path.join(os.tmpdir(), `moebius-t45-${label}-`));
 }
 
 async function writeAgents(root: string, roles: string[]): Promise<void> {

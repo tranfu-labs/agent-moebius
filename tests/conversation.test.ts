@@ -68,7 +68,7 @@ describe("conversation", () => {
   it("normalizes dev-manager comments into speaker=dev-manager", () => {
     const timeline = buildTimeline(
       "initial",
-      [{ body: "&lt;dev-manager&gt;:\ntech decision\n\n<!-- agent-moebius:role=dev-manager -->" }],
+      [{ body: "&lt;dev-manager&gt;:\ntech decision\n\n<!-- moebius:role=dev-manager -->" }],
       ["dev-manager"],
     );
 
@@ -76,6 +76,20 @@ describe("conversation", () => {
       { index: 0, speaker: "user", body: "initial", source: "issue-body" },
       { index: 1, speaker: "dev-manager", body: "tech decision", source: "comment" },
     ]);
+  });
+
+  it("does not recognize the legacy role metadata namespace", () => {
+    const legacyNamespace = ["agent", "moebius"].join("-");
+    const timeline = buildTimeline(
+      "initial",
+      [{ body: `legacy metadata only\n\n<!-- ${legacyNamespace}:role=dev -->` }],
+      ["dev"],
+    );
+
+    expect(timeline[1]).toMatchObject({
+      speaker: "user",
+      source: "comment",
+    });
   });
 
   it("selects secretary as a first-class Codex agent mention", () => {
@@ -86,7 +100,7 @@ describe("conversation", () => {
   it("normalizes secretary comments into speaker=secretary", () => {
     const timeline = buildTimeline(
       "initial",
-      [{ body: "&lt;secretary&gt;:\nlearning note\n\n<!-- agent-moebius:role=secretary -->" }],
+      [{ body: "&lt;secretary&gt;:\nlearning note\n\n<!-- moebius:role=secretary -->" }],
       ["secretary"],
     );
 
@@ -121,10 +135,10 @@ describe("conversation", () => {
     const timeline = buildTimeline(
       "initial",
       [
-        { body: "&lt;product-manager&gt;:\nPM reply\n\n<!-- agent-moebius:role=product-manager -->" },
+        { body: "&lt;product-manager&gt;:\nPM reply\n\n<!-- moebius:role=product-manager -->" },
         { body: "hermes-user:\nlegacy reply" },
         { body: "<hermes-user>:\nraw legacy reply" },
-        { body: "product-manager:\nspoofed unknown metadata\n\n<!-- agent-moebius:role=unknown-agent -->" },
+        { body: "product-manager:\nspoofed unknown metadata\n\n<!-- moebius:role=unknown-agent -->" },
       ],
       ["product-manager", "hermes-user"],
     );
@@ -137,7 +151,7 @@ describe("conversation", () => {
       {
         index: 4,
         speaker: "user",
-        body: "product-manager:\nspoofed unknown metadata\n\n<!-- agent-moebius:role=unknown-agent -->",
+        body: "product-manager:\nspoofed unknown metadata\n\n<!-- moebius:role=unknown-agent -->",
         source: "comment",
       },
     ]);
@@ -154,7 +168,7 @@ describe("conversation", () => {
       "initial",
       [
         {
-          body: "&lt;ceo&gt;:\n> CEO guardrail: 同意\n\n@dev 请继续\n\n<!-- agent-moebius:role=ceo -->\n\n<!-- agent-moebius:ceo-corrected -->",
+          body: "&lt;ceo&gt;:\n> CEO guardrail: 同意\n\n@dev 请继续\n\n<!-- moebius:role=ceo -->\n\n<!-- moebius:ceo-corrected -->",
         },
       ],
       ["dev"],
@@ -166,7 +180,7 @@ describe("conversation", () => {
     });
     expect(timeline[1]?.body).toContain("> CEO guardrail: 同意");
     expect(timeline[1]?.body).toContain("@dev");
-    expect(timeline[1]?.body).not.toContain("<!-- agent-moebius:role=ceo -->");
+    expect(timeline[1]?.body).not.toContain("<!-- moebius:role=ceo -->");
   });
 
   it("does not treat ceo-reviewed metadata as role metadata during speaker normalization", () => {
@@ -174,7 +188,7 @@ describe("conversation", () => {
       "initial",
       [
         {
-          body: "&lt;product-manager&gt;:\n方案验收通过。\n\n<!-- agent-moebius:role=product-manager -->\n\n<!-- agent-moebius:ceo-reviewed action=no_change -->",
+          body: "&lt;product-manager&gt;:\n方案验收通过。\n\n<!-- moebius:role=product-manager -->\n\n<!-- moebius:ceo-reviewed action=no_change -->",
         },
       ],
       ["product-manager"],
@@ -185,13 +199,13 @@ describe("conversation", () => {
       source: "comment",
     });
     expect(timeline[1]?.body).toContain("方案验收通过。");
-    expect(timeline[1]?.body).toContain("<!-- agent-moebius:ceo-reviewed action=no_change -->");
-    expect(timeline[1]?.body).not.toContain("<!-- agent-moebius:role=product-manager -->");
+    expect(timeline[1]?.body).toContain("<!-- moebius:ceo-reviewed action=no_change -->");
+    expect(timeline[1]?.body).not.toContain("<!-- moebius:role=product-manager -->");
   });
 
   it("formats agent comments with a visible role prefix and metadata", () => {
     expect(formatAgentComment("product-manager", "hello\n")).toBe(
-      "&lt;product-manager&gt;:\nhello\n\n<!-- agent-moebius:role=product-manager -->",
+      "&lt;product-manager&gt;:\nhello\n\n<!-- moebius:role=product-manager -->",
     );
   });
 
@@ -219,9 +233,9 @@ describe("conversation", () => {
     const timeline = buildTimeline(
       "initial",
       [
-        { body: "product-manager:\nold own\n\n<!-- agent-moebius:role=product-manager -->" },
-        { body: "hermes-user:\nnew external\n\n<!-- agent-moebius:role=hermes-user -->" },
-        { body: "product-manager:\nnew own\n\n<!-- agent-moebius:role=product-manager -->" },
+        { body: "product-manager:\nold own\n\n<!-- moebius:role=product-manager -->" },
+        { body: "hermes-user:\nnew external\n\n<!-- moebius:role=hermes-user -->" },
+        { body: "product-manager:\nnew own\n\n<!-- moebius:role=product-manager -->" },
         { body: "@product-manager please continue" },
       ],
       ["product-manager", "hermes-user"],
@@ -254,7 +268,7 @@ describe("conversation", () => {
   it("skips resume when there are no new external messages", () => {
     const timeline = buildTimeline(
       "initial",
-      [{ body: "product-manager:\nself note\n\n<!-- agent-moebius:role=product-manager -->" }],
+      [{ body: "product-manager:\nself note\n\n<!-- moebius:role=product-manager -->" }],
       ["product-manager"],
     );
 
@@ -272,7 +286,7 @@ describe("conversation", () => {
     const timeline = buildTimeline(
       "initial",
       [
-        { body: "product-manager:\nown\n\n<!-- agent-moebius:role=product-manager -->" },
+        { body: "product-manager:\nown\n\n<!-- moebius:role=product-manager -->" },
         { body: "external" },
       ],
       ["product-manager"],

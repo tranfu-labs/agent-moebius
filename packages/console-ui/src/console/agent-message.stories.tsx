@@ -13,7 +13,7 @@ const rawMarkdown = [
   "## 下一步",
   "交棒：@qa 请按验收语句走查",
   "",
-  "<!-- agent-moebius:stage=plan-written -->",
+  "<!-- moebius:stage=plan-written -->",
 ].join("\n");
 
 const meta = {
@@ -58,7 +58,7 @@ export const InboxStream: Story = {
           "## 下一步",
           "交棒：@dev 补充验收语句",
           "",
-          "<!-- agent-moebius:stage=in-progress -->",
+          "<!-- moebius:stage=in-progress -->",
         ].join("\n")}
         timestamp="09:44"
       />
@@ -71,7 +71,7 @@ export const InboxStream: Story = {
           "## 下一步",
           "等待真人：确认发布",
           "",
-          "<!-- agent-moebius:stage=code-verified -->",
+          "<!-- moebius:stage=code-verified -->",
         ].join("\n")}
         timestamp="10:02"
       />

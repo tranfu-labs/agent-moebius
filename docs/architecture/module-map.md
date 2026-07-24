@@ -13,7 +13,7 @@
 - 职责边界：Electron 桌面壳，把 runner、observer 与 local console server 装配成纯本地桌面应用；负责数据根解析、macOS PATH 修复、首启种子拷贝、Agent 团队磁盘布局与内置团队指纹播种、会话绑定团队的名单解析注入、环境自检、observer 动态端口启动、main 进程拥有的 local console server、runner 子进程监管、操作台主窗口、辅助状态页 IPC、日志落盘与更新检查。壳层只做装配、监管、自检、更新提示与 renderer 托管，不承载 GitHub issue runner、目标账本、trigger、Codex prompt、local-console 运行语义或 observer 读模型的业务规则。
 - 入口：`desktop/src/main.ts`；runner 子进程入口 `desktop/src/runner-child.ts`；preload `desktop/src/preload.ts`；操作台 renderer `desktop/src/console-page/*`；辅助状态页 `desktop/src/status-page/*`；纯逻辑模块 `desktop/src/data-root.ts`、`desktop/src/shell-path.ts`、`desktop/src/env-doctor.ts`、`desktop/src/runner-supervisor.ts`、`desktop/src/updater.ts`。Agent 团队十个模块全部收敛在 `desktop/src/team-*.ts`：内置团队内容指纹与 `.system` 覆盖播种在 `team-seed.ts`，结构与有效性判定在 `team-model.ts`，磁盘读写与内置只读保护在 `team-store.ts`，用户团队稳定记录、团队定义摘要与重定位身份校验在 `team-record-store.ts`，团队列表 / 成员读写 / 复制 / 删除的窄 IPC 在 `team-ipc.ts`，重新定位与仅移除记录的 IPC 独立收敛于 `team-repair-ipc.ts`，成员 `AGENT.md` 外部修改探测与冲突判定在 `team-external-change.ts`，在平台文件管理器中打开与移到废纸篓在 `team-file-manager.ts`，上一次成功创建会话所用团队的记录与回退预选在 `team-conversation-preference.ts`，会话绑定团队的实时健康度与严格成员名单解析在 `team-runtime-binding.ts`。用户团队位置一律经记录解析；内置团队仍按 `.system/<id>` 解析。
 - 上游：用户启动桌面应用；Electron 主进程生命周期；本机 `codex` CLI 与 `gh` CLI；GitHub Releases 更新通路。
-- 下游：`src/observer/server.ts` 的 `startObserverServer()` 编程入口；`src/local-console/server.ts` 的 `startLocalConsoleServer()` 编程入口；`src/runner.ts` 的 `start({ mode: "github" })` 编程入口（经 `utilityProcess` 子进程，并携带 `--github-mode`）；提交版 `agents/` 与 `config.toml` 种子资源；数据根 `~/.agent-moebius` 或 `AGENT_MOEBIUS_DATA_ROOT` 覆盖目录。
+- 下游：`src/observer/server.ts` 的 `startObserverServer()` 编程入口；`src/local-console/server.ts` 的 `startLocalConsoleServer()` 编程入口；`src/runner.ts` 的 `start({ mode: "github" })` 编程入口（经 `utilityProcess` 子进程，并携带 `--github-mode`）；提交版 `agents/` 与 `config.toml` 种子资源；数据根 `~/.moebius` 或 `MOEBIUS_DATA_ROOT` 覆盖目录。
 - 禁止依赖：MUST NOT 给 observer 增加写接口或 runner 控制能力；MUST NOT 复制 runner / observer / ledger / local-console 业务规则；MUST NOT 把用户配置或 agent 素材写回应用资源目录；MUST NOT 用 shell 字符串拼接外部输入；MUST NOT 在同一实例内派生多个 runner；MUST NOT 在 runner child 已显式选择 GitHub mode 时再启动第二个 local console server；Agent 团队 UI MUST NOT 另行复制结构有效性规则，只消费 store/IPC 给出的状态、可用性与 issue code；移除失效记录 MUST NOT 删除、移动或修改团队目录内容。
 
 ![desktop-shell](desktop-shell.svg)
@@ -26,7 +26,7 @@
 ### console-ui
 - Markdown 边界：共享 `MarkdownMessage` / Streamdown 呈现静态用户与 Agent 正文及单条活动 run Markdown，统一承载 GFM、CJK、代码、数学、Mermaid 与 URL/HTML 收紧；系统事实仍属于结构化组件。
 - 职责边界：React 对话操作台组件库与 Storybook 展示台，提供可被 Electron renderer import 的 shadcn 风格源码组件、Radix 无障碍原语封装、Tailwind 近单色令牌和项目专属复合组件。含 Agent 团队页的团队横行陈列、团队详情、成员选择器与 `@slug` 提及编辑器，但团队磁盘布局、播种与结构有效性判定属于 desktop-shell，本包只消费其结果。它只承载界面组件、样式令牌与组件级可测协议文本生成逻辑，不读取 `.state/`，不调用 runner / observer / GitHub / Codex，也不实现真实桌面对话操作台的数据流。
-- 入口：`packages/console-ui/src/index.ts`；全局样式 `packages/console-ui/src/styles/globals.css`；Storybook `pnpm --filter @agent-moebius/console-ui storybook`。
+- 入口：`packages/console-ui/src/index.ts`；全局样式 `packages/console-ui/src/styles/globals.css`；Storybook `pnpm --filter @moebius/console-ui storybook`。
 - 上游：desktop operator console renderer、Storybook 开发期浏览器、组件测试。
 - 下游：React、Radix UI、Tailwind、lucide 图标；本包内 `tokens.css` 的近单色语义变量。
 - 禁止依赖：MUST NOT 反向 import `src/runner*`、`src/observer*`、`src/local-console*`、`src/goal-ledger*` 或任何 `.state` adapter；MUST NOT 调用 `gh` / `codex` / shell；MUST NOT 把业务事实复制进组件层。真实 renderer app、IPC 与 local console API 对接属于 desktop-shell。
@@ -90,7 +90,7 @@
 - 禁止依赖：MUST NOT 调用 `gh` / `codex` / 文件系统；MUST NOT 把 issue 内容拼成 shell 命令；MUST NOT 把 stage / CEO guardrail 业务规则写进 trigger。
 
 ### agent-prescripts
-- 职责边界：在 Codex 执行前为 agent 准备确定性运行上下文；`issue-worktree` 是 runner 内置 issue 级 workspace capability，基于 runner 正在处理的 GitHub issue source 创建 / 复用共享 worktree，首建从最新 `origin/main` 建立，复用时只检测并提示 main 是否前进，不自动删除 / 重建 / merge / rebase，并通过有界 git 调用与 repo cache keyed mutex 避免 workspace prepare 永久挂起；`current-repo-workspace` 返回 agent-moebius 当前仓库根目录，供 `@secretary` 维护 CEO 规则时使用，不创建 worktree、不读写状态；`ceo-ledger-context` 为普通 `@ceo` agent fail-closed 校验目标账本、剧本与唯一 active projection，并返回确定性 prompt context；当当前 issue 是 task child ref（包括 T6 roundtable child）时，owner 解析会把 task 及其 goal / milestone 上层纳入候选，再按唯一 active owner 裁决，避免 child issue 因 active phase 挂在上层目标而无法主持收口；当账本缺失或当前 issue 没有唯一 active owner 且账本可加载时，`ceo-ledger-context` 返回 goal-intake bootstrap context，供 CEO 只走 `goal_intake` 入口，不伪造 active projection。
+- 职责边界：在 Codex 执行前为 agent 准备确定性运行上下文；`issue-worktree` 是 runner 内置 issue 级 workspace capability，基于 runner 正在处理的 GitHub issue source 创建 / 复用共享 worktree，首建从最新 `origin/main` 建立，复用时只检测并提示 main 是否前进，不自动删除 / 重建 / merge / rebase，并通过有界 git 调用与 repo cache keyed mutex 避免 workspace prepare 永久挂起；`current-repo-workspace` 返回 moebius 当前仓库根目录，供 `@secretary` 维护 CEO 规则时使用，不创建 worktree、不读写状态；`ceo-ledger-context` 为普通 `@ceo` agent fail-closed 校验目标账本、剧本与唯一 active projection，并返回确定性 prompt context；当当前 issue 是 task child ref（包括 T6 roundtable child）时，owner 解析会把 task 及其 goal / milestone 上层纳入候选，再按唯一 active owner 裁决，避免 child issue 因 active phase 挂在上层目标而无法主持收口；当账本缺失或当前 issue 没有唯一 active owner 且账本可加载时，`ceo-ledger-context` 返回 goal-intake bootstrap context，供 CEO 只走 `goal_intake` 入口，不伪造 active projection。
 - 入口：`src/agent-manifest.ts` 解析 `agents/*.md` frontmatter 的 canonical `pre_script` / `workspace_access` 与 legacy camelCase aliases，再映射到内部 `preScript` / `workspaceAccess` 模型；`src/runner.ts` 对内部 `workspaceAccess` 调用内置 `src/agent-prescripts/issue-worktree.ts`；`src/agent-prescripts/index.ts` 通过静态 registry 执行受信任 `preScript`；`src/agent-prescripts/current-repo-workspace.ts` 实现 `@secretary` 当前仓库工作目录准备；`src/agent-prescripts/ceo-ledger-context.ts` 实现 `@ceo` 编排上下文准备；`src/agent-prescripts/dev-workspace.ts` 保留用于 legacy context 兼容和旧测试覆盖。
 - 上游：`src/runner.ts` 在选中 agent 且需要调用 Codex 前执行。
 - 下游：本地 `git` CLI、`src/agent-context-state.ts`、`src/goal-ledger-state.ts`、`src/goal-ledger.ts`、`src/ceo-scripts.ts`、`src/config.ts` 的 workdir root、goal ledger state path 与 issue source。
@@ -191,7 +191,7 @@
 - 职责边界：以受控方式调用本机 `codex`，支持首次 `codex exec` 与后续 `codex exec resume <threadId>`；把 prompt 作为 argv 传入；可接收已准备好的图片文件路径并通过重复 `--image <file>` 传给 Codex；可接收 pre script 返回的 `cwd` 显式设置 Codex 工作目录；可接收 AbortSignal 中断正在运行的 Codex 子进程；每次 run 内部独立计时双看门狗（空闲：连续 `CODEX_RUN_IDLE_TIMEOUT_MS` 无 stdout 输出判卡死；硬上限：总时长达 `CODEX_RUN_MAX_DURATION_MS` 终止），到期分级终止子进程（SIGINT → SIGTERM → SIGKILL）并返回 `idle-timeout:*` / `max-duration-timeout:*` 失败；任一终止路径保证返回 promise 有限时间内 settle（SIGKILL 宽限期后强制脱钩 stdio 合成结果），避免 driver pool 名额被永久占住；落盘 stdout/stderr 并提取最终 assistant 文本、`thread.started.thread_id`、`turn.completed.usage.cached_input_tokens`。不负责轮询 GitHub、speaker 归一化、driver pool 并发策略或判断 issue 是否已处理。
 - 入口：`src/codex.ts`
 - 上游：`github-issue-runner`
-- 下游：本机 `codex` CLI、`/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/stdout.jsonl`、`/tmp/agent-moebius-<ISO>-c<count>-r<sequence>/stderr.log`。
+- 下游：本机 `codex` CLI、`/tmp/moebius-<ISO>-c<count>-r<sequence>/stdout.jsonl`、`/tmp/moebius-<ISO>-c<count>-r<sequence>/stderr.log`。
 - 禁止依赖：MUST NOT 执行来自 issue body / comment 的任意命令；MUST NOT 在日志中输出敏感配置。
 
 ### goal-ledger

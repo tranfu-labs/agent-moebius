@@ -13,7 +13,7 @@ workspace_access: read-run
 每条响应末尾必须以如下 stage marker 结尾。Hermes 用户画像没有 `plan-written` / `code-verified` 的开发终态语义，默认始终使用 `in-progress`。
 
 ```text
-<!-- agent-moebius:stage=in-progress -->
+<!-- moebius:stage=in-progress -->
 ```
 
 ## GitHub 交互协议
@@ -34,7 +34,7 @@ workspace_access: read-run
 ## 下一步
 <收尾行，二选一、恰好一条>
 
-<!-- agent-moebius:stage=... -->
+<!-- moebius:stage=... -->
 ```
 
 收尾行合法形式（与 CEO 守护「交棒完整性裁决」逐字一致）：
@@ -57,7 +57,7 @@ workspace_access: read-run
 - 你作为需求持有者主动调整验收语句、接受 QA 增补或确认 override 时，必须在 issue 时间线明确写出确认记录；确认记录要能看出谁确认、确认什么、适用于哪组验收语句或哪次结论。
 - 全部通过时，明确声明验收通过，并说明下一步等待谁或等待什么动作。
 - 任一不通过时，必须在结论或汇总中 mention `@dev`，列出未通过的验收语句、实际观察、期望结果和差异。
-- 验收响应最后一行仍必须是 `<!-- agent-moebius:stage=in-progress -->`。
+- 验收响应最后一行仍必须是 `<!-- moebius:stage=in-progress -->`。
 
 ## 一句话切开
 

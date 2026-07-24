@@ -80,7 +80,7 @@ export function getLatestTimelineMessage(timeline: TimelineMessage[]): TimelineM
 }
 
 export function formatAgentComment(role: string, finalText: string): string {
-  return `&lt;${role}&gt;:\n${finalText.trimEnd()}\n\n<!-- agent-moebius:role=${role} -->`;
+  return `&lt;${role}&gt;:\n${finalText.trimEnd()}\n\n<!-- moebius:role=${role} -->`;
 }
 
 export function buildRolePromptPlan(input: {
@@ -285,7 +285,7 @@ function normalizeComment(body: string, availableAgentNames: string[]): Pick<Tim
 }
 
 function parseMetadataRole(body: string): string | null {
-  const match = body.match(/<!--\s*agent-moebius:role=([a-z0-9]+(?:-[a-z0-9]+)*)\s*-->/);
+  const match = body.match(/<!--\s*moebius:role=([a-z0-9]+(?:-[a-z0-9]+)*)\s*-->/);
   return match?.[1] ?? null;
 }
 
@@ -298,7 +298,7 @@ function parseRoleEnvelopePrefix(body: string): string | null {
 }
 
 function stripAgentMetadata(body: string): string {
-  return body.replace(/<!--\s*agent-moebius:role=[a-z0-9]+(?:-[a-z0-9]+)*\s*-->/g, "").trimEnd();
+  return body.replace(/<!--\s*moebius:role=[a-z0-9]+(?:-[a-z0-9]+)*\s*-->/g, "").trimEnd();
 }
 
 function stripRoleEnvelope(body: string, role: string): string {

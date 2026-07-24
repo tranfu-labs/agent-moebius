@@ -10,5 +10,5 @@
 - MUST keep local config file reading separate from local config shape validation, so validation remains unit-testable.
 
 ## 修改
-- The default watched repository list no longer contains `tranfu-labs/tranfu-agents-app` or `tranfu-labs/agent-moebius`; those repositories are configured locally through `config.local`.
+- The default watched repository list no longer contains `tranfu-labs/tranfu-agents-app` or `tranfu-labs/moebius`; those repositories are configured locally through `config.local`.
 - Startup configuration logging includes the local config path and the resolved watched repositories.

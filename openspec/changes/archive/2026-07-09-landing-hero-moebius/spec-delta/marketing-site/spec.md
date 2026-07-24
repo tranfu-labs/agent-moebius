@@ -1,6 +1,6 @@
-# marketing-site spec delta：landing-hero-agent-moebius
+# marketing-site spec delta：landing-hero-moebius
 
-把 Marketeam 落地页首屏改造为如实呈现 agent-moebius。本 delta **修改**既有首屏（hero）契约，正文（首屏下方）契约不动。
+把 Marketeam 落地页首屏改造为如实呈现 moebius。本 delta **修改**既有首屏（hero）契约，正文（首屏下方）契约不动。
 
 ## 移除 / 替换（本 change 归档时生效）
 
@@ -10,10 +10,10 @@
 
 ## 新增行为规则
 
-### 首屏品牌与内容（agent-moebius）
-- 首屏 MUST 呈现 agent-moebius 品牌：logo、导航（Overview / How it works / Docs / GitHub）、右侧入口（GitHub / Get started），MUST NOT 保留 Marketeam 营销人才平台文案。
+### 首屏品牌与内容（moebius）
+- 首屏 MUST 呈现 moebius 品牌：logo、导航（Overview / How it works / Docs / GitHub）、右侧入口（GitHub / Get started），MUST NOT 保留 Marketeam 营销人才平台文案。
 - 打字机主标题 MUST 为如实反映产品交互的语句（当前：`@mention a role. Your AI team ships it.`）。
-- MUST NOT 在首屏出现对 agent-moebius 不成立的数字/战绩（如「20k+ Specialists」等虚构规模）。
+- MUST NOT 在首屏出现对 moebius 不成立的数字/战绩（如「20k+ Specialists」等虚构规模）。
 
 ### 首屏圆环角色化
 - 首屏圆环中心 MUST 呈现编排者角色 CEO（标签体现「orchestrates & guards」）。
@@ -26,10 +26,10 @@
 
 ## 新增场景
 
-### 场景 MS.8：首屏如实呈现 agent-moebius
+### 场景 MS.8：首屏如实呈现 moebius
 Given 用户打开落地页首屏
 When 页面加载
-Then 品牌、导航、主标题、圆环、底部条均围绕 agent-moebius
+Then 品牌、导航、主标题、圆环、底部条均围绕 moebius
 And 不出现 Marketeam 营销文案或对本项目不成立的虚构数字
 
 ### 场景 MS.9：首屏圆环即角色团队

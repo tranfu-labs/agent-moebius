@@ -1,7 +1,7 @@
 # 任务：role-thread-conversation-protocol
 
 - [x] 确认 `<role>:\n${LAST_RESPONSE}` 作为 agent 写回评论的可见模板。
-- [x] 确认增加隐藏 metadata `<!-- agent-moebius:role=<role> -->`，用于区分 runner 生成评论与用户伪造的 role 前缀。
+- [x] 确认增加隐藏 metadata `<!-- moebius:role=<role> -->`，用于区分 runner 生成评论与用户伪造的 role 前缀。
 - [x] 确认 role thread 状态保存到 `.state/role-threads.json`，状态至少包含 issue 标识、role、threadId、lastSeenIndex。
 - [x] 确认首次 full prompt 与后续 resume delta prompt 的文本格式。
 - [x] 确认旧评论兼容策略：带 metadata 优先；无 metadata 但以 `<known-role>:` 开头按 legacy agent comment；其他归类为 `user`。

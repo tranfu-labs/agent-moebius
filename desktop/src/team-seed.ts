@@ -8,7 +8,7 @@ export const TEAMS_SEED_MARKER_FILE = ".teams-seed.marker";
 const SEED_STAGING_DIRECTORY = ".system.seed-staging";
 const SEED_BACKUP_DIRECTORY = ".system.seed-backup";
 const MARKER_TEMP_FILE = ".teams-seed.marker.tmp";
-const FINGERPRINT_VERSION = "agent-moebius-team-seed-v1";
+const FINGERPRINT_VERSION = "moebius-team-seed-v1";
 
 export interface BuiltInTeamSeedResult {
   fingerprint: string;

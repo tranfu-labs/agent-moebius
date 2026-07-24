@@ -2,7 +2,7 @@
 
 ## 用途
 
-当需要为 agent-moebius 里某个功能模块（一个页面、一个流程、一个新概念）从零聊清 PRD 时，把下面这段提示词整段粘给 codex 或 Claude 开一个新会话，让它按幕僚式采访节奏带你走。
+当需要为 moebius 里某个功能模块（一个页面、一个流程、一个新概念）从零聊清 PRD 时，把下面这段提示词整段粘给 codex 或 Claude 开一个新会话，让它按幕僚式采访节奏带你走。
 
 产出目标是 `docs/product/pages/<page>.md` 或 `docs/product/flows/<flow>.md`，写作规范和事实源边界见 [AGENTS.md](AGENTS.md)。
 

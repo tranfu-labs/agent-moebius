@@ -10,7 +10,7 @@
 - MUST 让该 spike 使用 `try/finally` 在成功和失败路径都清理 Playwright browser 与本地 HTTP server。
 - MUST 提供故障注入命令，用于验证页面无法 ready 时会在规定 timeout 内非 0 退出、stderr 说明原因并完成清理。
 - MUST 让该 spike 的文档写明截图 artifact 证据位置，MUST NOT 只留下无解释的空占位。
-- MUST 记录该 spike 的 artifact publisher finding：在不改 `src/`、不手动调用 `gh release upload` 的边界下，runner 未在本 issue 的 `code-verified` 评论中追加 `生成产物` 区或 `agent-moebius-artifacts` release 链接；该 finding 指向后续 runner artifact discovery / 引用契约小改动，而不是立即建设 PR 预览基建。
+- MUST 记录该 spike 的 artifact publisher finding：在不改 `src/`、不手动调用 `gh release upload` 的边界下，runner 未在本 issue 的 `code-verified` 评论中追加 `生成产物` 区或 `moebius-artifacts` release 链接；该 finding 指向后续 runner artifact discovery / 引用契约小改动，而不是立即建设 PR 预览基建。
 
 ## 场景
 ### 场景：预览 oracle spike — 通过现有 artifact publisher 发布截图证据
@@ -18,14 +18,14 @@ Given dev 在 issue worktree 内运行预览 oracle spike
 And spike 脚本生成 1 张 PNG 截图
 When dev 的 `code-verified` 回复显式引用该 PNG 路径
 Then runner 在发布 agent comment 前发现该截图 artifact
-And runner 通过同仓库 release tag `agent-moebius-artifacts` 发布该截图
+And runner 通过同仓库 release tag `moebius-artifacts` 发布该截图
 And runner 将截图 Markdown 追加到本 issue 评论
 And spike 脚本本身不调用 `gh release upload` 或 `src/github.ts`
 
 ### 场景：预览 oracle spike — 记录 artifact publisher 未闭环 finding
 Given dev 已在 `code-verified` 回复中引用 `scripts/spike-preview-oracle/artifacts/spike-preview-oracle.png`
 And spike 脚本没有手动调用 `gh release upload`
-When product-manager 检查本 issue 评论与 `agent-moebius-artifacts` release assets
+When product-manager 检查本 issue 评论与 `moebius-artifacts` release assets
 Then 本 spike 记录当前 runner 未追加截图 artifact 链接
 And 结论文档必须把该结果列为未跑通环节
 And 下一步建议应优先修 runner artifact discovery / 引用契约，而不是直接建设 PR 预览基建

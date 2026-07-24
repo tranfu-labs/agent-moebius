@@ -33,7 +33,7 @@ afterEach(async () => {
 
 describe("main conversation timeline truth through the HTTP assembly", () => {
   it("keeps the registered shared-agent fallback for an unbound legacy session", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-timeline-truth-legacy-"));
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-timeline-truth-legacy-"));
     roots.push(root);
     await fs.mkdir(path.join(root, "agents"), { recursive: true });
     await fs.writeFile(path.join(root, "agents", "legacy-primary.md"), "# Legacy primary\n", "utf8");
@@ -368,7 +368,7 @@ async function startHarness(runCodex: (options: CodexRunOptions) => Promise<Code
   store: Awaited<ReturnType<typeof createSqliteLocalConsoleStore>>;
   started: StartedLocalConsoleServer;
 }> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-timeline-truth-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-timeline-truth-"));
   roots.push(root);
   await writeBuiltInTeam(root);
   const store = await createSqliteLocalConsoleStore({ sqlitePath: path.join(root, ".state", "local-console.sqlite") });

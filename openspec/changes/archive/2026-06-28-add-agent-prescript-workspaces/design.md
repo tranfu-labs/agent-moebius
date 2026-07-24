@@ -36,13 +36,13 @@ pre script 输出包含：
 
 ```json
 {
-  "tranfu-labs/agent-moebius#4": {
+  "tranfu-labs/moebius#4": {
     "dev": {
       "preScript": "src/agent-prescripts/dev-workspace.ts",
       "owner": "tranfu-labs",
-      "repo": "agent-moebius",
+      "repo": "moebius",
       "issueNumber": 4,
-      "worktreePath": "/.../agent-moebius-workdir/worktrees/tranfu-labs__agent-moebius__4__dev",
+      "worktreePath": "/.../moebius-workdir/worktrees/tranfu-labs__moebius__4__dev",
       "preparedFromMessageIndex": 0
     }
   }
@@ -74,7 +74,7 @@ pre script 输出包含：
 
 `src/config.ts` 增加：
 
-- `WORKDIR_ROOT`：默认解析为仓库同级 `agent-moebius-workdir`，可由 `AGENT_MOEBIUS_WORKDIR_ROOT` 覆盖。
+- `WORKDIR_ROOT`：默认解析为仓库同级 `moebius-workdir`，可由 `MOEBIUS_WORKDIR_ROOT` 覆盖。
 - `AGENT_CONTEXTS_STATE_PATH`：默认 `.state/agent-contexts.json`。
 
 启动日志打印 `workdirRoot` 与 `agentContextsStatePath`。

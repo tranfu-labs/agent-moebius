@@ -6,7 +6,7 @@ const meta = {
   title: "Console/ConversationEmptyState",
   component: ConversationEmptyState,
   args: {
-    projectName: "agent-moebius",
+    projectName: "moebius",
   },
   parameters: {
     layout: "fullscreen",

@@ -4,7 +4,7 @@
 - MUST 把 GitHub issue body 与 comments 视作一条共享时间线，并在业务处理时把每条消息归一化为带 speaker 的消息。
 - MUST 把用户发出的 issue body/comment 视作 `user` speaker，除非后续有可信机器标记证明其为 runner 生成的 agent comment。
 - MUST 在 runner 写回 agent 评论时使用可见模板 `<role>:\n${LAST_RESPONSE}`，其中 `${LAST_RESPONSE}` 是 Codex 本轮最终 assistant 文本。
-- MUST 在 runner 写回 agent 评论时追加隐藏 metadata `<!-- agent-moebius:role=<role> -->`，用于机器识别 runner 生成的 agent 评论。
+- MUST 在 runner 写回 agent 评论时追加隐藏 metadata `<!-- moebius:role=<role> -->`，用于机器识别 runner 生成的 agent 评论。
 - MUST 优先使用隐藏 metadata 识别 agent speaker；没有 metadata 但以 `<known-role>:` 开头的历史评论 SHOULD 按 legacy agent comment 兼容；其他 issue body/comment MUST 归类为 `user`。
 - MUST 允许同一个 issue 中多个 role 参与对话，并为每个 role 维护独立的 Codex thread。
 - MUST 把 role thread 状态保存在本地忽略目录 `.state/role-threads.json`，状态至少包含 issue 标识、role、threadId、lastSeenIndex。

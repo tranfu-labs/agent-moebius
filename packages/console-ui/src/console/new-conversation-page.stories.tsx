@@ -8,7 +8,7 @@ const meta = {
   parameters: { layout: "fullscreen" },
   args: {
     projects: [
-      { projectId: "a", title: "agent-moebius", available: true, independentWorkspaceAvailable: true, branchLabel: "main" },
+      { projectId: "a", title: "moebius", available: true, independentWorkspaceAvailable: true, branchLabel: "main" },
       { projectId: "b", title: "marketing-site", available: true, independentWorkspaceAvailable: false, branchLabel: "main" },
     ],
     teams: [{

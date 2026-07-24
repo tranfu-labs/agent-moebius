@@ -18,7 +18,7 @@
 - 故障注入：`SPIKE_PREVIEW_ORACLE_READY_SELECTOR='[data-never-ready]' node scripts/spike-preview-oracle/run.mjs` 在 timeout 内非 0 退出，stderr 包含 `ready failed` 与 Playwright timeout 信息，且无残留 Chromium / HTTP server 进程。
 
 ## 未覆盖环节
-- runner artifact publisher 未在本 issue 的 `code-verified` 评论中追加 `生成产物` 区或 `agent-moebius-artifacts` release 链接；release assets 中也未出现 `spike-preview-oracle` 相关资产。该 gap 在不改 `src/`、不手动 `gh release upload` 的边界下无法由 spike 脚本自行闭环。
+- runner artifact publisher 未在本 issue 的 `code-verified` 评论中追加 `生成产物` 区或 `moebius-artifacts` release 链接；release assets 中也未出现 `spike-preview-oracle` 相关资产。该 gap 在不改 `src/`、不手动 `gh release upload` 的边界下无法由 spike 脚本自行闭环。
 - 公网 webhook / callback。
 - 跨设备或多人同时访问同一预览。
 - 第三方 OAuth 回跳。
@@ -28,7 +28,7 @@
 这些场景是 PR 预览基建的候选触发条件，不是本 spike 的实现范围。
 
 ## Artifact 证据位置
-预期证据位置是本 issue 的 dev `code-verified` 评论中由 runner 自动追加的 `生成产物` 区域；实际验证中该区域未出现，`agent-moebius-artifacts` release 也没有生成对应资产。
+预期证据位置是本 issue 的 dev `code-verified` 评论中由 runner 自动追加的 `生成产物` 区域；实际验证中该区域未出现，`moebius-artifacts` release 也没有生成对应资产。
 
 本地截图路径：`scripts/spike-preview-oracle/artifacts/spike-preview-oracle.png`。
 

@@ -76,7 +76,7 @@ pre_script: src/agent-prescripts/ceo-ledger-context.ts
 
 1. `@` 误用：同一条响应出现超过一个非代码区域的合法 agent mention，或把角色名纯提及误写成 `@<role>`。合规写法是只保留一个明确移交控制权的 mention；纯提及裸写角色名。
 2. `#数字` 误用：用裸 `#N` 表达任务编号、步骤编号、评论编号或验收语句编号。合规写法是任务写 `T3`，评论位置写「第 N 条评论」或完整评论 URL，验收编号写「验收语句 N」。真实 issue / PR 引用才允许保留 `#N`。
-3. role envelope 伪装：手写 `<role>:` / `&lt;role&gt;:` 前缀并附 `<!-- agent-moebius:role=... -->` metadata。合规写法是以自己身份平文发言；runner 会自动加可见前缀和 metadata。
+3. role envelope 伪装：手写 `<role>:` / `&lt;role&gt;:` 前缀并附 `<!-- moebius:role=... -->` metadata。合规写法是以自己身份平文发言；runner 会自动加可见前缀和 metadata。
 4. 人工路由缺 mention：如果完整 issue context 显示真人或 loop watcher 明确要把下一步交给某 agent 却没有合法 mention，应提醒它必须写一个合法 mention 才会唤醒角色。
 
 纠偏 append 正文最多放一个 `@`。如果需要让生成违规响应的 agent 重新输出合规写法，mention 该 agent；如果只是在说明规则，不需要移交控制权，则不要放 mention。
@@ -109,7 +109,7 @@ pre_script: src/agent-prescripts/ceo-ledger-context.ts
 
 ### 普通 CEO bootstrap 与目标入账 workflow
 
-当普通 `@ceo` agent 路径的 deterministic context 显示当前 issue 处于 intake bootstrap 时，先判断公开时间线中的用户意图，再选择剧本；输出必须是结构化 JSON，末尾带 `<!-- agent-moebius:stage=in-progress -->`。不要直接写 Markdown 方案；runner 只接受受控 action。
+当普通 `@ceo` agent 路径的 deterministic context 显示当前 issue 处于 intake bootstrap 时，先判断公开时间线中的用户意图，再选择剧本；输出必须是结构化 JSON，末尾带 `<!-- moebius:stage=in-progress -->`。不要直接写 Markdown 方案；runner 只接受受控 action。
 
 1. **普通目标默认方案链**：用户只是表达“我想做一个 X / 帮我实现 X / 帮我设计 X / 怎么做 X”等普通目标、实现、设计或咨询入口，且没有明确拆分 / 编排意图时，必须使用 `default-plan-chain` 剧本，输出 `route` action，把控制权交给 `@dev` 按 OpenSpec 流程先采访再写方案。本路径不写 ledger、不创建子 issue、不输出 goal-intake proposal。
 2. **明确拆分才 goal-intake**：只有用户明确要求拆成多个任务、并行做、编排多个子任务、创建子 issue / 子任务、阶段化拆解并分派角色，或正在确认已有 goal-intake 提案时，才使用 `goal-intake` 剧本。
@@ -222,7 +222,7 @@ pre_script: src/agent-prescripts/ceo-ledger-context.ts
 2. 参与者固定为 `qa -> dev-manager -> hermes-user`，且只做一轮发言；需要下一轮时由 CEO 显式发起下一轮。
 3. v0 严格遵守每条消息最多一个合法 mention；v1 fan-out + join 只作为后续设计，不在当前 workflow 中执行。
 
-普通 CEO agent 输出必须是 runner 可解析的结构化 JSON，并以 `<!-- agent-moebius:stage=in-progress -->` 结尾：
+普通 CEO agent 输出必须是 runner 可解析的结构化 JSON，并以 `<!-- moebius:stage=in-progress -->` 结尾：
 
 1. `roundtable.start`：在父 issue 创建或找回 child issue。字段包含 `action:"roundtable"`、`workflowId:"roundtable-plan-review"`、`mode:"start"`、`roundtableId`、`ledgerTaskId`、`title`、`topic`、`inputSummary`、`participants`、`firstRole`、`qualityBaseline`、`provenance`。
 2. `roundtable.route`：在 child issue 中把控制权交给下一位未发言参与者。字段包含 `roundtableKey`、`participants`、`nextRole`、`body`；`body` 只能含一个合法 mention，且目标必须是 `nextRole`。

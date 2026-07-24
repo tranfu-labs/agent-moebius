@@ -10,7 +10,7 @@ The default operator console and its auxiliary read-only observer share one curr
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ Agent Moebius Observer                                      read on load   │
+│ Moebius Observer                                      read on load   │
 ├──────────────────────────────┬─────────────────────────────────────────────┤
 │ Goals                        │ Diagnostics                                 │
 │  M3 orchestration            │  goal-ledger.json          ok               │

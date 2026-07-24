@@ -598,7 +598,7 @@ function stepTitle(step: OnboardingStep): string {
 function stepSubtitle(step: OnboardingStep): string {
   switch (step) {
     case 1:
-      return "agent-moebius 用 codex 来运行每一位团队成员";
+      return "moebius 用 codex 来运行每一位团队成员";
     case 2:
       return "先选一支最接近你当前工作的团队，之后随时可以切换";
     case 3:

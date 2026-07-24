@@ -21,12 +21,12 @@ repo = " tranfu-agents-app "
 
 [[watchRepositories]]
 owner = "tranfu-labs"
-repo = "agent-moebius"
+repo = "moebius"
 `),
     ).toEqual({
       watchRepositories: [
         { owner: "tranfu-labs", repo: "tranfu-agents-app" },
-        { owner: "tranfu-labs", repo: "agent-moebius" },
+        { owner: "tranfu-labs", repo: "moebius" },
       ],
     });
   });
@@ -44,7 +44,7 @@ repo = "agent-moebius"
       parseLocalConfig(`
 [[watchRepositories]]
 owner = ""
-repo = "agent-moebius"
+repo = "moebius"
 `),
     ).toThrow(/Invalid local config shape/);
   });
@@ -56,13 +56,13 @@ repo = "agent-moebius"
       `
 [[watchRepositories]]
 owner = "tranfu-labs"
-repo = "agent-moebius"
+repo = "moebius"
 `,
       "utf8",
     );
 
     expect(loadLocalConfig(filePath)).toEqual({
-      watchRepositories: [{ owner: "tranfu-labs", repo: "agent-moebius" }],
+      watchRepositories: [{ owner: "tranfu-labs", repo: "moebius" }],
     });
   });
 
@@ -103,32 +103,32 @@ repo = "local-repo"
   it("resolves runtime config and agents paths from the data root override", () => {
     expect(
       resolveRuntimePaths({
-        projectRoot: "/repo/agent-moebius",
-        env: { AGENT_MOEBIUS_DATA_ROOT: "/Users/test/.agent-moebius" },
+        projectRoot: "/repo/moebius",
+        env: { MOEBIUS_DATA_ROOT: "/Users/test/.moebius" },
       }),
     ).toEqual({
-      projectRoot: "/repo/agent-moebius",
-      dataRoot: "/Users/test/.agent-moebius",
-      configPath: "/Users/test/.agent-moebius/config.toml",
-      localConfigPath: "/Users/test/.agent-moebius/config.local.toml",
-      agentsDir: "/Users/test/.agent-moebius/agents",
+      projectRoot: "/repo/moebius",
+      dataRoot: "/Users/test/.moebius",
+      configPath: "/Users/test/.moebius/config.toml",
+      localConfigPath: "/Users/test/.moebius/config.local.toml",
+      agentsDir: "/Users/test/.moebius/agents",
       // workdir 跟随数据根覆盖，不落在 projectRoot 旁
-      workdirRoot: "/Users/test/.agent-moebius/workdir",
+      workdirRoot: "/Users/test/.moebius/workdir",
     });
   });
 
   it("keeps runtime paths on the project root when the data root override is absent", () => {
-    expect(resolveRuntimePaths({ projectRoot: "/repo/agent-moebius", env: {} })).toEqual({
-      projectRoot: "/repo/agent-moebius",
-      dataRoot: "/repo/agent-moebius",
-      configPath: "/repo/agent-moebius/config.toml",
-      localConfigPath: "/repo/agent-moebius/config.local.toml",
-      agentsDir: "/repo/agent-moebius/agents",
-      workdirRoot: "/repo/agent-moebius/workdir",
+    expect(resolveRuntimePaths({ projectRoot: "/repo/moebius", env: {} })).toEqual({
+      projectRoot: "/repo/moebius",
+      dataRoot: "/repo/moebius",
+      configPath: "/repo/moebius/config.toml",
+      localConfigPath: "/repo/moebius/config.local.toml",
+      agentsDir: "/repo/moebius/agents",
+      workdirRoot: "/repo/moebius/workdir",
     });
   });
 });
 
 async function makeTempDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-local-config-test-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-local-config-test-"));
 }

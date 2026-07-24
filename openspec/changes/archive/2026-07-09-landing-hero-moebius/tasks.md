@@ -1,6 +1,6 @@
-# 任务：landing-hero-agent-moebius
+# 任务：landing-hero-moebius
 
-- [ ] Header 改品牌：logo → agent-moebius；nav → Overview/How it works/Docs/GitHub（前两锚正文①②）；右侧 → GitHub + Get started
+- [ ] Header 改品牌：logo → moebius；nav → Overview/How it works/Docs/GitHub（前两锚正文①②）；右侧 → GitHub + Get started
 - [ ] 打字机主标题换 `@mention a role. Your AI team ships it.`（第一句深色/第二句白 + 紫光标）+ 新增副文一行
 - [ ] Start Project → `Get started →`；David 徽章 → `@ceo` mention 芯片
 - [ ] 圆环中心：换成 CEO 卡 + `orchestrates & guards`，移除 20k+ count-up（清 useCountUp 在 hero 的调用）

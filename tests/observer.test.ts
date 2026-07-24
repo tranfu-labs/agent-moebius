@@ -23,7 +23,7 @@ import { startObserverServer } from "../src/observer/server.js";
 
 const originalPath = process.env.PATH;
 const NOW = "2026-07-04T00:00:00.000Z";
-const ROUNDTABLE_KEY = "agent-moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const ROUNDTABLE_KEY = "moebius-roundtable-key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 afterEach(() => {
   process.env.PATH = originalPath;
@@ -60,7 +60,7 @@ describe("observer", () => {
 
   it("renders ledger goal tree, unassigned tasks, task details, gates, evidence, and filtered goals", async () => {
     const root = await makeFixtureRoot();
-    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "moebius" }]);
     await fs.mkdir(path.join(root, ".state"), { recursive: true });
     await fs.writeFile(path.join(root, ".state", "goal-ledger.json"), JSON.stringify(makePrimaryLedger()), "utf8");
     await fs.writeFile(
@@ -99,7 +99,7 @@ describe("observer", () => {
     expect(html).toContain("acceptance statements 2");
     expect(html).toContain("latest child acceptance");
     expect(html).toContain("passed 1, failed 1");
-    expect(html).toContain("tranfu-labs/agent-moebius issue 75");
+    expect(html).toContain("tranfu-labs/moebius issue 75");
     expect(html).toContain("waiting repair or re-acceptance by qa");
     expect(html).toContain("child issue ref other/repo issue 9");
     expect(html).toContain("waiting integration acceptance: requested");
@@ -118,7 +118,7 @@ describe("observer", () => {
 
   it("keeps the tree available for owner-level no-active and multiple-active phase errors", async () => {
     const root = await makeFixtureRoot();
-    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "moebius" }]);
     await fs.mkdir(path.join(root, ".state"), { recursive: true });
     await fs.writeFile(path.join(root, ".state", "goal-ledger.json"), JSON.stringify(makeOwnerPhaseFaultLedger()), "utf8");
 
@@ -136,7 +136,7 @@ describe("observer", () => {
 
   it("distinguishes exact roundtable child notes from near-miss text without rendering hidden keys", async () => {
     const root = await makeFixtureRoot();
-    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "moebius" }]);
     await fs.mkdir(path.join(root, ".state"), { recursive: true });
     await fs.writeFile(path.join(root, ".state", "goal-ledger.json"), JSON.stringify(makePrimaryLedger()), "utf8");
 
@@ -144,7 +144,7 @@ describe("observer", () => {
 
     expect(countOccurrences(html, "roundtable child")).toBe(1);
     expect(html).toContain("ordinary provenance text");
-    expect(html).toContain("agent-moebius-roundtable-key:near-miss");
+    expect(html).toContain("moebius-roundtable-key:near-miss");
     expect(html).not.toContain(ROUNDTABLE_KEY);
     expect(html).toContain("Task Roundtable only child");
     expect(html).toContain("latest child acceptance</dt><dd>no acceptance facts");
@@ -153,7 +153,7 @@ describe("observer", () => {
 
   it("keeps legacy issue runs visible when the ledger is malformed", async () => {
     const root = await makeFixtureRoot();
-    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "moebius" }]);
     await fs.mkdir(path.join(root, ".state"), { recursive: true });
     await fs.writeFile(path.join(root, ".state", "goal-ledger.json"), "{bad", "utf8");
     await fs.writeFile(
@@ -166,13 +166,13 @@ describe("observer", () => {
 
     expect(html).toContain("账本读取失败，树视图暂不可用。");
     expect(html).toContain("Legacy issue/run records");
-    expect(html).toContain("tranfu-labs/agent-moebius#50");
+    expect(html).toContain("tranfu-labs/moebius#50");
     expect(html).toContain("https://example.test/t7.png");
   });
 
   it("times out goal ledger reads while keeping legacy issue runs visible without gh or codex", async () => {
     const root = await makeFixtureRoot();
-    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "moebius" }]);
     await fs.mkdir(path.join(root, ".state"), { recursive: true });
     await fs.writeFile(
       path.join(root, ".state", "run-manifests.jsonl"),
@@ -200,7 +200,7 @@ describe("observer", () => {
       expect(body).toContain("读取超时");
       expect(body).toContain("目标账本读取超时，树视图暂不可用。");
       expect(body).toContain("Legacy issue/run records");
-      expect(body).toContain("tranfu-labs/agent-moebius#50");
+      expect(body).toContain("tranfu-labs/moebius#50");
     } finally {
       await closeServer(server);
     }
@@ -211,7 +211,7 @@ describe("observer", () => {
 
   it("keeps valid manifest records while diagnosing malformed JSON, missing fields, and truncated tail lines", async () => {
     const root = await makeFixtureRoot();
-    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "moebius" }]);
     await fs.mkdir(path.join(root, ".state"), { recursive: true });
     await fs.writeFile(path.join(root, ".state", "role-threads.json"), "{bad", "utf8");
     await fs.writeFile(
@@ -220,7 +220,7 @@ describe("observer", () => {
         JSON.stringify(makeManifest({ issueNumber: 50, publishedUrl: "https://example.test/t4.png" })),
         "not-json",
         JSON.stringify({ role: "dev", stage: "code-verified", artifacts: [], startedAt: NOW, completedAt: "2026-07-04T00:01:00.000Z" }),
-        JSON.stringify({ issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 51 }, role: "dev", stage: "code-verified", startedAt: NOW, completedAt: "2026-07-04T00:01:00.000Z" }),
+        JSON.stringify({ issue: { owner: "tranfu-labs", repo: "moebius", number: 51 }, role: "dev", stage: "code-verified", startedAt: NOW, completedAt: "2026-07-04T00:01:00.000Z" }),
         '{"issue":',
       ].join("\n"),
       "utf8",
@@ -244,7 +244,7 @@ describe("observer", () => {
   it("aggregates whitelisted issue sources and renders published and unpublished artifacts", async () => {
     const root = await makeFixtureRoot();
     await writeConfig(root, [
-      { owner: "tranfu-labs", repo: "agent-moebius" },
+      { owner: "tranfu-labs", repo: "moebius" },
       { owner: "tranfu-labs", repo: "empty-repo" },
     ]);
     await fs.mkdir(path.join(root, ".state"), { recursive: true });
@@ -253,9 +253,9 @@ describe("observer", () => {
       JSON.stringify({
         repositories: {},
         issues: {
-          "tranfu-labs/agent-moebius#50": {
+          "tranfu-labs/moebius#50": {
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 50,
             updatedAt: NOW,
             mode: "active",
@@ -278,20 +278,20 @@ describe("observer", () => {
     await fs.writeFile(
       path.join(root, ".state", "role-threads.json"),
       JSON.stringify({
-        "tranfu-labs/agent-moebius#50": { dev: { threadId: "thread-1234567890", lastSeenIndex: 7 } },
+        "tranfu-labs/moebius#50": { dev: { threadId: "thread-1234567890", lastSeenIndex: 7 } },
       }),
       "utf8",
     );
     await fs.writeFile(
       path.join(root, ".state", "agent-contexts.json"),
       JSON.stringify({
-        "tranfu-labs/agent-moebius#50": {
+        "tranfu-labs/moebius#50": {
           dev: {
             preScript: "src/agent-prescripts/dev-workspace.ts",
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 50,
-            worktreePath: "<worktree>/agent-moebius",
+            worktreePath: "<worktree>/moebius",
             preparedFromMessageIndex: 4,
           },
         },
@@ -312,7 +312,7 @@ describe("observer", () => {
 
     const html = renderObserverPage(buildObserverModel(await readObserverState({ projectRoot: root })));
 
-    expect(html).toContain("tranfu-labs/agent-moebius#50");
+    expect(html).toContain("tranfu-labs/moebius#50");
     expect(html).toContain("intake");
     expect(html).toContain("role threads");
     expect(html).toContain("agent contexts");
@@ -330,7 +330,7 @@ describe("observer", () => {
   it("renders project issue DAG, selected run details, intake outcomes, and token cache diagnostics", async () => {
     const root = await makeFixtureRoot();
     await writeConfig(root, [
-      { owner: "tranfu-labs", repo: "agent-moebius" },
+      { owner: "tranfu-labs", repo: "moebius" },
       { owner: "tranfu-labs", repo: "other-tool" },
     ]);
     await fs.mkdir(path.join(root, ".state"), { recursive: true });
@@ -340,7 +340,7 @@ describe("observer", () => {
     });
     const secondDevRunDir = await writeRunDetails(root, "run-dev-second", {
       input:
-        "dev selected input context agent-moebius-orchestration-key:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ghp_abcdefghijklmnopqrstuvwxyz123456 /Users/wing/private/path",
+        "dev selected input context moebius-orchestration-key:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ghp_abcdefghijklmnopqrstuvwxyz123456 /Users/wing/private/path",
       output: "dev selected output full text",
     });
     const qaRunDir = await writeRunDetails(root, "run-qa", {
@@ -352,9 +352,9 @@ describe("observer", () => {
       JSON.stringify({
         repositories: {},
         issues: {
-          "tranfu-labs/agent-moebius#88": {
+          "tranfu-labs/moebius#88": {
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 88,
             updatedAt: NOW,
             mode: "active",
@@ -366,9 +366,9 @@ describe("observer", () => {
               recordedAt: "2026-07-04T00:04:00.000Z",
             },
           },
-          "tranfu-labs/agent-moebius#89": {
+          "tranfu-labs/moebius#89": {
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 89,
             updatedAt: NOW,
             mode: "active",
@@ -418,16 +418,16 @@ describe("observer", () => {
     const issue88 = model.repositories[0]?.issues.find((issue) => issue.number === 88);
     const issue89 = model.repositories[0]?.issues.find((issue) => issue.number === 89);
     const issue88Html = renderObserverPage(model, {
-      projectKey: "tranfu-labs/agent-moebius",
-      issueKey: "tranfu-labs/agent-moebius#88",
+      projectKey: "tranfu-labs/moebius",
+      issueKey: "tranfu-labs/moebius#88",
       runId: "run-line-2",
     });
     const issue89Html = renderObserverPage(model, {
-      projectKey: "tranfu-labs/agent-moebius",
-      issueKey: "tranfu-labs/agent-moebius#89",
+      projectKey: "tranfu-labs/moebius",
+      issueKey: "tranfu-labs/moebius#89",
     });
 
-    expect(model.repositories.map((repository) => repository.key)).toEqual(["tranfu-labs/agent-moebius", "tranfu-labs/other-tool"]);
+    expect(model.repositories.map((repository) => repository.key)).toEqual(["tranfu-labs/moebius", "tranfu-labs/other-tool"]);
     expect(issue88?.execution.nodes.map((node) => node.kind)).toEqual([
       "codex-run",
       "codex-run",
@@ -438,7 +438,7 @@ describe("observer", () => {
     expect(issue88Html).toContain("Project filter");
     expect(issue88Html).toContain("source WATCH_REPOSITORIES");
     expect(issue88Html).toContain("Issue execution DAG");
-    expect(issue88Html).toContain("tranfu-labs/agent-moebius#88");
+    expect(issue88Html).toContain("tranfu-labs/moebius#88");
     expect(issue88Html).toContain("kind=codex-run");
     expect(issue88Html).toContain("kind=stuck-no-trigger");
     expect(issue88Html).toContain("reason=skip:no-trigger");
@@ -449,7 +449,7 @@ describe("observer", () => {
     expect(issue88Html).toContain("[hidden-key]");
     expect(issue88Html).toContain("[redacted]");
     expect(issue88Html).toContain("[local-path]");
-    expect(issue88Html).not.toContain("agent-moebius-orchestration-key:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    expect(issue88Html).not.toContain("moebius-orchestration-key:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     expect(issue88Html).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz123456");
     expect(issue88Html).not.toContain("/Users/wing/private/path");
     expect(issue88Html).toContain("Token panel");
@@ -468,7 +468,7 @@ describe("observer", () => {
       `
 [[watchRepositories]]
 owner = "tranfu-labs"
-repo = "agent-moebius"
+repo = "moebius"
 `,
       "utf8",
     );
@@ -483,7 +483,7 @@ repo = "agent-moebius"
 
   it("serves the page without modifying files or invoking gh and codex", async () => {
     const root = await makeFixtureRoot();
-    await writeConfig(root, [{ owner: "tranfu-labs", repo: "agent-moebius" }]);
+    await writeConfig(root, [{ owner: "tranfu-labs", repo: "moebius" }]);
     await fs.mkdir(path.join(root, ".state"), { recursive: true });
     await fs.writeFile(path.join(root, ".state", "goal-ledger.json"), JSON.stringify(makePrimaryLedger()), "utf8");
     await fs.writeFile(
@@ -518,7 +518,7 @@ repo = "agent-moebius"
 });
 
 async function makeFixtureRoot(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-observer-test-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-observer-test-"));
 }
 
 async function writeConfig(root: string, repositories: Array<{ owner: string; repo: string }>): Promise<void> {
@@ -537,12 +537,12 @@ function makePrimaryLedger(): GoalLedgerState {
   const nearMissChild = issueRef(10, "child", {
     owner: "other",
     repo: "repo",
-    note: "agent-moebius-roundtable-key:near-miss ordinary provenance text",
+    note: "moebius-roundtable-key:near-miss ordinary provenance text",
   });
   const roundtableChild = issueRef(83, "child", { note: `bounded note ${ROUNDTABLE_KEY}` });
   const runReference: RunManifestReference = {
     locator: { kind: "jsonl-line", path: ".state/run-manifests.jsonl", line: 1 },
-    issue: { owner: "tranfu-labs", repo: "agent-moebius", number: 81 },
+    issue: { owner: "tranfu-labs", repo: "moebius", number: 81 },
     role: "dev",
     completedAt: "2026-07-04T00:01:00.000Z",
     stage: "code-verified",
@@ -551,7 +551,7 @@ function makePrimaryLedger(): GoalLedgerState {
   const integrationEvent: IntegrationAcceptanceRecord = {
     joinKey: "join-1",
     phaseId: "phase-task-active",
-    parentIssue: { owner: "tranfu-labs", repo: "agent-moebius", number: 75 },
+    parentIssue: { owner: "tranfu-labs", repo: "moebius", number: 75 },
     reviewerRole: "product-manager",
     status: "requested",
     childPassDigest: "child-pass-digest",
@@ -782,7 +782,7 @@ function issueRef(
 ): IssueReference {
   return {
     owner: overrides.owner ?? "tranfu-labs",
-    repo: overrides.repo ?? "agent-moebius",
+    repo: overrides.repo ?? "moebius",
     number,
     relation,
     status: overrides.status ?? "open",
@@ -792,7 +792,7 @@ function issueRef(
 
 function provenance(number: number): LedgerProvenance {
   return {
-    issue: { owner: "tranfu-labs", repo: "agent-moebius", number },
+    issue: { owner: "tranfu-labs", repo: "moebius", number },
     messageIndex: 1,
     capturedAt: NOW,
   };
@@ -835,7 +835,7 @@ function makeManifest(input: {
   return {
     issue: {
       owner: input.owner ?? "tranfu-labs",
-      repo: input.repo ?? "agent-moebius",
+      repo: input.repo ?? "moebius",
       number: input.issueNumber,
     },
     ...(input.runDir === undefined ? {} : { runDir: input.runDir }),

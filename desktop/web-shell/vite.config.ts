@@ -12,8 +12,8 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@agent-moebius/console-ui/globals.css": resolve(consoleUiDist, "style.css"),
-      "@agent-moebius/console-ui": resolve(consoleUiSrc, "index.ts"),
+      "@moebius/console-ui/globals.css": resolve(consoleUiDist, "style.css"),
+      "@moebius/console-ui": resolve(consoleUiSrc, "index.ts"),
       "@": consoleUiSrc,
     },
   },

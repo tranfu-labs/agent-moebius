@@ -14,7 +14,7 @@ The console page is the Electron desktop shell's default main window. It is a lo
 │ ▱ 打开项目        │  你 · 14:02                                               │
 │                  │  @dev 帮我验证本地操作台                                  │
 │ 项目             │  ──────────────────────────────────────────────────────   │
-│ ▱ agent-moebius ＋│  开发 · 正在执行 00:43                         [中断]     │
+│ ▱ moebius ＋│  开发 · 正在执行 00:43                         [中断]     │
 │   本地 T4 验收   │  running tests...                                         │
 │   裂变会话 A     │                                                           │
 │   裂变会话 B     │                                                           │
@@ -24,7 +24,7 @@ The console page is the Electron desktop shell's default main window. It is a lo
 │ ▱ demo-project  ＋│                                                           │
 │   设计讨论       │                                                           │
 │                  │        ┌──────────────────────────────────────┐           │
-│                  │        │ agent-moebius  本地  当前分支       │           │
+│                  │        │ moebius  本地  当前分支       │           │
 │                  │        ├──────────────────────────────────────┤           │
 │ 开发者诊断       │        │ 当前 agent 正在执行…             ↑ │           │
 │ 本地引擎运行中   │        └──────────────────────────────────────┘           │
@@ -51,11 +51,11 @@ Requirements:
 │ ▱ 打开项目          │                                                       │
 │                    │                                                       │
 │ 项目               │                    空白新会话                         │
-│ ▱ agent-moebius  ＋ │                                                       │
+│ ▱ moebius  ＋ │                                                       │
 │   新会话            │                                                       │
 │   本地 T4 验收      │                                                       │
 │ ▱ demo-project   ＋ │       ┌──────────────────────────────────────┐        │
-│   设计讨论          │       │ [▱ agent-moebius⌄] [本地] [当前分支] │        │
+│   设计讨论          │       │ [▱ moebius⌄] [本地] [当前分支] │        │
 │                    │       │ 描述你的目标…                    ↑  │        │
 │                    │       └──────────────────────────────────────┘        │
 └────────────────────┴───────────────────────────────────────────────────────┘
@@ -65,11 +65,11 @@ Project menu expanded:
 
 ```text
                               ┌────────────────────────┐
-                              │ ✓ agent-moebius        │
+                              │ ✓ moebius        │
                               │   demo-project         │
                               └────────────────────────┘
        ┌──────────────────────────────────────────────┐
-       │ [▱ agent-moebius⌃] [本地] [当前分支]         │
+       │ [▱ moebius⌃] [本地] [当前分支]         │
        │ 未发送的输入草稿                         ↑  │
        └──────────────────────────────────────────────┘
 ```
@@ -78,7 +78,7 @@ Locked after history or orchestration relationship:
 
 ```text
        ┌──────────────────────────────────────────────┐
-       │ ▱ agent-moebius  [本地] [当前分支]           │
+       │ ▱ moebius  [本地] [当前分支]           │
        │ 描述你的目标…                            ↑  │
        └──────────────────────────────────────────────┘
 ```
@@ -95,7 +95,7 @@ Requirements:
 ```text
 ┌ 开发 · 已中断 · 14:03 ───────────────────────────────┐
 │ 用户已中断本轮运行。                                │
-│ runDir: /tmp/agent-moebius-local-...                 │
+│ runDir: /tmp/moebius-local-...                 │
 │ 状态: interrupted                                    │
 └──────────────────────────────────────────────────────┘
 
@@ -112,7 +112,7 @@ Requirements:
 ```text
 ┌ 系统 · 本地错误 · 14:08 ─────────────────────────────┐
 │ Codex 运行失败: exit-code-1                          │
-│ runDir: /tmp/agent-moebius-local-...                 │
+│ runDir: /tmp/moebius-local-...                 │
 │ stderr: fake codex failed for acceptance             │
 └──────────────────────────────────────────────────────┘
 ```
@@ -126,7 +126,7 @@ Requirements:
 ```text
 ┌ 系统 · 运行卡住 · 14:12 ─────────────────────────────┐
 │ Codex 运行卡住: idle-timeout:300000ms                │
-│ runDir: /tmp/agent-moebius-local-...                 │
+│ runDir: /tmp/moebius-local-...                 │
 │ 状态: stuck                                          │
 └──────────────────────────────────────────────────────┘
 ```
@@ -155,7 +155,7 @@ Desktop:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ Agent Moebius Observer                                      read on load   │
+│ Moebius Observer                                      read on load   │
 ├──────────────────────────────┬─────────────────────────────────────────────┤
 │ Goals                        │ Diagnostics                                 │
 │                              │  goal-ledger.json          ok               │
@@ -166,10 +166,10 @@ Desktop:
 │  Unlinked local runs 3       │ Goal ledger tree                            │
 │                              │  Goal M3 orchestration                       │
 │ Legacy issue records         │   quality data-correct                       │
-│  tranfu-labs/agent-moebius   │   active phase: Build observable orchestration│
+│  tranfu-labs/moebius   │   active phase: Build observable orchestration│
 │   issue 75 latest plan       │   gate waiting product-manager integration  │
 │                              │    basis integration event requested         │
-│                              │    next tranfu-labs/agent-moebius issue 75  │
+│                              │    next tranfu-labs/moebius issue 75  │
 │                              │                                             │
 │                              │   Milestone orchestration runtime            │
 │                              │    active phase: child execution             │
@@ -198,13 +198,13 @@ Ledger read failure fallback:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ Agent Moebius Observer                                      read on load   │
+│ Moebius Observer                                      read on load   │
 ├──────────────────────────────┬─────────────────────────────────────────────┤
 │ Goals                        │ Diagnostics                                 │
 │  ledger unavailable          │  goal-ledger.json          error            │
 │                              │   unsupported schemaVersion                 │
 │ Legacy issue records         │                                             │
-│  tranfu-labs/agent-moebius   │ Goal ledger tree                            │
+│  tranfu-labs/moebius   │ Goal ledger tree                            │
 │   issue 75 latest run        │  账本读取失败，树视图暂不可用。             │
 │                              │                                             │
 │                              │ Legacy issue/run records                    │
@@ -218,7 +218,7 @@ Mobile / narrow viewport:
 
 ```text
 ┌────────────────────────────────────┐
-│ Agent Moebius Observer             │
+│ Moebius Observer             │
 │ read on load                       │
 ├────────────────────────────────────┤
 │ Diagnostics                        │
@@ -260,7 +260,7 @@ Requirements:
 ```text
 ┌────────────────────┬─────────────────────────────────────────────────────────┐
 │ 项目 / 会话列表    │ 官网落地页验收                                          │
-│ ◐ 本地 T6 验收     │ 项目 agent-moebius   工作区 隔离   模式 本地            │
+│ ◐ 本地 T6 验收     │ 项目 moebius   工作区 隔离   模式 本地            │
 │ ○ 截图走查         │ ─────────────────────────────────────────────────────  │
 │ ○ 失败构造         │ (开) 开发  方案已写好                       ○ 09:41    │
 │                    │ 　  落地页采用单文件自包含结构，不引入构建步骤。        │
@@ -274,7 +274,7 @@ Requirements:
 │                    │ 　  三条验收语句全部通过，可进入发布流程。              │
 │                    │ 　  → 等你确认发布                                    │
 │                    │                                                         │
-│                    │      [agent-moebius] [本地] [当前分支]                  │
+│                    │      [moebius] [本地] [当前分支]                  │
 │                    │      [描述目标，@ 一个角色…                        ↑] │
 └────────────────────┴─────────────────────────────────────────────────────────┘
 ```

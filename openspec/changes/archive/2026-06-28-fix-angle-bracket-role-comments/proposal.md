@@ -7,7 +7,7 @@ role thread 协议要求 runner 写回 GitHub 的 agent comment 带有可见 `<r
 
 ## 提案
 - 写回 GitHub comment 的可见前缀改为 `&lt;role&gt;:\n${LAST_RESPONSE}`，页面渲染后显示为 `<role>:`。
-- 隐藏 metadata 继续使用 `<!-- agent-moebius:role=<role> -->`，作为机器识别的优先依据。
+- 隐藏 metadata 继续使用 `<!-- moebius:role=<role> -->`，作为机器识别的优先依据。
 - speaker 归一化兼容三种可见前缀：
   - 旧模板：`role:`
   - 转义模板：`&lt;role&gt;:`

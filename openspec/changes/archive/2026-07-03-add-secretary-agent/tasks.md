@@ -1,7 +1,7 @@
 # 任务：2026-07-03-add-secretary-agent
 
 - [x] 新建 `agents/secretary.md` persona，声明 `src/agent-prescripts/current-repo-workspace.ts`，并写明采访、OpenSpec、CEO 规则维护边界与 `in-progress` 输出契约
-- [x] 新建 `src/agent-prescripts/current-repo-workspace.ts`，返回当前 agent-moebius 仓库根目录作为 `codexCwd`
+- [x] 新建 `src/agent-prescripts/current-repo-workspace.ts`，返回当前 moebius 仓库根目录作为 `codexCwd`
 - [x] `src/agent-prescripts/index.ts` 注册 current repo preScript
 - [x] `src/format-ceo.ts`：`CEO_APPEND_ROLES` 追加 `"secretary"`
 - [x] `agents/ceo.md`：真实可触发 agent 清单、`append.as` 允许集合与 secretary / CEO 职责边界同步更新

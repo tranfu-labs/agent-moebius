@@ -14,7 +14,7 @@
 - `@dev` 第一次处理某个 source issue 时，在可配置工作根目录下准备该 issue 独占 worktree。
 - 同一个 source issue 后续再次触发 `@dev` 时复用已记录 worktree，不重复执行 clone/worktree 创建。
 - Codex 运行时显式使用 pre script 返回的 `cwd`。
-- 启动日志打印解析后的默认工作根目录，默认值为仓库同级的 `agent-moebius-workdir`，可通过环境变量覆盖。
+- 启动日志打印解析后的默认工作根目录，默认值为仓库同级的 `moebius-workdir`，可通过环境变量覆盖。
 
 ## 影响
 - `agents/dev.md` 增加 frontmatter，成为人类和代码定位 pre script 的唯一入口。

@@ -104,7 +104,7 @@ UI 的验收卡片调用同一 formatter，生成：
 
 T4.6 已能把 Codex cwd 指向 temporary local worktree。T5 补齐交付语义：
 
-1. **开分支**：worktree mode enabled 且 folder 是 git repo 时，resolver 为 session 创建/复用稳定 local branch，例如 `agent-moebius/local/<project-slug>/<session-slug>`，base 为打开 project 时或 run 开始时记录的 original `HEAD`。实现必须记录原始 repo root、base ref、branch name、worktree path 和 run id。复用 worktree 时必须校验当前 cwd 仍是合法 worktree，branch/base 缺失时写 visible local error，不伪装为 direct mode 成功。
+1. **开分支**：worktree mode enabled 且 folder 是 git repo 时，resolver 为 session 创建/复用稳定 local branch，例如 `moebius/local/<project-slug>/<session-slug>`，base 为打开 project 时或 run 开始时记录的 original `HEAD`。实现必须记录原始 repo root、base ref、branch name、worktree path 和 run id。复用 worktree 时必须校验当前 cwd 仍是合法 worktree，branch/base 缺失时写 visible local error，不伪装为 direct mode 成功。
 2. **不污染原目录**：Codex cwd 始终在 temporary worktree；回流前原目录不写文件、不 checkout、不 merge、不 rebase。run 完成后先检查原目录 `git status --short`，若非空则 diff 状态标为 failed 并写 visible local error，不能继续自动回流。
 3. **diff 生成**：只有 local agent 输出合法 `code-verified` stage 后生成 patch/diff bundle 和 affected files summary。patch 使用 bounded `git diff --binary <baseRef> --`，保存到 runDir 内并记录到 `local_workspace_diffs`。`in-progress` / `plan-written` 只保留 worktree 修改，不生成可回流 bundle，避免把未验收方案或中间态误发布为交付 diff。
 4. **显式回流**：用户显式触发回流时，runtime/API 先在原始 repo root 执行 bounded `git apply --check <patch>`，再执行 bounded apply。成功后 diff status 更新为 `applied`，并记录原目录 `git status --short` 作为预期改动证据。回流失败写 visible local error，status 变为 `failed`，patch 继续保留；不得用 `git reset`、删除原目录或重建 worktree 做补偿。

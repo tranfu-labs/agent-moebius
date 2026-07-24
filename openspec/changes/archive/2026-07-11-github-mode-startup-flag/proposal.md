@@ -36,7 +36,7 @@ QA 已指出上一版方案的静态缺陷：方案文件不可复现、OpenSpec
 4. **桌面 runner child**
    - 桌面主进程继续拥有唯一 local console server。
    - `desktop/src/runner-child.ts` 必须显式以 GitHub mode 调用 runner 入口，或由 supervisor fork 参数显式传入 `--github-mode`。
-   - 不再依赖 `AGENT_MOEBIUS_DISABLE_LOCAL_CONSOLE=1`；桌面 child 通过共享 launch 常量显式选择 GitHub mode。
+   - 不再依赖 `MOEBIUS_DISABLE_LOCAL_CONSOLE=1`；桌面 child 通过共享 launch 常量显式选择 GitHub mode。
 5. **测试与验收 harness**
    - 增加启动 parser 测试，覆盖 exact flag、缺省、未知/拼写错误/重复参数 fail fast。
    - 增加无 flag startup harness：临时数据根 + fake GitHub issue list/view 一调用即失败，3 秒内进入 local runtime，GitHub intake load / issue scan / issue read 调用次数为 0。

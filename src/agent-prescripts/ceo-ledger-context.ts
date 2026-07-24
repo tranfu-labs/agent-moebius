@@ -175,7 +175,7 @@ export function formatCeoLedgerContextFailure(reason: string): string {
 
 本轮不会调用 Codex、不会创建子 issue、不会更新 ceo role thread。请先修复目标账本或剧本库后重试。
 
-<!-- agent-moebius:stage=in-progress -->`;
+<!-- moebius:stage=in-progress -->`;
 }
 
 function formatPromptContext(input: {

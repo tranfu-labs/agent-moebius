@@ -40,7 +40,7 @@
   <rect x="506" y="290" width="118" height="26" rx="13" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
   <text x="565" y="307" text-anchor="middle" font-size="11" fill="#6b7280">.state/</text>
   <rect x="376" y="324" width="248" height="26" rx="13" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="500" y="341" text-anchor="middle" font-size="11" fill="#6b7280">同级 agent-moebius-workdir</text>
+  <text x="500" y="341" text-anchor="middle" font-size="11" fill="#6b7280">同级 moebius-workdir</text>
 
   <path d="M180 188 V252" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
   <text x="188" y="226" font-size="10" fill="#6b7280">spawn</text>

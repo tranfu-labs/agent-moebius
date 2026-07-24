@@ -34,13 +34,13 @@
 - [x] 符合度检查：确认未使用 `exec` / `execSync` / `shell:true` 拼接外部输入。
 
 ## AI 验证流程（无法单测的部分）
-> 已在后续真实运行中执行首轮验证；该流程会真实调用本机 `codex` 并向 `tranfu-labs/agent-moebius#1` 发表评论。
+> 已在后续真实运行中执行首轮验证；该流程会真实调用本机 `codex` 并向 `tranfu-labs/moebius#1` 发表评论。
 
 - [x] `pnpm install && pnpm start` 启动后立即看到 `event:trigger,count:1,runDir:/tmp/...` 日志
 - [x] 进 `runDir` 查 `stdout.jsonl` 有完整 codex 流、`stderr.log` 无致命错误
-- [x] GitHub issue 出现机器人评论：`https://github.com/tranfu-labs/agent-moebius/issues/1#issuecomment-4811069305`
+- [x] GitHub issue 出现机器人评论：`https://github.com/tranfu-labs/moebius/issues/1#issuecomment-4811069305`
 - [ ] 在 issue 下手动回一条 → 等下一轮 → 触发 + 新 runDir + 新评论
-- [x] `.state/tranfu-labs-agent-moebius-1.json` 内容 = `{"maxRespondedCount": 1}`，N 与最近一次响应的 count 一致
+- [x] `.state/tranfu-labs-moebius-1.json` 内容 = `{"maxRespondedCount": 1}`，N 与最近一次响应的 count 一致
 
 ## 真实运行后修复
 - [x] 第一次真实运行发现 codex stdout 是 `item.completed` 嵌套 `item.type=agent_message`，旧解析器未识别，导致 `reason:no-final-message`

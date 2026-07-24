@@ -51,7 +51,7 @@
 
 - **规则句 10 / 17 · 团队 writer 拆分**:(a) 新增独立 AI 团队 writer 不改 `createUserTeam`;(b) 扩 `createUserTeam` 接受批量入参;(c) 新 writer + 复用底层原语。**推荐 (a) 或 (c)**。
 - **规则句 13 · `--yolo` 拆法**:(a) 拆 `buildTeamBuilderExecOptions()` 完全独立;(b) 参数化 `buildCodexExecOptionsBase({ yolo, sandbox })`。
-- **规则句 13 / 14 · 独立 execution profile 载体**:codex CLI 的 `[profiles.xxx]` 配置 vs agent-moebius 层拼一串独立 args。
+- **规则句 13 / 14 · 独立 execution profile 载体**:codex CLI 的 `[profiles.xxx]` 配置 vs moebius 层拼一串独立 args。
 - **规则句 14 · idle / max timeout**:是否与普通 run 共享 `CODEX_RUN_IDLE_TIMEOUT_MS` / `CODEX_RUN_MAX_DURATION_MS`,还是新增更短的一对。
 - **规则句 21 · AI 建队草稿状态机**:五种 AI 建队态明确记进 spec-delta,不入 `team-model.ts:TeamStatus`;是否需要在 `team-model.ts` 加 comment 显式禁止后续并入。
 

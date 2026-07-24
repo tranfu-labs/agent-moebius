@@ -12,7 +12,7 @@
 新增 `desktop/` 包（Electron 壳），根仓库转为 pnpm workspace：
 
 1. 主进程只做装配：数据根解析 → PATH 修复 → 首启种子拷贝 → 环境自检（codex / gh）→ 进程内启动 observer（动态端口，保持只读）→ 以 utilityProcess 派生 runner 子进程 → 打开状态页主窗口；关窗时统一收尾退出。
-2. 数据根固定为 `~/.agent-moebius`（打包态默认，对齐 codex CLI 的 `~/.codex` 习惯；开发态默认仓库根；环境变量可覆盖）。runner 子进程工作目录指向数据根，`.state/` 等相对路径自然落位；workdir 根由壳层注入数据根下路径。
+2. 数据根固定为 `~/.moebius`（打包态默认，对齐 codex CLI 的 `~/.codex` 习惯；开发态默认仓库根；环境变量可覆盖）。runner 子进程工作目录指向数据根，`.state/` 等相对路径自然落位；workdir 根由壳层注入数据根下路径。
 3. 壳层业务逻辑全部拆成纯模块并配单元测试：数据根解析与种子拷贝计划、macOS 图形进程 PATH 修复、环境自检解析、runner 子进程状态机（崩溃退避重启）、更新策略平台分支。
 4. 主窗口为状态指示页（版式见 `wireframes.md`）：运行状态、环境自检、打开观察页 / 数据目录、检查更新。
 5. 更新机制：Windows/Linux 走 electron-updater 全自动；macOS 无证书期间做「检查更新 → 跳转下载页」。发布通路为 electron-builder 三平台打包 + GitHub Actions 按 tag 构建上传 GitHub Releases。

@@ -373,7 +373,7 @@ description: 描述这个 Agent 负责什么。
 });
 
 async function makeDataRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-ipc-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-team-ipc-"));
   temporaryRoots.push(root);
   return root;
 }

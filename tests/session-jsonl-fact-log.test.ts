@@ -444,7 +444,7 @@ describe("ADR-0004 per-session JSONL fact logs", () => {
 });
 
 async function fixtureRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-session-fact-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-session-fact-"));
   roots.push(root);
   return root;
 }

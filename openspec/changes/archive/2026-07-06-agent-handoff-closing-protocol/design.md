@@ -53,7 +53,7 @@
 ## 下一步
 <交棒行，语法见上，恰一条>
 
-<!-- agent-moebius:stage=... -->
+<!-- moebius:stage=... -->
 ```
 
 权衡：

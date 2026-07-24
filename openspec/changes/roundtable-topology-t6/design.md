@@ -82,8 +82,8 @@ type ParsedRoundtable =
 新增 hidden key：
 
 ```text
-agent-moebius-roundtable-key:<sha256(parent issue + workflow id + roundtable id)>
-agent-moebius-roundtable-completion-key:<sha256(roundtable key + ordered participants digest + participant source indexes digest)>
+moebius-roundtable-key:<sha256(parent issue + workflow id + roundtable id)>
+moebius-roundtable-completion-key:<sha256(roundtable key + ordered participants digest + participant source indexes digest)>
 ```
 
 roundtable key 不含标题、自由描述或参与者措辞，避免 CEO 重跑文本漂移导致重复创建。

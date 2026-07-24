@@ -68,7 +68,7 @@ describe("Agent team repair IPC service", () => {
 });
 
 async function makeDataRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-repair-ipc-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-team-repair-ipc-"));
   temporaryRoots.push(root);
   return root;
 }

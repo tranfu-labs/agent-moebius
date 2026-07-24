@@ -44,7 +44,7 @@ export const WithoutSteps: Story = {
   args: {
     steps: [],
     summary: "正在运行测试 · 已进行 3 分 12 秒",
-    rawOutput: "pnpm --filter @agent-moebius/console-ui test\nstdout tail is hidden until expanded",
+    rawOutput: "pnpm --filter @moebius/console-ui test\nstdout tail is hidden until expanded",
   },
 };
 

@@ -29,11 +29,11 @@ And `nextPollAt` 设为 `null`
 
 ### 场景 B：active poll 见 CLOSED 时从 state 移除
 
-Given `.state/github-response-intake.json` 中 `tranfu-labs/agent-moebius#10.mode = active`
+Given `.state/github-response-intake.json` 中 `tranfu-labs/moebius#10.mode = active`
 And 用户在 GitHub 上关闭了 issue #10
 When 一次 active poll 拉取该 issue
 Then `gh issue view` 返回 `state = "CLOSED"`
-And 系统记录 `event = "skip"`、`reason = "issue-closed"`、`issueKey = "tranfu-labs/agent-moebius#10"`
+And 系统记录 `event = "skip"`、`reason = "issue-closed"`、`issueKey = "tranfu-labs/moebius#10"`
 And 不调用 trigger、不调用 Codex、不发评论
 And `.state/github-response-intake.json` 中该 issue 记录被移除
 And 下一 tick `getDueActiveIssueSources` 不再返回该 issue

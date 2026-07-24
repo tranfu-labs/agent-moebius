@@ -533,7 +533,7 @@ display_name: 开发经理
 });
 
 async function makeDataRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-team-store-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-team-store-"));
   temporaryRoots.push(root);
   return root;
 }

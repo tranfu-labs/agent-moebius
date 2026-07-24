@@ -281,9 +281,9 @@ export function buildReleaseCreateArgs(source: IssueSource): string[] {
     "--repo",
     `${source.owner}/${source.repo}`,
     "--title",
-    "Agent Moebius artifacts",
+    "Moebius artifacts",
     "--notes",
-    "Generated media artifacts for Agent Moebius issue comments.",
+    "Generated media artifacts for Moebius issue comments.",
     "--latest=false",
   ];
 }

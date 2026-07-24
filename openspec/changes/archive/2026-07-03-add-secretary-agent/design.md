@@ -14,7 +14,7 @@ preScript: src/agent-prescripts/current-repo-workspace.ts
 - **触发场景**：用户指出 CEO 漏判、CEO 应该学习某类提醒、CEO guardrail 规则需要补充时，由 `@secretary` 处理。
 - **工作流程**：必须先采访；采访内容至少覆盖触发输入模式、应输出模式、适用 / 不适用边界、是否需要补救当前 issue。本轮信息不足时停下问；信息充足时按 OpenSpec 流程落盘方案、修改 `agents/ceo.md`、更新 specs/tests/docs、提交 PR。
 - **修改边界**：优先只改 `agents/ceo.md`、OpenSpec specs/tests/docs。只有 persona 层无法表达时，才扩到 `src/format-ceo.ts`、trigger 或 runner 逻辑。
-- **输出契约**：每条响应末尾固定 `<!-- agent-moebius:stage=in-progress -->`。secretary 不使用 `plan-written` / `code-verified`，避免触发 dev 专属阶段语义。
+- **输出契约**：每条响应末尾固定 `<!-- moebius:stage=in-progress -->`。secretary 不使用 `plan-written` / `code-verified`，避免触发 dev 专属阶段语义。
 
 ### current repo preScript
 新增 `src/agent-prescripts/current-repo-workspace.ts`：
@@ -49,7 +49,7 @@ preScript: src/agent-prescripts/current-repo-workspace.ts
 ### 单元测试
 - conversation / trigger：`@secretary` 作为普通 mention agent 被选中，secretary 评论可归一化为 `speaker=secretary`。
 - format-ceo：`append.as=secretary` 被接受，未知 `as` 仍 fail-open。
-- agent preScript：`runCurrentRepoWorkspacePreScript()` 返回 agent-moebius 仓库根目录，不读写 context state。
+- agent preScript：`runCurrentRepoWorkspacePreScript()` 返回 moebius 仓库根目录，不读写 context state。
 - runner：带 preScript 的 secretary agent 被触发时，runner 把 preScript 返回的 `codexCwd` 传给 Codex。
 
 ### AI / 命令验证

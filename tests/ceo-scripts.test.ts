@@ -33,7 +33,7 @@ describe("CEO script library", () => {
   });
 
   it("rejects missing required workflows when scripts are required", async () => {
-    const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-ceo-scripts-"));
+    const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-ceo-scripts-"));
     await fs.mkdir(path.join(agentsDir, "ceo-scripts"));
     await fs.writeFile(
       path.join(agentsDir, "ceo-scripts", "plan-review.md"),
@@ -50,7 +50,7 @@ action: route
   });
 
   it("rejects duplicate workflow ids", async () => {
-    const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-ceo-scripts-"));
+    const agentsDir = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-ceo-scripts-"));
     await fs.mkdir(path.join(agentsDir, "ceo-scripts"));
     const script = `---
 id: plan-review

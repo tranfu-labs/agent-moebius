@@ -42,13 +42,13 @@ describe("dev workspace pre script", () => {
       },
     });
 
-    const expectedWorktreePath = path.join(root, "worktrees", "tranfu-labs__agent-moebius__4__dev");
+    const expectedWorktreePath = path.join(root, "worktrees", "tranfu-labs__moebius__4__dev");
     expect(result).toEqual({ ok: true, codexCwd: expectedWorktreePath });
     expect(commands).toEqual([
-      ["clone", "--bare", "https://github.com/tranfu-labs/agent-moebius.git", path.join(root, "repos", "tranfu-labs__agent-moebius.git")],
+      ["clone", "--bare", "https://github.com/tranfu-labs/moebius.git", path.join(root, "repos", "tranfu-labs__moebius.git")],
       [
         "--git-dir",
-        path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
+        path.join(root, "repos", "tranfu-labs__moebius.git"),
         "fetch",
         "--prune",
         "origin",
@@ -56,22 +56,22 @@ describe("dev workspace pre script", () => {
       ],
       [
         "--git-dir",
-        path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
+        path.join(root, "repos", "tranfu-labs__moebius.git"),
         "worktree",
         "add",
         "-B",
-        "agent/dev/tranfu-labs__agent-moebius__4",
+        "agent/dev/tranfu-labs__moebius__4",
         expectedWorktreePath,
         REMOTE_MAIN_REF,
       ],
     ]);
 
     await expect(loadAgentContextStateStore(input.contextStatePath)).resolves.toEqual({
-      "tranfu-labs/agent-moebius#4": {
+      "tranfu-labs/moebius#4": {
         dev: {
           preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
           owner: "tranfu-labs",
-          repo: "agent-moebius",
+          repo: "moebius",
           issueNumber: 4,
           worktreePath: expectedWorktreePath,
           preparedFromMessageIndex: 7,
@@ -85,16 +85,16 @@ describe("dev workspace pre script", () => {
     const commands: string[][] = [];
     const input = makeInput(root);
     const worktreePath = expectedWorktreePath(root);
-    const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
+    const repoCachePath = path.join(root, "repos", "tranfu-labs__moebius.git");
     await fs.mkdir(worktreePath, { recursive: true });
     await fs.mkdir(repoCachePath, { recursive: true });
     await saveAgentContextStateStore(
       {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           dev: {
             preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 4,
             worktreePath,
             preparedFromMessageIndex: 2,
@@ -125,7 +125,7 @@ describe("dev workspace pre script", () => {
     const root = await makeTempDir();
     const commands: string[][] = [];
     const input = makeInput(root);
-    await fs.mkdir(path.join(root, "repos", "tranfu-labs__agent-moebius.git"), { recursive: true });
+    await fs.mkdir(path.join(root, "repos", "tranfu-labs__moebius.git"), { recursive: true });
 
     const result = await runDevWorkspacePreScript(input, {
       ...makeFsDependencies(),
@@ -141,7 +141,7 @@ describe("dev workspace pre script", () => {
     expect(commands).toEqual([
       [
         "--git-dir",
-        path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
+        path.join(root, "repos", "tranfu-labs__moebius.git"),
         "fetch",
         "--prune",
         "origin",
@@ -149,12 +149,12 @@ describe("dev workspace pre script", () => {
       ],
       [
         "--git-dir",
-        path.join(root, "repos", "tranfu-labs__agent-moebius.git"),
+        path.join(root, "repos", "tranfu-labs__moebius.git"),
         "worktree",
         "add",
         "-B",
-        "agent/dev/tranfu-labs__agent-moebius__4",
-        path.join(root, "worktrees", "tranfu-labs__agent-moebius__4__dev"),
+        "agent/dev/tranfu-labs__moebius__4",
+        path.join(root, "worktrees", "tranfu-labs__moebius__4__dev"),
         REMOTE_MAIN_REF,
       ],
     ]);
@@ -165,16 +165,16 @@ describe("dev workspace pre script", () => {
     const events: string[] = [];
     const input = makeInput(root);
     const worktreePath = expectedWorktreePath(root);
-    const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
+    const repoCachePath = path.join(root, "repos", "tranfu-labs__moebius.git");
     await fs.mkdir(worktreePath, { recursive: true });
     await fs.mkdir(repoCachePath, { recursive: true });
     await saveAgentContextStateStore(
       {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           dev: {
             preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 4,
             worktreePath,
             preparedFromMessageIndex: 2,
@@ -210,7 +210,7 @@ describe("dev workspace pre script", () => {
     expect(result).toEqual({ ok: true, codexCwd: worktreePath });
     expect(events).toEqual(["fetch", `remove:${worktreePath}`, `add:${worktreePath}`]);
     await expect(loadAgentContextStateStore(input.contextStatePath)).resolves.toMatchObject({
-      "tranfu-labs/agent-moebius#4": {
+      "tranfu-labs/moebius#4": {
         dev: {
           worktreePath,
           preparedFromMessageIndex: 2,
@@ -223,16 +223,16 @@ describe("dev workspace pre script", () => {
     const root = await makeTempDir();
     const input = makeInput(root);
     const worktreePath = expectedWorktreePath(root);
-    const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
+    const repoCachePath = path.join(root, "repos", "tranfu-labs__moebius.git");
     await fs.mkdir(worktreePath, { recursive: true });
     await fs.mkdir(repoCachePath, { recursive: true });
     await saveAgentContextStateStore(
       {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           dev: {
             preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 4,
             worktreePath,
             preparedFromMessageIndex: 2,
@@ -296,11 +296,11 @@ describe("dev workspace pre script", () => {
     const mismatchedWorktreePath = path.join(root, "worktrees", "unexpected");
     await saveAgentContextStateStore(
       {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           dev: {
             preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 4,
             worktreePath: mismatchedWorktreePath,
             preparedFromMessageIndex: 2,
@@ -335,11 +335,11 @@ describe("dev workspace pre script", () => {
     const input = makeInput(root);
     await saveAgentContextStateStore(
       {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           dev: {
             preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 4,
             worktreePath: expectedWorktreePath(root),
             preparedFromMessageIndex: 2,
@@ -368,27 +368,27 @@ describe("dev workspace pre script", () => {
   });
 
   it("includes git stderr when a git command fails", async () => {
-    await expect(runGit(["not-a-real-git-subcommand-for-agent-moebius-test"])).rejects.toThrow(
-      /git failed with exit-code-\d+: git: 'not-a-real-git-subcommand-for-agent-moebius-test' is not a git command/,
+    await expect(runGit(["not-a-real-git-subcommand-for-moebius-test"])).rejects.toThrow(
+      /git failed with exit-code-\d+: git: 'not-a-real-git-subcommand-for-moebius-test' is not a git command/,
     );
   });
 
   it("derives a controlled local branch name from role/owner/repo/issue", () => {
     const input = makeInput("/tmp/does-not-matter");
-    expect(buildLocalBranchName(input)).toBe("agent/dev/tranfu-labs__agent-moebius__4");
+    expect(buildLocalBranchName(input)).toBe("agent/dev/tranfu-labs__moebius__4");
   });
 
   it("normalizes owner/repo characters when building the local branch name", () => {
     const input = makeInput("/tmp/does-not-matter", {
       issueSource: {
         owner: "tranfu labs",
-        repo: "agent/moebius",
+        repo: "nested/repo",
         issueNumber: 4,
-        issueKey: "tranfu labs/agent/moebius#4",
+        issueKey: "tranfu labs/nested/repo#4",
         cloneUrl: "https://example.com/x.git",
       },
     });
-    expect(buildLocalBranchName(input)).toBe("agent/dev/tranfu_labs__agent_moebius__4");
+    expect(buildLocalBranchName(input)).toBe("agent/dev/tranfu_labs__nested_repo__4");
   });
 
   it("serializes calls sharing the same repo cache key", async () => {
@@ -396,19 +396,19 @@ describe("dev workspace pre script", () => {
     const inputA = makeInput(root, {
       issueSource: {
         owner: "tranfu-labs",
-        repo: "agent-moebius",
+        repo: "moebius",
         issueNumber: 4,
-        issueKey: "tranfu-labs/agent-moebius#4",
-        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+        issueKey: "tranfu-labs/moebius#4",
+        cloneUrl: "https://github.com/tranfu-labs/moebius.git",
       },
     });
     const inputB = makeInput(root, {
       issueSource: {
         owner: "tranfu-labs",
-        repo: "agent-moebius",
+        repo: "moebius",
         issueNumber: 5,
-        issueKey: "tranfu-labs/agent-moebius#5",
-        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+        issueKey: "tranfu-labs/moebius#5",
+        cloneUrl: "https://github.com/tranfu-labs/moebius.git",
       },
     });
 
@@ -483,10 +483,10 @@ describe("dev workspace pre script", () => {
     const inputA = makeInput(root, {
       issueSource: {
         owner: "tranfu-labs",
-        repo: "agent-moebius",
+        repo: "moebius",
         issueNumber: 4,
-        issueKey: "tranfu-labs/agent-moebius#4",
-        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+        issueKey: "tranfu-labs/moebius#4",
+        cloneUrl: "https://github.com/tranfu-labs/moebius.git",
       },
     });
     const inputB = makeInput(root, {
@@ -543,19 +543,19 @@ describe("dev workspace pre script", () => {
     const inputA = makeInput(root, {
       issueSource: {
         owner: "tranfu-labs",
-        repo: "agent-moebius",
+        repo: "moebius",
         issueNumber: 4,
-        issueKey: "tranfu-labs/agent-moebius#4",
-        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+        issueKey: "tranfu-labs/moebius#4",
+        cloneUrl: "https://github.com/tranfu-labs/moebius.git",
       },
     });
     const inputB = makeInput(root, {
       issueSource: {
         owner: "tranfu-labs",
-        repo: "agent-moebius",
+        repo: "moebius",
         issueNumber: 5,
-        issueKey: "tranfu-labs/agent-moebius#5",
-        cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+        issueKey: "tranfu-labs/moebius#5",
+        cloneUrl: "https://github.com/tranfu-labs/moebius.git",
       },
     });
 
@@ -604,16 +604,16 @@ describe("dev workspace pre script", () => {
     const events: string[] = [];
     const input = makeInput(root);
     const worktreePath = expectedWorktreePath(root);
-    const repoCachePath = path.join(root, "repos", "tranfu-labs__agent-moebius.git");
+    const repoCachePath = path.join(root, "repos", "tranfu-labs__moebius.git");
     await fs.mkdir(worktreePath, { recursive: true });
     await fs.mkdir(repoCachePath, { recursive: true });
     await saveAgentContextStateStore(
       {
-        "tranfu-labs/agent-moebius#4": {
+        "tranfu-labs/moebius#4": {
           dev: {
             preScript: DEV_WORKSPACE_PRE_SCRIPT_PATH,
             owner: "tranfu-labs",
-            repo: "agent-moebius",
+            repo: "moebius",
             issueNumber: 4,
             worktreePath,
             preparedFromMessageIndex: 2,
@@ -639,7 +639,7 @@ describe("dev workspace pre script", () => {
 
     expect(result.ok).toBe(true);
     expect(events).toEqual([
-      `--git-dir ${repoCachePath} worktree add -B agent/dev/tranfu-labs__agent-moebius__4 ${worktreePath} ${REMOTE_MAIN_REF}`,
+      `--git-dir ${repoCachePath} worktree add -B agent/dev/tranfu-labs__moebius__4 ${worktreePath} ${REMOTE_MAIN_REF}`,
     ]);
   });
 });
@@ -651,10 +651,10 @@ function makeInput(root: string, overrides: Partial<AgentPreScriptInput> = {}): 
     latestIndex: 7,
     issueSource: {
       owner: "tranfu-labs",
-      repo: "agent-moebius",
+      repo: "moebius",
       issueNumber: 4,
-      issueKey: "tranfu-labs/agent-moebius#4",
-      cloneUrl: "https://github.com/tranfu-labs/agent-moebius.git",
+      issueKey: "tranfu-labs/moebius#4",
+      cloneUrl: "https://github.com/tranfu-labs/moebius.git",
     },
     workdirRoot: root,
     contextStatePath: path.join(root, ".state", "agent-contexts.json"),
@@ -677,7 +677,7 @@ async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<vo
 }
 
 function expectedWorktreePath(root: string): string {
-  return path.join(root, "worktrees", "tranfu-labs__agent-moebius__4__dev");
+  return path.join(root, "worktrees", "tranfu-labs__moebius__4__dev");
 }
 
 function makeFsDependencies(): {
@@ -714,5 +714,5 @@ function makeFsDependencies(): {
 }
 
 async function makeTempDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-dev-workspace-test-"));
+  return fs.mkdtemp(path.join(os.tmpdir(), "moebius-dev-workspace-test-"));
 }

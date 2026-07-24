@@ -56,4 +56,4 @@ Given product-manager 被请求验收一次 `code-verified` 实现
 When 它输出验收响应
 Then 响应含逐条走查行与 `验收结论：` 行
 And 结论之后含新发现回流与经验沉淀两项复盘（可为「无」）
-And 最后一行仍为 `<!-- agent-moebius:stage=in-progress -->`
+And 最后一行仍为 `<!-- moebius:stage=in-progress -->`

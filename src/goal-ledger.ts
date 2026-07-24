@@ -17,7 +17,7 @@ const MAX_ACCEPTANCE_NOTE_LENGTH = 500;
 const MAX_ACCEPTANCE_STATEMENT_ID_LENGTH = 200;
 const MAX_ACCEPTANCE_STATEMENT_TEXT_LENGTH = 2_000;
 
-export const INTEGRATION_ACCEPTANCE_KEY_PREFIX = "agent-moebius-integration-acceptance-key";
+export const INTEGRATION_ACCEPTANCE_KEY_PREFIX = "moebius-integration-acceptance-key";
 
 export interface IssueReference {
   owner: string;
@@ -1227,7 +1227,7 @@ function goalLedgerEntryHasNote(entry: GoalLedgerEntry, proposalKey: string): bo
 }
 
 function assertGoalIntakeProposalKey(value: unknown, path: string): asserts value is string {
-  if (typeof value !== "string" || !/^agent-moebius-goal-intake-proposal-key:[a-f0-9]{32}$/u.test(value)) {
+  if (typeof value !== "string" || !/^moebius-goal-intake-proposal-key:[a-f0-9]{32}$/u.test(value)) {
     throw new Error(`Invalid goal intake proposal: ${path} invalid`);
   }
 }

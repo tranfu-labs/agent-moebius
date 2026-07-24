@@ -35,5 +35,5 @@
 
 ## 缘由锚
 
-- 审计发现:`~/dev-loops/agent-moebius/onboarding/audit-findings.md#规则-14` 引句 + 落点 `src/config.ts:218-226`
+- 审计发现:`~/dev-loops/moebius/onboarding/audit-findings.md#规则-14` 引句 + 落点 `src/config.ts:218-226`
 - rule-binding 更新:该行判定从「已合规」升级为「已承接(经 fix-team-builder-resume-sandbox)」

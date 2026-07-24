@@ -336,7 +336,7 @@ describe("local console conversation workspace diff through HTTP", () => {
 });
 
 async function temporaryRoot(): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-moebius-evidence-outlets-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "moebius-evidence-outlets-"));
   roots.push(root);
   return root;
 }
@@ -382,7 +382,7 @@ async function startHarness(
 function successfulRun(options: CodexRunOptions, finalText: string): Extract<CodexRunResult, { ok: true }> {
   return {
     ok: true,
-    finalText: `${finalText}\n\n<!-- agent-moebius:stage=code-verified -->`,
+    finalText: `${finalText}\n\n<!-- moebius:stage=code-verified -->`,
     threadId: "thread-evidence",
     cachedInputTokens: 0,
     runDir: options.runDir,

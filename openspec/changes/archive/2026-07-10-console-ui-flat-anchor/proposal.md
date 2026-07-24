@@ -40,10 +40,10 @@ M4 T6 要把 `console-ui` 的组件库视觉锚拉回到本地对话操作台的
 - 桌面操作台渲染数据流、IPC、runner、local console 后端语义不变。
 
 ## 验收语句
-1. 跑 `pnpm --filter @agent-moebius/console-ui storybook` → 应看到 `UI/Card`、`UI/Badge` 与 `OperatorConsole` 主界面视觉一致，不出现“组件库偏浮起、主界面偏扁平”两套观感。
+1. 跑 `pnpm --filter @moebius/console-ui storybook` → 应看到 `UI/Card`、`UI/Badge` 与 `OperatorConsole` 主界面视觉一致，不出现“组件库偏浮起、主界面偏扁平”两套观感。
 2. 运行 fake local console / acceptance renderer 并打开桌面台会话页截图 → 应看到时间线消息、`RunLiveBlock`、状态徽章的圆角、边框、内边距与 `accept-card` 规范样例、Linear 扁平锚一致，且截图证据来自 desktop renderer 页面。
 3. 在 `packages/console-ui/src/console/operator-console.tsx` 主内容区跑 `grep -nE 'border border-line|<article'` → 应命中 0，卡片和徽章全部通过组件承载；侧栏 project/session 导航按钮不纳入卡片/徽章回收。
-4. 跑 `pnpm --filter @agent-moebius/console-ui test`、`pnpm --filter @agent-moebius/desktop build`、`pnpm typecheck` → 应全部退出码 0。
+4. 跑 `pnpm --filter @moebius/console-ui test`、`pnpm --filter @moebius/desktop build`、`pnpm typecheck` → 应全部退出码 0。
 5. 回归 `packages/console-ui/src/console/accept-card.tsx` 规范样例视觉与交互 → 应看到 Card 默认扁平锚后样例无回退，验收协议格式化测试仍通过。
 
 细化说明：以上 5 条沿用 T6 原文验收场景 (a)-(e)，只把 (b) 的截图来源按 product-manager 确认细化为 fake local console / acceptance renderer，把 (c) 明确为主内容区 card/badge 回收 gate，并保留侧栏导航按钮不纳入本任务的边界。

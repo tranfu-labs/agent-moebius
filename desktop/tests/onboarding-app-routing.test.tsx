@@ -148,7 +148,7 @@ describe("desktop onboarding routing", () => {
       readLastUsedAgentTeam: async () => null,
       ...overrides,
     };
-    Object.defineProperty(window, "agentMoebius", {
+    Object.defineProperty(window, "moebius", {
       configurable: true,
       value: api,
     });
@@ -224,10 +224,10 @@ const developmentTeam = {
 const project = {
   projectId: "local",
   sourceType: "local-folder",
-  title: "agent-moebius",
-  folderPath: "/tmp/agent-moebius",
+  title: "moebius",
+  folderPath: "/tmp/moebius",
   worktreeMode: false,
-  workspaceCwd: "/tmp/agent-moebius",
+  workspaceCwd: "/tmp/moebius",
   workspaceMode: "direct",
   worktreePath: null,
   worktreeUnavailableReason: null,

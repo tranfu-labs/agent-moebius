@@ -6,14 +6,14 @@ import { createStatePersister } from "../src/state-persister.js";
 
 const CONFIG = { idleRepositoryScanIntervalMs: 5 * 60_000, issueDiscoveryLimit: 20 };
 const REPO_A: RepositoryRef = { owner: "tranfu-labs", repo: "tranfu-agents-app" };
-const REPO_B: RepositoryRef = { owner: "tranfu-labs", repo: "agent-moebius" };
+const REPO_B: RepositoryRef = { owner: "tranfu-labs", repo: "moebius" };
 const NOW = new Date("2026-07-02T03:13:00.000Z");
 
 function baselineState(): GitHubResponseIntakeState {
   return {
     repositories: {
       "tranfu-labs/tranfu-agents-app": { lastIdleScanAt: "2026-07-02T02:00:00.000Z" },
-      "tranfu-labs/agent-moebius": { lastIdleScanAt: "2026-07-02T02:00:00.000Z" },
+      "tranfu-labs/moebius": { lastIdleScanAt: "2026-07-02T02:00:00.000Z" },
     },
     issues: {
       "tranfu-labs/tranfu-agents-app#67": {

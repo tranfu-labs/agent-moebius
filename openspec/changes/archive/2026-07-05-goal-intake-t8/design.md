@@ -42,7 +42,7 @@
 
 - 字段：`proposalId`、`assumptions`、`goal`、`milestones`、`phaseOne`、`tasks`、`confirmationBody`、`provenance`。
 - 校验：milestones 2-5；phase one tasks 3-7；每个 task 1-3 条验收语句；quality baseline 为 `demo | data-correct | production`；initial role 必须是可触发 agent；支付类示例必须显式声明不承诺真实资金、牌照、清结算。
-- 副作用：写入 pending ledger bundle，再发布待确认提案评论。评论中包含 hidden `agent-moebius-goal-intake-proposal-key:<digest>`，用户确认该提案才会进入 spawn。
+- 副作用：写入 pending ledger bundle，再发布待确认提案评论。评论中包含 hidden `moebius-goal-intake-proposal-key:<digest>`，用户确认该提案才会进入 spawn。
 - 如果 pending ledger 已保存但提案评论发布失败，本轮返回 `failed`，不保存 CEO role thread，不推进 intake `updatedAt`；后续重试用 proposal key 幂等识别已有 pending bundle，再补发提案评论。
 
 `confirm`：

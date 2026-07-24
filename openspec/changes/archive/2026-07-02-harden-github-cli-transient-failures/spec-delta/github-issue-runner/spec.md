@@ -23,7 +23,7 @@
   And 视作未观察到新消息，继续执行 CEO guardrail 与评论发布
   And MUST NOT 返回 `failed`、MUST NOT 丢弃已完成的 codex 产出
 - 场景：瞬时 GitHub 故障不烧降级预算并在下一 tick 重入
-  Given `tranfu-labs/agent-moebius#4.mode = active` 且 `activeNoChangeCount = 3`
+  Given `tranfu-labs/moebius#4.mode = active` 且 `activeNoChangeCount = 3`
   And 一次 active poll 拉取该 issue 时遇到 `transient` GitHub CLI 失败且调用内重试耗尽
   When runner 折叠该次处理结局
   Then 该 issue 的 `activeNoChangeCount` 保持 3（不累加）

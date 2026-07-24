@@ -50,4 +50,4 @@ const api: FakeApi = {
   },
 };
 
-(window as unknown as { agentMoebius: FakeApi }).agentMoebius = api;
+(window as unknown as { moebius: FakeApi }).moebius = api;

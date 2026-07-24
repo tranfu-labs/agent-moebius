@@ -21,8 +21,8 @@
   - [x] 现有 T4 截图未稳定覆盖本任务所需状态组合，已补足 T6 最小 fixture。
   - [x] 保存需发布的截图或 evidence 到 `artifacts/acceptance/`，并在最终 `code-verified` 回复中显式引用。
 - [x] 回归命令
-  - [x] 跑 `pnpm --filter @agent-moebius/console-ui test`。
-  - [x] 跑 `pnpm --filter @agent-moebius/desktop build`。
+  - [x] 跑 `pnpm --filter @moebius/console-ui test`。
+  - [x] 跑 `pnpm --filter @moebius/desktop build`。
   - [x] 跑 `pnpm typecheck`。
   - [x] 跑 `git diff --check`。
 - [x] Roadmap 与交付收尾

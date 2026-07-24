@@ -43,7 +43,7 @@ And the worktree local branch is `agent/<owner>__<repo>__<issue>`
 And Codex runs with that worktree as cwd
 
 ### Scenario T5.2: qa shares dev issue worktree
-Given an issue workspace context exists for `tranfu-labs/agent-moebius#71`
+Given an issue workspace context exists for `tranfu-labs/moebius#71`
 And latest non-code message mentions `@qa`
 And `agents/qa.md` declares `workspaceAccess: read-run`
 When runner prepares qa
@@ -125,7 +125,7 @@ And no dynamic import or shell command is executed
 Given latest non-code message mentions `@secretary`
 And secretary declares only `preScript: src/agent-prescripts/current-repo-workspace.ts`
 When runner prepares secretary
-Then Codex cwd is the agent-moebius current repository root
+Then Codex cwd is the moebius current repository root
 And no issue worktree context is created or modified
 
 ### Scenario T5.13: tranfu-agents-app issue 96 live walkthrough is real or explicitly blocked
